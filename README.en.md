@@ -6,8 +6,8 @@ First read: open `WFF-START-HERE.md` before scanning the full pack.
 
 ## Identity
 - pack_name: `wff-v1.5.3-skills-install-pack`
-- generated_at: `2026-06-11T16:20:26+00:00`
-- source_revision: `f124ecb5dfaa60a355f5ba131d98585809ebda3b`
+- generated_at: `2026-06-11T16:30:29+00:00`
+- source_revision: `274a13ab68caa447ee71d52a460b76b9a4fe037c`
 
 ## Capability Boundary
 - `Phase 1` to `Phase 4`: GA mainline capability.

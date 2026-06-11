@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "version": "v1.5.3",
-  "generated_at": "2026-06-11T16:20:29+00:00",
+  "generated_at": "2026-06-11T16:30:31+00:00",
   "public_repository_shape": "unpacked-runtime-install-pack",
   "source_repo": "rv198-star/software-lifecycle-skills",
-  "source_revision": "f124ecb5dfaa60a355f5ba131d98585809ebda3b",
-  "workflow_run_id": "27361229256",
+  "source_revision": "274a13ab68caa447ee71d52a460b76b9a4fe037c",
+  "workflow_run_id": "27361830821",
   "install_pack_name": "wff-v1.5.3-skills-install-pack",
   "install_pack_audit": {
     "overall_verdict": "pass",
@@ -19,7 +19,7 @@
     "profile_id": "full-pack",
     "profile_status": "default",
     "profile_claim": "default-full-pack",
-    "source_revision": "f124ecb5dfaa60a355f5ba131d98585809ebda3b"
+    "source_revision": "274a13ab68caa447ee71d52a460b76b9a4fe037c"
   },
   "content_inventory": {
     "file_count": 604,
@@ -32,6 +32,7 @@
   "release_notes_source": "/home/runner/work/software-lifecycle-skills/software-lifecycle-skills/docs/v1.5.3-release-notes.zh-CN.md",
   "release_assets": [
     "wff-v1.5.3-skills-install-pack.zip",
+    "PUBLIC_RELEASE_MANIFEST.json",
     "SHA256SUMS"
   ],
   "claim_boundary": "Public repository contains the unpacked runtime install pack and release assets only; private authoring, build, tests, internal audit history, and proof snapshots are not part of this repository."

@@ -1,9 +1,9 @@
 {
   "content_inventory": {
     "category_bytes": {
-      "install-pack-root-guidance": 24185,
+      "install-pack-root-guidance": 25099,
       "optional-runtime-dependency": 332481,
-      "other": 52425,
+      "other": 74475,
       "runtime-config": 75562,
       "user-facing-guidance": 208009,
       "user-facing-reference-package": 628023,
@@ -14,7 +14,7 @@
     "category_counts": {
       "install-pack-root-guidance": 4,
       "optional-runtime-dependency": 59,
-      "other": 6,
+      "other": 9,
       "runtime-config": 3,
       "user-facing-guidance": 19,
       "user-facing-reference-package": 180,
@@ -32,30 +32,45 @@
       {
         "bytes": 7304,
         "files": 1,
-        "path": "README.en.md"
+        "path": "INSTALL-PACK-README.en.md"
       },
       {
         "bytes": 7178,
+        "files": 1,
+        "path": "INSTALL-PACK-README.md"
+      },
+      {
+        "bytes": 7178,
+        "files": 1,
+        "path": "INSTALL-PACK-README.zh-CN.md"
+      },
+      {
+        "bytes": 7304,
+        "files": 1,
+        "path": "README.en.md"
+      },
+      {
+        "bytes": 7635,
         "files": 1,
         "path": "README.md"
       },
       {
-        "bytes": 7178,
+        "bytes": 7635,
         "files": 1,
         "path": "README.zh-CN.md"
       },
       {
-        "bytes": 46719,
+        "bytes": 46838,
         "files": 1,
         "path": "SKILL_INSTALL_PACK_MANIFEST.json"
       },
       {
-        "bytes": 2755,
+        "bytes": 2884,
         "files": 1,
         "path": "WFF-START-HERE.md"
       },
       {
-        "bytes": 2629,
+        "bytes": 2771,
         "files": 1,
         "path": "WFF-START-HERE.zh-CN.md"
       },
@@ -110,8 +125,8 @@
         "path": "wff-init"
       }
     ],
-    "total_bytes": 6808522,
-    "total_files": 602
+    "total_bytes": 6831486,
+    "total_files": 605
   },
   "excluded_path_leaks": {
     "pyc_files": [],
@@ -297,28 +312,46 @@
         "line_count": 153,
         "markers": [],
         "max_allowed_lines": 240,
-        "path": "README.en.md"
+        "path": "INSTALL-PACK-README.en.md"
       },
       {
         "line_count": 153,
+        "markers": [],
+        "max_allowed_lines": 240,
+        "path": "INSTALL-PACK-README.md"
+      },
+      {
+        "line_count": 153,
+        "markers": [],
+        "max_allowed_lines": 240,
+        "path": "INSTALL-PACK-README.zh-CN.md"
+      },
+      {
+        "line_count": 153,
+        "markers": [],
+        "max_allowed_lines": 240,
+        "path": "README.en.md"
+      },
+      {
+        "line_count": 158,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "README.md"
       },
       {
-        "line_count": 153,
+        "line_count": 158,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "README.zh-CN.md"
       },
       {
-        "line_count": 32,
+        "line_count": 33,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "WFF-START-HERE.md"
       },
       {
-        "line_count": 32,
+        "line_count": 33,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "WFF-START-HERE.zh-CN.md"
@@ -349,7 +382,7 @@
     }
   },
   "skill_name_mismatches": [],
-  "source_revision": "274a13ab68caa447ee71d52a460b76b9a4fe037c",
+  "source_revision": "9a00d94c96149a011092e182e28c79cfa5b3afb6",
   "wff_project_init_support": {
     "help_probes": [
       {

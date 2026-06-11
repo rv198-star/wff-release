@@ -36,4 +36,4 @@ Use it as the concise agent-facing guide for the WFF Skills shipped in this pack
 ## Pack Identity
 - pack_name: `wff-v1.5.3-skills-install-pack`
 - install_set_id: `full-pack`
-- source_revision: `274a13ab68caa447ee71d52a460b76b9a4fe037c`
+- source_revision: `9a00d94c96149a011092e182e28c79cfa5b3afb6`

@@ -510,7 +510,7 @@
     "wff-meta-source-unit-coverage-ledger",
     "wff-meta-stage-skill-construction-lifecycle"
   ],
-  "generated_at": "2026-06-11T16:30:29+00:00",
+  "generated_at": "2026-06-11T17:03:49+00:00",
   "included_base_skills": [
     "wff-base-traceability-management"
   ],
@@ -550,6 +550,10 @@
   "included_release_case_dirs": [],
   "included_root_files": [
     "AGENTS.md",
+    "INSTALL-PACK-README.en.md",
+    "INSTALL-PACK-README.md",
+    "INSTALL-PACK-README.zh-CN.md",
+    "README.en.md",
     "WFF-START-HERE.md",
     "WFF-START-HERE.zh-CN.md",
     "config/generated-output-policy.json",
@@ -1064,5 +1068,5 @@
     "wff-validation-closure-judgment",
     "wff-validation-evidence-execution"
   ],
-  "source_revision": "274a13ab68caa447ee71d52a460b76b9a4fe037c"
+  "source_revision": "9a00d94c96149a011092e182e28c79cfa5b3afb6"
 }

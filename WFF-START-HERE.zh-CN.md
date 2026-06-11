@@ -18,14 +18,15 @@
 ## 首先只读三类文档
 | 类别 | 先打开 | 用途 |
 |---|---|---|
-| 人类核心入口 | `README.md`、本文件；使用角色时读 `docs/WFF-ROLE-AGENTS.zh-CN.md` | 上手、选入口、判断任务路线 |
+| 人类核心入口 | `README.md`、本文件；需要安装细节时读 `INSTALL-PACK-README.zh-CN.md`；使用角色时读 `docs/WFF-ROLE-AGENTS.zh-CN.md` | 理解 WFF、上手、选入口、判断任务路线 |
 | 生成交接文档 | P1 PRD、P2 工程规格、P3 action cards / review、P4 closure summary、PX 基线/目标包 | 人通常需要关注的核心产物 |
 | 证据和诊断 | 评分报告、验证台账、运行冒烟验证、目标测试报告、安装包审计 | 证明、排障和声明上限；按需读取 |
 
 不要一开始就递归读取 `scripts/`、`docs/` 或 `reference-packages/` 下的全部文件。
 
 ## 包内文件
-- `README.md`：安装布局、根命令、支持目录规则和详细运行说明入口。
+- `README.md`：面向用户的 WFF 公开首页。
+- `INSTALL-PACK-README.zh-CN.md`：安装布局、根命令、支持目录规则和详细运行说明入口。
 - `AGENTS.md`：面向 agent 的本安装包简短操作指引。
 - `SKILL_INSTALL_PACK_MANIFEST.json`：准确列出包含的 skills、scripts、docs、references 和 profile metadata。
 - pack_name: `wff-v1.5.3-skills-install-pack`

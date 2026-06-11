@@ -18,14 +18,15 @@ Use it to choose an entry before opening the full README, skill catalog, scripts
 ## Read Only Three Document Classes First
 | Class | What to open | Why |
 |---|---|---|
-| Human core | `README.md`, this file, `docs/WFF-ROLE-AGENTS.zh-CN.md` when using roles | User entry and task routing |
+| Human core | `README.md`, this file, `INSTALL-PACK-README.md` for install details, `docs/WFF-ROLE-AGENTS.zh-CN.md` when using roles | WFF orientation, user entry, and task routing |
 | Generated handoff | P1 PRD, P2 engineering spec, P3 action cards/review, P4 closure summary, PX baseline/target package | The small set humans usually need to judge progress |
 | Evidence and diagnostics | score reports, ledgers, runtime smoke, targeted reports, install-pack audit | Proof, debugging, and claim ceilings; read on demand |
 
 Do not start by recursively reading every file in `scripts/`, `docs/`, or `reference-packages/`.
 
 ## Pack Files
-- `README.md`: install layout, root commands, support-directory rules, and links to detailed runtime notes.
+- `README.md`: the public user-facing WFF homepage.
+- `INSTALL-PACK-README.md`: install layout, root commands, support-directory rules, and links to detailed runtime notes.
 - `AGENTS.md`: concise agent-facing operating guidance for this install pack.
 - `SKILL_INSTALL_PACK_MANIFEST.json`: exact included skills, scripts, docs, references, and profile metadata.
 - pack_name: `wff-v1.5.3-skills-install-pack`

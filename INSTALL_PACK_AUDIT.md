@@ -6,7 +6,7 @@
 - profile_id: `full-pack`
 - profile_status: `default`
 - profile_claim: `default-full-pack`
-- 源修订版本: `274a13ab68caa447ee71d52a460b76b9a4fe037c`
+- 源修订版本: `9a00d94c96149a011092e182e28c79cfa5b3afb6`
 - 总体结论: `pass`
 
 ## 硬失败项
@@ -26,18 +26,21 @@
 - test_dirs: `0`
 
 ## Content Inventory
-- total_files: `602`
-- total_bytes: `6808522`
+- total_files: `605`
+- total_bytes: `6831486`
 - policy_findings: `0`
 - 无
 - top_level:
   - `AGENTS.md`: files=`1`, bytes=`2525`
+  - `INSTALL-PACK-README.en.md`: files=`1`, bytes=`7304`
+  - `INSTALL-PACK-README.md`: files=`1`, bytes=`7178`
+  - `INSTALL-PACK-README.zh-CN.md`: files=`1`, bytes=`7178`
   - `README.en.md`: files=`1`, bytes=`7304`
-  - `README.md`: files=`1`, bytes=`7178`
-  - `README.zh-CN.md`: files=`1`, bytes=`7178`
-  - `SKILL_INSTALL_PACK_MANIFEST.json`: files=`1`, bytes=`46719`
-  - `WFF-START-HERE.md`: files=`1`, bytes=`2755`
-  - `WFF-START-HERE.zh-CN.md`: files=`1`, bytes=`2629`
+  - `README.md`: files=`1`, bytes=`7635`
+  - `README.zh-CN.md`: files=`1`, bytes=`7635`
+  - `SKILL_INSTALL_PACK_MANIFEST.json`: files=`1`, bytes=`46838`
+  - `WFF-START-HERE.md`: files=`1`, bytes=`2884`
+  - `WFF-START-HERE.zh-CN.md`: files=`1`, bytes=`2771`
   - `config`: files=`3`, bytes=`75562`
   - `docs`: files=`19`, bytes=`208009`
   - `reference-packages`: files=`180`, bytes=`628023`
@@ -64,11 +67,14 @@
 - oversized_root_guidance_files: `0`
 - repo_level_marker_hits: `0`
 - checked `AGENTS.md`: `39` lines, markers=`(none)`
+- checked `INSTALL-PACK-README.en.md`: `153` lines, markers=`(none)`
+- checked `INSTALL-PACK-README.md`: `153` lines, markers=`(none)`
+- checked `INSTALL-PACK-README.zh-CN.md`: `153` lines, markers=`(none)`
 - checked `README.en.md`: `153` lines, markers=`(none)`
-- checked `README.md`: `153` lines, markers=`(none)`
-- checked `README.zh-CN.md`: `153` lines, markers=`(none)`
-- checked `WFF-START-HERE.md`: `32` lines, markers=`(none)`
-- checked `WFF-START-HERE.zh-CN.md`: `32` lines, markers=`(none)`
+- checked `README.md`: `158` lines, markers=`(none)`
+- checked `README.zh-CN.md`: `158` lines, markers=`(none)`
+- checked `WFF-START-HERE.md`: `33` lines, markers=`(none)`
+- checked `WFF-START-HERE.zh-CN.md`: `33` lines, markers=`(none)`
 
 ## Runtime SKILL.md Context Boundary
 - max_phase_entry_lines: `300`

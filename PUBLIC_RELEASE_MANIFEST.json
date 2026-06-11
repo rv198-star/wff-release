@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "version": "v1.5.3",
-  "generated_at": "2026-06-11T15:49:20+00:00",
+  "generated_at": "2026-06-11T16:14:33+00:00",
   "public_repository_shape": "unpacked-runtime-install-pack",
   "source_repo": "rv198-star/software-lifecycle-skills",
-  "source_revision": "e14ca85ab7126ebc59ad200f269a967dffba37b7",
-  "workflow_run_id": "local",
+  "source_revision": "d5dcd88fbdb1210ec3a52e25d5c000dfa0f9e51b",
+  "workflow_run_id": "27360851228",
   "install_pack_name": "wff-v1.5.3-skills-install-pack",
   "install_pack_audit": {
     "overall_verdict": "pass",
@@ -19,17 +19,17 @@
     "profile_id": "full-pack",
     "profile_status": "default",
     "profile_claim": "default-full-pack",
-    "source_revision": "e14ca85ab7126ebc59ad200f269a967dffba37b7"
+    "source_revision": "d5dcd88fbdb1210ec3a52e25d5c000dfa0f9e51b"
   },
   "content_inventory": {
     "file_count": 604,
-    "total_bytes": 6823808
+    "total_bytes": 6823881
   },
   "leak_audit": {
     "forbidden_path_matches": [],
     "secret_pattern_matches": []
   },
-  "release_notes_source": "/root/software-lifecycle-skills-v153-main-cleanup/docs/v1.5.3-release-notes.zh-CN",
+  "release_notes_source": "/home/runner/work/software-lifecycle-skills/software-lifecycle-skills/docs/v1.5.3-release-notes.zh-CN.md",
   "release_assets": [
     "wff-v1.5.3-skills-install-pack.zip",
     "SHA256SUMS"

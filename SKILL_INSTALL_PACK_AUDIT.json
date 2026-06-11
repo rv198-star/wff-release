@@ -130,7 +130,7 @@
   "internal_reference_failures": [],
   "overall_verdict": "pass",
   "pack_name": "wff-v1.5.3-skills-install-pack",
-  "pack_root": "/tmp/wff-public-release-build/wff-v1.5.3-skills-install-pack",
+  "pack_root": "/home/runner/work/software-lifecycle-skills/software-lifecycle-skills/tmp/public-runtime-release-build/wff-v1.5.3-skills-install-pack",
   "pack_type": "skills-install-pack",
   "phase_checks": {
     "phase1": {
@@ -349,7 +349,7 @@
     }
   },
   "skill_name_mismatches": [],
-  "source_revision": "e14ca85ab7126ebc59ad200f269a967dffba37b7",
+  "source_revision": "d5dcd88fbdb1210ec3a52e25d5c000dfa0f9e51b",
   "wff_project_init_support": {
     "help_probes": [
       {

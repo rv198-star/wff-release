@@ -12,7 +12,6 @@ if str(SCRIPTS_ROOT) not in sys.path:
 
 
 import argparse
-import importlib
 import json
 import re
 import sqlite3
@@ -20,6 +19,11 @@ from pathlib import Path
 from typing import Any
 
 from common.cross_phase_surface_policy import find_cross_phase_surface_path
+
+try:
+    from phase3.phase3_operation_semantics import extract_operation_semantics
+except ModuleNotFoundError:  # pragma: no cover - package import path for pytest
+    from scripts.phase3_operation_semantics import extract_operation_semantics
 
 TRACE_ID_RE = re.compile(r"\bP[12]-(?:US|UC|REQ|AC|DTR|CTR|RP|RT)-\d+\b")
 
@@ -189,22 +193,6 @@ def _structured_semantics_row(row: dict[str, Any] | None) -> dict[str, Any] | No
     }
 
 
-def extract_operation_semantics_from_available_runtime(operation_id: str, source_texts: list[str]) -> dict[str, Any]:
-    for module_name in ("phase3.phase3_operation_semantics", "phase3_operation_semantics"):
-        try:
-            module = importlib.import_module(module_name)
-        except ModuleNotFoundError:
-            continue
-        extractor = getattr(module, "extract_operation_semantics", None)
-        if callable(extractor):
-            return extractor(operation_id, source_texts)
-    return {
-        "status": "review_bound",
-        "source_authority": "profile-fallback",
-        "review_bound_reasons": ["operation_semantics_runtime_not_available"],
-    }
-
-
 def _registry_design_source(root: Path, operation_id: str, source_type: str) -> dict[str, Any] | None:
     row = load_operation_design_source_registry(root).get((operation_id, source_type))
     if not row:
@@ -223,15 +211,6 @@ def _registry_design_source(root: Path, operation_id: str, source_type: str) -> 
         "marker": str(row.get("evidence_ref", "")).strip() or source_type,
         "upstream_contract_trace_id": str(row.get("upstream_contract_trace_id", "")).strip(),
     }
-
-
-def _registry_design_contract(root: Path, operation_id: str) -> dict[str, Any] | None:
-    source = _registry_design_source(root, operation_id, "P2-CTR")
-    if not source:
-        return None
-    source["subject"] = operation_id
-    source["upstream_trace_ids"] = []
-    return source
 
 
 def build_source_requirement_statuses(bundle: dict[str, Any], risk_row: dict[str, Any] | None) -> dict[str, str]:
@@ -400,7 +379,7 @@ def _find_text_source(root: Path, operation_id: str, marker: str, missing_reason
 
 def resolve_behavior_sources(phase2_root: str | Path, operation_id: str) -> dict[str, Any]:
     root = Path(phase2_root)
-    contract = _find_registry_contract(root, operation_id) or _registry_design_contract(root, operation_id) or _find_contract(root, operation_id)
+    contract = _find_registry_contract(root, operation_id) or _find_contract(root, operation_id)
     if contract.get("status") == "resolved" and not contract.get("authority"):
         contract["authority"] = "markdown-fallback"
     flow = _registry_design_source(root, operation_id, "P2-FLOW") or _find_text_source(root, operation_id, "interaction_flow", "P2 interaction flow source missing")
@@ -440,7 +419,7 @@ def resolve_behavior_sources(phase2_root: str | Path, operation_id: str) -> dict
         operation_semantics = structured_semantics
     else:
         semantic_texts = [path.read_text(encoding="utf-8", errors="ignore") for path in sorted(root.rglob("*.md")) if ".trace" not in path.parts]
-        operation_semantics = extract_operation_semantics_from_available_runtime(operation_id, semantic_texts)
+        operation_semantics = extract_operation_semantics(operation_id, semantic_texts)
     bundle["operation_semantics"] = operation_semantics
     if operation_semantics.get("status") == "review_bound":
         bundle["review_bound"].extend(str(item) for item in operation_semantics.get("review_bound_reasons", []) if str(item).strip())

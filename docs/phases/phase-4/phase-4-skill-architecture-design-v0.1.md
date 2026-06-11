@@ -56,14 +56,6 @@ The intent is to stay lighter than Phase-3 while keeping handoff readiness optio
 - route concrete remediation to P1/P2/P3 instead of performing it inside P4
 - only activate `Stage-04` when a case truly needs development / pre-production release-readiness posture, sign-off status visibility, residual-risk visibility, or handoff packaging
 
-Published skill-surface policy:
-
-- one published Phase-4 skill: `wff-validation`
-- acceptance planning, evidence execution, and closure judgment remain internal responsibilities of `wff-validation`, not independently installed public skills
-- the internal responsibility split keeps the control model readable without asking users or installer tooling to reason about several tiny Phase-4 skill entrypoints
-- published install packs must include `wff-validation` for Phase-4 and must not require a separate Phase-4 stage-skill family
-- legacy stage-skill names may remain as historical mapping / migration references, but they are not part of the current public install surface
-
 ## 4. Acceptance Model
 
 Phase-4 explicitly separates three acceptance item types.

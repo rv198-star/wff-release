@@ -16,31 +16,15 @@ It is the bridge used when an existing system must be understood, constrained, p
 
 ## Current Scope
 
-Current runnable implementation scope is **Wave-1**.
+Current implementation scope is **Wave-1** only.
 
 Wave-1 supports:
-- `wff-x-scan-code-baseline scan-code-baseline`
-- `wff-x-scan-tech-health scan-tech-health`
-- `wff-x-plan-test-protection plan-test-protection`
-- `wff-x-intake-target-driver target-driver-intake` as the `target-driver` profile
+- `PX-SK-01 codebase-baseline-extraction`
+- `PX-SK-04 technical-health-assessment`
+- `PX-SK-07 safety-net-test-construction`
+- `PX-SK-06 gap-analysis-and-change-decomposition` in `partial` mode
 
-Wave-2 is now open as a v1.4 staged package-expansion line. The first tranche is baseline completion:
-
-- `wff-x-scan-db-baseline scan-db-baseline`
-- `wff-x-scan-biz-arch scan-biz-arch`
-
-Wave-2 tranche order:
-
-1. `wff-x-scan-db-baseline / wff-x-scan-biz-arch` baseline completion
-2. `wff-x-design-target-arch / wff-x-intake-target-driver` target architecture and GAP / change decomposition
-3. `wff-x-plan-refactor / wff-x-plan-migration` refactor and migration strategy
-
-`outer-boundary concern` is not a standalone v1.4 target. Its useful outer-boundary / validation concerns are folded into `wff-x-design-target-arch` unless later case pressure proves a narrower separate slice.
-
-Output-contract alignment:
-
-- `wff-x-scan-code-baseline / wff-x-scan-db-baseline` primarily align to P2 and may provide only limited P3 seed material.
-- `wff-x-scan-biz-arch` primarily aligns to P1 and provides secondary P2 consumption material.
+Wave-1 does **not** yet implement the full 10-skill PhaseX blueprint.
 
 ## When to Enter PhaseX
 
@@ -63,14 +47,14 @@ Read in this order:
 2. `docs/current-canonical-reference-map-v0.1.md`
 3. `docs/phases/phase-x/phaseX-brownfield-and-refactoring-stage-package-v0.md`
 4. `docs/phases/phase-x/phaseX-wave1-implementation-plan-v0.1.md`
-5. `docs/source-registers/phaseX-source-library-seed-v0.1.md`
+5. `docs/internal/source-registers/phaseX-source-library-seed-v0.1.md`
 6. `docs/phases/phase-x/phaseX-wave1-profile-decision-tree-v0.1.md`
 7. `docs/phases/phase-x/phaseX-wave1-self-audit-guide-v0.1.md`
 8. `reference-packages/phasex-brownfield-refactoring/README.md`
 
 ## Official Entry
 
-Current official repo entry for runnable Wave-1:
+Current official repo entry for Wave-1:
 
 - `skills/wff-x/`
 - `scripts/phasex/scaffold_phasex_case.py`
@@ -82,7 +66,7 @@ Use the case-first local artifact layout:
 
 - `tmp/local-artifacts/<case-name>/phase-x/`
 
-Keep generated brownfield outputs there rather than mixing them into `reference-packages/` or repository validation fixtures.
+Keep generated brownfield outputs there rather than mixing them into `reference-packages/` or `release-cases/`.
 
 ## Refactoring Method Backbone
 
@@ -90,7 +74,7 @@ When the profile is `technical-refactor`, do not treat PhaseX as repository summ
 
 Use the extracted refactoring bundle as the active method backbone:
 
-- `docs/source-registers/phaseX-source-library-seed-v0.1.md`
+- `docs/internal/source-registers/phaseX-source-library-seed-v0.1.md`
 - `sources/books/extracted/refactoring-improving-the-design-of-existing-code/index-map.md`
 - `sources/books/extracted/refactoring-improving-the-design-of-existing-code/stage-guidance-draft.md`
 
@@ -112,7 +96,7 @@ Use when the immediate goal is:
 - decide whether further work is justified
 
 Expected skill path:
-- `wff-x-scan-code-baseline -> wff-x-scan-tech-health`
+- `PX-SK-01 -> PX-SK-04`
 
 Typical exit:
 - human decision
@@ -125,12 +109,12 @@ Use when:
 - refactoring / tech debt / testability / operability are the main drivers
 
 Expected skill path:
-- `wff-x-scan-code-baseline -> wff-x-scan-tech-health -> wff-x-plan-test-protection`
+- `PX-SK-01 -> PX-SK-04 -> PX-SK-07`
 
 Typical exit:
 - direct handoff to Phase-3 as brownfield implementation work
 
-### `target-driver`
+### `partial-change`
 
 Use when:
 - an existing system needs a bounded change
@@ -138,7 +122,7 @@ Use when:
 - the change may need to re-enter Phase-1 in constrained mode
 
 Expected skill path:
-- `wff-x-scan-code-baseline (local scope) -> wff-x-intake-target-driver`
+- `PX-SK-01 (local scope) -> PX-SK-06 partial`
 
 Typical exit:
 - re-enter Phase-1 with brownfield constraints
@@ -173,13 +157,6 @@ Wave-1 outputs should answer:
 - what is observed code truth, what is Agentic inference, and what remains unknown
 - which evidence ceiling limits any readiness or compatibility claim
 
-Wave-2 first-tranche outputs should answer:
-- what data architecture exists now
-- what business semantics exist now
-- which baseline facts are P2 constraints
-- which business facts should re-enter P1
-- which P3 hints are seed material only
-
 ## Downstream Interface
 
 ### Toward Phase-1
@@ -205,10 +182,10 @@ PhaseX should pass:
 
 ### Toward P2 Stage-02.5
 
-If `wff-x-scan-code-baseline` or `wff-x-intake-target-driver` identifies third-party dependency change, preserve:
+If `PX-SK-01` or `PX-SK-06` identifies third-party dependency change, preserve:
 
-- `third_party_dependency_scan` from `wff-x-scan-code-baseline`
-- `third-party-dependency-manifest` from `wff-x-intake-target-driver`
+- `third_party_dependency_scan` from `PX-SK-01`
+- `third-party-dependency-manifest` from `PX-SK-06`
 - any `compatibility_requirement` tied to brownfield external integrations
 
 ## One-Line Summary

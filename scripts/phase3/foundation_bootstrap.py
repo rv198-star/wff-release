@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-import importlib
 import json
 from pathlib import Path
 from typing import Any, Callable
 
 from phase3.api_client_scaffolder import build_api_client_document
-from phase3.behavior_card_models import build_behavior_card_models
 from phase3.contract_test_scaffolder import scaffold_contract_tests
 from phase3.esp_to_migration import generate_migration_sql, parse_schema_tables
 from phase3.esp_to_openapi import build_openapi_spec, parse_api_endpoint_rows
-from phase3.impl_action_cards import run_impl_action_cards
-from phase3.impl_contract_pack import materialize_contract_pack
-from phase3.impl_db_schema import run_impl_db_schema
 from phase3.openapi_to_types import build_types_document
+from phase3.phase3_behavior_card_consumption import extract_behavior_card_model
+from phase3.phase3_behavior_card_scaffolder import write_behavior_card
+from phase3.phase3_behavior_risk import classify_operation_risk
+from phase3.phase3_behavior_source_resolver import load_operation_source_obligation_matrix, resolve_behavior_sources
 from phase3.phase3_implementation_action_card_scaffolder import (
     load_action_card_obligations,
     render_implementation_action_card,
@@ -24,118 +23,138 @@ from phase3.contract_tools import (
     enrich_openapi_spec_with_behavior_evidence,
     load_compiled_bindings_document,
 )
+from phase3.test_obligation_matrix import write_test_obligation_artifacts
+from phase3.test_richness_review import write_test_richness_review_artifacts
+from phase3.ui_prototype_fallback import generate_ui_prototype_fallback
+from phase3.replay_test_scaffolder import scaffold_replay_tests
+from phase3.scenario_test_scaffolder import scaffold_scenario_tests
 from phase3.sql_test_scaffolder import scaffold_sql_tests
+from phase3.test_trace_matrix_builder import build_test_trace_matrix
+
+
+def _snake_case(value: str) -> str:
+    import re
+
+    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value)
+    normalized = re.sub(r"[^A-Za-z0-9]+", "_", normalized)
+    return normalized.strip("_").lower()
+
+
+def _module_slug_from_path(path: str) -> str:
+    parts = [part for part in str(path).strip("/").split("/") if part and not part.startswith("{")]
+    if parts and parts[0] == "api":
+        parts = parts[1:]
+    if parts and parts[0].startswith("v") and len(parts) > 1:
+        parts = parts[1:]
+    return (parts[0] if parts else "default").replace("_", "-")
 
 
 def build_implementation_action_cards(*, phase2_root: Path, output_dir: Path) -> dict[str, object]:
-    summary = run_impl_action_cards(phase2_root=phase2_root, output_dir=output_dir)
-    validation_payload = summary.get("validation_payload", {})
-    return validation_payload if isinstance(validation_payload, dict) else {}
+    action_dir = output_dir / "action-cards"
+    action_dir.mkdir(parents=True, exist_ok=True)
+    obligations = load_action_card_obligations(phase2_root)
+    catalog = obligations.get("component_catalog", {})
+    written: list[str] = []
+    for component_id, obligation in obligations.get("component_obligations", {}).items():
+        card_path = action_dir / f"{str(component_id).lower()}-action-card.md"
+        card_path.write_text(
+            render_implementation_action_card(obligation, catalog.get(component_id)),
+            encoding="utf-8",
+        )
+        written.append(str(card_path))
+    validation = validate_action_card_obligations(obligations)
+    validation_payload = {
+        **validation,
+        "card_count": len(written),
+        "cards": written,
+    }
+    (action_dir / "validation.json").write_text(
+        json.dumps(validation_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return validation_payload
+
+
+def _operation_entries_from_openapi(spec: dict[str, object]) -> dict[str, dict[str, str]]:
+    entries: dict[str, dict[str, str]] = {}
+    paths = spec.get("paths", {})
+    if not isinstance(paths, dict):
+        return entries
+    for path, path_item in paths.items():
+        if not isinstance(path_item, dict):
+            continue
+        for method, operation in path_item.items():
+            if str(method).lower() not in {"get", "post", "put", "patch", "delete"} or not isinstance(operation, dict):
+                continue
+            operation_id = str(operation.get("operationId") or f"{method}-{path}").strip()
+            if not operation_id:
+                continue
+            responses = operation.get("responses", {})
+            errors = [str(status) for status in responses if str(status).startswith(("4", "5"))] if isinstance(responses, dict) else []
+            entries.setdefault(
+                operation_id,
+                {
+                    "operation_id": operation_id,
+                    "method": str(method).upper(),
+                    "path": str(path),
+                    "errors": ",".join(errors),
+                },
+            )
+    return entries
+
+
+def build_behavior_card_models(*, phase2_root: Path, output_dir: Path, spec: dict[str, object]) -> dict[str, dict[str, object]]:
+    models: dict[str, dict[str, object]] = {}
+    esp_text = (phase2_root / "engineering-spec-pack.md").read_text(encoding="utf-8")
+    table_names = [str(table.get("table_name", "")).strip() for table in parse_schema_tables(esp_text)]
+    openapi_entries = _operation_entries_from_openapi(spec)
+    p2_operation_rows = load_operation_source_obligation_matrix(phase2_root)
+    operation_ids = list(dict.fromkeys([*p2_operation_rows.keys(), *openapi_entries.keys()]))
+    for operation_id in operation_ids:
+        if not operation_id:
+            continue
+        p2_row = p2_operation_rows.get(operation_id, {})
+        openapi_entry = openapi_entries.get(operation_id, {})
+        method = str(openapi_entry.get("method") or p2_row.get("http_method") or "").upper()
+        path = str(openapi_entry.get("path") or p2_row.get("api_endpoint") or f"/{operation_id}")
+        errors = [item for item in str(openapi_entry.get("errors", "")).split(",") if item]
+        source_bundle = resolve_behavior_sources(phase2_root, operation_id)
+        risk = classify_operation_risk(
+            {
+                "operation_id": operation_id,
+                "method": method,
+                "errors": errors,
+                "upstream_trace_ids": source_bundle.get("upstream_trace_ids", []),
+            }
+        )
+        if not risk.get("requires_behavior_card"):
+            continue
+        module_slug = _module_slug_from_path(path)
+        operation_snake = _snake_case(operation_id)
+        matched_tables = [table for table in table_names if table and any(token in table for token in operation_snake.split("_") if token)]
+        persistence_surfaces = ", ".join(matched_tables or table_names[:1])
+        source_bundle.update(
+            {
+                "persistence_surfaces": persistence_surfaces,
+                "contract_test": f"tests/contracts/{operation_id.lower()}.contract.test.ts",
+                "scenario_test": "tests/scenarios/* linked by P2 scenario coverage",
+                "replay_test": "tests/replays/* linked by P2 replay evidence",
+                "sql_test": f"tests/sql/{(matched_tables or table_names or ['operation'])[0]}.sql.test.ts",
+                "unit_test": f"tests/unit/api/modules/{module_slug}.unit.test.ts",
+                "controller_target": f"apps/api/src/modules/{module_slug}/{module_slug}.controller.ts",
+                "service_target": f"apps/api/src/modules/{module_slug}/{module_slug}.service.ts",
+                "repository_target": f"apps/api/src/modules/{module_slug}/{module_slug}.repository.ts",
+                "db_target": persistence_surfaces,
+            }
+        )
+        card_path = write_behavior_card(output_dir, source_bundle, risk)
+        models[operation_id] = extract_behavior_card_model(card_path.read_text(encoding="utf-8"))
+    return models
 
 
 def write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
-def optional_phase3_diagnostic_module(module_name: str):
-    try:
-        module = __import__(f"phase3.{module_name}", fromlist=["*"])
-    except ModuleNotFoundError as exc:
-        if exc.name == f"phase3.{module_name}":
-            return None
-        raise
-    return module
-
-
-def diagnostic_sidecar_unavailable_summary(sidecar_id: str) -> dict[str, object]:
-    return {
-        "mode": "unavailable",
-        "sidecar_id": sidecar_id,
-        "reason": f"{sidecar_id}_sidecar_not_packaged",
-    }
-
-
-def write_test_obligation_artifacts(*args: object, **kwargs: object) -> dict[str, object]:
-    module = optional_phase3_diagnostic_module("test_obligation_matrix")
-    if module is None:
-        return diagnostic_sidecar_unavailable_summary("test_obligation_matrix")
-    return module.write_test_obligation_artifacts(*args, **kwargs)
-
-
-def write_test_richness_review_artifacts(*args: object, **kwargs: object) -> dict[str, object]:
-    module = optional_phase3_diagnostic_module("test_richness_review")
-    if module is None:
-        return diagnostic_sidecar_unavailable_summary("test_richness_review")
-    return module.write_test_richness_review_artifacts(*args, **kwargs)
-
-
-def _optional_test_scaffolder_module(module_name: str):
-    try:
-        return importlib.import_module(f"phase3.{module_name}")
-    except ModuleNotFoundError as exc:
-        if exc.name == f"phase3.{module_name}":
-            return None
-        raise
-
-
-def _test_scaffolder_output_dir(args: tuple[object, ...], kwargs: dict[str, object]) -> Path:
-    raw = kwargs.get("output_dir") if "output_dir" in kwargs else (args[1] if len(args) > 1 else ".")
-    return Path(raw)
-
-
-def _test_scaffolder_unavailable_summary(output_dir: Path, sidecar_id: str) -> dict[str, object]:
-    return {
-        "output_dir": str(output_dir),
-        "files_created": [],
-        "count": 0,
-        "mode": "unavailable",
-        "sidecar_id": sidecar_id,
-        "reason": f"{sidecar_id}_sidecar_not_packaged",
-    }
-
-
-def scaffold_scenario_tests(*args: object, **kwargs: object) -> dict[str, object]:
-    module = _optional_test_scaffolder_module("scenario_test_scaffolder")
-    if module is None:
-        return _test_scaffolder_unavailable_summary(
-            _test_scaffolder_output_dir(args, kwargs),
-            "scenario_test_scaffolder",
-        )
-    return module.scaffold_scenario_tests(*args, **kwargs)
-
-
-def scaffold_replay_tests(*args: object, **kwargs: object) -> dict[str, object]:
-    module = _optional_test_scaffolder_module("replay_test_scaffolder")
-    if module is None:
-        return _test_scaffolder_unavailable_summary(
-            _test_scaffolder_output_dir(args, kwargs),
-            "replay_test_scaffolder",
-        )
-    return module.scaffold_replay_tests(*args, **kwargs)
-
-
-def build_test_trace_matrix(*args: object, **kwargs: object) -> dict[str, object]:
-    module = _optional_test_scaffolder_module("test_trace_matrix_builder")
-    if module is None:
-        return {
-            "rows": [],
-            "summary": {
-                "contract_trace_count": 0,
-                "scenario_count": 0,
-                "replay_count": 0,
-                "unmatched_contract_trace_ids": [],
-                "matched_endpoint_count": 0,
-                "endpoint_fallback_count": 0,
-                "security_decision_count": 0,
-                "matrix_row_count": 0,
-            },
-            "mode": "unavailable",
-            "sidecar_id": "test_trace_matrix_builder",
-            "sidecar_unavailable": True,
-            "reason": "test_trace_matrix_builder_sidecar_not_packaged",
-        }
-    return module.build_test_trace_matrix(*args, **kwargs)
 
 
 def load_phase2_source_texts(phase2_root: Path) -> tuple[str, str, str]:
@@ -171,31 +190,58 @@ def emit_phase3_bootstrap_artifacts(
     trace_matrix_path = output_dir / "test-trace-matrix.json"
     implementation_bindings_path = output_dir / "implementation-bindings.json"
 
-    contract_pack = materialize_contract_pack(
-        phase2_root=phase2_root,
-        output_dir=output_dir,
-        title=title,
-        version=version,
-        esp_text=esp_text,
-        stage_03_text=stage_03_text,
-        stage_04_text=stage_04_text,
-        ui_locale=ui_locale,
-        enable_ui_fallback=enable_ui_fallback,
-        enforce_compiled_authority=enforce_compiled_authority,
+    base_spec = build_openapi_spec(parse_api_endpoint_rows(esp_text), title=title, version=version)
+    openapi_path.parent.mkdir(parents=True, exist_ok=True)
+    openapi_path.write_text(json.dumps(base_spec, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    migration_path.parent.mkdir(parents=True, exist_ok=True)
+    migration_path.write_text(generate_migration_sql(parse_schema_tables(esp_text)), encoding="utf-8")
+
+    if enable_ui_fallback:
+        ui_fallback_summary = generate_ui_prototype_fallback(
+            phase2_root=phase2_root,
+            output_dir=output_dir,
+            stage_04_text=stage_04_text,
+            esp_text=esp_text,
+            stage_03_text=stage_03_text,
+            openapi_path=openapi_path,
+            ui_locale=ui_locale,
+        )
+        compiled_bindings = load_compiled_bindings_document(ui_ia_contract_path) if ui_ia_contract_path.exists() else []
+    else:
+        ui_fallback_summary = {
+            "mode": "not-requested",
+            "reason": "backend-first-mainline-default",
+        }
+        compiled_bindings = []
+
+    spec = (
+        derived_openapi_from_compiled_bindings(base_spec, compiled_bindings)
+        if enforce_compiled_authority
+        else base_spec
     )
-    spec = contract_pack["spec"]
-    ui_fallback_summary = contract_pack["ui_fallback_summary"]
-    behavior_card_models = contract_pack["behavior_card_models"]
-    db_schema_summary = run_impl_db_schema(
-        phase2_root=phase2_root,
-        output_dir=output_dir,
-        esp_text=esp_text,
-        stage_03_text=stage_03_text,
-        behavior_card_models=behavior_card_models,
+    openapi_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    write_json(
+        implementation_bindings_path,
+        {
+            "artifact_kind": "compiled-binding-artifact",
+            "compiled_bindings": compiled_bindings,
+            "rows": [],
+        },
     )
+
+    behavior_card_models = build_behavior_card_models(phase2_root=phase2_root, output_dir=output_dir, spec=spec)
+    spec = enrich_openapi_spec_with_behavior_evidence(spec, behavior_card_models)
+    openapi_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    shared_types_path.parent.mkdir(parents=True, exist_ok=True)
+    shared_types_path.write_text(build_types_document(spec), encoding="utf-8")
+    api_client_path.parent.mkdir(parents=True, exist_ok=True)
+    api_client_path.write_text(build_api_client_document(spec), encoding="utf-8")
+
     action_card_summary = build_implementation_action_cards(phase2_root=phase2_root, output_dir=output_dir)
     contract_summary = scaffold_contract_tests(spec, contracts_dir, behavior_card_models=behavior_card_models)
-    sql_summary = db_schema_summary["sql_summary"]
+    sql_summary = scaffold_sql_tests(esp_text, sql_tests_dir, behavior_card_models=behavior_card_models)
     scenario_summary = scaffold_scenario_tests(
         stage_03_text,
         scenarios_dir,

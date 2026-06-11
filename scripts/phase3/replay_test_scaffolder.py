@@ -19,19 +19,6 @@ import re
 from pathlib import Path
 
 from phase3.phase3_behavior_card_consumption import render_behavior_step_test_mapping
-from phase3.test_scaffolder_common import (
-    WRITE_HTTP_METHODS,
-    dedupe_preserve_order,
-    endpoint_index,
-    failure_condition_signal_lines,
-    failure_has_runtime_signal,
-    normalize_field_token,
-    operation_supports_persistence_roundtrip,
-    persistence_roundtrip_assertion_lines,
-    remap_operation_ids_to_runtime_contract,
-    render_harness_import,
-    resolve_response_field,
-)
 from phase3.contract_tools import (
     camel_and_word_tokens,
     endpoint_rows_from_openapi_spec,
@@ -41,8 +28,56 @@ from phase3.contract_tools import (
     replay_test_filename,
 )
 
+
+PERSISTENCE_ROUNDTRIP_OPERATION_PREFIXES = ("Create", "List", "Update", "Start", "Complete", "Generate", "Launch", "Export", "Record", "Refresh")
+WRITE_HTTP_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def operation_supports_persistence_roundtrip(operation_id: str, endpoint_rows: list[dict[str, object]]) -> bool:
+    endpoint_row = next(
+        (row for row in endpoint_rows if str(row.get("endpoint_name", "")).strip() == operation_id),
+        {},
+    )
+    response_example = endpoint_row.get("response_body_example", {}) if isinstance(endpoint_row, dict) else {}
+    data = response_example.get("data", {}) if isinstance(response_example, dict) else {}
+    has_roundtrip_record = (isinstance(data, list) and bool(data)) or (isinstance(data, dict) and bool(data))
+    if not has_roundtrip_record:
+        return False
+    method = str((endpoint_row or {}).get("method", "")).strip().upper()
+    return method in WRITE_HTTP_METHODS or operation_id.startswith(PERSISTENCE_ROUNDTRIP_OPERATION_PREFIXES)
+
+
+def persistence_roundtrip_assertion_lines(operation_id_expr: str, result_expr: str) -> list[str]:
+    return [
+        f"    const persistenceEvidence = await collectPersistenceRoundTripEvidence(runtime, {operation_id_expr}, {result_expr});",
+        f"    if (await requiresPersistenceRoundTripEvidence(runtime, {operation_id_expr})) {{",
+        "      expect(persistenceEvidence.length).toBeGreaterThan(0);",
+        "      const fullyMatchedEvidence = persistenceEvidence.filter((entry) => entry.mismatchedFieldNames.length === 0);",
+        "      expect(fullyMatchedEvidence.length).toBeGreaterThan(0);",
+        "      const evidenceWithValueFields = persistenceEvidence.filter((entry) => entry.checkedValueFieldNames.length > 0);",
+        "      if (evidenceWithValueFields.length > 0) {",
+        "        expect(fullyMatchedEvidence.some((entry) => entry.checkedValueFieldNames.length > 0)).toBe(true);",
+        "      } else {",
+        "        expect(fullyMatchedEvidence.some((entry) => entry.checkedFieldNames.length > 0)).toBe(true);",
+        "      }",
+        "    }",
+    ]
+
+
 def extract_scenario_refs(raw: str) -> list[str]:
     return [match.group(1).upper() for match in re.finditer(r"\b(SCN-[A-Z0-9][A-Z0-9-]*)\b", raw, flags=re.IGNORECASE)]
+
+
+def dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
+
 
 def explicit_operation_mentions(raw: str, endpoint_names: set[str]) -> list[str]:
     cleaned = raw.strip()
@@ -90,28 +125,50 @@ def order_operation_ids_for_runtime(operation_ids: list[str]) -> list[str]:
         key=lambda operation_id: (operation_runtime_order_rank(operation_id), indexed[operation_id]),
     )
 
-def collect_failure_codes(
-    endpoint_rows: list[dict[str, object]],
+
+def endpoint_index(endpoint_rows: list[dict[str, object]]) -> dict[str, dict[str, object]]:
+    return {str(row["endpoint_name"]).strip(): row for row in endpoint_rows}
+
+
+def remap_operation_ids_to_runtime_contract(
     operation_ids: list[str],
     *,
-    behavior_card_models: dict[str, dict[str, object]] | None = None,
+    source_endpoint_rows: list[dict[str, object]],
+    runtime_endpoint_rows: list[dict[str, object]],
 ) -> list[str]:
+    runtime_names = {str(row.get("endpoint_name", "")).strip() for row in runtime_endpoint_rows}
+    source_by_name = {str(row.get("endpoint_name", "")).strip(): row for row in source_endpoint_rows}
+    runtime_by_signature = {
+        (
+            str(row.get("method", "")).strip().upper(),
+            str(row.get("path", "")).strip(),
+        ): str(row.get("endpoint_name", "")).strip()
+        for row in runtime_endpoint_rows
+        if str(row.get("endpoint_name", "")).strip()
+    }
+    mapped: list[str] = []
+    for operation_id in operation_ids:
+        if operation_id in runtime_names:
+            mapped.append(operation_id)
+            continue
+        source_row = source_by_name.get(operation_id)
+        if not source_row:
+            continue
+        signature = (
+            str(source_row.get("method", "")).strip().upper(),
+            str(source_row.get("path", "")).strip(),
+        )
+        runtime_operation_id = runtime_by_signature.get(signature, "")
+        if runtime_operation_id:
+            mapped.append(runtime_operation_id)
+    return dedupe_preserve_order(mapped)
+
+
+def collect_failure_codes(endpoint_rows: list[dict[str, object]], operation_ids: list[str]) -> list[str]:
     by_name = endpoint_index(endpoint_rows)
     failure_codes: list[str] = []
     for operation_id in operation_ids:
-        row = by_name.get(operation_id, {})
-        for failure in row.get("failure_codes", []):
-            if not isinstance(failure, dict):
-                continue
-            if not failure_has_runtime_signal(
-                str(failure.get("error_code", "")).strip(),
-                status=str(failure.get("status", "")).strip(),
-                method=str(row.get("method", "")).strip(),
-                path=str(row.get("path", "")).strip(),
-                operation_id=str(row.get("endpoint_name", "")).strip(),
-                behavior_card_model=(behavior_card_models or {}).get(operation_id),
-            ):
-                continue
+        for failure in by_name.get(operation_id, {}).get("failure_codes", []):
             code = str(failure.get("error_code", "")).strip()
             if code:
                 failure_codes.append(code)
@@ -248,6 +305,33 @@ def shared_response_business_fields(endpoint_rows: list[dict[str, object]], firs
         if field in first_fields and (field.endswith("Id") or field.endswith("_id"))
     ]
 
+
+def normalize_field_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def resolve_response_field(
+    endpoint_rows: list[dict[str, object]],
+    operation_ids: list[str],
+    candidates: list[str],
+    *,
+    preferred_operation_id: str = "",
+) -> str:
+    ordered_operations = [preferred_operation_id, *operation_ids] if preferred_operation_id else list(operation_ids)
+    seen_operations: set[str] = set()
+    normalized_candidates = [normalize_field_token(candidate) for candidate in candidates]
+    for operation_id in ordered_operations:
+        if not operation_id or operation_id in seen_operations:
+            continue
+        seen_operations.add(operation_id)
+        fields = response_data_fields(endpoint_rows, operation_id)
+        by_token = {normalize_field_token(field): field for field in fields}
+        for candidate in normalized_candidates:
+            if candidate in by_token:
+                return by_token[candidate]
+    return ""
+
+
 def choose_semantic_review_operation(endpoint_rows: list[dict[str, object]], operation_ids: list[str]) -> str:
     explicit = next((operation for operation in operation_ids if operation == "GetReviewReportDetail"), "")
     if explicit:
@@ -330,40 +414,16 @@ def record_key_for_operation(endpoint_rows: list[dict[str, object]], operation_i
     return primary_id_field(endpoint_rows, operation_id)
 
 
-def operation_supports_failure(
-    endpoint_rows: list[dict[str, object]],
-    operation_id: str,
-    failure_code: str,
-    *,
-    behavior_card_models: dict[str, dict[str, object]] | None = None,
-) -> bool:
+def operation_supports_failure(endpoint_rows: list[dict[str, object]], operation_id: str, failure_code: str) -> bool:
     if not failure_code:
         return False
     row = endpoint_index(endpoint_rows).get(operation_id, {})
-    return any(
-        str(item.get("error_code", "")).strip() == failure_code
-        and failure_has_runtime_signal(
-            failure_code,
-            status=str(item.get("status", "")).strip(),
-            method=str(row.get("method", "")).strip(),
-            path=str(row.get("path", "")).strip(),
-            operation_id=str(row.get("endpoint_name", "")).strip(),
-            behavior_card_model=(behavior_card_models or {}).get(operation_id),
-        )
-        for item in row.get("failure_codes", [])
-        if isinstance(item, dict)
-    )
+    return any(str(item.get("error_code", "")).strip() == failure_code for item in row.get("failure_codes", []))
 
 
-def choose_failure_operation(
-    operation_ids: list[str],
-    endpoint_rows: list[dict[str, object]],
-    failure_code: str,
-    *,
-    behavior_card_models: dict[str, dict[str, object]] | None = None,
-) -> str:
+def choose_failure_operation(operation_ids: list[str], endpoint_rows: list[dict[str, object]], failure_code: str) -> str:
     for operation_id in operation_ids:
-        if operation_supports_failure(endpoint_rows, operation_id, failure_code, behavior_card_models=behavior_card_models):
+        if operation_supports_failure(endpoint_rows, operation_id, failure_code):
             return operation_id
     return operation_ids[0] if operation_ids else ""
 
@@ -380,7 +440,6 @@ def preferred_failure_code(
     *,
     endpoint_rows: list[dict[str, object]],
     operation_ids: list[str],
-    behavior_card_models: dict[str, dict[str, object]] | None = None,
 ) -> str:
     lowered = " ".join(
         [
@@ -388,7 +447,7 @@ def preferred_failure_code(
             str(row.get("expected_outcome", "")).lower(),
         ]
     )
-    failure_codes = collect_failure_codes(endpoint_rows, operation_ids, behavior_card_models=behavior_card_models)
+    failure_codes = collect_failure_codes(endpoint_rows, operation_ids)
     deny_intent = any(term in lowered for term in ("cross-tenant", "tenant deny", "tenant_forbidden", "forbidden", "deny"))
     if deny_intent:
         return (
@@ -427,14 +486,39 @@ def replay_profile(
         return "boundary_visibility"
     return "generic_chain"
 
+
+def render_harness_import(generated_text: str) -> list[str]:
+    always = [
+        "  extractEnvelopeData,",
+        "  invokeHttpOperation,",
+        "  startBackendRuntime,",
+        "  type BackendRuntime,",
+    ]
+    conditional = [
+        ("absorbEnvelopeContext", "  absorbEnvelopeContext,"),
+        ("applyRuntimeContext", "  applyRuntimeContext,"),
+        ("buildFailurePayload", "  buildFailurePayload,"),
+        ("buildOperationPayload", "  buildOperationPayload,"),
+        ("collectPersistenceRoundTripEvidence", "  collectPersistenceRoundTripEvidence,"),
+        ("captureApiError", "  captureApiError,"),
+        ("normalizeRuntimeIdentifierValue", "  normalizeRuntimeIdentifierValue,"),
+        ("requiresPersistenceRoundTripEvidence", "  requiresPersistenceRoundTripEvidence,"),
+    ]
+    imports = [line for token, line in conditional if token in generated_text]
+    return [
+        'import {',
+        *sorted(set(imports)),
+        *always,
+        '} from "../support/backend-runtime-harness";',
+    ]
+
+
 def render_tenant_deny_body(failure_operation_id: str) -> tuple[list[str], list[str]]:
     return [
         f'const failureOperationId = "{failure_operation_id}";',
     ], [
-        "    const payload = buildFailurePayload(failureOperationId, failureCode);",
-        *failure_condition_signal_lines("tenant_forbidden"),
         "    const error = await captureApiError(",
-        "      invokeHttpOperation(runtime, failureOperationId, payload),",
+        "      invokeHttpOperation(runtime, failureOperationId, buildFailurePayload(failureOperationId, failureCode)),",
         "    );",
         "    expect(error.status).toBe(403);",
         "    expect(error.envelope.error_code).toBe(failureCode);",
@@ -445,10 +529,8 @@ def render_forbidden_deny_body(failure_operation_id: str) -> tuple[list[str], li
     return [
         f'const failureOperationId = "{failure_operation_id}";',
     ], [
-        "    const payload = buildFailurePayload(failureOperationId, failureCode);",
-        *failure_condition_signal_lines("forbidden"),
         "    const error = await captureApiError(",
-        "      invokeHttpOperation(runtime, failureOperationId, payload),",
+        "      invokeHttpOperation(runtime, failureOperationId, buildFailurePayload(failureOperationId, failureCode)),",
         "    );",
         "    expect(error.status).toBe(403);",
         "    expect(error.envelope.error_code).toBe(failureCode);",
@@ -510,15 +592,8 @@ def render_uncertainty_and_conflict_body(
     operation_ids: list[str],
     endpoint_rows: list[dict[str, object]],
     failure_code: str,
-    *,
-    behavior_card_models: dict[str, dict[str, object]] | None = None,
 ) -> tuple[list[str], list[str]]:
-    failure_operation_id = choose_failure_operation(
-        operation_ids,
-        endpoint_rows,
-        failure_code,
-        behavior_card_models=behavior_card_models,
-    )
+    failure_operation_id = choose_failure_operation(operation_ids, endpoint_rows, failure_code)
     review_operation_id = choose_semantic_review_operation(endpoint_rows, operation_ids)
     return [
         f'const reviewOperationId = "{review_operation_id}";',
@@ -547,10 +622,8 @@ def render_uncertainty_and_conflict_body(
             else []
         ),
         "    expect(Object.keys(committedData).length).toBeGreaterThan(0);",
-        "    const payload = buildFailurePayload(failureOperationId, failureCode);",
-        *failure_condition_signal_lines(failure_code),
         "    const error = await captureApiError(",
-        "      invokeHttpOperation(runtime, failureOperationId, payload),",
+        "      invokeHttpOperation(runtime, failureOperationId, buildFailurePayload(failureOperationId, failureCode)),",
         "    );",
         "    expect(error.envelope.error_code).toBe(failureCode);",
     ]
@@ -563,7 +636,6 @@ def render_boundary_visibility_body(operation_ids: list[str], endpoint_rows: lis
 def render_semantic_chain_body(operation_ids: list[str], endpoint_rows: list[dict[str, object]]) -> tuple[list[str], list[str]]:
     first_operation_id = operation_ids[0] if operation_ids else ""
     final_operation_id = operation_ids[-1] if operation_ids else ""
-    first_is_array = response_is_array(endpoint_rows, first_operation_id)
     final_is_array = response_is_array(endpoint_rows, final_operation_id)
     final_fields = response_data_fields(endpoint_rows, final_operation_id)
     shared_fields = shared_response_business_fields(endpoint_rows, first_operation_id, final_operation_id)
@@ -595,20 +667,7 @@ def render_semantic_chain_body(operation_ids: list[str], endpoint_rows: list[dic
         "    for (const field of expectedContextFields) {",
         "      expect(String(context[field] ?? '')).not.toHaveLength(0);",
         "    }",
-        "    const firstPayloadData = extractEnvelopeData<unknown>(results[0]);",
-        *(
-            [
-                "    expect(Array.isArray(firstPayloadData)).toBe(true);",
-                "    const firstRows = firstPayloadData as Array<Record<string, unknown>>;",
-                "    expect(firstRows.length).toBeGreaterThan(0);",
-                "    const firstRecord = firstRows[0];",
-            ]
-            if first_is_array
-            else [
-                "    expect(Array.isArray(firstPayloadData)).toBe(false);",
-                "    const firstRecord = firstPayloadData as Record<string, unknown>;",
-            ]
-        ),
+        "    const firstData = extractEnvelopeData<Record<string, unknown>>(results[0]);",
         *(
             [
                 "    const finalData = extractEnvelopeData<unknown>(results.at(-1));",
@@ -641,7 +700,7 @@ def render_semantic_chain_body(operation_ids: list[str], endpoint_rows: list[dic
     for field in shared_fields:
         access = ts_property_access(field)
         target_expr = "finalRecord" if final_is_array else "finalData"
-        lines.append(f"    expect({target_expr}{access}).toBe(firstRecord{access});")
+        lines.append(f"    expect({target_expr}{access}).toBe(firstData{access});")
     for field, value in literal_fields.items():
         access = ts_property_access(field)
         target_expr = "finalRecord" if final_is_array else "finalData"
@@ -661,39 +720,18 @@ def render_body(
     endpoint_rows: list[dict[str, object]],
     operation_ids: list[str],
     failure_code: str,
-    behavior_card_models: dict[str, dict[str, object]] | None = None,
 ) -> tuple[list[str], list[str]]:
     profile = replay_profile(row, operation_ids=operation_ids, failure_code=failure_code)
     if profile == "tenant_deny":
-        return render_tenant_deny_body(
-            choose_failure_operation(
-                operation_ids,
-                endpoint_rows,
-                failure_code,
-                behavior_card_models=behavior_card_models,
-            )
-        )
+        return render_tenant_deny_body(choose_failure_operation(operation_ids, endpoint_rows, failure_code))
     if profile == "forbidden_deny":
-        return render_forbidden_deny_body(
-            choose_failure_operation(
-                operation_ids,
-                endpoint_rows,
-                failure_code,
-                behavior_card_models=behavior_card_models,
-            )
-        )
+        return render_forbidden_deny_body(choose_failure_operation(operation_ids, endpoint_rows, failure_code))
     if profile == "full_chain":
         return render_full_chain_body(operation_ids, endpoint_rows)
     if profile == "review_binding":
         return render_review_binding_body()
     if profile == "uncertainty_and_conflict":
-        return render_uncertainty_and_conflict_body(
-            row,
-            operation_ids,
-            endpoint_rows,
-            failure_code,
-            behavior_card_models=behavior_card_models,
-        )
+        return render_uncertainty_and_conflict_body(row, operation_ids, endpoint_rows, failure_code)
     if profile == "boundary_visibility":
         return render_boundary_visibility_body(operation_ids, endpoint_rows)
     return render_generic_chain_body(operation_ids, endpoint_rows)
@@ -754,12 +792,7 @@ def render_replay_test(
             endpoint_rows=endpoint_rows,
             scenario_operation_map=scenario_operation_map,
         )
-    failure_code = preferred_failure_code(
-        row,
-        endpoint_rows=endpoint_rows,
-        operation_ids=operation_ids,
-        behavior_card_models=behavior_card_models,
-    )
+    failure_code = preferred_failure_code(row, endpoint_rows=endpoint_rows, operation_ids=operation_ids)
     expected_outcome = str(row.get("expected_outcome", "")).strip()
     if not operation_ids:
         unresolved_operation_ids = row.get("_unresolved_operation_ids", [])
@@ -787,7 +820,6 @@ def render_replay_test(
         endpoint_rows=endpoint_rows,
         operation_ids=operation_ids,
         failure_code=failure_code,
-        behavior_card_models=behavior_card_models,
     )
     include_failure_code = any("failureCode" in line for line in const_lines + body_lines)
     generated_body_text = "\n".join([*behavior_mapping_lines, *const_lines, *body_lines])

@@ -19,7 +19,6 @@ if str(SCRIPTS_ROOT) not in sys.path:
 import argparse
 import sys
 
-from phase1.phase1_gate_authority import emit_compatibility_warning
 from phase1.mainline_gates import (
     extract_trial_tokens,
     normalize_expected_version,
@@ -28,7 +27,6 @@ from phase1.mainline_gates import (
 
 
 def main() -> int:
-    emit_compatibility_warning("scripts/phase1/phase1_artifact_consistency_gate.py")
     parser = argparse.ArgumentParser(description="Phase-1 artifact consistency gate")
     parser.add_argument("--prd", required=True)
     parser.add_argument("--report", required=True)

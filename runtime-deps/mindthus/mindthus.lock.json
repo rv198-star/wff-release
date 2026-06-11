@@ -1,8 +1,7 @@
 {
   "name": "mindthus",
   "repo": "https://github.com/rv198-star/Mindthus.git",
-  "tag": "v0.6.2",
-  "commit": "1f488596a828e32dab2b3398e430438b1fd1c875",
-  "source_dir": "source",
-  "release_dir": "release"
+  "tag": "v0.3",
+  "commit": "be13e8efa3afda093accb476a2500bbeca174ee6",
+  "source_dir": "source"
 }

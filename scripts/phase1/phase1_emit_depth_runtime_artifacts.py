@@ -20,10 +20,9 @@ from pathlib import Path
 from typing import Any
 
 from common.output_language import resolve_output_locale
-from phase1.phase1_generation_kernel import extract_domain_context
+from phase1.phase1_generate_deep_stage_outputs import extract_domain_context
 from phase1.phase1_localize_prd_zh import render_primary_locale_lines
 from phase1.phase1_named_state import extract_named_state
-from phase1.phase1_runtime_metadata import THINKING_VALUE_GAIN_OUTPUT_PROFILES
 from phase1.phase1_reasoning_runtime import (
     PHASE1_BUSINESS_WORLD_MODEL_FILENAME,
     compile_maturity_confidence_ledger,
@@ -315,11 +314,7 @@ def detect_commercial_decision_domain(text: str) -> bool:
         text,
         r"营销|增长|租户|范围|观察|建议|可见性|竞品|预算|定价|付费|采纳|继续投入|调整|暂停|决策",
     )
-    strong_anchor = has_signal(
-        text,
-        r"roi|attribution|budget|pricing|willingness[- ]to[- ]pay|adoption|sponsor|continue investing|revise|pause|decision grade",
-        r"ROI|归因|预算|定价|付费|采纳|继续投入|调整|暂停|决策",
-    )
+    strong_anchor = has_signal(text, r"geo|seo|roi|attribution|budget|pricing", r"GEO|SEO|ROI|归因|预算|定价")
     return strong_anchor or sum(int(flag) for flag in (growth_signal, commercial_signal, zh_signal)) >= 2
 
 
@@ -2581,8 +2576,6 @@ def emit_depth_runtime_artifacts(
     version: str,
     owner: str,
     depth_mode: str,
-    thinking_value_gain_mode: str = "off",
-    thinking_value_gain_output_profile: str = "coverage_rich",
     output_locale: str | None = None,
 ) -> dict[str, Any]:
     source_text = read_text(source_path)
@@ -2741,10 +2734,6 @@ def emit_depth_runtime_artifacts(
         "version": version,
         "owner": owner,
         "depth_mode": depth_mode,
-        "thinking_value_gain_mode": thinking_value_gain_mode,
-        "thinking_value_gain_output_profile": (
-            thinking_value_gain_output_profile if thinking_value_gain_mode == "full-use" else "not-applied"
-        ),
         "depth_posture": depth_posture,
         "operationally_rich_domain": operationally_rich,
         "core_scenario_count": len(scenario_rows),
@@ -2800,11 +2789,6 @@ def main() -> int:
     parser.add_argument("--owner", default="Codex Phase-1 depth runtime")
     parser.add_argument("--depth-mode", choices=("baseline", "creative"), default="baseline")
     parser.add_argument("--thinking-value-gain-mode", choices=("off", "full-use"), default="off")
-    parser.add_argument(
-        "--thinking-value-gain-output-profile",
-        choices=THINKING_VALUE_GAIN_OUTPUT_PROFILES,
-        default="coverage_rich",
-    )
     parser.add_argument("--output-locale", default=resolve_output_locale())
     args = parser.parse_args()
 
@@ -2827,8 +2811,6 @@ def main() -> int:
         version=args.version,
         owner=args.owner,
         depth_mode=args.depth_mode,
-        thinking_value_gain_mode=args.thinking_value_gain_mode,
-        thinking_value_gain_output_profile=args.thinking_value_gain_output_profile,
         output_locale=args.output_locale,
     )
 

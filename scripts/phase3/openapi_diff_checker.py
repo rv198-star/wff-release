@@ -14,10 +14,10 @@ if str(SCRIPTS_ROOT) not in sys.path:
 
 
 import argparse
+import json
 from pathlib import Path
 
 from phase3.contract_tools import load_openapi_document
-from phase3.review_support import emit_gate_cli_result
 
 
 def compare_openapi_docs(baseline: dict[str, object], candidate: dict[str, object]) -> dict[str, object]:
@@ -94,11 +94,12 @@ def main() -> int:
     baseline = load_openapi_document(Path(args.baseline).resolve())
     candidate = load_openapi_document(Path(args.candidate).resolve())
     report = compare_openapi_docs(baseline, candidate)
-    return emit_gate_cli_result(
-        report,
-        output_path=Path(args.output).resolve() if args.output else None,
-        success_key="verdict",
-    )
+    if args.output:
+        output_path = Path(args.output).resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(json.dumps(report, ensure_ascii=False))
+    return 0 if report["verdict"] == "pass" else 1
 
 
 if __name__ == "__main__":

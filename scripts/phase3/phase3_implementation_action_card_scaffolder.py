@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 
 from common.cross_phase_surface_policy import find_cross_phase_surface_path
-from phase3.impl_context import p2_operation_claim_id
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -121,147 +120,40 @@ def card_depth_label(acd_level: str, required_card_type: str) -> str:
     return required_card_type or "review-bound-card"
 
 
-def _clean_values(values: Any) -> list[str]:
-    if not isinstance(values, list):
-        return []
-    return [str(item).strip() for item in values if str(item).strip()]
-
-
-def _join_values(values: list[str], fallback: str = "review-bound") -> str:
-    return ", ".join(values) if values else fallback
-
-
-def _implementation_guardrails(
-    *,
-    engineering_risk_tier: str,
-    implementation_complexity: str,
-    acd_level: str,
-    source_sufficiency_status: str,
-) -> list[str]:
-    guardrails = [
-        "preserve the public operation contract and component responsibility from the P2 catalog row",
-        "implement only source-backed behavior; keep missing design material review-bound",
-    ]
-    if engineering_risk_tier == "HR-MUTATION":
-        guardrails.append("cover mutation/orchestration failure paths before adding convenience reads")
-    elif engineering_risk_tier.startswith("HR-"):
-        guardrails.append("cover the high-risk behavior path before lower-risk reporting or helper surfaces")
-    if implementation_complexity in {"IC2", "IC3"}:
-        guardrails.append(f"treat {implementation_complexity} as decomposition pressure; isolate contract, state, and failure proof")
-    if acd_level == "ACD-3":
-        guardrails.append("split the parent card before coding; the parent is not direct implementation-ready")
-    if source_sufficiency_status in {"partial", "review-bound", "blocked"}:
-        guardrails.append("do not implement behavior that depends on missing source material without a reviewed child claim")
-    return guardrails
-
-
-def _test_intent_lines(
-    *,
-    required_tests: list[str],
-    component_id: str,
-    target_path_hint: str,
-    upstream_operations: list[str],
-    available_source_ids: list[str],
-) -> list[str]:
-    source_scope = _join_values(available_source_ids)
-    operation_scope = _join_values(upstream_operations)
-    target_scope = target_path_hint or "review-bound"
-    lines: list[str] = []
-    for test_type in required_tests:
-        normalized = test_type.strip().lower()
-        if normalized == "unit":
-            lines.append(f"- unit: verify component-local behavior from {source_scope}")
-        elif normalized == "contract":
-            lines.append(f"- contract: verify public operation contract {operation_scope}")
-        elif normalized == "integration":
-            lines.append(f"- integration: verify the {component_id} boundary at {target_scope}")
-        else:
-            lines.append(f"- {test_type}: verify evidence against source-backed claims")
-    return lines or ["- review-bound: required tests were not declared by Phase-2"]
-
-
 def render_implementation_action_card(obligation: dict[str, Any], catalog_row: dict[str, Any] | None = None) -> str:
     catalog_row = catalog_row or {}
     component_type = str(obligation.get("component_type") or catalog_row.get("component_type") or "Service")
-    component_id = str(obligation.get("component_id") or catalog_row.get("component_id") or "review-bound")
     acd_level = str(obligation.get("acd_level", "review-bound"))
     required_card_type = str(obligation.get("required_card_type", "review-bound-card"))
-    upstream_operations = _clean_values(obligation.get("upstream_operation_ids", []))
-    upstream_p1_traces = _clean_values(obligation.get("upstream_p1_trace_ids", []))
-    required_source_ids = _clean_values(obligation.get("required_source_ids", []))
-    available_source_ids = _clean_values(obligation.get("available_source_ids", []))
-    missing_source_types = _clean_values(obligation.get("missing_source_types", []))
-    required_tests = _clean_values(obligation.get("required_tests", []))
-    target_path_hint = str(catalog_row.get("target_path_hint", "review-bound")).strip() or "review-bound"
-    source_sufficiency_status = str(obligation.get("source_sufficiency_status", "review-bound")).strip()
-    engineering_risk_tier = str(obligation.get("engineering_risk_tier", "review-bound")).strip()
-    implementation_complexity = str(obligation.get("implementation_complexity", "review-bound")).strip()
-    operation_claim_refs = [
-        p2_operation_claim_id(operation_id)
-        for operation_id in upstream_operations
-        if str(operation_id).strip()
-    ]
-    guardrails = _implementation_guardrails(
-        engineering_risk_tier=engineering_risk_tier,
-        implementation_complexity=implementation_complexity,
-        acd_level=acd_level,
-        source_sufficiency_status=source_sufficiency_status,
-    )
-    test_intent = _test_intent_lines(
-        required_tests=required_tests,
-        component_id=component_id,
-        target_path_hint=target_path_hint,
-        upstream_operations=upstream_operations,
-        available_source_ids=available_source_ids,
-    )
     lines = [
         f"# {card_family(component_type)}",
         "",
-        f"- component_id: {component_id}",
+        f"- component_id: {obligation.get('component_id') or catalog_row.get('component_id') or 'review-bound'}",
         f"- component_type: {component_type}",
         f"- acd_level: {acd_level}",
         f"- card_depth: {card_depth_label(acd_level, required_card_type)}",
-        f"- source_sufficiency_status: {source_sufficiency_status}",
-        f"- target_path_hint: {target_path_hint}",
+        f"- source_sufficiency_status: {obligation.get('source_sufficiency_status', 'review-bound')}",
+        f"- target_path_hint: {catalog_row.get('target_path_hint', 'review-bound')}",
         "",
         "## Upstream Binding",
-        f"- upstream_operation_ids: {_join_values(upstream_operations)}",
-        f"- upstream_operation_claim_refs: {_join_values(operation_claim_refs)}",
-        f"- upstream_p1_trace_ids: {_join_values(upstream_p1_traces)}",
+        f"- upstream_operation_ids: {', '.join(str(item) for item in obligation.get('upstream_operation_ids', [])) or 'review-bound'}",
+        f"- upstream_p1_trace_ids: {', '.join(str(item) for item in obligation.get('upstream_p1_trace_ids', [])) or 'review-bound'}",
         f"- business_value_weight: {obligation.get('business_value_weight', 'review-bound')}",
-        f"- engineering_risk_tier: {engineering_risk_tier}",
-        f"- implementation_complexity: {implementation_complexity}",
+        f"- engineering_risk_tier: {obligation.get('engineering_risk_tier', 'review-bound')}",
+        f"- implementation_complexity: {obligation.get('implementation_complexity', 'review-bound')}",
         "",
         "## Required Sources",
-        f"- required_source_ids: {_join_values(required_source_ids)}",
-        f"- available_source_ids: {_join_values(available_source_ids, 'none')}",
-        f"- missing_source_types: {_join_values(missing_source_types, 'none')}",
-        "",
-        "## Contract To Preserve",
-        f"- operation_contract: {_join_values(upstream_operations)}",
-        f"- operation_claim_ref: {_join_values(operation_claim_refs)}",
-        f"- component_contract: {component_id} remains the {component_type} implementation component",
-        f"- target_path_hint: {target_path_hint}",
-        "",
-        "## Source-Bound Behavior Scope",
-        f"- source-backed inputs: {_join_values(available_source_ids, 'none')}",
-        f"- required inputs: {_join_values(required_source_ids)}",
-        f"- review-bound gaps: {_join_values(missing_source_types, 'none')}",
+        f"- required_source_ids: {', '.join(str(item) for item in obligation.get('required_source_ids', [])) or 'review-bound'}",
+        f"- available_source_ids: {', '.join(str(item) for item in obligation.get('available_source_ids', [])) or 'none'}",
+        f"- missing_source_types: {', '.join(str(item) for item in obligation.get('missing_source_types', [])) or 'none'}",
         "",
         "## Implementation Steps",
-        "- read Contract To Preserve before changing code targets",
-        "- implement the Source-Bound Behavior Scope without introducing unstated business behavior",
-        "- apply Implementation Guardrails before adding convenience surfaces",
+        "- preserve public contract and component responsibility from the P2 catalog row",
+        "- implement only source-backed behavior steps; keep missing design material review-bound",
         "- bind code targets and tests back to this action card id",
         "",
-        "## Implementation Guardrails",
-        *[f"- {item}" for item in guardrails],
-        "",
-        "## Test Intent",
-        *test_intent,
-        "",
         "## Required Tests",
-        *[f"- {item}" for item in required_tests],
+        *[f"- {item}" for item in obligation.get("required_tests", [])],
     ]
     if acd_level == "ACD-3":
         lines.extend([

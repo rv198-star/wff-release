@@ -5,20 +5,13 @@ Shared Phase-1 runtime metadata helpers.
 
 from __future__ import annotations
 
-from common.tvg_runtime_metadata import THINKING_VALUE_GAIN_OUTPUT_PROFILES
-
 
 OFFICIAL_RUNTIME_ENTRY = "scripts/phase1/run_phase1_full_trial.py"
 CONVERGENCE_ENGINE = "scripts/phase1/run_phase1_convergence.py"
 PRD_CONVERGENCE_SCRIPT = "scripts/phase1/phase1_converge_prd.py"
 
 
-def build_runtime_metadata_lines(
-    depth_mode: str,
-    *,
-    thinking_value_gain_mode: str = "off",
-    thinking_value_gain_output_profile: str = "coverage_rich",
-) -> list[str]:
+def build_runtime_metadata_lines(depth_mode: str, *, thinking_value_gain_mode: str = "off") -> list[str]:
     lines = [
         "- depth_mode:",
         f"  - `{depth_mode}`",
@@ -38,12 +31,6 @@ def build_runtime_metadata_lines(
     lines.extend([
         "- thinking_value_gain_mode:",
         f"  - `{thinking_value_gain_mode}`",
-        "- thinking_value_gain_output_profile:",
-        (
-            f"  - `{thinking_value_gain_output_profile}`"
-            if thinking_value_gain_mode == "full-use"
-            else "  - `not-applied`"
-        ),
         "- thinking_value_gain_boundary:",
         (
             "  - `full-use is experimental bounded value-strengthening; stop when added rounds no longer improve practical value`"

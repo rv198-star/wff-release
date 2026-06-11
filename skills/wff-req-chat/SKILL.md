@@ -31,60 +31,6 @@ screenshots, workflows, or notes. I will help turn them into a Phase-1 source br
 
 Do not open by asking the user to fill a long form. Accept natural language and materials first, then classify the route and ask the highest-value next question.
 
-## Start New Work
-
-Start New Work: from idea / materials / conversation -> P1 source input packet -> `wff-req`.
-
-Users do not need to know Phase-1 terminology before starting. The user can begin with a rough idea, notes, chat history, screenshots, workflows, spreadsheets, old PRD/BRD material, or a description of a manual process. `wff-req-chat` turns that input into a product-facing intake path and then into a bounded P1 source input packet.
-
-The product-facing output should make these items easy to read before `wff-req` starts:
-
-- one-page source brief / packet summary
-- truth-state ledger
-- open truth gaps
-- admission decision
-- next action into `wff-req`
-
-## Start New Work Intake Pattern
-
-Use this short pattern before exposing internal mode names:
-
-| Moment | Agent behavior |
-|---|---|
-| What the user can provide | Accept ideas, notes, chat history, screenshots, workflows, spreadsheets, old business docs, lightweight specs, or process descriptions. |
-| What the agent asks first | Ask one high-value question at a time about the problem, user/operator, current substitute, value, source material, or missing truth. |
-| When to stay in chat | Stay in `wff-req-chat` while the problem, target user, current path, value mechanism, or source evidence is still unclear. |
-| When to enter office-hours challenge | Enter office-hours challenge when basic facts exist and the highest risk is whether the product premise is worth admitting into P1. |
-| When to produce the P1 source input packet | Produce the packet when the source brief, truth-state ledger, open truth gaps, and admission decision are explicit. |
-| When to route to `wff-req` | Route to `wff-req` only when the packet is `ready-for-P1` or `provisional-ready-for-P1` with review-bound gaps preserved. |
-
-Ask one high-value question at a time. Do not ask the user to fill a long form before they see value.
-
-## Start New Work Scenario Cases
-
-| ID | User signal | Decision | Route | Expected boundary |
-|---|---|---|---|---|
-| SNW01 | User has a rough idea and cannot yet state stable requirements. | stay-in-chat | wff-req-chat | Clarify problem, user/operator, status quo, and source material before packet output. |
-| SNW02 | User pastes chat history or meeting notes. | intake | wff-req-chat | Extract source facts, assumptions, and review-bound gaps instead of generating PRD. |
-| SNW03 | User has scattered business notes, screenshots, spreadsheets, or workflow fragments. | intake | wff-req-chat | Structure materials into source brief seed and truth-state ledger. |
-| SNW04 | User describes an existing business process that should become software. | intake | wff-req-chat | Capture current path, roles, exceptions, approvals, and desired value before P1. |
-| SNW05 | User asks for an internal tool / automation request. | office-hours-check | wff-req-chat | Challenge user/operator, trigger, value, failure cost, and scope before P1 admission. |
-| SNW06 | User has unstable demand but wants to start with visible gaps. | provisional-ready-for-P1 | wff-req | Emit a P1 source input packet only with open truth gaps and claim ceiling preserved. |
-
-## Start New Work Boundary
-
-`wff-req-chat` must preserve these boundaries:
-
-- must not claim PRD generation
-- must not claim P1 completion
-- must not claim architecture readiness
-- must not claim implementation readiness
-- must not claim validation or release readiness
-- must not claim production approval
-- must not claim owner sign-off
-
-It may recommend `wff-req` as the next step, but `wff-req` owns formal P1 generation and gates.
-
 ## When To Use
 
 Use when:
@@ -248,36 +194,6 @@ The review must look for:
 
 Default review depth is one pass. Important or high-risk cases may use up to three bounded passes. Repeated unresolved issues go to `Reviewer Concerns` and `Open Truth Gaps`; do not loop indefinitely.
 
-## Project Context Candidate Capture
-
-If `.wff/PROJECT_CONTEXT.md` exists, read it as optional project-level Agent context before finalizing the packet. Use it only as default context; it does not replace source truth or admission evidence.
-
-During intake and office-hours, capture `Project Context Candidates` when the user states durable facts that may affect multiple future decisions but may not belong directly in the PRD. These often appear as casual remarks rather than formal requirements.
-
-Examples:
-
-- Team backend capacity is primarily Go / Java.
-- Production database uses paid Oracle.
-- Customer industry has low profit margins.
-- Current user base is approximately 90% female; use this for accessibility, privacy, safety, and communication review, and do not infer preferences from stereotypes.
-
-`wff-req-chat` must not write `.wff/PROJECT_CONTEXT.md` directly. It only records candidates in the P1 source input packet for later review by `wff-project-context`.
-
-Use this candidate shape:
-
-```yaml
-- candidate:
-  likely_section:
-  source:
-  decision_impact:
-  confidence:
-  durability:
-  action: context-candidate
-  needs_review:
-```
-
-Only capture context that is durable, non-obvious, and likely to affect product, architecture, implementation, review, cost, compliance, operations, or brownfield decisions. Do not record generic best practices or one-off task notes.
-
 ## P1 Source Input Packet
 
 The normal output of the two-mode flow is a `P1 source input packet`. The packet contains the `P1 source brief` plus admission evidence for `wff-req`.
@@ -294,8 +210,6 @@ Use this packet structure:
 ## Source Materials
 
 ## P1 Source Brief
-
-## Project Context Candidates
 
 ## Product Truth Challenge Notes
 
@@ -447,8 +361,6 @@ Use this structure:
 ## Source Materials
 
 ## Project Context
-
-## Project Context Candidates
 
 ## Problem / Opportunity
 

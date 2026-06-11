@@ -4,505 +4,6 @@
     "audit_markdown": "INSTALL_PACK_AUDIT.md",
     "overall_verdict": "pass"
   },
-  "content_boundary_policy": "install-pack-content-boundary-v1",
-  "content_boundary_removed_paths": [],
-  "default_payload_exclusions": [
-    {
-      "asset_type": "doc",
-      "path": "docs/source-registers/phaseX-source-library-seed-v0.1.md",
-      "reason": "repository-source-governance-doc"
-    },
-    {
-      "asset_type": "doc",
-      "path": "docs/source-registers/product-requirements-source-index.md",
-      "reason": "repository-source-governance-doc"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/behind-the-scenes-product/alignment-review.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/behind-the-scenes-product/cards-draft/direct-user-research-principle.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/behind-the-scenes-product/cards-draft/group-psychology-and-opinion-leaders.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/behind-the-scenes-product/cards-draft/product-manager-four-qualities.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/behind-the-scenes-product/cards-draft/rapid-user-group-segmentation.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/behind-the-scenes-product/cards-draft/user-research-to-product-judgment.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/behind-the-scenes-product/index-map.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/behind-the-scenes-product/stage-guidance-draft.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/effective-requirements-analysis/alignment-review.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/effective-requirements-analysis/cards-draft/business-interface-analysis-template.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/effective-requirements-analysis/cards-draft/business-subsystem-decomposition.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/effective-requirements-analysis/cards-draft/daily-change-demand-three-step-flow.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/effective-requirements-analysis/cards-draft/lightweight-change-demand-template.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/effective-requirements-analysis/cards-draft/problem-card-template.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/effective-requirements-analysis/cards-draft/problem-level-over-solution-level.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/effective-requirements-analysis/cards-draft/quality-scenario-template.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/effective-requirements-analysis/cards-draft/stakeholder-list-template.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/effective-requirements-analysis/cards-draft/stakeholder-profile-template.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/effective-requirements-analysis/cards-draft/template-as-a-tool-not-master.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/effective-requirements-analysis/cards-draft/value-frequency-prioritization.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/effective-requirements-analysis/index-map.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/effective-requirements-analysis/stage-guidance-draft.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/alignment-review.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/authority-files-preferred-terms-help-browsing-and-education.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/content-analysis-inventory-audit-noahs-ark-sampling.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/faceted-classification-and-guided-navigation.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/ia-anatomy-top-down-bottom-up-invisible.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/ia-and-agile-planning-is-indispensable.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/ia-delivery-lifecycle-research-strategy-design-implementation-admin.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/ia-design-for-finding-and-understanding.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/index-navigation-pages-separately-from-destination-pages.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/information-architecture-style-guide-as-governance-tool.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/information-ecology-users-content-context-venn.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/labeling-is-representation-minimize-cognitive-space.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/labeling-jargon-is-a-user-hostile-smell.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/metadata-and-controlled-vocab-are-system-glue.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/navigation-global-local-contextual-and-supplemental.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/navigation-stress-test-parachute-into-the-middle.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/organization-challenges-ambiguity-heterogeneity-perspective-politics.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/organization-schemes-exact-vs-ambiguous.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/placemaking-users-need-you-are-here.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/search-is-not-a-substitute-for-navigation.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/search-zones-slice-content-without-overloading-users.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/synonym-rings-improve-recall-but-can-hurt-precision.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/taxonomy-breadth-sets-user-expectations.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/cards-draft/when-a-product-needs-search-decision-rules.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/index-map.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/source-manifest.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/information-architecture-for-the-web/stage-guidance-draft.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/inspired/alignment-review.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/inspired/cards-draft/opportunity-assessment-over-document-heavy-definition.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/inspired/cards-draft/product-design-engineering-collaboration.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/inspired/cards-draft/product-discovery-before-product-definition.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/inspired/cards-draft/product-management-vs-project-management-boundary.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/inspired/cards-draft/product-manager-opportunity-and-definition-dual-duty.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/inspired/cards-draft/product-validation-and-prototype-testing.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/inspired/cards-draft/value-usability-feasibility-triad.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/inspired/index-map.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/lean-product-development/alignment-review.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/lean-product-development/cards-draft/build-measure-learn-loop.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/lean-product-development/cards-draft/context-adaptation-over-framework-copying.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/lean-product-development/cards-draft/early-value-delivery-principle.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/lean-product-development/cards-draft/lean-product-development-house.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/lean-product-development/cards-draft/lean-requirements-analysis-and-management.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/lean-product-development/cards-draft/lean-three-layer-model.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/lean-product-development/cards-draft/useful-value-discovery-principle.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/lean-product-development/cards-draft/value-flow-efficiency-principle.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/lean-product-development/index-map.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/product-demand-fit/alignment-review.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/product-demand-fit/cards-draft/abductive-insight-synthesis.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/product-demand-fit/cards-draft/aeiou-observation-framework.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/product-demand-fit/cards-draft/exploratory-vs-problem-insight-framing.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/product-demand-fit/cards-draft/insight-to-org-adoption.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/product-demand-fit/cards-draft/interview-funnel-evidence-check.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/product-demand-fit/cards-draft/need-vs-want-cost-test.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/product-demand-fit/cards-draft/opportunity-forcing-heuristics.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/product-demand-fit/cards-draft/question-reframing-templates.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/product-demand-fit/index-map.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/product-demand-fit/stage-guidance-draft.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/refactoring-improving-the-design-of-existing-code/cards-draft/branch-by-abstraction-for-long-running-refactors.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/refactoring-improving-the-design-of-existing-code/cards-draft/define-refactoring-by-behavior-preservation-and-change-cost.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/refactoring-improving-the-design-of-existing-code/cards-draft/refactor-requires-self-testing-tests-and-fast-feedback-loop.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/refactoring-improving-the-design-of-existing-code/cards-draft/two-hats-separate-feature-work-from-refactoring-work.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/refactoring-improving-the-design-of-existing-code/index-map.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/the-art-of-unit-testing/stage-guidance-draft.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/user-story-mapping/alignment-review.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/user-story-mapping/cards-draft/do-not-put-everything-on-cards-boundary.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/user-story-mapping/cards-draft/exploration-builds-consensus.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/user-story-mapping/cards-draft/mvp-slicing-by-story-map.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/user-story-mapping/cards-draft/story-map-construction-steps.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/user-story-mapping/cards-draft/story-map-whole-picture.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/user-story-mapping/cards-draft/story-template-zombie-anti-pattern.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/user-story-mapping/cards-draft/story-workshop-refinement-pattern.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/user-story-mapping/cards-draft/user-story-3c-foundation.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/user-story-mapping/cards-draft/validated-learning-loop-with-story-map.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/user-story-mapping/index-map.md",
-      "reason": "repository-source-library"
-    },
-    {
-      "asset_type": "reference",
-      "path": "sources/books/extracted/user-story-mapping/stage-guidance-draft.md",
-      "reason": "repository-source-library"
-    }
-  ],
   "excluded_meta_skills": [
     "wff-meta-book-to-skills-extraction",
     "wff-meta-corpus-extraction-governance",
@@ -510,159 +11,243 @@
     "wff-meta-source-unit-coverage-ledger",
     "wff-meta-stage-skill-construction-lifecycle"
   ],
-  "generated_at": "2026-06-11T17:03:49+00:00",
+  "generated_at": "2026-05-19T15:05:56+00:00",
   "included_base_skills": [
     "wff-base-traceability-management"
   ],
   "included_docs": [
-    "docs/WFF-ROLE-AGENTS.zh-CN.md",
+    "docs/blueprint.md",
+    "docs/collaboration-ops.md",
+    "docs/current-canonical-reference-map-v0.1.md",
+    "docs/current-project-consensus.md",
+    "docs/governance/artifact-traceability-layer-v0.md",
     "docs/governance/artifact-traceability-minimum-rules-v0.1.md",
+    "docs/governance/cross-phase-unresolved-truth-handling-v0.1.md",
+    "docs/governance/deepening-and-freeze-protocol-v0.1.md",
+    "docs/governance/design-time-vs-runtime-artifacts-segregation-v0.1.md",
+    "docs/governance/document-lifecycle-policy-v0.1.md",
+    "docs/governance/evidence-and-uncertainty-protocol-v0.1.md",
+    "docs/governance/handoff-and-convergence-protocol-v0.1.md",
+    "docs/governance/maturity-and-confidence-protocol-v0.1.md",
+    "docs/governance/phase-admission-matrix-v0.1.md",
+    "docs/governance/v1.3-autopilot-strict-proof-vocabulary-v0.1.md",
+    "docs/governance/v1.3-autopilot-strict-proof-vocabulary-v0.1.zh-CN.md",
     "docs/governance/v1.3-phase-review-breakpoint-contract-v0.1.md",
+    "docs/governance/v1.3-phase-review-breakpoint-contract-v0.1.zh-CN.md",
     "docs/governance/v1.3-product-flow-control-boundary-v0.1.md",
+    "docs/governance/v1.3-product-flow-control-boundary-v0.1.zh-CN.md",
+    "docs/governance/v1.3-script-gate-authority-classification-v0.1.md",
+    "docs/governance/v1.3-script-gate-authority-classification-v0.1.zh-CN.md",
+    "docs/governance/v1.3-stage-judgment-lens-v0.1.md",
+    "docs/governance/v1.3-stage-judgment-lens-v0.1.zh-CN.md",
+    "docs/mvp-scope.md",
+    "docs/phase-retrospective-and-next-step.md",
+    "docs/phases/phase-1/p1-value-bearing-artifact-closure-v0.1.md",
+    "docs/phases/phase-1/p1-value-bearing-artifact-closure-v0.1.zh-CN.md",
     "docs/phases/phase-1/phase-1-convergence-driver-v0.1.md",
-    "docs/phases/phase-1/phase-1-gate-authority-map-v0.1.md",
+    "docs/phases/phase-1/phase-1-core-business-deliverables-checklist-v0.1.md",
+    "docs/phases/phase-1/phase-1-depth-mode-runtime-protocol-v0.1.md",
+    "docs/phases/phase-1/phase-1-execution-report-template-v0.1.md",
+    "docs/phases/phase-1/phase-1-execution-report-template.zh-CN.md",
+    "docs/phases/phase-1/phase-1-intake-state-machine-and-provisional-inference-policy-v0.1.md",
+    "docs/phases/phase-1/phase-1-prd-convergence-smoke-test-v0.1.md",
+    "docs/phases/phase-1/phase-1-prd-excellence-scoring-rubric-v0.1.md",
+    "docs/phases/phase-1/phase-1-prd-main-document-template-v0.1.md",
+    "docs/phases/phase-1/phase-1-prd-to-phase-2-readiness-assessment-v0.1.md",
+    "docs/phases/phase-1/phase-1-reference-priority-and-intake-basis-v0.1.md",
+    "docs/phases/phase-1/phase-1-robustness-coverage-v0.1.md",
     "docs/phases/phase-1/phase-1-session-bootstrap.md",
+    "docs/phases/phase-1/phase-1-skill-authoring-basis-v0.1.md",
+    "docs/phases/phase-1/phase-1-skills-structure-v0.1.md",
+    "docs/phases/phase-1/phase-1-thinking-loop-v0.1.md",
+    "docs/phases/phase-1/phase-1-thinking-runtime-layer-v0.1.md",
+    "docs/phases/phase-1/phase-1-thinking-runtime-synthesis-v0.1.md",
+    "docs/phases/phase-1/product-requirements-diagram-evidence-rubric-v0.1.md",
+    "docs/phases/phase-1/product-requirements-gates-and-minimum-admission-v0.1.md",
+    "docs/phases/phase-1/product-requirements-stage-package-v0.md",
+    "docs/phases/phase-1/unified-product-pack-v0.1.md",
+    "docs/phases/phase-2/design-architecture-case-backed-absorption-matrix-v0.1.md",
+    "docs/phases/phase-2/design-architecture-stage-package-v0.md",
+    "docs/phases/phase-2/engineering-spec-pack-v0.1.md",
+    "docs/phases/phase-2/p2-value-bearing-artifact-closure-v0.1.md",
+    "docs/phases/phase-2/p2-value-bearing-artifact-closure-v0.1.zh-CN.md",
+    "docs/phases/phase-2/phase-2-case-backed-validation-matrix-v0.1.md",
+    "docs/phases/phase-2/phase-2-completion-and-phase-3-guidance-v0.1.md",
+    "docs/phases/phase-2/phase-2-deployment-posture-tiering-rule-v0.2.md",
+    "docs/phases/phase-2/phase-2-evaluation-criteria-standard-v1.0.md",
+    "docs/phases/phase-2/phase-2-execution-report-template.md",
+    "docs/phases/phase-2/phase-2-external-dependency-feasibility-rule-v0.1.md",
     "docs/phases/phase-2/phase-2-first-pass-generation-workflow-v1.0.md",
+    "docs/phases/phase-2/phase-2-realizability-architecture-review-rule-v0.1.md",
     "docs/phases/phase-2/phase-2-session-bootstrap.md",
+    "docs/phases/phase-2/stage-2-core-business-deliverables-checklist-v0.1.md",
+    "docs/phases/phase-2/stage-2-runtime-hardening-targets-v0.1.md",
+    "docs/phases/phase-2/stage-2-traceability-baseline-v0.1.md",
+    "docs/phases/phase-3/development-stage-package-v0.md",
+    "docs/phases/phase-3/p3-agentic-semantic-authoring-question-set-v0.1.md",
+    "docs/phases/phase-3/p3-value-bearing-runnable-delivery-v0.1.md",
+    "docs/phases/phase-3/p3-value-bearing-runnable-delivery-v0.1.zh-CN.md",
+    "docs/phases/phase-3/phase-3-runnable-delivery-correction-v0.1.zh-CN.md",
     "docs/phases/phase-3/phase-3-skill-architecture-design-v0.1.md",
+    "docs/phases/phase-4/p4-strict-proof-gate-and-claim-ceiling-v0.1.md",
+    "docs/phases/phase-4/p4-strict-proof-gate-and-claim-ceiling-v0.1.zh-CN.md",
     "docs/phases/phase-4/phase-4-output-contract-v0.1.md",
     "docs/phases/phase-4/phase-4-skill-architecture-design-v0.1.md",
+    "docs/phases/phase-4/phase-4-stage-04-release-readiness-contract-v0.1.md",
+    "docs/phases/phase-4/testing-validation-stage-package-v0.md",
+    "docs/phases/phase-x/phaseX-brownfield-and-refactoring-stage-package-v0.md",
     "docs/phases/phase-x/phaseX-session-bootstrap.md",
     "docs/phases/phase-x/phaseX-wave1-implementation-plan-v0.1.md",
     "docs/phases/phase-x/phaseX-wave1-profile-decision-tree-v0.1.md",
-    "docs/public/human-review-surface.zh-CN.md",
-    "docs/public/wff-orientation-map.zh-CN.md",
-    "docs/role-agent-mounts/v1.4-role-agent-mounts.md",
-    "docs/v1.2-p3-behavior-card-contract-boundary-v0.1.md"
+    "docs/phases/phase-x/phaseX-wave1-self-audit-guide-v0.1.md",
+    "docs/release-readiness-stage-package-v0.md",
+    "docs/stage-skill-authoring-workflow-v0.1.md",
+    "docs/stage-skill-construction-lifecycle-reference-v0.1.md",
+    "docs/v1.2-design-principles-v0.1.md",
+    "docs/v1.2-mainline-scoring-and-acceptance-matrix-v0.1.md",
+    "docs/v1.2-operation-risk-tiering-and-source-obligations-v0.1.md",
+    "docs/v1.2-p2-delivery-minded-architecture-principles-v0.1.md",
+    "docs/v1.2-p3-backend-delivery-principles-v0.1.md",
+    "docs/v1.2-p3-behavior-card-contract-boundary-v0.1.md",
+    "docs/v1.2-phase-thinking-mode-split-v0.1.md",
+    "docs/v1.2-script-surface-classification-v0.1.md",
+    "docs/v1.3.15-release-notes.md",
+    "docs/v1.3.15-release-notes.zh-CN.md",
+    "docs/v1.3.16-release-notes.md",
+    "docs/v1.3.16-release-notes.zh-CN.md",
+    "docs/v1.3.17-release-notes.md",
+    "docs/v1.3.17-release-notes.zh-CN.md"
   ],
   "included_example_dirs": [],
-  "included_reader_translation_skills": [
-    "wff-base-reader-translation"
+  "included_reference_files": [
+    "sources/books/extracted/about-face-4/cards-draft/controls-should-offer-choices-not-questions.md",
+    "sources/books/extracted/about-face-4/cards-draft/interaction-burden-is-tax-on-users-reduce-navigation.md",
+    "sources/books/extracted/about-face-4/cards-draft/platform-and-posture-should-follow-usage-context.md",
+    "sources/books/extracted/behind-the-scenes-product/alignment-review.md",
+    "sources/books/extracted/behind-the-scenes-product/cards-draft/direct-user-research-principle.md",
+    "sources/books/extracted/behind-the-scenes-product/cards-draft/group-psychology-and-opinion-leaders.md",
+    "sources/books/extracted/behind-the-scenes-product/cards-draft/product-manager-four-qualities.md",
+    "sources/books/extracted/behind-the-scenes-product/cards-draft/rapid-user-group-segmentation.md",
+    "sources/books/extracted/behind-the-scenes-product/cards-draft/user-research-to-product-judgment.md",
+    "sources/books/extracted/behind-the-scenes-product/index-map.md",
+    "sources/books/extracted/behind-the-scenes-product/stage-guidance-draft.md",
+    "sources/books/extracted/effective-requirements-analysis/alignment-review.md",
+    "sources/books/extracted/effective-requirements-analysis/cards-draft/business-interface-analysis-template.md",
+    "sources/books/extracted/effective-requirements-analysis/cards-draft/business-subsystem-decomposition.md",
+    "sources/books/extracted/effective-requirements-analysis/cards-draft/daily-change-demand-three-step-flow.md",
+    "sources/books/extracted/effective-requirements-analysis/cards-draft/lightweight-change-demand-template.md",
+    "sources/books/extracted/effective-requirements-analysis/cards-draft/problem-card-template.md",
+    "sources/books/extracted/effective-requirements-analysis/cards-draft/problem-level-over-solution-level.md",
+    "sources/books/extracted/effective-requirements-analysis/cards-draft/quality-scenario-template.md",
+    "sources/books/extracted/effective-requirements-analysis/cards-draft/stakeholder-list-template.md",
+    "sources/books/extracted/effective-requirements-analysis/cards-draft/stakeholder-profile-template.md",
+    "sources/books/extracted/effective-requirements-analysis/cards-draft/template-as-a-tool-not-master.md",
+    "sources/books/extracted/effective-requirements-analysis/cards-draft/value-frequency-prioritization.md",
+    "sources/books/extracted/effective-requirements-analysis/index-map.md",
+    "sources/books/extracted/effective-requirements-analysis/stage-guidance-draft.md",
+    "sources/books/extracted/information-architecture-for-the-web/alignment-review.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/authority-files-preferred-terms-help-browsing-and-education.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/content-analysis-inventory-audit-noahs-ark-sampling.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/faceted-classification-and-guided-navigation.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/ia-anatomy-top-down-bottom-up-invisible.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/ia-and-agile-planning-is-indispensable.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/ia-delivery-lifecycle-research-strategy-design-implementation-admin.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/ia-design-for-finding-and-understanding.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/index-navigation-pages-separately-from-destination-pages.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/information-architecture-style-guide-as-governance-tool.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/information-ecology-users-content-context-venn.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/labeling-is-representation-minimize-cognitive-space.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/labeling-jargon-is-a-user-hostile-smell.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/metadata-and-controlled-vocab-are-system-glue.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/navigation-global-local-contextual-and-supplemental.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/navigation-stress-test-parachute-into-the-middle.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/organization-challenges-ambiguity-heterogeneity-perspective-politics.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/organization-schemes-exact-vs-ambiguous.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/placemaking-users-need-you-are-here.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/search-is-not-a-substitute-for-navigation.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/search-zones-slice-content-without-overloading-users.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/synonym-rings-improve-recall-but-can-hurt-precision.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/taxonomy-breadth-sets-user-expectations.md",
+    "sources/books/extracted/information-architecture-for-the-web/cards-draft/when-a-product-needs-search-decision-rules.md",
+    "sources/books/extracted/information-architecture-for-the-web/index-map.md",
+    "sources/books/extracted/information-architecture-for-the-web/source-manifest.md",
+    "sources/books/extracted/information-architecture-for-the-web/stage-guidance-draft.md",
+    "sources/books/extracted/inspired/alignment-review.md",
+    "sources/books/extracted/inspired/cards-draft/opportunity-assessment-over-document-heavy-definition.md",
+    "sources/books/extracted/inspired/cards-draft/product-design-engineering-collaboration.md",
+    "sources/books/extracted/inspired/cards-draft/product-discovery-before-product-definition.md",
+    "sources/books/extracted/inspired/cards-draft/product-management-vs-project-management-boundary.md",
+    "sources/books/extracted/inspired/cards-draft/product-manager-opportunity-and-definition-dual-duty.md",
+    "sources/books/extracted/inspired/cards-draft/product-validation-and-prototype-testing.md",
+    "sources/books/extracted/inspired/cards-draft/value-usability-feasibility-triad.md",
+    "sources/books/extracted/inspired/index-map.md",
+    "sources/books/extracted/lean-product-development/alignment-review.md",
+    "sources/books/extracted/lean-product-development/cards-draft/build-measure-learn-loop.md",
+    "sources/books/extracted/lean-product-development/cards-draft/context-adaptation-over-framework-copying.md",
+    "sources/books/extracted/lean-product-development/cards-draft/early-value-delivery-principle.md",
+    "sources/books/extracted/lean-product-development/cards-draft/lean-product-development-house.md",
+    "sources/books/extracted/lean-product-development/cards-draft/lean-requirements-analysis-and-management.md",
+    "sources/books/extracted/lean-product-development/cards-draft/lean-three-layer-model.md",
+    "sources/books/extracted/lean-product-development/cards-draft/useful-value-discovery-principle.md",
+    "sources/books/extracted/lean-product-development/cards-draft/value-flow-efficiency-principle.md",
+    "sources/books/extracted/lean-product-development/index-map.md",
+    "sources/books/extracted/product-demand-fit/alignment-review.md",
+    "sources/books/extracted/product-demand-fit/cards-draft/abductive-insight-synthesis.md",
+    "sources/books/extracted/product-demand-fit/cards-draft/aeiou-observation-framework.md",
+    "sources/books/extracted/product-demand-fit/cards-draft/exploratory-vs-problem-insight-framing.md",
+    "sources/books/extracted/product-demand-fit/cards-draft/insight-to-org-adoption.md",
+    "sources/books/extracted/product-demand-fit/cards-draft/interview-funnel-evidence-check.md",
+    "sources/books/extracted/product-demand-fit/cards-draft/need-vs-want-cost-test.md",
+    "sources/books/extracted/product-demand-fit/cards-draft/opportunity-forcing-heuristics.md",
+    "sources/books/extracted/product-demand-fit/cards-draft/question-reframing-templates.md",
+    "sources/books/extracted/product-demand-fit/index-map.md",
+    "sources/books/extracted/product-demand-fit/stage-guidance-draft.md",
+    "sources/books/extracted/refactoring-databases-evolutionary-database-design/alignment-review.md",
+    "sources/books/extracted/refactoring-databases-evolutionary-database-design/index-map.md",
+    "sources/books/extracted/refactoring-databases-evolutionary-database-design/stage-guidance-draft.md",
+    "sources/books/extracted/refactoring-improving-the-design-of-existing-code/alignment-review.md",
+    "sources/books/extracted/refactoring-improving-the-design-of-existing-code/cards-draft/branch-by-abstraction-for-long-running-refactors.md",
+    "sources/books/extracted/refactoring-improving-the-design-of-existing-code/cards-draft/define-refactoring-by-behavior-preservation-and-change-cost.md",
+    "sources/books/extracted/refactoring-improving-the-design-of-existing-code/cards-draft/refactor-requires-self-testing-tests-and-fast-feedback-loop.md",
+    "sources/books/extracted/refactoring-improving-the-design-of-existing-code/cards-draft/two-hats-separate-feature-work-from-refactoring-work.md",
+    "sources/books/extracted/refactoring-improving-the-design-of-existing-code/index-map.md",
+    "sources/books/extracted/refactoring-improving-the-design-of-existing-code/stage-guidance-draft.md",
+    "sources/books/extracted/the-art-of-unit-testing/alignment-review.md",
+    "sources/books/extracted/the-art-of-unit-testing/index-map.md",
+    "sources/books/extracted/the-art-of-unit-testing/stage-guidance-draft.md",
+    "sources/books/extracted/user-story-mapping/alignment-review.md",
+    "sources/books/extracted/user-story-mapping/cards-draft/do-not-put-everything-on-cards-boundary.md",
+    "sources/books/extracted/user-story-mapping/cards-draft/exploration-builds-consensus.md",
+    "sources/books/extracted/user-story-mapping/cards-draft/mvp-slicing-by-story-map.md",
+    "sources/books/extracted/user-story-mapping/cards-draft/story-map-construction-steps.md",
+    "sources/books/extracted/user-story-mapping/cards-draft/story-map-whole-picture.md",
+    "sources/books/extracted/user-story-mapping/cards-draft/story-template-zombie-anti-pattern.md",
+    "sources/books/extracted/user-story-mapping/cards-draft/story-workshop-refinement-pattern.md",
+    "sources/books/extracted/user-story-mapping/cards-draft/user-story-3c-foundation.md",
+    "sources/books/extracted/user-story-mapping/cards-draft/validated-learning-loop-with-story-map.md",
+    "sources/books/extracted/user-story-mapping/index-map.md",
+    "sources/books/extracted/user-story-mapping/stage-guidance-draft.md",
+    "sources/knowledge-card-schema.md"
   ],
-  "included_reference_files": [],
   "included_reference_package_dirs": [
     "reference-packages/phase1-product-requirements",
     "reference-packages/phase2-design-architecture",
-    "reference-packages/phase3-implementation-delivery",
     "reference-packages/phase4-validation-closure",
     "reference-packages/phasex-brownfield-refactoring"
   ],
   "included_release_case_dirs": [],
-  "included_root_files": [
-    "AGENTS.md",
-    "INSTALL-PACK-README.en.md",
-    "INSTALL-PACK-README.md",
-    "INSTALL-PACK-README.zh-CN.md",
-    "README.en.md",
-    "WFF-START-HERE.md",
-    "WFF-START-HERE.zh-CN.md",
-    "config/generated-output-policy.json",
-    "config/wff-install-profiles.json",
-    "config/wff-role-mounts.json",
-    "requirements.txt"
-  ],
-  "included_runtime_assets": {
-    "script_data": [
-      "scripts/common/data/human-review-surface-configs.json",
-      "scripts/common/data/output-language-replacements-zh.json",
-      "scripts/phase1/data/phase1-execution-report-matrix-rules.json",
-      "scripts/phase1/data/phase1-reasoning-runtime-blueprints.json",
-      "scripts/phase1/data/prd-localization-zh.json",
-      "scripts/phase1/data/prd-quality-gate-categories.json",
-      "scripts/phase1/data/prd-section-scoring-rules.json",
-      "scripts/phase1/data/stage-artifact-depth-rules.json",
-      "scripts/phase2/data/phase2-first-version-runtime-rules.json",
-      "scripts/phase2/data/phase2-quality-check-rules.json",
-      "scripts/phase2/data/phase2-quality-gate-specs.json",
-      "scripts/phase2/data/stage-01-architecture-definition.md.template",
-      "scripts/phase2/data/stage-02-5-third-party-integration.md.template",
-      "scripts/phase2/data/stage-02-domain-decomposition.md.template",
-      "scripts/phase2/data/stage-03-data-interface-design.md.template",
-      "scripts/phase2/data/stage-03-design-defaults.json",
-      "scripts/phase2/data/stage-04-design-convergence.md.template",
-      "scripts/phase2/data/table-design-templates.json",
-      "scripts/phase3/data/api-auth-session.ts.template",
-      "scripts/phase3/data/api-doc-index.html.template",
-      "scripts/phase3/data/api-envelope.ts.template",
-      "scripts/phase3/data/api-errors.ts.template",
-      "scripts/phase3/data/api-generated-router.ts.template",
-      "scripts/phase3/data/api-pagination.ts.template",
-      "scripts/phase3/data/api-runtime-adapter.ts.template",
-      "scripts/phase3/data/api-runtime-test-kit.ts.template",
-      "scripts/phase3/data/backend-foundation-operation-support-test.ts.template",
-      "scripts/phase3/data/backend-foundation-unit-test-base.ts.template",
-      "scripts/phase3/data/backend-runtime-harness.ts.template",
-      "scripts/phase3/data/behavior-repository-command.ts.template",
-      "scripts/phase3/data/behavior-repository-readonly.ts.template",
-      "scripts/phase3/data/behavior-service-command.ts.template",
-      "scripts/phase3/data/behavior-service-readonly.ts.template",
-      "scripts/phase3/data/contract-test-auth-guards.ts.template",
-      "scripts/phase3/data/contract-test-duplicate-submit-helper.ts.template",
-      "scripts/phase3/data/contract-test-runtime-lifecycle.ts.template",
-      "scripts/phase3/data/contract-test-shape-helper.ts.template",
-      "scripts/phase3/data/generated-runtime.ts.template",
-      "scripts/phase3/data/project-scaffold/.dockerignore",
-      "scripts/phase3/data/project-scaffold/.env.example",
-      "scripts/phase3/data/project-scaffold/.github/workflows/ci.yml",
-      "scripts/phase3/data/project-scaffold/.npmrc",
-      "scripts/phase3/data/project-scaffold/Dockerfile",
-      "scripts/phase3/data/project-scaffold/apps/api/package.json",
-      "scripts/phase3/data/project-scaffold/apps/api/src/common/envelope.ts",
-      "scripts/phase3/data/project-scaffold/apps/api/src/common/errors.ts",
-      "scripts/phase3/data/project-scaffold/apps/api/src/common/pagination.ts",
-      "scripts/phase3/data/project-scaffold/apps/api/src/generated-api-router.ts",
-      "scripts/phase3/data/project-scaffold/apps/api/src/main.ts",
-      "scripts/phase3/data/project-scaffold/apps/api/src/runtime/database.ts",
-      "scripts/phase3/data/project-scaffold/apps/api/src/runtime/migrate.ts",
-      "scripts/phase3/data/project-scaffold/apps/api/tsconfig.build.json",
-      "scripts/phase3/data/project-scaffold/apps/api/tsconfig.json",
-      "scripts/phase3/data/project-scaffold/apps/web/app/api.ts",
-      "scripts/phase3/data/project-scaffold/apps/web/app/main.tsx",
-      "scripts/phase3/data/project-scaffold/apps/web/app/page.tsx",
-      "scripts/phase3/data/project-scaffold/apps/web/app/server.ts",
-      "scripts/phase3/data/project-scaffold/apps/web/app/theme.css",
-      "scripts/phase3/data/project-scaffold/apps/web/app/vite-env.d.ts",
-      "scripts/phase3/data/project-scaffold/apps/web/package.json",
-      "scripts/phase3/data/project-scaffold/apps/web/tsconfig.build.json",
-      "scripts/phase3/data/project-scaffold/apps/web/tsconfig.json",
-      "scripts/phase3/data/project-scaffold/apps/web/vite.config.ts",
-      "scripts/phase3/data/project-scaffold/docker-compose.dev.yml",
-      "scripts/phase3/data/project-scaffold/docker-compose.prod.yml",
-      "scripts/phase3/data/project-scaffold/eslint.config.mjs",
-      "scripts/phase3/data/project-scaffold/packages/api-client/package.json",
-      "scripts/phase3/data/project-scaffold/packages/shared-types/package.json",
-      "scripts/phase3/data/project-scaffold/pnpm-workspace.yaml",
-      "scripts/phase3/data/project-scaffold/tsconfig.base.json",
-      "scripts/phase3/data/project-scaffold/vitest.config.ts",
-      "scripts/phase3/data/scaffold-ui-app.tsx.template",
-      "scripts/phase3/data/sql-test.ts.template",
-      "scripts/phase3/data/ui-locale-copy.json",
-      "scripts/phasex/data/p1-reentry-packet.md.template",
-      "scripts/phasex/data/target-driver-packet.md.template",
-      "scripts/phasex/data/validation-snippet-rules.json"
-    ]
-  },
   "included_runtime_dep_dirs": [
     "runtime-deps/mindthus"
   ],
   "included_scripts": [
     "scripts/common/__init__.py",
-    "scripts/common/claim_ceiling_surface.py",
-    "scripts/common/claim_control_acceptance.py",
-    "scripts/common/claim_control_contract.py",
-    "scripts/common/claim_control_runtime.py",
     "scripts/common/complexity_classifier.py",
-    "scripts/common/contamination_boundary.py",
     "scripts/common/cross_phase_surface_policy.py",
     "scripts/common/emit_reader_translation.py",
     "scripts/common/gwt_format_checker.py",
     "scripts/common/host_port_allocator.py",
-    "scripts/common/human_review_surface.py",
-    "scripts/common/markdown_table_tools.py",
     "scripts/common/output_language.py",
     "scripts/common/reader_artifact_integrity.py",
-    "scripts/common/script_data_assets.py",
-    "scripts/common/tvg_runtime_metadata.py",
     "scripts/common/wff_runtime_paths.py",
     "scripts/phase1/__init__.py",
     "scripts/phase1/mainline_gates.py",
@@ -671,16 +256,16 @@
     "scripts/phase1/phase1_converge_prd.py",
     "scripts/phase1/phase1_emit_depth_runtime_artifacts.py",
     "scripts/phase1/phase1_emit_execution_report.py",
-    "scripts/phase1/phase1_gate_authority.py",
     "scripts/phase1/phase1_generate_deep_stage_outputs.py",
     "scripts/phase1/phase1_generate_interaction_flow_contract.py",
     "scripts/phase1/phase1_generate_prototype_spec.py",
-    "scripts/phase1/phase1_generation_kernel.py",
     "scripts/phase1/phase1_localize_prd_zh.py",
+    "scripts/phase1/phase1_material_library_coverage_audit.py",
     "scripts/phase1/phase1_named_state.py",
     "scripts/phase1/phase1_phase2_coverage.py",
     "scripts/phase1/phase1_prd_analysis_delta_gate.py",
     "scripts/phase1/phase1_prd_assembly_integrity_gate.py",
+    "scripts/phase1/phase1_prd_excellence_regression.py",
     "scripts/phase1/phase1_prd_executability_gate.py",
     "scripts/phase1/phase1_prd_quality_gate.py",
     "scripts/phase1/phase1_prd_section_scoring_gate.py",
@@ -688,83 +273,61 @@
     "scripts/phase1/phase1_reasoning_runtime.py",
     "scripts/phase1/phase1_runtime_metadata.py",
     "scripts/phase1/phase1_semantic_authoring_spine.py",
+    "scripts/phase1/phase1_skill_family_audit.py",
     "scripts/phase1/phase1_source_text_normalization.py",
     "scripts/phase1/phase1_stage_artifact_depth_gate.py",
     "scripts/phase1/phase1_trace_units.py",
     "scripts/phase1/phase1_version_contract.py",
+    "scripts/phase1/record_phase1_runtime_snapshot.py",
     "scripts/phase1/run_phase1_convergence.py",
     "scripts/phase1/run_phase1_full_trial.py",
+    "scripts/phase1_assemble_prd.py",
     "scripts/phase2/__init__.py",
     "scripts/phase2/adr_depth_validator.py",
-    "scripts/phase2/component_semantic_inventory.py",
-    "scripts/phase2/existing_system_architecture_change.py",
-    "scripts/phase2/interface_projection.py",
-    "scripts/phase2/phase2_claim_authority.py",
-    "scripts/phase2/phase2_closure_runtime.py",
+    "scripts/phase2/cross_stage_consistency.py",
+    "scripts/phase2/glossary_generator.py",
     "scripts/phase2/phase2_extract.py",
-    "scripts/phase2/phase2_first_version_cli.py",
-    "scripts/phase2/phase2_first_version_design_model.py",
-    "scripts/phase2/phase2_first_version_runtime.py",
-    "scripts/phase2/phase2_first_version_semantic_model.py",
-    "scripts/phase2/phase2_first_version_stage_renderers.py",
-    "scripts/phase2/phase2_first_version_support.py",
     "scripts/phase2/phase2_onboarding_prereqs.py",
+    "scripts/phase2/phase2_operation_semantic_payload.py",
     "scripts/phase2/phase2_quality_check.py",
-    "scripts/phase2/phase2_quality_gate_specs.py",
     "scripts/phase2/phase2_trace_alignment.py",
     "scripts/phase2/project_language_handoff.py",
-    "scripts/phase2/projection_utils.py",
-    "scripts/phase2/run_phase2_existing_system_intake.py",
     "scripts/phase2/run_phase2_first_version.py",
-    "scripts/phase2/run_phase2_fresh_generation.py",
+    "scripts/phase2/run_phase2_full_trial.py",
     "scripts/phase2/scaffold_phase2_case.py",
-    "scripts/phase2/schema_projection.py",
-    "scripts/phase2/table_projection.py",
-    "scripts/phase2/technical_naming.py",
     "scripts/phase2/validate_fresh_first_pass_case.py",
+    "scripts/phase2/validate_mermaid.py",
     "scripts/phase3/__init__.py",
+    "scripts/phase3/action_card_direct_implementation.py",
     "scripts/phase3/action_card_execution_map.py",
+    "scripts/phase3/agentic_generation_quality_loop.py",
     "scripts/phase3/agentic_implementation_loop.py",
+    "scripts/phase3/agentic_module_implementation.py",
     "scripts/phase3/agentic_repair_interrupt.py",
+    "scripts/phase3/agentic_repair_loop.py",
+    "scripts/phase3/agentic_semantic_authoring.py",
     "scripts/phase3/api_client_scaffolder.py",
     "scripts/phase3/api_doc_generation.py",
-    "scripts/phase3/api_support_renderer.py",
-    "scripts/phase3/backend_implementation_scaffolder.py",
-    "scripts/phase3/backend_module_renderer.py",
-    "scripts/phase3/backend_runtime_harness_renderer.py",
-    "scripts/phase3/backend_truth_checks.py",
-    "scripts/phase3/behavior_card_models.py",
     "scripts/phase3/behavior_contract.py",
-    "scripts/phase3/claim_ceiling_resolver.py",
+    "scripts/phase3/business_behavior_authoring.py",
     "scripts/phase3/code_review.py",
     "scripts/phase3/contract_test_scaffolder.py",
     "scripts/phase3/contract_tools.py",
     "scripts/phase3/coverage_collection.py",
-    "scripts/phase3/delivery_asset_checks.py",
     "scripts/phase3/delivery_closure.py",
-    "scripts/phase3/delivery_gate_cli.py",
-    "scripts/phase3/delivery_gate_context.py",
     "scripts/phase3/delivery_handoff.py",
-    "scripts/phase3/delivery_mode_authority.py",
-    "scripts/phase3/delivery_report_rendering.py",
+    "scripts/phase3/dispatch_execution.py",
+    "scripts/phase3/dispatch_lane_bootstrap.py",
+    "scripts/phase3/dispatch_runtime.py",
     "scripts/phase3/esp_to_migration.py",
     "scripts/phase3/esp_to_openapi.py",
-    "scripts/phase3/execution_dispatch_state.py",
-    "scripts/phase3/execution_packet_access.py",
-    "scripts/phase3/execution_runtime_preflight.py",
+    "scripts/phase3/execution_loop_builder.py",
     "scripts/phase3/foundation_bootstrap.py",
     "scripts/phase3/foundation_mainline.py",
-    "scripts/phase3/frontend_contract_checks.py",
-    "scripts/phase3/frontend_implementation_scaffolder.py",
-    "scripts/phase3/generated_runtime_renderer.py",
-    "scripts/phase3/impl_action_cards.py",
-    "scripts/phase3/impl_context.py",
-    "scripts/phase3/impl_contract_pack.py",
-    "scripts/phase3/impl_db_schema.py",
-    "scripts/phase3/impl_verification_pack.py",
     "scripts/phase3/implementation_binding_tools.py",
     "scripts/phase3/mainline_assessment.py",
     "scripts/phase3/mainline_backend_execution.py",
+    "scripts/phase3/module_synthesis.py",
     "scripts/phase3/openapi_diff_checker.py",
     "scripts/phase3/openapi_to_types.py",
     "scripts/phase3/operable_surface_contract_metrics.py",
@@ -776,54 +339,39 @@
     "scripts/phase3/phase3_behavior_risk.py",
     "scripts/phase3/phase3_behavior_source_resolver.py",
     "scripts/phase3/phase3_delivery_gate.py",
-    "scripts/phase3/phase3_delivery_gate_full.py",
-    "scripts/phase3/phase3_first_version_runtime.py",
+    "scripts/phase3/phase3_dispatch_runner.py",
     "scripts/phase3/phase3_implementation_action_card_scaffolder.py",
     "scripts/phase3/phase3_implementation_scaffolder.py",
+    "scripts/phase3/phase3_operation_semantics.py",
     "scripts/phase3/phase3_project_scaffold.py",
+    "scripts/phase3/phase3_quality_check.py",
     "scripts/phase3/phase3_runtime_smoke.py",
     "scripts/phase3/phase3_stack_decision.py",
     "scripts/phase3/phase3_started_service_smoke.py",
     "scripts/phase3/phase3_toolchain_bootstrap.py",
     "scripts/phase3/post_execution_refresh.py",
+    "scripts/phase3/productness_gate.py",
     "scripts/phase3/project_implementation_conventions.py",
-    "scripts/phase3/project_scaffold_parts.py",
-    "scripts/phase3/renderer_common.py",
     "scripts/phase3/replay_test_scaffolder.py",
-    "scripts/phase3/review_support.py",
-    "scripts/phase3/run_impl.py",
-    "scripts/phase3/run_impl_action_cards.py",
-    "scripts/phase3/run_impl_api_docs.py",
-    "scripts/phase3/run_impl_backend.py",
-    "scripts/phase3/run_impl_db_schema.py",
-    "scripts/phase3/run_impl_foundation.py",
-    "scripts/phase3/run_impl_frontend.py",
-    "scripts/phase3/run_impl_verification.py",
+    "scripts/phase3/run_phase3_first_version.py",
     "scripts/phase3/run_vitest_targets_sequentially.py",
-    "scripts/phase3/runtime_cycle.py",
-    "scripts/phase3/runtime_verification_support.py",
+    "scripts/phase3/runtime_environment.py",
     "scripts/phase3/scenario_test_scaffolder.py",
     "scripts/phase3/schema_test_scaffolder.py",
     "scripts/phase3/security_audit.py",
     "scripts/phase3/sql_test_scaffolder.py",
     "scripts/phase3/surface_policy.py",
     "scripts/phase3/synthesis_boundary.py",
-    "scripts/phase3/test_scaffolder_common.py",
+    "scripts/phase3/test_obligation_matrix.py",
+    "scripts/phase3/test_richness_review.py",
     "scripts/phase3/test_trace_matrix_builder.py",
     "scripts/phase3/timing_report.py",
-    "scripts/phase3/trace_gap_checks.py",
     "scripts/phase3/trace_registry.py",
     "scripts/phase3/ui_locale.py",
-    "scripts/phase3/ui_locale_full.py",
-    "scripts/phase3/validation_levels.py",
-    "scripts/phase3/verification_backend_evidence.py",
-    "scripts/phase3/verification_execution.py",
-    "scripts/phase3/verification_ledger.py",
-    "scripts/phase3/verification_plan.py",
-    "scripts/phase3/worker_run_report.py",
+    "scripts/phase3/ui_prototype_fallback.py",
+    "scripts/phase3/worker_packet_runner.py",
     "scripts/phase3/wp_gate_cycle.py",
     "scripts/phase4/__init__.py",
-    "scripts/phase4/phase4_claim_control.py",
     "scripts/phase4/phase4_common.py",
     "scripts/phase4/phase4_output_contract.py",
     "scripts/phase4/phase4_stage1_planning.py",
@@ -833,42 +381,38 @@
     "scripts/phase4/run_p1_p4_mainline_closure.py",
     "scripts/phase4/run_phase4_first_version.py",
     "scripts/phasex/__init__.py",
-    "scripts/phasex/extract_mainline_reentry_packets.py",
-    "scripts/phasex/phasex_claim_routing.py",
     "scripts/phasex/scaffold_phasex_case.py",
     "scripts/phasex/validate_phasex_case.py",
-    "scripts/release/__init__.py",
-    "scripts/release/install_profile_manifest.py",
-    "scripts/release/reader_translation_artifact_acceptance.py",
-    "scripts/release/role_agent_manifest.py",
+    "scripts/release/bootstrap_mindthus_dependency.py",
     "scripts/release/run_reader_translation_lane.py",
-    "scripts/release/wff_agent.py",
+    "scripts/release/run_release_dual_case_eval.py",
     "scripts/release/wff_init.py"
   ],
   "included_skills": [
-    "skills/using-wff",
     "skills/wff-arch",
-    "skills/wff-base-reader-translation",
     "skills/wff-base-traceability-management",
     "skills/wff-help",
     "skills/wff-impl",
-    "skills/wff-impl-action-cards",
-    "skills/wff-impl-api-docs",
-    "skills/wff-impl-backend",
-    "skills/wff-impl-db-schema",
-    "skills/wff-impl-frontend",
-    "skills/wff-impl-handoff",
-    "skills/wff-impl-review",
-    "skills/wff-impl-security",
-    "skills/wff-impl-verification",
-    "skills/wff-project-context",
+    "skills/wff-impl-audit-security",
+    "skills/wff-impl-compose-verification-suites",
+    "skills/wff-impl-generate-api-docs",
+    "skills/wff-impl-implement-backend-api",
+    "skills/wff-impl-implement-frontend-web",
+    "skills/wff-impl-prepare-delivery-handoff",
+    "skills/wff-impl-review-code",
     "skills/wff-req",
     "skills/wff-req-chat",
-    "skills/wff-role-agents",
     "skills/wff-validation",
+    "skills/wff-validation-acceptance-planning",
+    "skills/wff-validation-closure-judgment",
+    "skills/wff-validation-evidence-execution",
     "skills/wff-x"
   ],
   "included_templates": [
+    "templates/acceptance-checklist.md",
+    "templates/test-coverage-explanation.md",
+    "templates/test-entry-exit-gate-checklist.md",
+    "templates/test-execution-control-template.md",
     "templates/testing-validation-planning-package.md"
   ],
   "included_top_level_dirs": [
@@ -878,11 +422,12 @@
     "runtime-deps",
     "scripts",
     "skills",
+    "sources",
     "templates"
   ],
   "official_release_eval_input_root": "",
-  "official_release_eval_script": "",
-  "pack_name": "wff-v1.5.3-skills-install-pack",
+  "official_release_eval_script": "scripts/release/run_release_dual_case_eval.py",
+  "pack_name": "wff-v1.3.17-skills-install-pack",
   "pack_type": "skills-install-pack",
   "phase1_script_surface": {
     "bundle_internal_compatibility_scripts": [
@@ -898,175 +443,51 @@
       "scripts/phase1/run_phase1_convergence.py",
       "scripts/phase1/run_phase1_full_trial.py"
     ],
-    "gate_authority": {
-      "scripts/phase1/phase1_artifact_consistency_gate.py": {
-        "claim_ceiling": "bundle-internal compatibility support evidence only; not canonical P1 closure",
-        "default_status": "compatibility-only",
-        "formal_p1_closure_authority": false,
-        "path": "scripts/phase1/phase1_artifact_consistency_gate.py",
-        "script_surface_role": "bundle-internal-compatibility",
-        "validation_profile": "compatibility"
-      },
-      "scripts/phase1/phase1_prd_analysis_delta_gate.py": {
-        "claim_ceiling": "bundle-internal compatibility support evidence only; not canonical P1 closure",
-        "default_status": "compatibility-only",
-        "formal_p1_closure_authority": false,
-        "path": "scripts/phase1/phase1_prd_analysis_delta_gate.py",
-        "script_surface_role": "bundle-internal-compatibility",
-        "validation_profile": "compatibility"
-      },
-      "scripts/phase1/phase1_prd_assembly_integrity_gate.py": {
-        "claim_ceiling": "bundle-internal compatibility support evidence only; not canonical P1 closure",
-        "default_status": "compatibility-only",
-        "formal_p1_closure_authority": false,
-        "path": "scripts/phase1/phase1_prd_assembly_integrity_gate.py",
-        "script_surface_role": "bundle-internal-compatibility",
-        "validation_profile": "compatibility"
-      },
-      "scripts/phase1/phase1_prd_executability_gate.py": {
-        "claim_ceiling": "P1 support gate evidence only; formal P1 closure requires the canonical P1 runner",
-        "default_status": "phase-support",
-        "formal_p1_closure_authority": false,
-        "path": "scripts/phase1/phase1_prd_executability_gate.py",
-        "script_surface_role": "canonical-mainline-gate-surface",
-        "validation_profile": "phase"
-      },
-      "scripts/phase1/phase1_prd_quality_gate.py": {
-        "claim_ceiling": "P1 support gate evidence only; formal P1 closure requires the canonical P1 runner",
-        "default_status": "phase-support",
-        "formal_p1_closure_authority": false,
-        "path": "scripts/phase1/phase1_prd_quality_gate.py",
-        "script_surface_role": "canonical-mainline-gate-surface",
-        "validation_profile": "phase"
-      },
-      "scripts/phase1/phase1_prd_section_scoring_gate.py": {
-        "claim_ceiling": "bundle-internal compatibility support evidence only; not canonical P1 closure",
-        "default_status": "compatibility-only",
-        "formal_p1_closure_authority": false,
-        "path": "scripts/phase1/phase1_prd_section_scoring_gate.py",
-        "script_surface_role": "bundle-internal-compatibility",
-        "validation_profile": "compatibility"
-      },
-      "scripts/phase1/phase1_stage_artifact_depth_gate.py": {
-        "claim_ceiling": "P1 support gate evidence only; formal P1 closure requires the canonical P1 runner",
-        "default_status": "phase-support",
-        "formal_p1_closure_authority": false,
-        "path": "scripts/phase1/phase1_stage_artifact_depth_gate.py",
-        "script_surface_role": "canonical-mainline-gate-surface",
-        "validation_profile": "phase"
-      },
-      "scripts/phase1/run_phase1_convergence.py": {
-        "claim_ceiling": "P1 phase closure evidence for the selected full-trial or convergence path under declared inputs",
-        "default_status": "default",
-        "formal_p1_closure_authority": true,
-        "path": "scripts/phase1/run_phase1_convergence.py",
-        "script_surface_role": "canonical-mainline-gate-surface",
-        "validation_profile": "phase"
-      },
-      "scripts/phase1/run_phase1_full_trial.py": {
-        "claim_ceiling": "P1 phase closure evidence for the selected full-trial or convergence path under declared inputs",
-        "default_status": "default",
-        "formal_p1_closure_authority": true,
-        "path": "scripts/phase1/run_phase1_full_trial.py",
-        "script_surface_role": "canonical-mainline-gate-surface",
-        "validation_profile": "phase"
-      }
-    },
-    "surface_truth_note": "Phase-1 canonical check surface is run_phase1_full_trial/run_phase1_convergence plus stage_depth/quality/executability; the four sub-checks remain install-pack-visible only as bundle-internal compatibility scripts."
+    "surface_truth_note": "Phase-1 canonical gate surface is run_phase1_full_trial/run_phase1_convergence plus stage_depth/quality/executability; the four sub-gates remain install-pack-visible only as bundle-internal compatibility scripts."
   },
-  "preview_tracks": [],
-  "profile_audience": "mixed-user-and-maintainer",
-  "profile_blockers": [],
-  "profile_capabilities": [
-    "usage-router",
-    "project-bootstrap-base",
-    "project-context-base",
-    "traceability-base",
-    "req-intake",
-    "phasex-brownfield-runtime",
-    "phase1-mainline",
-    "phase2-mainline",
-    "phase3-mainline",
-    "phase4-mainline",
-    "p3-worker-guidance",
-    "governance-core",
-    "reader-translation-lane",
-    "role-agent-companion"
+  "preview_tracks": [
+    "phasex"
   ],
-  "profile_claim": "default-full-pack",
-  "profile_excluded_scripts": [
-    "scripts/artifact_consistency/__init__.py",
-    "scripts/artifact_consistency/audit.py",
-    "scripts/artifact_consistency_audit.py",
-    "scripts/phase1/phase1_material_library_coverage_audit.py",
-    "scripts/phase1/phase1_prd_excellence_regression.py",
-    "scripts/phase1/phase1_skill_family_audit.py",
-    "scripts/phase1/record_phase1_runtime_snapshot.py",
-    "scripts/phase3/agentic_repair_loop.py",
-    "scripts/phase3/dispatch_execution.py",
-    "scripts/phase3/dispatch_runtime.py",
-    "scripts/phase3/phase3_dispatch_runner.py",
-    "scripts/phase3/runtime_environment.py",
-    "scripts/phase3/worker_packet_artifacts.py",
-    "scripts/phase3/worker_packet_runner.py",
-    "scripts/release/bootstrap_mindthus_dependency.py",
-    "scripts/release/run_release_dual_case_eval.py",
-    "scripts/phase3/run_phase3_first_version.py",
-    "scripts/phase2/run_phase2_full_trial.py"
-  ],
-  "profile_id": "full-pack",
-  "profile_layer": "install-profile",
-  "profile_manifest_path": "config/wff-install-profiles.json",
-  "profile_manifest_schema": "v1.4-install-profiles",
-  "profile_package_kind": "release-distribution-full-pack",
-  "profile_resource_modules": [
-    "generated-output-policy",
-    "wff-init-root-entrypoint",
-    "traceability-local-scripts",
-    "phasex-runtime-scripts",
-    "phasex-reference-package",
-    "phase1-runtime-scripts",
-    "phase1-release-gate-support-scripts",
-    "phase1-reference-package",
-    "phase2-runtime-scripts",
-    "phase2-reference-package",
-    "phase3-runtime-scripts",
-    "phase3-runtime-smoke-scripts",
-    "p3-mainline-runtime-closure-scripts",
-    "p3-impl-core-runtime",
-    "p3-impl-action-card-runtime",
-    "p3-impl-db-schema-runtime",
-    "p3-impl-api-docs-runtime",
-    "p3-impl-backend-runtime",
-    "p3-impl-frontend-runtime",
-    "p3-impl-verification-runtime",
-    "p3-impl-aggregate-runtime",
-    "p3-impl-foundation-runtime",
-    "p3-delivery-gate-core",
-    "p3-delivery-gate-full-sidecar-scripts",
-    "p3-delivery-assessment-sidecar-scripts",
-    "p3-delivery-support-sidecar-scripts",
-    "p3-scenario-replay-test-sidecar-scripts",
-    "phase3-reference-package",
-    "p3-worker-guidance-docs",
-    "phase4-runtime-scripts",
-    "phase4-reference-package",
-    "governance-docs",
-    "reader-translation-scripts",
-    "mindthus-runtime-dependency",
-    "role-agent-mounts",
-    "wff-agent-platform-adapter"
-  ],
-  "profile_root_entrypoints": [
-    "wff-init",
-    "wff-agent"
-  ],
-  "profile_status": "default",
-  "profile_target_package": "full-lifecycle",
-  "retired_public_stage_skills": [
-    "wff-validation-acceptance-planning",
-    "wff-validation-closure-judgment",
-    "wff-validation-evidence-execution"
-  ],
-  "source_revision": "9a00d94c96149a011092e182e28c79cfa5b3afb6"
+  "public_sanitization": {
+    "artifact_kind": "historical-public-runtime-sanitization",
+    "boundary": "Removed repo-internal, proof snapshot, release-case input, and web-source material that is not part of the public runtime repository boundary.",
+    "claim_boundary": "This is a public sanitized historical runtime artifact. It is not the original private/authoring release asset byte-for-byte and is not a current v1.5.3 proof snapshot.",
+    "removed_path_count": 29,
+    "removed_paths": [
+      "docs/internal/improvement-reports/stage-2-retrospective-and-optimization-v0.1.md",
+      "docs/internal/improvement-reports/v1.2-agent-looping-direction-history.md",
+      "docs/internal/improvement-reports/v1.2-business-depth-sufficiency-and-superpowers-inspired-agent-loop-v0.1.md",
+      "docs/internal/improvement-reports/v1.2-mainline-deliverables-and-backend-quality-bar-v0.1.md",
+      "docs/internal/source-registers/contract-spine-source-register-v0.1.md",
+      "docs/internal/source-registers/design-architecture-source-library-seed-v0.1.md",
+      "docs/internal/source-registers/design-architecture-stage-source-register-v0.1.md",
+      "docs/internal/source-registers/design-architecture-stage-source-unit-coverage-ledger-v0.1.md",
+      "docs/internal/source-registers/development-implementation-source-library-seed-v0.1.md",
+      "docs/internal/source-registers/development-stage-source-register-v0.2.md",
+      "docs/internal/source-registers/development-stage-source-unit-coverage-ledger-v0.1.md",
+      "docs/internal/source-registers/phase-1-document-library-template-unit-ledger-v0.1.md",
+      "docs/internal/source-registers/phase-1-source-unit-coverage-ledger-v0.1.md",
+      "docs/internal/source-registers/phaseX-source-library-seed-v0.1.md",
+      "docs/internal/source-registers/product-requirements-source-index.md",
+      "docs/internal/source-registers/source-coverage-audit-report-v0.1.md",
+      "docs/internal/source-registers/testing-validation-source-index-v0.1.md",
+      "docs/internal/source-registers/testing-validation-source-library-seed-v0.1.md",
+      "docs/internal/source-registers/testing-validation-source-register-v0.1.md",
+      "docs/internal/source-registers/testing-validation-source-unit-coverage-ledger-v0.1.md",
+      "release-cases/input-baselines/README.md",
+      "release-cases/input-baselines/geo-source-brief.md",
+      "release-cases/input-baselines/geo-source-brief.provenance.json",
+      "release-cases/input-baselines/petclinic-source-brief.md",
+      "release-cases/input-baselines/petclinic-source-brief.provenance.json",
+      "sources/web/testing-validation/acceptance-uat-checklist-notes.md",
+      "sources/web/testing-validation/closure-and-gate-notes.md",
+      "sources/web/testing-validation/defect-record-notes.md",
+      "sources/web/testing-validation/operator-runbook-notes.md"
+    ],
+    "schema_version": 1,
+    "source_release_zip": "wff-v1.3.17-skills-install-pack.zip",
+    "source_release_zip_sha256": "7b27074acd14db06e94abebd9c0f2d5e66fb45050524cd68280cb9abac3db40b",
+    "source_tag": "v1.3.17"
+  },
+  "source_revision": "abcc0798fa8f701d4ec258e26f83130515a57fe8"
 }

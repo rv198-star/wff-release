@@ -30,8 +30,6 @@ from urllib.parse import urlparse, urlunparse
 from common.host_port_allocator import allocate_host_ports, host_port_in_use
 from common.output_language import localize_phase3_runtime_smoke_report, resolve_output_locale
 from phase3.phase3_started_service_smoke import run_phase3_started_service_smoke
-from phase3.renderer_common import ascii_slug
-from phase3.review_support import support_gate_exit_code, write_json_report
 
 
 def write_text(path: Path, content: str) -> None:
@@ -39,10 +37,14 @@ def write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def slugify(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-") or "phase3-runtime-smoke"
+
+
 def workspace_identity_slug(workspace_root: Path) -> str:
     resolved = str(workspace_root.resolve())
     digest = hashlib.sha1(resolved.encode("utf-8")).hexdigest()[:8]
-    return f"{ascii_slug(workspace_root.name, fallback='phase3-runtime-smoke')}-{digest}"
+    return f"{slugify(workspace_root.name)}-{digest}"
 
 
 def completed_payload(command: list[str], completed: subprocess.CompletedProcess[str]) -> dict[str, Any]:
@@ -96,11 +98,6 @@ def command_has_transient_network_failure(payload: dict[str, Any]) -> bool:
     )
 
 
-def compose_output_is_v2_or_newer(value: str) -> bool:
-    match = re.search(r"(?:version\s+)?v?(\d+)(?:\.\d+)", value, re.IGNORECASE)
-    return bool(match and int(match.group(1)) >= 2)
-
-
 def detect_compose_command() -> list[str]:
     docker = shutil.which("docker")
     if docker:
@@ -110,20 +107,11 @@ def detect_compose_command() -> list[str]:
             capture_output=True,
             check=False,
         )
-        compose_output = completed.stdout.strip() or completed.stderr.strip()
-        if completed.returncode == 0 and compose_output_is_v2_or_newer(compose_output):
+        if completed.returncode == 0:
             return [docker, "compose"]
     docker_compose = shutil.which("docker-compose")
     if docker_compose:
-        completed = subprocess.run(
-            [docker_compose, "--version"],
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        compose_output = completed.stdout.strip() or completed.stderr.strip()
-        if completed.returncode == 0 and compose_output_is_v2_or_newer(compose_output):
-            return [docker_compose]
+        return [docker_compose]
     return []
 
 
@@ -229,27 +217,6 @@ def build_markdown(report: dict[str, Any], output_locale: str | None = None) -> 
         ]
     )
     return localize_phase3_runtime_smoke_report("\n".join(lines), output_locale)
-
-
-def compact_terminal_summary(report: dict[str, Any], output_path: Path) -> dict[str, Any]:
-    checks = report.get("checks", {})
-    return {
-        "verdict": report.get("verdict", "unknown"),
-        "overall_quality_gate": report.get("overall_quality_gate", "unknown"),
-        "output_path": str(output_path.resolve()),
-        "markdown_output_path": str(output_path.resolve().with_suffix(".md")),
-        "checks": {
-            "runtime_smoke_green": bool(checks.get("runtime_smoke_green", False)),
-            "image_build_passed": bool(checks.get("image_build_passed", False)),
-            "compose_up_passed": bool(checks.get("compose_up_passed", False)),
-            "migration_passed": bool(checks.get("migration_passed", False)),
-            "health_probe_passed": bool(checks.get("health_probe_passed", False)),
-            "readiness_probe_passed": bool(checks.get("readiness_probe_passed", False)),
-            "started_service_smoke_green": bool(checks.get("started_service_smoke_green", False)),
-        },
-        "failures": report.get("failures", []),
-        "warnings": report.get("warnings", []),
-    }
 
 
 def runtime_smoke_port_defaults(workspace_root: Path) -> dict[str, int]:
@@ -433,18 +400,6 @@ def run_phase3_runtime_smoke(
                 failures.append("docker_image_build_failed")
 
             if image_build_passed:
-                commands["migration"] = run_command(
-                    [*compose_command, "-p", project_name, "-f", str(compose_prod_path), "run", "--rm", "api", "pnpm", "migrate"],
-                    workspace_root,
-                    command_timeout_seconds,
-                    runtime_smoke_env,
-                )
-                migration_passed = bool(commands["migration"].get("passed"))
-                compose_started = True
-                if not migration_passed:
-                    failures.append("docker_migration_failed")
-
-            if migration_passed:
                 commands["compose_up"] = run_command(
                     [*compose_command, "-p", project_name, "-f", str(compose_prod_path), "up", "-d", "api"],
                     workspace_root,
@@ -452,8 +407,20 @@ def run_phase3_runtime_smoke(
                     runtime_smoke_env,
                 )
                 compose_up_passed = bool(commands["compose_up"].get("passed"))
+                compose_started = compose_up_passed
                 if not compose_up_passed:
                     failures.append("docker_compose_up_failed")
+
+            if compose_up_passed:
+                commands["migration"] = run_command(
+                    [*compose_command, "-p", project_name, "-f", str(compose_prod_path), "run", "--rm", "api", "pnpm", "migrate"],
+                    workspace_root,
+                    command_timeout_seconds,
+                    runtime_smoke_env,
+                )
+                migration_passed = bool(commands["migration"].get("passed"))
+                if not migration_passed:
+                    failures.append("docker_migration_failed")
 
             if compose_up_passed:
                 probes["healthz"] = wait_for_probe(
@@ -548,7 +515,7 @@ def run_phase3_runtime_smoke(
 
     if output_path is not None:
         output_path = output_path.resolve()
-        write_json_report(output_path, report)
+        write_text(output_path, json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
         write_text(output_path.with_suffix(".md"), build_markdown(report, output_locale))
     return report
 
@@ -564,11 +531,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-cleanup", action="store_true")
     parser.add_argument("--skip-started-service-smoke", action="store_true")
     parser.add_argument("--output-locale", default=resolve_output_locale())
-    parser.add_argument(
-        "--show-full-report",
-        action="store_true",
-        help="print the full runtime smoke JSON report to terminal; by default stdout is a compact summary",
-    )
     return parser
 
 
@@ -585,9 +547,8 @@ def main() -> int:
         output_locale=args.output_locale,
         run_started_service_smoke=not args.skip_started_service_smoke,
     )
-    terminal_payload = report if args.show_full_report else compact_terminal_summary(report, Path(args.output))
-    print(json.dumps(terminal_payload, ensure_ascii=False))
-    return support_gate_exit_code("verdict", report)
+    print(json.dumps(report, ensure_ascii=False))
+    return 0 if report["verdict"] == "pass" else 1
 
 
 if __name__ == "__main__":

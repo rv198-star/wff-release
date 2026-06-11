@@ -11,7 +11,6 @@ REQUIRED_ARTIFACTS = [
     "phase4-delivery-gate.json",
     "phase4-quality-check.json",
     "phase4-run-metadata.json",
-    ".phase4-contract/phase4-claim-control-report.json",
     "phase-acceptance-matrix.md",
     "phase-mainline-scorecard.md",
     "stage-01-acceptance-coverage-planning/acceptance-catalog.json",

@@ -537,7 +537,7 @@ dispatch-manifest.json
 
 **S04 不应发现功能性 bug** — 如果发现，说明 S02 的测试不够。此时应先补测试（回到 S02 纪律），再改实现。
 
-#### 3.4.1 Code Review (`wff-impl-review`)
+#### 3.4.1 Code Review (`wff-impl-review-code`)
 
 **定位**: 在已验证的代码上做结构性审查——不是验功能（那是测试的事），而是验质量。
 
@@ -553,7 +553,7 @@ dispatch-manifest.json
 
 产出: `code-review-report.md` + `code-review-metrics.json`
 
-#### 3.4.2 Security Audit (`wff-impl-security`)
+#### 3.4.2 Security Audit (`wff-impl-audit-security`)
 
 | 审计层 | 检查项 | 工具 |
 |---|---|---|
@@ -567,7 +567,7 @@ dispatch-manifest.json
 
 产出: `security-audit-report.md` + `security-audit-checklist.json`
 
-#### 3.4.3 API Documentation (`wff-impl-api-docs`)
+#### 3.4.3 API Documentation (`wff-impl-generate-api-docs`)
 
 **流程**:
 
@@ -640,21 +640,21 @@ wff-impl (入口 Skill)
   ├── [S01] 自身执行: 合约冻结 + 骨架生成
   │
   ├── [S02] 自身执行: 验证定义 (test-first)
-  │         调用: wff-impl-verification (测试框架 + fixture 设计)
+  │         调用: wff-impl-compose-verification-suites (测试框架 + fixture 设计)
   │
   ├── [S03] 编排:
-  │   ├── wff-impl-backend        (后端实现)
-  │   ├── wff-impl-frontend       (前端实现)
+  │   ├── wff-impl-implement-backend-api        (后端实现)
+  │   ├── wff-impl-implement-frontend-web       (前端实现)
   │   │   ├── [path-a] Figma2HTML   (有设计稿)
   │   │   └── [path-b] HTML2Code    (无设计稿)
   │   ├── dispatch runner           (optional lane；当前 ready queue 调度 / repeat-until-stalled loop)
   │   └── WP 循环控制 (WP-01 → WP-06 顺序)
   │
   └── [S04] 编排:
-      ├── wff-impl-review                 (代码审查)
-      ├── wff-impl-security              (安全审计)
-      ├── wff-impl-api-docs           (API 文档)
-      ├── wff-impl-handoff    (部署 + 验收 + 交接)
+      ├── wff-impl-review-code                 (代码审查)
+      ├── wff-impl-audit-security              (安全审计)
+      ├── wff-impl-generate-api-docs           (API 文档)
+      ├── wff-impl-prepare-delivery-handoff    (部署 + 验收 + 交接)
       └── orchestrator 汇总最终 formal state
 ```
 
@@ -663,13 +663,13 @@ wff-impl (入口 Skill)
 | Skill | Stage 归属 | 可独立执行 | 说明 |
 |---|---|---|---|
 | `wff-impl` | S01, S02, S04 | ✓ | 入口 Skill，编排全流程 |
-| `wff-impl-backend` | S03 | ✓ | 后端 API 实现（per WP 循环）|
-| `wff-impl-frontend` | S03 | ✓ | 前端实现（含 Figma2HTML + HTML2Code）|
-| `wff-impl-review` | S04 | ✓ | 代码审查 |
-| `wff-impl-security` | S04 | ✓ | 安全审计 |
-| `wff-impl-api-docs` | S04 | ✓ | API 文档生成 + 一致性验证 |
-| `wff-impl-handoff` | S04 | ✓ | 部署、验收、交接与 final delivery gate |
-| `wff-impl-verification` | S02 + S04 | ✓ | 测试框架 + 验收测试运行器 |
+| `wff-impl-implement-backend-api` | S03 | ✓ | 后端 API 实现（per WP 循环）|
+| `wff-impl-implement-frontend-web` | S03 | ✓ | 前端实现（含 Figma2HTML + HTML2Code）|
+| `wff-impl-review-code` | S04 | ✓ | 代码审查 |
+| `wff-impl-audit-security` | S04 | ✓ | 安全审计 |
+| `wff-impl-generate-api-docs` | S04 | ✓ | API 文档生成 + 一致性验证 |
+| `wff-impl-prepare-delivery-handoff` | S04 | ✓ | 部署、验收、交接与 final delivery gate |
+| `wff-impl-compose-verification-suites` | S02 + S04 | ✓ | 测试框架 + 验收测试运行器 |
 
 ### 4.3 Skill 目录布局
 
@@ -678,31 +678,31 @@ skills/
   wff-impl/
     SKILL.md
     agents/
-  wff-impl-backend/
+  wff-impl-implement-backend-api/
     SKILL.md
     agents/
-  wff-impl-frontend/
+  wff-impl-implement-frontend-web/
     SKILL.md
     templates/
       react-next/               # React + Next.js 模板
       vue-nuxt/                  # Vue 3 + Nuxt 模板
     agents/
-  wff-impl-review/
+  wff-impl-review-code/
     SKILL.md
     checklists/
       structure-consistency.yaml
       naming-consistency.yaml
     agents/
-  wff-impl-security/
+  wff-impl-audit-security/
     SKILL.md
     checklists/
       owasp-top10.yaml
       tenant-isolation.yaml
     agents/
-  wff-impl-api-docs/
+  wff-impl-generate-api-docs/
     SKILL.md
     agents/
-  wff-impl-verification/
+  wff-impl-compose-verification-suites/
     SKILL.md
     agents/
 ```
@@ -858,13 +858,13 @@ P3 内部追踪只允许追加实现/测试证据，不允许重启 trace 命名
 | 优先级 | Skill | 预计工时 | 理由 |
 |---|---|---|---|
 | **P0** | wff-impl | 4d | 入口 + S01/S02 执行 |
-| **P0** | wff-impl-verification | 3d | S02 依赖它定义测试框架 |
-| **P0** | wff-impl-backend | 4d | S03 核心 |
-| **P1** | wff-impl-frontend (HTML2Code) | 3d | S03 前端路径 B |
-| **P1** | wff-impl-review | 2d | S04 核心 |
-| **P1** | wff-impl-security | 2d | S04 核心 |
-| **P2** | wff-impl-api-docs | 1.5d | S04 辅助 |
-| **P3** | wff-impl-frontend (Figma2HTML) | 3d | 增强路径 A |
+| **P0** | wff-impl-compose-verification-suites | 3d | S02 依赖它定义测试框架 |
+| **P0** | wff-impl-implement-backend-api | 4d | S03 核心 |
+| **P1** | wff-impl-implement-frontend-web (HTML2Code) | 3d | S03 前端路径 B |
+| **P1** | wff-impl-review-code | 2d | S04 核心 |
+| **P1** | wff-impl-audit-security | 2d | S04 核心 |
+| **P2** | wff-impl-generate-api-docs | 1.5d | S04 辅助 |
+| **P3** | wff-impl-implement-frontend-web (Figma2HTML) | 3d | 增强路径 A |
 | **P3** | phase3-mobile-* | 5d+ | 可选 |
 
 ### 9.2 首轮验证计划

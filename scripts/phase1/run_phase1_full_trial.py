@@ -15,7 +15,6 @@ if str(SCRIPTS_ROOT) not in sys.path:
 
 import argparse
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -28,29 +27,19 @@ from typing import Any
 
 from common.output_language import localize_phase1_execution_report, resolve_output_locale
 from common.cross_phase_surface_policy import resolve_cross_phase_surface_path
-from common.human_review_surface import emit_human_review_surface
-from common.claim_control_runtime import (
-    CanonicalName,
-    ClaimRecord,
-    ClaimRelation,
-    accepted_claims_from_phase1_trace_units,
-    emit_path_b_claim_control_sidecar,
-)
 from phase1.phase1_emit_depth_runtime_artifacts import DEPTH_RUNTIME_SUMMARY_FILENAME, DEPTH_RUNTIME_TEXT_ARTIFACTS
-from phase1.phase1_gate_authority import SUPPRESS_COMPATIBILITY_WARNING_ENV
-from phase1.phase1_runtime_metadata import THINKING_VALUE_GAIN_OUTPUT_PROFILES, build_runtime_metadata_lines
-from phase1.phase1_trace_units import PHASE1_TRACE_UNIT_GROUP_ORDER, extract_phase1_trace_units
+from phase1.phase1_runtime_metadata import build_runtime_metadata_lines
 from phase1.phase1_version_contract import normalize_version_identifier
 
 
 def run(command: list[str]) -> None:
-    proc = subprocess.run(command, text=True, env=canonical_driver_env())
+    proc = subprocess.run(command, text=True)
     if proc.returncode != 0:
         raise SystemExit(proc.returncode)
 
 
 def run_allow_returncodes(command: list[str], allowed: tuple[int, ...]) -> int:
-    proc = subprocess.run(command, text=True, env=canonical_driver_env())
+    proc = subprocess.run(command, text=True)
     if proc.returncode not in allowed:
         raise SystemExit(proc.returncode)
     return proc.returncode
@@ -58,12 +47,6 @@ def run_allow_returncodes(command: list[str], allowed: tuple[int, ...]) -> int:
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def canonical_driver_env() -> dict[str, str]:
-    env = os.environ.copy()
-    env[SUPPRESS_COMPATIBILITY_WARNING_ENV] = "1"
-    return env
 
 
 def command_segment_name(command: list[str], fallback: str) -> str:
@@ -144,7 +127,7 @@ def write_phase1_timing_report(
 def run_timed(command: list[str], *, segments: list[dict[str, Any]], name: str | None = None) -> None:
     started_at = utc_now_iso()
     started_monotonic = time.monotonic()
-    proc = subprocess.run(command, text=True, env=canonical_driver_env())
+    proc = subprocess.run(command, text=True)
     status = "pass" if proc.returncode == 0 else "fail"
     append_timing_segment(
         segments,
@@ -168,7 +151,7 @@ def run_allow_returncodes_timed(
 ) -> int:
     started_at = utc_now_iso()
     started_monotonic = time.monotonic()
-    proc = subprocess.run(command, text=True, env=canonical_driver_env())
+    proc = subprocess.run(command, text=True)
     status = "pass" if proc.returncode in allowed else "fail"
     append_timing_segment(
         segments,
@@ -192,7 +175,7 @@ def run_captured_command_timed(
 ) -> subprocess.CompletedProcess[str]:
     started_at = utc_now_iso()
     started_monotonic = time.monotonic()
-    proc = subprocess.run(command, capture_output=True, text=True, env=canonical_driver_env())
+    proc = subprocess.run(command, capture_output=True, text=True)
     append_timing_segment(
         segments,
         name=name,
@@ -232,17 +215,10 @@ def write_draft_report(
     evidence: Path,
     depth_mode: str,
     thinking_value_gain_mode: str = "off",
-    thinking_value_gain_output_profile: str = "coverage_rich",
     output_locale: str | None = None,
     case_name: str = "phase-1-case",
 ) -> None:
-    metadata_lines = "\n".join(
-        build_runtime_metadata_lines(
-            depth_mode,
-            thinking_value_gain_mode=thinking_value_gain_mode,
-            thinking_value_gain_output_profile=thinking_value_gain_output_profile,
-        )
-    )
+    metadata_lines = "\n".join(build_runtime_metadata_lines(depth_mode, thinking_value_gain_mode=thinking_value_gain_mode))
     text = f"""# Phase-1 Execution Report
 
 ## 1. Run Metadata
@@ -291,7 +267,6 @@ class Phase1FullTrialContext:
     profile: str
     depth_mode: str
     thinking_value_gain_mode: str
-    thinking_value_gain_output_profile: str
     owner: str
     document_name: str
     output_locale: str
@@ -324,9 +299,6 @@ class Phase1FullTrialContext:
     excellence_md: Path
     excellence_json: Path
     timing_report: Path
-    prd_claim_input: Path
-    prd_claim_surface: Path
-    prd_claim_control: Path
 
 
 @dataclass(frozen=True)
@@ -352,12 +324,6 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("off", "full-use"),
         default="off",
         help="experimental Phase-1 Thinking Value-Gain strategy; full-use applies bounded value-gain to major P1 artifact units",
-    )
-    parser.add_argument(
-        "--thinking-value-gain-output-profile",
-        choices=THINKING_VALUE_GAIN_OUTPUT_PROFILES,
-        default="coverage_rich",
-        help="Mindthus TVG exit-side output profile when --thinking-value-gain-mode=full-use",
     )
     parser.add_argument("--owner", default="Codex Phase-1 full runner")
     parser.add_argument("--document-name", default="Phase-1 Product Requirements Document")
@@ -427,7 +393,6 @@ def build_phase1_full_trial_context(args: argparse.Namespace) -> Phase1FullTrial
         profile=str(args.profile),
         depth_mode=str(args.depth_mode),
         thinking_value_gain_mode=str(args.thinking_value_gain_mode),
-        thinking_value_gain_output_profile=str(args.thinking_value_gain_output_profile),
         owner=str(args.owner),
         document_name=str(args.document_name),
         output_locale=output_locale,
@@ -435,7 +400,7 @@ def build_phase1_full_trial_context(args: argparse.Namespace) -> Phase1FullTrial
         skip_stage_02b=bool(args.skip_stage_02b),
         max_rounds=max(1, int(args.max_rounds)),
         no_auto_remediate=bool(args.no_auto_remediate),
-        emit_legacy_zh_cn_mirror=bool(getattr(args, "emit_legacy_zh_cn_mirror", False)),
+        emit_legacy_zh_cn_mirror=bool(args.emit_legacy_zh_cn_mirror),
         commercial_argument_rewrite=Path(args.commercial_argument_rewrite).resolve() if args.commercial_argument_rewrite else None,
         narrative_compression_rewrite=Path(args.narrative_compression_rewrite).resolve() if args.narrative_compression_rewrite else None,
         case_name=case_name,
@@ -460,9 +425,6 @@ def build_phase1_full_trial_context(args: argparse.Namespace) -> Phase1FullTrial
         excellence_md=output_dir / "phase1-prd-excellence-regression.md",
         excellence_json=output_dir / "phase1-prd-excellence-regression.json",
         timing_report=resolve_cross_phase_surface_path(output_dir, "phase1", "phase1-timing-report.json"),
-        prd_claim_input=evidence_dir / f"{prd_stem}.claim-input.json",
-        prd_claim_surface=evidence_dir / f"{prd_stem}.claim-surface.json",
-        prd_claim_control=output_dir / f"{prd_stem}.claim-control.json",
     )
 
 
@@ -474,7 +436,6 @@ def print_phase1_full_trial_start(context: Phase1FullTrialContext) -> None:
     print(f"profile: {context.profile}")
     print(f"depth_mode: {context.depth_mode}")
     print(f"thinking_value_gain_mode: {context.thinking_value_gain_mode}")
-    print(f"thinking_value_gain_output_profile: {context.thinking_value_gain_output_profile}")
     print(f"skip_stage_02b: {'yes' if context.skip_stage_02b else 'no'}")
 
 
@@ -505,8 +466,6 @@ def build_phase1_deep_stage_command(context: Phase1FullTrialContext) -> list[str
         context.canonical_output_locale,
         "--thinking-value-gain-mode",
         context.thinking_value_gain_mode,
-        "--thinking-value-gain-output-profile",
-        context.thinking_value_gain_output_profile,
     ]
     if context.skip_stage_02b:
         command.append("--skip-stage-02b")
@@ -560,8 +519,6 @@ def build_phase1_assemble_prd_command(context: Phase1FullTrialContext) -> list[s
         context.document_name,
         "--output-locale",
         context.canonical_output_locale,
-        "--claim-input-output",
-        str(context.prd_claim_input),
     ]
 
 
@@ -623,8 +580,6 @@ def build_phase1_emit_depth_runtime_artifacts_command(context: Phase1FullTrialCo
         context.depth_mode,
         "--thinking-value-gain-mode",
         context.thinking_value_gain_mode,
-        "--thinking-value-gain-output-profile",
-        context.thinking_value_gain_output_profile,
         "--output-locale",
         context.canonical_output_locale,
     ]
@@ -648,8 +603,6 @@ def build_phase1_gate_command(context: Phase1FullTrialContext, *, output_json_pa
         context.depth_mode,
         "--thinking-value-gain-mode",
         context.thinking_value_gain_mode,
-        "--thinking-value-gain-output-profile",
-        context.thinking_value_gain_output_profile,
         "--max-rounds",
         str(context.max_rounds),
         "--require-non-shrinking",
@@ -703,8 +656,6 @@ def build_phase1_execution_report_command(context: Phase1FullTrialContext, *, ga
         context.depth_mode,
         "--thinking-value-gain-mode",
         context.thinking_value_gain_mode,
-        "--thinking-value-gain-output-profile",
-        context.thinking_value_gain_output_profile,
         "--run-owner",
         context.owner,
         "--gate-json",
@@ -765,58 +716,6 @@ def build_phase1_prd_excellence_regression_command(context: Phase1FullTrialConte
     ]
 
 
-def append_optional_step_skip(
-    segments: list[dict[str, Any]] | None,
-    *,
-    name: str,
-    command: list[str],
-) -> None:
-    if segments is None:
-        return
-    append_timing_segment(
-        segments,
-        name=name,
-        started_at=utc_now_iso(),
-        started_monotonic=time.monotonic(),
-        status="skipped-not-bundled",
-        command=command,
-        returncode=0,
-    )
-
-
-def run_phase1_runtime_snapshot_if_available(
-    context: Phase1FullTrialContext,
-    *,
-    segments: list[dict[str, Any]] | None = None,
-) -> bool:
-    command = build_record_phase1_runtime_snapshot_command(context)
-    if not (context.script_dir / "record_phase1_runtime_snapshot.py").exists():
-        append_optional_step_skip(segments, name="runtime_snapshot", command=command)
-        return False
-    if segments is None:
-        run(command)
-    else:
-        run_timed(command, segments=segments, name="runtime_snapshot")
-    return True
-
-
-def run_phase1_prd_excellence_regression_if_available(
-    context: Phase1FullTrialContext,
-    *,
-    segments: list[dict[str, Any]] | None = None,
-) -> bool:
-    scorer_path = context.script_dir / "phase1_prd_excellence_regression.py"
-    command = build_phase1_prd_excellence_regression_command(context)
-    if not scorer_path.exists():
-        append_optional_step_skip(segments, name="prd_excellence_regression", command=command)
-        return False
-    if segments is None:
-        run(command)
-    else:
-        run_timed(command, segments=segments, name="prd_excellence_regression")
-    return True
-
-
 def phase1_main_stage_commands(context: Phase1FullTrialContext) -> list[list[str]]:
     if context.commercial_argument_rewrite and context.commercial_argument_rewrite.exists():
         shutil.copyfile(context.commercial_argument_rewrite, context.output_dir / "commercial-argument-rewrite.json")
@@ -826,6 +725,7 @@ def phase1_main_stage_commands(context: Phase1FullTrialContext) -> list[list[str
             context.output_dir / "prd-narrative-compression-rewrite.json",
         )
     commands = [
+        build_record_phase1_runtime_snapshot_command(context),
         build_phase1_deep_stage_command(context),
         build_phase1_stage_artifact_depth_gate_command(context),
         build_phase1_assemble_prd_command(context),
@@ -855,7 +755,6 @@ def write_phase1_draft_report(context: Phase1FullTrialContext) -> None:
         evidence=context.evidence,
         depth_mode=context.depth_mode,
         thinking_value_gain_mode=context.thinking_value_gain_mode,
-        thinking_value_gain_output_profile=context.thinking_value_gain_output_profile,
         output_locale=context.output_locale,
         case_name=context.case_name,
     )
@@ -890,15 +789,18 @@ def run_phase1_gate_and_refresh_report(
 
 
 def run_captured_command(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, capture_output=True, text=True, env=canonical_driver_env())
+    return subprocess.run(command, capture_output=True, text=True)
 
 
 def run_phase1_skill_family_audit(context: Phase1FullTrialContext, *, segments: list[dict[str, Any]] | None = None) -> None:
-    command = build_phase1_skill_family_audit_command(context)
     audit_proc = (
-        run_captured_command_timed(command, segments=segments, name="skill_family_audit")
+        run_captured_command_timed(
+            build_phase1_skill_family_audit_command(context),
+            segments=segments,
+            name="skill_family_audit",
+        )
         if segments is not None
-        else run_captured_command(command)
+        else run_captured_command(build_phase1_skill_family_audit_command(context))
     )
     context.family_audit.write_text((audit_proc.stdout or "") + (audit_proc.stderr or ""), encoding="utf-8")
     if audit_proc.returncode != 0:
@@ -907,25 +809,15 @@ def run_phase1_skill_family_audit(context: Phase1FullTrialContext, *, segments: 
         raise SystemExit(audit_proc.returncode)
 
 
-def run_phase1_skill_family_audit_if_available(
-    context: Phase1FullTrialContext,
-    *,
-    segments: list[dict[str, Any]] | None = None,
-) -> bool:
-    command = build_phase1_skill_family_audit_command(context)
-    if not (context.script_dir / "phase1_skill_family_audit.py").exists():
-        append_optional_step_skip(segments, name="skill_family_audit", command=command)
-        return False
-    run_phase1_skill_family_audit(context, segments=segments)
-    return True
-
-
 def run_phase1_material_library_audit(context: Phase1FullTrialContext, *, segments: list[dict[str, Any]] | None = None) -> None:
-    command = build_phase1_material_library_audit_command(context)
     material_proc = (
-        run_captured_command_timed(command, segments=segments, name="material_library_audit")
+        run_captured_command_timed(
+            build_phase1_material_library_audit_command(context),
+            segments=segments,
+            name="material_library_audit",
+        )
         if segments is not None
-        else run_captured_command(command)
+        else run_captured_command(build_phase1_material_library_audit_command(context))
     )
     if material_proc.stdout:
         print(material_proc.stdout)
@@ -935,407 +827,17 @@ def run_phase1_material_library_audit(context: Phase1FullTrialContext, *, segmen
         raise SystemExit(material_proc.returncode)
 
 
-def run_phase1_material_library_audit_if_available(
-    context: Phase1FullTrialContext,
-    *,
-    segments: list[dict[str, Any]] | None = None,
-) -> bool:
-    command = build_phase1_material_library_audit_command(context)
-    if not (context.script_dir / "phase1_material_library_coverage_audit.py").exists():
-        append_optional_step_skip(segments, name="material_library_audit", command=command)
-        return False
-    run_phase1_material_library_audit(context, segments=segments)
-    return True
-
-
 def run_phase1_postrun_audits(context: Phase1FullTrialContext, *, segments: list[dict[str, Any]] | None = None) -> None:
-    run_phase1_skill_family_audit_if_available(context, segments=segments)
-    run_phase1_material_library_audit_if_available(context, segments=segments)
-    run_phase1_prd_excellence_regression_if_available(context, segments=segments)
-
-
-def _phase1_claim_source_candidates(context: Phase1FullTrialContext) -> list[Path]:
-    return [
-        context.stage_02b,
-        context.stage_03,
-        context.stage_04,
-        context.stage_02a,
-        context.stage_01,
-        context.source,
-    ]
-
-
-def _read_existing_text(path: Path) -> str:
-    if not path.exists() or not path.is_file():
-        return ""
-    return path.read_text(encoding="utf-8", errors="ignore")
-
-
-def _unique_claim_records(claims: list[ClaimRecord]) -> list[ClaimRecord]:
-    indexed: dict[str, ClaimRecord] = {}
-    for claim in claims:
-        claim_id = str(claim.id).strip()
-        if claim_id and claim_id not in indexed:
-            indexed[claim_id] = claim
-    return [indexed[key] for key in sorted(indexed)]
-
-
-def _phase1_claim_input_payload(context: Phase1FullTrialContext) -> dict[str, Any]:
-    if not context.prd_claim_input.exists():
-        return {}
-    try:
-        payload = json.loads(context.prd_claim_input.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def _trace_units_from_claim_input(payload: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
-    trace_units = payload.get("trace_units")
-    if not isinstance(trace_units, dict):
-        return {}
-    normalized: dict[str, list[dict[str, Any]]] = {}
-    for group in PHASE1_TRACE_UNIT_GROUP_ORDER:
-        rows = trace_units.get(group, [])
-        if not isinstance(rows, list):
-            continue
-        normalized[group] = [row for row in rows if isinstance(row, dict)]
-    return normalized
-
-
-def _claim_records_from_claim_input(
-    context: Phase1FullTrialContext,
-) -> tuple[list[ClaimRecord], list[dict[str, Any]], set[str]]:
-    payload = _phase1_claim_input_payload(context)
-    trace_units = _trace_units_from_claim_input(payload)
-    if not trace_units:
-        return [], [], set()
-    claims: list[ClaimRecord] = []
-    source_rows: list[dict[str, Any]] = []
-    compiled_groups: set[str] = set()
-    for group in PHASE1_TRACE_UNIT_GROUP_ORDER:
-        rows = trace_units.get(group, [])
-        if not rows:
-            continue
-        claims.extend(
-            accepted_claims_from_phase1_trace_units(
-                {group: rows},
-                source_label=context.prd_claim_input.name,
-            )
+    run_phase1_skill_family_audit(context, segments=segments)
+    run_phase1_material_library_audit(context, segments=segments)
+    if segments is None:
+        run(build_phase1_prd_excellence_regression_command(context))
+    else:
+        run_timed(
+            build_phase1_prd_excellence_regression_command(context),
+            segments=segments,
+            name="prd_excellence_regression",
         )
-        compiled_groups.add(group)
-        source_rows.append(
-            {
-                "claim_group": group,
-                "source_path": str(context.prd_claim_input),
-                "source_name": context.prd_claim_input.name,
-                "claim_count": len(rows),
-                "source_mode": "phase1-prd-assembly-claim-input",
-            }
-        )
-    return _unique_claim_records(claims), source_rows, compiled_groups
-
-
-def _claim_records_from_source_contexts(
-    context: Phase1FullTrialContext,
-    *,
-    prd_text: str,
-) -> tuple[list[ClaimRecord], list[dict[str, Any]], list[dict[str, Any]]]:
-    claims, source_rows, compiled_groups = _claim_records_from_claim_input(context)
-    candidates = _phase1_claim_source_candidates(context)
-    for group in PHASE1_TRACE_UNIT_GROUP_ORDER:
-        if group in compiled_groups:
-            continue
-        for path in candidates:
-            text = _read_existing_text(path)
-            if not text:
-                continue
-            rows = extract_phase1_trace_units(text).get(group, [])
-            if not rows:
-                continue
-            claims.extend(
-                accepted_claims_from_phase1_trace_units(
-                    {group: rows},
-                    source_label=path.name,
-                )
-            )
-            compiled_groups.add(group)
-            source_rows.append(
-                {
-                    "claim_group": group,
-                    "source_path": str(path),
-                    "source_name": path.name,
-                    "claim_count": len(rows),
-                    "source_mode": "phase1-source-context",
-                }
-            )
-            break
-    compatibility_rows: list[dict[str, Any]] = []
-    prd_trace_units = extract_phase1_trace_units(prd_text)
-    for group in PHASE1_TRACE_UNIT_GROUP_ORDER:
-        if group in compiled_groups:
-            continue
-        rows = prd_trace_units.get(group, [])
-        if not rows:
-            continue
-        claims.extend(
-            accepted_claims_from_phase1_trace_units(
-                {group: rows},
-                source_label=context.prd.name,
-            )
-        )
-        compatibility_rows.append(
-            {
-                "claim_group": group,
-                "source_path": str(context.prd),
-                "source_name": context.prd.name,
-                "claim_count": len(rows),
-                "source_mode": "compatibility-rendered-prd",
-            }
-        )
-    return _unique_claim_records(claims), source_rows, compatibility_rows
-
-
-def _flow_claims_from_source_contexts(
-    context: Phase1FullTrialContext,
-    *,
-    prd_text: str,
-) -> tuple[list[ClaimRecord], list[dict[str, Any]], list[dict[str, Any]]]:
-    payload = _phase1_claim_input_payload(context)
-    flow_text = str(payload.get("flow_text") or "").strip() if payload else ""
-    if flow_text:
-        claims = _phase1_flow_claims(
-            f"### Operational Flow Specification\n{flow_text}",
-            source_label=context.prd_claim_input.name,
-        )
-        if claims:
-            return (
-                claims,
-                [
-                    {
-                        "claim_group": "workflow_flow_claims",
-                        "source_path": str(context.prd_claim_input),
-                        "source_name": context.prd_claim_input.name,
-                        "claim_count": len(claims),
-                        "source_mode": "phase1-prd-assembly-claim-input",
-                    }
-                ],
-                [],
-            )
-    source_rows: list[dict[str, Any]] = []
-    for path in _phase1_claim_source_candidates(context):
-        text = _read_existing_text(path)
-        if not text:
-            continue
-        claims = _phase1_flow_claims(text, source_label=path.name)
-        if claims:
-            source_rows.append(
-                {
-                    "claim_group": "workflow_flow_claims",
-                    "source_path": str(path),
-                    "source_name": path.name,
-                    "claim_count": len(claims),
-                    "source_mode": "phase1-source-context",
-                }
-            )
-            return claims, source_rows, []
-    claims = _phase1_flow_claims(prd_text, source_label=context.prd.name)
-    if not claims:
-        return [], [], []
-    return (
-        claims,
-        [],
-        [
-            {
-                "claim_group": "workflow_flow_claims",
-                "source_path": str(context.prd),
-                "source_name": context.prd.name,
-                "claim_count": len(claims),
-                "source_mode": "compatibility-rendered-prd",
-            }
-        ],
-    )
-
-
-def _phase1_prd_claim_surface_payload(context: Phase1FullTrialContext, *, prd_text: str) -> dict[str, Any]:
-    trace_claims, trace_source_rows, trace_compatibility_rows = _claim_records_from_source_contexts(
-        context,
-        prd_text=prd_text,
-    )
-    flow_claims, flow_source_rows, compatibility_rows = _flow_claims_from_source_contexts(context, prd_text=prd_text)
-    claims = _unique_claim_records([*trace_claims, *flow_claims])
-    relations = _phase1_flow_transition_relations(flow_claims)
-    names = _phase1_flow_canonical_names(flow_claims)
-    source_rows = [*trace_source_rows, *flow_source_rows]
-    compatibility_rows = [*trace_compatibility_rows, *compatibility_rows]
-    compilation_status = "compiled-with-compatibility-fallback" if compatibility_rows else "compiled"
-    if not claims:
-        compilation_status = "empty"
-    return {
-        "artifact_kind": "phase1-prd-claim-surface",
-        "version": "phase1-prd-claim-surface/v0.1",
-        "artifact_id": "p1-prd-main",
-        "authority_mode": "phase1-compiled-claim-surface",
-        "compilation_status": compilation_status,
-        "claim_surface_path": str(context.prd_claim_surface),
-        "source_context_paths": sorted({row["source_path"] for row in source_rows}),
-        "compatibility_source_paths": sorted({row["source_path"] for row in compatibility_rows}),
-        "source_rows": source_rows,
-        "compatibility_rows": compatibility_rows,
-        "claims": [claim.to_dict() for claim in claims],
-        "relations": [relation.to_dict() for relation in relations],
-        "names": [name.to_dict() for name in names],
-    }
-
-
-def build_phase1_prd_claim_surface(context: Phase1FullTrialContext, *, prd_text: str) -> dict[str, Any]:
-    payload = _phase1_prd_claim_surface_payload(context, prd_text=prd_text)
-    context.prd_claim_surface.parent.mkdir(parents=True, exist_ok=True)
-    context.prd_claim_surface.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return payload
-
-
-def _claims_from_claim_surface(surface: dict[str, Any]) -> list[ClaimRecord]:
-    claims: list[ClaimRecord] = []
-    for row in surface.get("claims", []):
-        if not isinstance(row, dict):
-            continue
-        claim_id = str(row.get("id") or "").strip()
-        if not claim_id:
-            continue
-        claims.append(
-            ClaimRecord(
-                id=claim_id,
-                kind=str(row.get("kind") or "claim").strip() or "claim",
-                text=str(row.get("text") or claim_id).strip() or claim_id,
-                source_refs=[str(item).strip() for item in row.get("source_refs", []) if str(item).strip()],
-                status=str(row.get("status") or "accepted").strip() or "accepted",
-            )
-        )
-    return claims
-
-
-def _relations_from_claim_surface(surface: dict[str, Any]) -> list[ClaimRelation]:
-    relations: list[ClaimRelation] = []
-    for row in surface.get("relations", []):
-        if not isinstance(row, dict):
-            continue
-        subject = str(row.get("subject") or "").strip()
-        predicate = str(row.get("predicate") or "").strip()
-        object_id = str(row.get("object") or "").strip()
-        if not subject or not predicate or not object_id:
-            continue
-        relations.append(
-            ClaimRelation(
-                subject=subject,
-                predicate=predicate,
-                object=object_id,
-                source_claim_refs=[str(item).strip() for item in row.get("source_claim_refs", []) if str(item).strip()],
-            )
-        )
-    return relations
-
-
-def _names_from_claim_surface(surface: dict[str, Any]) -> list[CanonicalName]:
-    names: list[CanonicalName] = []
-    for row in surface.get("names", []):
-        if not isinstance(row, dict):
-            continue
-        claim_id = str(row.get("id") or "").strip()
-        canonical = str(row.get("canonical") or "").strip()
-        if not claim_id or not canonical:
-            continue
-        names.append(
-            CanonicalName(
-                id=claim_id,
-                canonical=canonical,
-                allowed_aliases=[str(item).strip() for item in row.get("allowed_aliases", []) if str(item).strip()],
-                forbidden_aliases=[str(item).strip() for item in row.get("forbidden_aliases", []) if str(item).strip()],
-            )
-        )
-    return names
-
-
-def emit_phase1_claim_control_sidecar(context: Phase1FullTrialContext) -> dict[str, Any]:
-    """Emit the Path B claim-control sidecar for the generated PRD."""
-
-    prd_text = context.prd.read_text(encoding="utf-8")
-    claim_surface = build_phase1_prd_claim_surface(context, prd_text=prd_text)
-    claims = _claims_from_claim_surface(claim_surface)
-    flow_relations = _relations_from_claim_surface(claim_surface)
-    flow_names = _names_from_claim_surface(claim_surface)
-    return emit_path_b_claim_control_sidecar(
-        artifact_path=context.prd,
-        artifact_id="p1-prd-main",
-        claims=claims,
-        view_id="p1-prd:main-document",
-        source_count=2,
-        upstream_surface_paths=[context.source, context.prd_claim_surface],
-        sidecar_path=context.prd_claim_control,
-        relations=flow_relations,
-        canonical_names=flow_names,
-        claim_authority={
-            "authority_mode": claim_surface["authority_mode"],
-            "compilation_status": claim_surface["compilation_status"],
-            "claim_surface_path": str(context.prd_claim_surface),
-            "source_context_paths": claim_surface["source_context_paths"],
-            "compatibility_source_paths": claim_surface["compatibility_source_paths"],
-            "policy": "P1 sidecar consumes the compiled claim surface first; rendered PRD is a validation target, not the claim source.",
-        },
-    )
-
-
-def _phase1_flow_claims(prd_text: str, *, source_label: str) -> list[ClaimRecord]:
-    flow_block = _heading_section(
-        prd_text,
-        ("Operational Flow Specification", "操作流程规格"),
-    )
-    claims: list[ClaimRecord] = []
-    seen: set[str] = set()
-    for line in flow_block.splitlines():
-        match = re.search(r"\b(FLOW-\d+)\b\s*[:|-]?\s*(.+?)\s*$", line.strip())
-        if not match:
-            continue
-        claim_id = match.group(1).strip()
-        if claim_id in seen:
-            continue
-        seen.add(claim_id)
-        text = match.group(2).strip(" .") or claim_id
-        claims.append(
-            ClaimRecord(
-                id=claim_id,
-                kind="workflow_step",
-                text=text,
-                source_refs=[f"{source_label}#operational-flow-specification"],
-            )
-        )
-    return claims
-
-
-def _phase1_flow_transition_relations(flow_claims: list[ClaimRecord]) -> list[ClaimRelation]:
-    return [
-        ClaimRelation(subject=left.id, predicate="transitions_to", object=right.id)
-        for left, right in zip(flow_claims, flow_claims[1:])
-    ]
-
-
-def _phase1_flow_canonical_names(flow_claims: list[ClaimRecord]) -> list[CanonicalName]:
-    return [
-        CanonicalName(
-            id=claim.id,
-            canonical=str(claim.text or claim.id).strip(" .") or claim.id,
-        )
-        for claim in flow_claims
-    ]
-
-
-def _heading_section(text: str, titles: tuple[str, ...]) -> str:
-    title_pattern = "|".join(re.escape(title) for title in titles)
-    match = re.search(rf"(?ims)^###\s*(?:{title_pattern}).*?\n(?P<body>.*?)(?=^###\s+|\Z)", text)
-    return match.group("body") if match else ""
 
 
 def load_phase1_gate_payload(context: Phase1FullTrialContext) -> dict[str, Any] | None:
@@ -1369,7 +871,6 @@ def run_phase1_full_trial(context: Phase1FullTrialContext) -> Phase1FullTrialRes
     timing_started_monotonic = time.monotonic()
     timing_segments: list[dict[str, Any]] = []
     try:
-        run_phase1_runtime_snapshot_if_available(context, segments=timing_segments)
         for command in phase1_main_stage_commands(context):
             run_timed(command, segments=timing_segments, name=command_segment_name(command, "phase1_step"))
 
@@ -1396,26 +897,6 @@ def run_phase1_full_trial(context: Phase1FullTrialContext) -> Phase1FullTrialRes
             label_prefix="final_",
         )
         run_phase1_postrun_audits(context, segments=timing_segments)
-        started_at = utc_now_iso()
-        started_monotonic = time.monotonic()
-        emit_phase1_claim_control_sidecar(context)
-        append_timing_segment(
-            timing_segments,
-            name="claim_control_sidecar",
-            started_at=started_at,
-            started_monotonic=started_monotonic,
-            status="pass",
-        )
-        started_at = utc_now_iso()
-        started_monotonic = time.monotonic()
-        emit_human_review_surface(context.output_dir, "phase1")
-        append_timing_segment(
-            timing_segments,
-            name="human_review_surface",
-            started_at=started_at,
-            started_monotonic=started_monotonic,
-            status="pass",
-        )
         return Phase1FullTrialResult(
             draft_gate_code=draft_gate_code,
             final_gate_code=final_gate_code,
@@ -1441,22 +922,11 @@ def emit_phase1_full_trial_summary(context: Phase1FullTrialContext, result: Phas
         print(f"depth_runtime_artifact: {context.output_dir / artifact_name}")
     print(f"depth_runtime_summary: {context.depth_runtime_summary}")
     print(f"execution_report: {context.report}")
-    print(f"human_review_index: {context.output_dir / 'human-review' / 'INDEX.md'}")
     print(f"convergence_json: {context.gate_json_final}")
     emit_phase1_gate_summary(load_phase1_gate_payload(context))
-    if context.family_audit.exists():
-        print(f"skill_family_audit: {context.family_audit}")
-    else:
-        print("skill_family_audit: not-bundled optional release/development evidence")
-    if context.material_audit_md.exists() or context.material_audit_json.exists():
-        print(f"material_library_audit: {context.material_audit_md}")
-    else:
-        print("material_library_audit: not-bundled optional release/development evidence")
-    if context.excellence_md.exists() or context.excellence_json.exists():
-        print(f"prd_excellence_regression: {context.excellence_md}")
-    else:
-        print("prd_excellence_regression: not-bundled optional release/development evidence")
-    print(f"prd_claim_control: {context.prd_claim_control}")
+    print(f"skill_family_audit: {context.family_audit}")
+    print(f"material_library_audit: {context.material_audit_md}")
+    print(f"prd_excellence_regression: {context.excellence_md}")
     print(f"timing_report: {context.timing_report}")
     if result.draft_gate_code != 0 or result.final_gate_code != 0:
         print("FINAL: BLOCKED")

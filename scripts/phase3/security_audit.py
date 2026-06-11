@@ -20,15 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from common.output_language import localize_phase3_security_audit_report, resolve_output_locale
-from phase3.review_support import (
-    emit_review_artifacts,
-    finding_severity_counts,
-    load_json,
-    load_json_if_exists,
-    read_text_if_exists,
-    render_review_report_markdown,
-    support_gate_exit_code,
-)
+from phase3.surface_policy import write_phase3_profiled_surface
 
 
 PLACEHOLDER_PATTERNS = (
@@ -37,10 +29,35 @@ PLACEHOLDER_PATTERNS = (
 )
 
 
+def load_json(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"expected JSON object at {path}")
+    return payload
+
+
+def write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
 def text_contains(path: Path, pattern: str) -> bool:
     if not path.exists():
         return False
     return pattern in path.read_text(encoding="utf-8")
+
+
+def read_text_if_exists(path: Path) -> str:
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8")
+
+
+def load_json_if_exists(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else None
 
 
 def contains_placeholder_content(text: str) -> bool:
@@ -333,7 +350,10 @@ def analyze_phase3_security(
 
     report = {
         "summary": {
-            **finding_severity_counts(findings),
+            "critical_findings": sum(1 for row in findings if row["severity"] == "critical"),
+            "high_findings": sum(1 for row in findings if row["severity"] == "high"),
+            "medium_findings": sum(1 for row in findings if row["severity"] == "medium"),
+            "low_findings": sum(1 for row in findings if row["severity"] == "low"),
             "checked_test_surface_count": len(list_test_paths(output_dir)),
             "preferred_auth_vendor": extract_preferred_vendor(tech_stack_text),
             "auth_downgrade_findings": 1 if auth_downgrade_detected else 0,
@@ -354,38 +374,44 @@ def analyze_phase3_security(
 def build_report_markdown(report: dict[str, Any], output_locale: str | None = None) -> str:
     checks = report.get("checks", {})
     findings = report.get("findings", [])
-    summary = report["summary"]
-    report_markdown = render_review_report_markdown(
-        title="Phase-3 Security Audit Report",
-        summary_lines=[
-            f"- critical_findings: {summary['critical_findings']}",
-            f"- high_findings: {summary['high_findings']}",
-            f"- preferred_auth_vendor: {summary['preferred_auth_vendor'] or 'not-defined'}",
-        ],
-        check_lines=[
-            f"- auth_vendor_selected: {checks.get('auth_vendor_selected', False)}",
-            f"- declared_oidc_or_oauth2: {checks.get('declared_oidc_or_oauth2', False)}",
-            f"- external_auth_contract_required: {checks.get('external_auth_contract_required', False)}",
-            f"- auth_contract_source: {checks.get('auth_contract_source', '') or 'not-defined'}",
-            f"- auth_integration_mode: {checks.get('auth_integration_mode', '') or 'not-defined'}",
-            f"- real_auth_library_present: {checks.get('real_auth_library_present', False)}",
-            f"- real_external_auth_library_present: {checks.get('real_external_auth_library_present', False)}",
-            f"- custom_header_auth_substitution_detected: {checks.get('custom_header_auth_substitution_detected', False)}",
-            f"- custom_header_auth_context_guarded: {checks.get('custom_header_auth_context_guarded', False)}",
-            f"- controlled_test_auth_context_channel: {checks.get('controlled_test_auth_context_channel', False)}",
-            f"- header_stub_only_detected: {checks.get('header_stub_only_detected', False)}",
-            f"- auth_downgrade_detected: {checks.get('auth_downgrade_detected', False)}",
-            f"- oidc_secret_placeholder_present: {checks.get('oidc_secret_placeholder_present', False)}",
-            f"- oidc_issuer_placeholder_present: {checks.get('oidc_issuer_placeholder_present', False)}",
-            f"- oidc_client_id_placeholder_present: {checks.get('oidc_client_id_placeholder_present', False)}",
-            f"- tenant_isolation_verification_present: {checks.get('tenant_isolation_verification_present', False)}",
-            f"- audit_surface_present: {checks.get('audit_surface_present', False)}",
-            f"- auth_surface_present: {checks.get('auth_surface_present', False)}",
-            f"- error_envelope_present: {checks.get('error_envelope_present', False)}",
-        ],
-        findings=findings,
-    )
-    return localize_phase3_security_audit_report(report_markdown, output_locale)
+    lines = [
+        "# Phase-3 Security Audit Report",
+        "",
+        "## Summary",
+        f"- critical_findings: {report['summary']['critical_findings']}",
+        f"- high_findings: {report['summary']['high_findings']}",
+        f"- preferred_auth_vendor: {report['summary']['preferred_auth_vendor'] or 'not-defined'}",
+        "",
+        "## Checks",
+        f"- auth_vendor_selected: {checks.get('auth_vendor_selected', False)}",
+        f"- declared_oidc_or_oauth2: {checks.get('declared_oidc_or_oauth2', False)}",
+        f"- external_auth_contract_required: {checks.get('external_auth_contract_required', False)}",
+        f"- auth_contract_source: {checks.get('auth_contract_source', '') or 'not-defined'}",
+        f"- auth_integration_mode: {checks.get('auth_integration_mode', '') or 'not-defined'}",
+        f"- real_auth_library_present: {checks.get('real_auth_library_present', False)}",
+        f"- real_external_auth_library_present: {checks.get('real_external_auth_library_present', False)}",
+        f"- custom_header_auth_substitution_detected: {checks.get('custom_header_auth_substitution_detected', False)}",
+        f"- custom_header_auth_context_guarded: {checks.get('custom_header_auth_context_guarded', False)}",
+        f"- controlled_test_auth_context_channel: {checks.get('controlled_test_auth_context_channel', False)}",
+        f"- header_stub_only_detected: {checks.get('header_stub_only_detected', False)}",
+        f"- auth_downgrade_detected: {checks.get('auth_downgrade_detected', False)}",
+        f"- oidc_secret_placeholder_present: {checks.get('oidc_secret_placeholder_present', False)}",
+        f"- oidc_issuer_placeholder_present: {checks.get('oidc_issuer_placeholder_present', False)}",
+        f"- oidc_client_id_placeholder_present: {checks.get('oidc_client_id_placeholder_present', False)}",
+        f"- tenant_isolation_verification_present: {checks.get('tenant_isolation_verification_present', False)}",
+        f"- audit_surface_present: {checks.get('audit_surface_present', False)}",
+        f"- auth_surface_present: {checks.get('auth_surface_present', False)}",
+        f"- error_envelope_present: {checks.get('error_envelope_present', False)}",
+        "",
+        "## Findings",
+    ]
+    if not findings:
+        lines.append("- none")
+    else:
+        for finding in findings:
+            lines.append(f"- [{finding['severity']}] {finding['title']} ({finding['evidence']})")
+    lines.append("")
+    return localize_phase3_security_audit_report("\n".join(lines), output_locale)
 
 
 def run_phase3_security_audit(
@@ -395,13 +421,14 @@ def run_phase3_security_audit(
     output_locale: str | None = None,
 ) -> dict[str, Any]:
     report = analyze_phase3_security(output_dir=output_dir, tech_stack_text=tech_stack_text)
-    return emit_review_artifacts(
-        output_dir=output_dir,
-        json_name="security-audit-checklist.json",
-        markdown_surface_name="security-audit-report.md",
-        report=report,
-        markdown=build_report_markdown(report, output_locale),
-    )
+    json_path = output_dir / "security-audit-checklist.json"
+    md_path = write_phase3_profiled_surface(output_dir, "security-audit-report.md", build_report_markdown(report, output_locale))
+    write_text(json_path, json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+    return {
+        "json_path": str(json_path),
+        "markdown_path": str(md_path),
+        **report["summary"],
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -423,7 +450,7 @@ def main() -> int:
         output_locale=args.output_locale,
     )
     print(json.dumps(summary, ensure_ascii=False))
-    return support_gate_exit_code("security-audit", summary)
+    return 0 if summary["critical_findings"] == 0 and summary["high_findings"] == 0 else 1
 
 
 if __name__ == "__main__":

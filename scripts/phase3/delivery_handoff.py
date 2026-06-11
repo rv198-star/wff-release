@@ -6,7 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from common.output_language import is_zh_output, localize_phase3_delivery_runbook
-from phase3.review_support import write_text_file
+
+
+def write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
 
 
 def ensure_text(path: Path, content: str) -> str:
@@ -323,7 +327,7 @@ def generate_phase3_delivery_handoff(
     runtime_env_example_path = output_dir / "runtime-compose.env.example"
     performance_baseline_path = output_dir / "performance-baseline.json"
 
-    write_text_file(
+    write_text(
         deploy_runbook_path,
         build_runbook(
             case_name=case_name,
@@ -340,7 +344,7 @@ def generate_phase3_delivery_handoff(
         runtime_env_example_path,
         build_runtime_compose_env_example(tech_stack_text),
     )
-    write_text_file(
+    write_text(
         performance_baseline_path,
         json.dumps(
             build_performance_baseline(

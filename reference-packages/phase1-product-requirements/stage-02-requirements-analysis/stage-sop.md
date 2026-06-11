@@ -150,7 +150,7 @@
 - **Design requirements extraction** — from personas and scenarios, extract design requirements:
   - design requirements describe what the interaction must achieve, not how the UI looks
   - pattern: "The system must enable [persona] to [accomplish goal] when [context/trigger] so that [outcome]"
-  - design requirements are NOT features — "show a dashboard" is a feature; "enable the primary operator to assess current workflow status within 30 seconds of login" is a design requirement
+  - design requirements are NOT features — "show a dashboard" is a feature; "enable the SEO manager to assess current AI visibility status within 30 seconds of login" is a design requirement
 - **Micro-checkpoint MC4.5**: (a) Do personas have behavioral goals (not just demographics)? (b) Do context scenarios describe experience in user language (not feature language)? (c) Are design requirements expressed as interaction outcomes (not UI specs)? If any fails → rewrite before proceeding
 
 ### Step 5 — Constraint Stress-Test
@@ -333,7 +333,7 @@ Each round must record: what was refined, alternatives compared, trade-offs clar
   - do not confuse structure with validated truth
   - do not confuse personas with demographic segments — personas are behavioral archetypes
   - do not confuse scenarios with use cases — scenarios describe desired experience, not system behavior
-  - do not confuse design requirements with features — "show a dashboard" is a feature; "assess current workflow status within 30s" is a design requirement
+  - do not confuse design requirements with features — "show a dashboard" is a feature; "assess visibility status within 30s" is a design requirement
 
 ## 6. Output Generation Rules
 - Required outputs:

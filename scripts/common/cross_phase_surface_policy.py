@@ -34,14 +34,6 @@ PROTECTED_CROSS_PHASE_SURFACES: dict[str, frozenset[str]] = {
             "phase-acceptance-matrix.md",
         }
     ),
-    "phase3": frozenset(
-        {
-            "phase3-delivery-gate.json",
-            "phase-verdict.json",
-            "phase-mainline-scorecard.md",
-            "phase-acceptance-matrix.md",
-        }
-    ),
     "phase4": frozenset(
         {
             "phase4-delivery-gate.json",
@@ -84,12 +76,7 @@ PROFILED_CROSS_PHASE_SURFACES: dict[str, dict[str, str]] = {
         "component-action-card-obligation-matrix.json": (
             ".phase2-evidence/component-action-card-obligation-matrix.json"
         ),
-        "component-semantic-inventory.md": ".phase2-evidence/component-semantic-inventory.md",
-        "component-semantic-inventory.claim-control.json": (
-            ".phase2-evidence/component-semantic-inventory.claim-control.json"
-        ),
         "phase-2-phase1-trace-resolution.json": ".phase2-evidence/phase-2-phase1-trace-resolution.json",
-        "p1-to-p2-contamination-report.json": ".phase2-evidence/p1-to-p2-contamination-report.json",
         "mermaid-validation-report.json": ".phase2-evidence/mermaid-validation-report.json",
         "phase-2-complexity-classification.json": ".phase2-evidence/phase-2-complexity-classification.json",
         "phase2-timing-report.json": ".phase2-diagnostics/phase2-timing-report.json",
@@ -102,15 +89,9 @@ PROFILED_CROSS_PHASE_SURFACES: dict[str, dict[str, str]] = {
         "phase-2-traceability-validation.txt": ".phase2-diagnostics/phase-2-traceability-validation.txt",
         "phase2-full-trial-timing-report.json": ".phase2-diagnostics/phase2-full-trial-timing-report.json",
     },
-    "phase3": {
-        "p2-to-p3-contamination-report.json": ".phase3-evidence/p2-to-p3-contamination-report.json",
-    },
     "phase4": {
-        "p3-to-p4-contamination-report.json": ".phase4-contract/p3-to-p4-contamination-report.json",
         "phase4-output-contract-report.json": ".phase4-contract/phase4-output-contract-report.json",
         "phase4-output-contract-report.md": ".phase4-review/phase4-output-contract-report.md",
-        "phase4-claim-control-report.json": ".phase4-contract/phase4-claim-control-report.json",
-        "phase4-claim-control-report.md": ".phase4-review/phase4-claim-control-report.md",
     },
 }
 
@@ -118,7 +99,6 @@ PROFILED_CROSS_PHASE_SURFACES: dict[str, dict[str, str]] = {
 OPTIONAL_LANE_CROSS_PHASE_SURFACES: dict[str, frozenset[str]] = {
     "phase1": frozenset(),
     "phase2": frozenset(),
-    "phase3": frozenset(),
     "phase4": frozenset(
         {
             "stage4-release-readiness-contract-report.json",
@@ -138,9 +118,6 @@ def normalize_phase(phase: str) -> str:
         "phase2": "phase2",
         "phase02": "phase2",
         "p4": "phase4",
-        "p3": "phase3",
-        "phase3": "phase3",
-        "phase03": "phase3",
         "phase4": "phase4",
         "phase04": "phase4",
     }

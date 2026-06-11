@@ -24,111 +24,227 @@ from typing import Any
 from common.complexity_classifier import count_external_integrations
 from common.cross_phase_surface_policy import find_cross_phase_surface_path
 from common.gwt_format_checker import GIVEN_PATTERN, THEN_PATTERN, WHEN_PATTERN, analyze_gwt_block
-from common.script_data_assets import load_script_json_asset
-from common.markdown_table_tools import (
-    count_markdown_table_rows,
-    markdown_tables,
-    normalize_table_header,
-    table_rows_with_required_headers,
-)
 from phase1.phase1_phase2_coverage import analyze_phase1_phase2_coverage_contract
-from phase2.phase2_quality_gate_specs import evaluate_stage_gate_specs, load_stage_gate_specs
 
 STAGE_KEYS = ("stage_01", "stage_02", "stage_03", "stage_04")
-STAGE_GATE_SPECS = load_stage_gate_specs()
 
-WFF_SCRIPT_DATA_ASSETS = ("scripts/phase2/data/phase2-quality-check-rules.json",)
-_PHASE2_QUALITY_CHECK_RULES = load_script_json_asset(__file__, "phase2-quality-check-rules.json")
-
-
-def _string_tuple(value: Any) -> tuple[str, ...]:
-    return tuple(str(item) for item in value)
-
-
-def _string_set(value: Any) -> set[str]:
-    return {str(item) for item in value}
-
-
-def _string_tuple_map(value: Any) -> dict[str, tuple[str, ...]]:
-    if not isinstance(value, dict):
-        return {}
-    return {str(key): _string_tuple(items) for key, items in value.items()}
-
-
-def _nested_string_dict(value: Any) -> dict[str, dict[str, str]]:
-    if not isinstance(value, dict):
-        return {}
-    result: dict[str, dict[str, str]] = {}
-    for key, nested in value.items():
-        if isinstance(nested, dict):
-            result[str(key)] = {str(nested_key): str(nested_value) for nested_key, nested_value in nested.items()}
-    return result
-
-
-def _keyed_alias_table(value: Any, *, alias_key: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
-    rows: list[tuple[str, tuple[str, ...]]] = []
-    for entry in value if isinstance(value, list) else ():
-        if isinstance(entry, dict):
-            rows.append((str(entry["key"]), _string_tuple(entry.get(alias_key, ()))))
-    return tuple(rows)
-
-
-BASELINE_METRIC_ORDER = _string_tuple(_PHASE2_QUALITY_CHECK_RULES.get("baseline_metric_order", ()))
-NON_BLOCKING_BASELINE_REGRESSION_KEYS = _string_set(
-    _PHASE2_QUALITY_CHECK_RULES.get("non_blocking_baseline_regression_keys", ())
-)
-TECH_SELECTION_DIMENSION_FAMILIES = _keyed_alias_table(
-    _PHASE2_QUALITY_CHECK_RULES.get("tech_selection_dimension_families", ()),
-    alias_key="aliases",
-)
-REQUIRED_TECH_SELECTION_LONG_TERM_FAMILIES = _string_tuple(
-    _PHASE2_QUALITY_CHECK_RULES.get("required_tech_selection_long_term_families", ())
-)
-SCENARIO_CATEGORY_HEADER_ALIASES = _string_tuple(
-    _PHASE2_QUALITY_CHECK_RULES.get("scenario_category_header_aliases", ())
-)
-OPTIONAL_STAGE_02_5_STATUS_VALUES = _string_set(
-    _PHASE2_QUALITY_CHECK_RULES.get("optional_stage_02_5_status_values", ())
-)
-HEADING_ALIASES = _string_tuple_map(_PHASE2_QUALITY_CHECK_RULES.get("heading_aliases", {}))
-FIELD_ALIASES = _string_tuple_map(_PHASE2_QUALITY_CHECK_RULES.get("field_aliases", {}))
-EXISTING_SYSTEM_CHANGE_REQUIRED_MARKERS = _keyed_alias_table(
-    _PHASE2_QUALITY_CHECK_RULES.get("existing_system_change_required_markers", ()),
-    alias_key="variants",
-)
-EXISTING_SYSTEM_CHANGE_BREADTH_CHECKS = _nested_string_dict(
-    _PHASE2_QUALITY_CHECK_RULES.get("existing_system_change_breadth_checks", {})
-)
-EXISTING_SYSTEM_CHANGE_BREADTH_MODES = {
-    str(key): str(value)
-    for key, value in _PHASE2_QUALITY_CHECK_RULES.get("existing_system_change_breadth_modes", {}).items()
-}
-
-
-
-def _deliverable_spec_from_payload(entry: dict[str, Any]) -> tuple[str, str, str, str, str, str]:
-    return (
-        str(entry["name"]),
-        str(entry["stage_key"]),
-        str(entry["block_name"]),
-        str(entry["mode"]),
-        str(entry["tier"]),
-        str(entry["trigger_rule"]),
-    )
-
-
-DELIVERABLE_SPECS = [
-    _deliverable_spec_from_payload(entry)
-    for entry in _PHASE2_QUALITY_CHECK_RULES.get("deliverable_specs", [])
-    if isinstance(entry, dict)
+BASELINE_METRIC_ORDER = [
+    "stage_01_line_count",
+    "stage_02_line_count",
+    "stage_03_line_count",
+    "stage_04_line_count",
+    "architecture_decisions_count",
+    "structured_adr_multi_alt_count",
+    "decision_trace_registry_count",
+    "forbidden_assumptions_count",
+    "mermaid_C4Context_count",
+    "mermaid_C4Container_count",
+    "mermaid_stateDiagram_count",
+    "mermaid_sequenceDiagram_count",
+    "stage_01_auth_sequence_diagram_present",
+    "mermaid_erDiagram_count",
+    "mermaid_gantt_count",
+    "domain_count",
+    "service_candidate_count",
+    "aggregate_catalog_count",
+    "canonical_object_structure_count",
+    "service_endpoint_mapping_count",
+    "er_entity_count",
+    "domain_event_count",
+    "schema_table_count",
+    "schema_field_registry_count",
+    "schema_field_registry_specific_type_count",
+    "index_strategy_entry_count",
+    "data_sensitivity_matrix_count",
+    "api_endpoint_count",
+    "api_contract_control_count",
+    "api_error_type_split_count",
+    "response_error_contract_present",
+    "contract_trace_registry_count",
+    "rbi_count",
+    "rbi_trace_registry_count",
+    "verification_replay_count",
+    "scenario_count",
+    "scenario_quantified_acceptance_count",
+    "scenario_concurrent_conflict_count",
+    "public_boundary_name_count",
+    "work_package_count",
+    "structured_work_package_count",
+    "observability_readiness_count",
+    "tech_selection_structured_depth_count",
+    "tech_selection_long_term_ops_depth_count",
+    "esp_implementation_section_count",
+    "implementation_entry_checklist_count",
 ]
 
-COMPLEXITY_PROFILES = tuple(str(profile) for profile in _PHASE2_QUALITY_CHECK_RULES.get("complexity_profiles", ()))
+NON_BLOCKING_BASELINE_REGRESSION_KEYS = {
+    "stage_01_line_count",
+    "stage_02_line_count",
+    "stage_03_line_count",
+    "stage_04_line_count",
+}
+
+DELIVERABLE_SPECS = [
+    ("system boundary statement", "stage_01", "system_boundary_statement", "presence", "mandatory", "always"),
+    ("constraint posture", "stage_01", "constraints", "presence", "mandatory", "always"),
+    ("quality attribute / NFR absorption", "stage_01", "quality_attribute_structure", "stage_01_quality_attributes", "mandatory", "always"),
+    ("capability map", "stage_01", "capability_map", "presence", "mandatory", "always"),
+    ("architecture direction", "stage_01", "architecture_direction", "presence", "mandatory", "always"),
+    ("key architecture decisions", "stage_01", "key_architecture_decisions", "stage_01_architecture_decisions", "mandatory", "always"),
+    ("security architecture sketch", "stage_01", "security_architecture_sketch", "presence", "mandatory", "always"),
+    ("capacity estimation", "stage_01", "capacity_estimation", "stage_01_capacity", "mandatory", "always"),
+    ("domain map", "stage_02", "domain_map", "stage_02_domains", "mandatory", "always"),
+    ("module map", "stage_02", "module_map", "stage_02_modules", "mandatory", "always"),
+    ("service candidates", "stage_02", "service_candidates", "stage_02_services", "mandatory", "always"),
+    ("responsibility matrix", "stage_02", "responsibility_matrix", "presence", "mandatory", "always"),
+    ("dependency / collaboration map", "stage_02", "dependency_collaboration_map", "presence", "mandatory", "always"),
+    ("decomposition decisions", "stage_02", "decomposition_decisions", "presence", "mandatory", "always"),
+    ("conceptual entity relationship diagram", "stage_02", "entity_relationship_diagram", "stage_02_er", "mandatory", "always"),
+    ("domain event catalog", "stage_02", "domain_event_catalog", "stage_02_events", "conditional", "eventful_domain"),
+    ("data model summary", "stage_03", "data_model_summary", "presence", "mandatory", "always"),
+    ("data ownership map", "stage_03", "data_ownership_map", "presence", "mandatory", "always"),
+    ("storage strategy", "stage_03", "storage_strategy", "stage_03_storage", "mandatory", "always"),
+    ("schema draft", "stage_03", "schema_draft", "stage_03_schema", "mandatory", "always"),
+    ("interface contracts", "stage_03", "interface_contracts", "presence", "mandatory", "always"),
+    ("API endpoint draft", "stage_03", "api_endpoint_draft", "stage_03_api", "mandatory", "always"),
+    ("interaction flow", "stage_03", "interaction_flow", "presence", "mandatory", "always"),
+    ("security architecture outline", "stage_03", "security_architecture_outline", "presence", "mandatory", "always"),
+    ("technology stack and deployment assumptions", "stage_03", "technology_stack_and_deployment_assumptions", "presence", "mandatory", "always"),
+    ("technology selection evaluation matrix", "stage_03", "technology_selection_evaluation_matrix", "stage_03_tech_selection", "conditional", "tradeoff_heavy"),
+    ("dominant bottleneck hypothesis", "stage_03", "dominant_bottleneck_hypothesis", "presence", "mandatory", "always"),
+    ("architecture alternative candidate set", "stage_03", "architecture_alternative_candidate_set", "presence", "conditional", "tradeoff_heavy"),
+    ("baseline insufficiency note", "stage_03", "baseline_insufficiency_note", "presence", "conditional", "tradeoff_heavy"),
+    ("constraint-dominant optimum candidate", "stage_03", "constraint_dominant_optimum_candidate", "presence", "conditional", "tradeoff_heavy"),
+    ("capacity and performance assumptions", "stage_03", "capacity_and_performance_assumptions", "presence", "conditional", "capacity_sensitive"),
+    ("scenario coverage matrix", "stage_03", "scenario_coverage_matrix", "stage_03_scenarios", "mandatory", "always"),
+    ("key tradeoff decisions", "stage_03", "key_tradeoff_decisions", "presence", "conditional", "tradeoff_heavy"),
+    ("architecture convergence summary", "stage_04", "architecture_convergence_summary", "stage_04_convergence", "mandatory", "always"),
+    ("prototype or structured delivery expression", "stage_04", "prototype_or_structured_delivery_expression", "presence", "conditional", "delivery_prototype_needed"),
+    ("critical interaction sequence set", "stage_04", "critical_interaction_sequence_set", "stage_04_sequences", "mandatory", "always"),
+    ("optimality review", "stage_04", "optimality_review", "presence", "mandatory", "always"),
+    ("design verification notes", "stage_04", "design_verification_notes", "stage_04_design_verification", "mandatory", "always"),
+    ("unresolved risks and review-bound items", "stage_04", "unresolved_risks_and_review_bound_items", "stage_04_rbi", "mandatory", "always"),
+    ("implementation handoff package", "stage_04", "implementation_handoff_package", "presence", "mandatory", "always"),
+    ("implementation task sketch", "stage_04", "implementation_task_sketch", "stage_04_work_packages", "mandatory", "always"),
+]
+
+COMPLEXITY_PROFILES = ("micro", "standard", "complex")
 
 PROFILE_MINIMUMS = {
-    str(profile): {str(key): int(value) for key, value in minimums.items()}
-    for profile, minimums in _PHASE2_QUALITY_CHECK_RULES.get("profile_minimums", {}).items()
-    if isinstance(minimums, dict)
+    "micro": {
+        "stage_01_architecture_decisions": 4,
+        "stage_01_decision_trace_registry": 4,
+        "stage_01_forbidden_assumptions": 3,
+        "stage_01_quality_attributes": 3,
+        "stage_01_capacity_numbers": 2,
+        "stage_01_capability_groups": 2,
+        "stage_01_capability_labels": 2,
+        "stage_02_domains": 3,
+        "stage_02_modules": 3,
+        "stage_02_services": 5,
+        "stage_02_aggregate_catalog": 4,
+        "stage_02_service_endpoint_mapping": 5,
+        "stage_02_lifecycle_mermaid_bindings": 2,
+        "stage_02_state_diagrams": 2,
+        "stage_02_domain_events": 6,
+        "stage_02_er_entities": 6,
+        "stage_03_schema_tables": 5,
+        "stage_03_index_strategy_entries": 3,
+        "stage_03_api_endpoints": 5,
+        "stage_03_contract_trace_registry": 3,
+        "stage_03_tech_selection_candidates": 3,
+        "stage_03_interface_contract_schemas": 2,
+        "stage_03_api_operational_controls": 1,
+        "stage_03_alt_candidate_structure": 3,
+        "stage_03_public_boundary_namespaces": 3,
+        "stage_03_scenarios": 5,
+        "stage_03_scenario_concurrent_conflicts": 1,
+        "stage_03_mermaid_flowcharts": 2,
+        "stage_04_sequence_diagrams": 2,
+        "stage_04_work_packages": 3,
+        "stage_04_rbi_items": 3,
+        "stage_04_slice_acceptance": 2,
+        "stage_04_design_verification": 3,
+        "stage_04_verification_replay": 2,
+        "stage_04_rbi_trace_registry": 3,
+        "stage_04_observability": 3,
+    },
+    "standard": {
+        "stage_01_architecture_decisions": 7,
+        "stage_01_decision_trace_registry": 7,
+        "stage_01_forbidden_assumptions": 5,
+        "stage_01_quality_attributes": 4,
+        "stage_01_capacity_numbers": 3,
+        "stage_01_capability_groups": 3,
+        "stage_01_capability_labels": 3,
+        "stage_02_domains": 4,
+        "stage_02_modules": 5,
+        "stage_02_services": 8,
+        "stage_02_aggregate_catalog": 6,
+        "stage_02_service_endpoint_mapping": 8,
+        "stage_02_lifecycle_mermaid_bindings": 3,
+        "stage_02_state_diagrams": 3,
+        "stage_02_domain_events": 10,
+        "stage_02_er_entities": 10,
+        "stage_03_schema_tables": 10,
+        "stage_03_index_strategy_entries": 5,
+        "stage_03_api_endpoints": 10,
+        "stage_03_contract_trace_registry": 5,
+        "stage_03_tech_selection_candidates": 5,
+        "stage_03_interface_contract_schemas": 3,
+        "stage_03_api_operational_controls": 2,
+        "stage_03_alt_candidate_structure": 4,
+        "stage_03_public_boundary_namespaces": 5,
+        "stage_03_scenarios": 8,
+        "stage_03_scenario_concurrent_conflicts": 2,
+        "stage_03_mermaid_flowcharts": 2,
+        "stage_04_sequence_diagrams": 3,
+        "stage_04_work_packages": 4,
+        "stage_04_rbi_items": 5,
+        "stage_04_slice_acceptance": 3,
+        "stage_04_design_verification": 4,
+        "stage_04_verification_replay": 3,
+        "stage_04_rbi_trace_registry": 5,
+        "stage_04_observability": 4,
+    },
+    "complex": {
+        "stage_01_architecture_decisions": 10,
+        "stage_01_decision_trace_registry": 10,
+        "stage_01_forbidden_assumptions": 5,
+        "stage_01_quality_attributes": 5,
+        "stage_01_capacity_numbers": 4,
+        "stage_01_capability_groups": 4,
+        "stage_01_capability_labels": 4,
+        "stage_02_domains": 5,
+        "stage_02_modules": 6,
+        "stage_02_services": 10,
+        "stage_02_aggregate_catalog": 8,
+        "stage_02_service_endpoint_mapping": 10,
+        "stage_02_lifecycle_mermaid_bindings": 5,
+        "stage_02_state_diagrams": 5,
+        "stage_02_domain_events": 15,
+        "stage_02_er_entities": 15,
+        "stage_03_schema_tables": 15,
+        "stage_03_index_strategy_entries": 8,
+        "stage_03_api_endpoints": 15,
+        "stage_03_contract_trace_registry": 8,
+        "stage_03_tech_selection_candidates": 6,
+        "stage_03_interface_contract_schemas": 4,
+        "stage_03_api_operational_controls": 3,
+        "stage_03_alt_candidate_structure": 5,
+        "stage_03_public_boundary_namespaces": 6,
+        "stage_03_scenarios": 12,
+        "stage_03_scenario_concurrent_conflicts": 3,
+        "stage_03_mermaid_flowcharts": 4,
+        "stage_04_sequence_diagrams": 5,
+        "stage_04_work_packages": 6,
+        "stage_04_rbi_items": 6,
+        "stage_04_slice_acceptance": 4,
+        "stage_04_design_verification": 5,
+        "stage_04_verification_replay": 4,
+        "stage_04_rbi_trace_registry": 6,
+        "stage_04_observability": 5,
+    },
 }
 
 UNCERTAINTY_RE = re.compile(r"\b(review-bound|unknown|deferred)\b", re.IGNORECASE)
@@ -164,8 +280,76 @@ BUSINESS_ERROR_RE = re.compile(r"\bbusiness[_ -]?error\b", re.IGNORECASE)
 SYSTEM_ERROR_RE = re.compile(r"\bsystem[_ -]?error\b", re.IGNORECASE)
 NAMESPACE_RE = re.compile(r"^[a-z][a-z0-9]*(?:\.[a-z0-9][a-z0-9_-]*)+$")
 
+TECH_SELECTION_DIMENSION_FAMILIES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("reliability", ("reliability",)),
+    ("performance_capacity", ("performance/capacity", "performance_capacity", "performance_capacity_posture")),
+    ("scalability", ("scalability",)),
+    ("maintainability", ("maintainability",)),
+    ("development_cost", ("development cost", "development_cost")),
+    (
+        "operations_cost",
+        (
+            "operations/maintenance cost",
+            "operations_cost",
+            "operations_maintenance_cost",
+            "tco",
+            "total_cost_of_ownership",
+            "ownership_cost",
+        ),
+    ),
+    (
+        "ecosystem_maturity",
+        (
+            "ecosystem maturity",
+            "ecosystem_maturity",
+            "community_support",
+            "community_activity",
+            "community_health",
+        ),
+    ),
+    ("security_compliance", ("security/compliance posture", "security_compliance_posture", "security_compliance")),
+    ("deployment_complexity", ("deployment complexity", "deployment_complexity")),
+    ("integration_cost", ("integration cost", "integration_cost", "integration_complexity", "integration_fit")),
+    ("observability", ("observability", "observability_support", "telemetry_support")),
+    ("migration_path", ("migration_path", "migration burden", "migration_burden", "reversibility")),
+    ("vendor_risk", ("vendor risk", "vendor_risk", "licensing", "license_model", "license posture")),
+    ("learning_curve", ("learning_curve",)),
+    ("failure_mode", ("failure_mode", "failure posture", "failure_handling")),
+)
+REQUIRED_TECH_SELECTION_LONG_TERM_FAMILIES = ("operations_cost", "ecosystem_maturity", "observability")
+SCENARIO_CATEGORY_HEADER_ALIASES = ("scenario_type", "scenario_category", "scenario_kind", "category")
+OPTIONAL_STAGE_02_5_STATUS_VALUES = {"active", "skipped"}
 
+HEADING_ALIASES: dict[str, tuple[str, ...]] = {
+    "2.1 Quick-Start Reading Path": ("2.1 Quick-Start Reading Path", "2.1 快速阅读路径"),
+    "2.2 Working Glossary": ("2.2 Working Glossary", "2.2 工作术语表"),
+    "5.2 Schema Draft": ("5.2 Schema Draft", "5.2 Schema 草案"),
+    "6. API Summary": ("6. API Summary", "6. API 摘要"),
+    "9. Realizability Judgment": ("9. Realizability Judgment", "9. 可实现性判断"),
+    "10.4 Implementation Start Order": ("10.4 Implementation Start Order", "10.4 实现启动顺序"),
+    "10.5 Schema and Data Migration Focus": ("10.5 Schema and Data Migration Focus", "10.5 Schema 与数据迁移重点"),
+    "10.6 Contract Freeze and Adapter Boundaries": (
+        "10.6 Contract Freeze and Adapter Boundaries",
+        "10.6 合同冻结与适配器边界",
+    ),
+    "10.7 Operational Rollout Guardrails": ("10.7 Operational Rollout Guardrails", "10.7 运营发布护栏"),
+    "10.8 Observability and Operational Readiness": (
+        "10.8 Observability and Operational Readiness",
+        "10.8 可观测性与运维就绪",
+    ),
+    "10.9 Identity, Auth Vendor, and Key Lifecycle": (
+        "10.9 Identity, Auth Vendor, and Key Lifecycle",
+        "10.9 身份、认证供应商与密钥生命周期",
+    ),
+    "10.10 Phase-3 Onboarding Summary": ("10.10 Phase-3 Onboarding Summary", "10.10 Phase-3 接入摘要"),
+    "2.1 Quick-Start Onboarding Snapshot": ("2.1 Quick-Start Onboarding Snapshot", "2.1 快速接入快照"),
+}
 
+FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "environment_or_dependency_prerequisites": ("environment_or_dependency_prerequisites", "环境或依赖前置条件"),
+    "must_not_assume": ("must_not_assume", "不得假设"),
+    "strongest_supported_readiness_label": ("strongest_supported_readiness_label", "最强可支持就绪标签"),
+}
 
 
 def heading_aliases(heading: str) -> tuple[str, ...]:
@@ -198,153 +382,6 @@ def normalized_complexity_profile(value: str) -> str:
 def profile_minimum(complexity_profile: str, key: str) -> int:
     profile = normalized_complexity_profile(complexity_profile)
     return int(PROFILE_MINIMUMS.get(profile, PROFILE_MINIMUMS["standard"]).get(key, PROFILE_MINIMUMS["standard"][key]))
-
-
-EXISTING_SYSTEM_ARCHITECTURE_CHANGE_INTAKE_FILENAME = "existing-system-architecture-change-intake.md"
-
-
-
-
-
-def collect_existing_system_change_context_text(stage_analysis: dict[str, dict[str, Any]]) -> tuple[str, str]:
-    parts = [str(analysis.get("text", "")) for analysis in stage_analysis.values()]
-    source_path = ""
-    for analysis in stage_analysis.values():
-        raw_path = str(analysis.get("path", "")).strip()
-        if not raw_path:
-            continue
-        candidate = Path(raw_path).parent / EXISTING_SYSTEM_ARCHITECTURE_CHANGE_INTAKE_FILENAME
-        if candidate.exists():
-            source_path = str(candidate)
-            parts.append(candidate.read_text(encoding="utf-8"))
-            break
-    return "\n".join(parts), source_path
-
-
-def detect_existing_system_change_gate_policy(stage_analysis: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    text, source_path = collect_existing_system_change_context_text(stage_analysis)
-    lowered = text.casefold()
-    missing = [
-        marker
-        for marker, variants in EXISTING_SYSTEM_CHANGE_REQUIRED_MARKERS
-        if not any(variant in lowered for variant in variants)
-    ]
-    return {
-        "applied": not missing,
-        "source_path": source_path,
-        "missing_required_markers": missing,
-        "basis": (
-            "existing-system architecture change intake present with triage, compatibility, "
-            "migration, rollback, and decision-gate markers"
-            if not missing
-            else "existing-system architecture change intake markers incomplete"
-        ),
-        "adjusted_checks": [],
-    }
-
-
-def existing_system_change_adjusted_minimum(
-    *,
-    stage_key: str,
-    check_name: str,
-    analysis: dict[str, Any],
-    complexity_profile: str,
-) -> int | None:
-    profile_key = EXISTING_SYSTEM_CHANGE_BREADTH_CHECKS.get(stage_key, {}).get(check_name)
-    if profile_key is None:
-        return None
-    micro_floor = profile_minimum("micro", profile_key)
-    if check_name in {"schema_field_registries", "schema_field_type_specificity"}:
-        micro_floor = max(micro_floor, int(analysis.get("metrics", {}).get("schema_table_count", 0) or 0))
-    return min(profile_minimum(complexity_profile, profile_key), micro_floor)
-
-
-def refresh_stage_gate_state(analysis: dict[str, Any]) -> None:
-    checks = analysis.get("checks", [])
-    analysis["gate_failures"] = [check for check in checks if not check.get("passed")]
-    analysis["quality_gate_passed"] = not analysis["gate_failures"]
-    analysis["strongest_check"] = max(
-        checks,
-        key=lambda item: (int(item.get("current", 0)) - int(item.get("minimum", 0)), int(item.get("current", 0))),
-        default=None,
-    )
-    analysis["weakest_check"] = min(
-        checks,
-        key=lambda item: (int(item.get("current", 0)) - int(item.get("minimum", 0)), int(item.get("current", 0))),
-        default=None,
-    )
-
-
-def apply_existing_system_change_intake_gate_policy(
-    stage_analysis: dict[str, dict[str, Any]],
-    complexity_profile: str = "standard",
-) -> dict[str, Any]:
-    """Keep full P2 gates for new projects, but avoid blocking bounded existing-system changes on breadth counts alone."""
-    complexity_profile = normalized_complexity_profile(complexity_profile)
-    policy = detect_existing_system_change_gate_policy(stage_analysis)
-    if not policy["applied"]:
-        return policy
-
-    for stage_key, checks_by_name in EXISTING_SYSTEM_CHANGE_BREADTH_CHECKS.items():
-        analysis = stage_analysis.get(stage_key)
-        if not analysis:
-            continue
-        for check in analysis.get("checks", []):
-            check_name = str(check.get("name", ""))
-            if check_name not in checks_by_name:
-                continue
-            original_minimum = int(check.get("minimum", 0) or 0)
-            adjusted_minimum = existing_system_change_adjusted_minimum(
-                stage_key=stage_key,
-                check_name=check_name,
-                analysis=analysis,
-                complexity_profile=complexity_profile,
-            )
-            if adjusted_minimum is None or adjusted_minimum >= original_minimum:
-                continue
-            current = int(check.get("current", 0) or 0)
-            if current >= original_minimum:
-                continue
-            check["original_minimum"] = original_minimum
-            check["minimum"] = adjusted_minimum
-            check["passed"] = current >= adjusted_minimum
-            check["policy_adjustment"] = "bounded-existing-system-change-breadth-floor"
-            evidence = str(check.get("evidence", ""))
-            suffix = "bounded existing-system change breadth floor"
-            if suffix not in evidence:
-                check["evidence"] = f"{evidence} ({suffix})" if evidence else suffix
-            policy["adjusted_checks"].append(
-                {
-                    "stage": stage_key,
-                    "check": check_name,
-                    "current": current,
-                    "original_minimum": original_minimum,
-                    "adjusted_minimum": adjusted_minimum,
-                    "passed": bool(check["passed"]),
-                    "reason": "bounded existing-system change should not be judged by full new-project breadth counts alone",
-                }
-            )
-        refresh_stage_gate_state(analysis)
-
-    return policy
-
-
-def adjusted_minimum_for_existing_system_change_mode(
-    *,
-    mode: str,
-    metrics: dict[str, Any],
-    complexity_profile: str,
-    policy: dict[str, Any] | None,
-) -> int | None:
-    if not policy or not policy.get("applied"):
-        return None
-    profile_key = EXISTING_SYSTEM_CHANGE_BREADTH_MODES.get(mode)
-    if profile_key is None:
-        return None
-    micro_floor = profile_minimum("micro", profile_key)
-    if mode == "stage_03_schema":
-        micro_floor = max(micro_floor, int(metrics.get("schema_table_count", 0) or 0))
-    return min(profile_minimum(complexity_profile, profile_key), micro_floor)
 
 
 def utc_now() -> str:
@@ -422,7 +459,49 @@ def markdown_heading_section(text: str, heading: str) -> str:
 
 
 def count_table_rows(text: str) -> int:
-    return count_markdown_table_rows(text, require_separator=False)
+    lines = text.splitlines()
+    total = 0
+    idx = 0
+    while idx < len(lines):
+        if not lines[idx].lstrip().startswith("|"):
+            idx += 1
+            continue
+        group: list[str] = []
+        while idx < len(lines) and lines[idx].lstrip().startswith("|"):
+            group.append(lines[idx].strip())
+            idx += 1
+        if len(group) >= 2:
+            total += max(len(group) - 2, 0)
+    return total
+
+
+def normalize_table_header(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip().strip("`").lower())
+
+
+def markdown_tables(text: str) -> list[dict[str, Any]]:
+    tables: list[dict[str, Any]] = []
+    lines = text.splitlines()
+    idx = 0
+    while idx < len(lines):
+        if not lines[idx].lstrip().startswith("|"):
+            idx += 1
+            continue
+        group: list[str] = []
+        while idx < len(lines) and lines[idx].lstrip().startswith("|"):
+            group.append(lines[idx].strip())
+            idx += 1
+        if len(group) < 2 or "---" not in group[1]:
+            continue
+        headers = [normalize_table_header(part) for part in group[0].strip("|").split("|")]
+        rows: list[dict[str, str]] = []
+        for row_line in group[2:]:
+            parts = [part.strip().strip("`") for part in row_line.strip("|").split("|")]
+            if len(parts) < len(headers):
+                parts.extend([""] * (len(headers) - len(parts)))
+            rows.append(dict(zip(headers, parts)))
+        tables.append({"headers": headers, "rows": rows})
+    return tables
 
 
 def mermaid_blocks(text: str) -> list[tuple[str, str]]:
@@ -1037,7 +1116,12 @@ def count_service_endpoint_mapping_rows(block: str) -> int:
 
 
 def count_table_rows_with_headers(block: str, required_headers: set[str]) -> int:
-    return len(table_rows_with_required_headers(block, required_headers))
+    for table in markdown_tables(block):
+        headers = set(table["headers"])
+        if not required_headers.issubset(headers):
+            continue
+        return sum(1 for row in table["rows"] if all(row.get(header, "").strip() for header in required_headers))
+    return 0
 
 
 def structured_entries(block: str, *, label_prefix: str) -> list[str]:
@@ -1927,50 +2011,6 @@ def matching_table_rows(block: str, required_headers: set[str]) -> list[dict[str
     return []
 
 
-def semantic_count_check(name: str, current: int, minimum: int, *, passed: bool | None = None) -> dict[str, Any]:
-    return {
-        "name": name,
-        "current": current,
-        "minimum": minimum,
-        "passed": current >= minimum if passed is None else passed,
-    }
-
-
-def semantic_text_depth_check(
-    name: str,
-    value: str,
-    minimum: int,
-    *,
-    word_counter: Any | None = None,
-    placeholder_detector: Any | None = None,
-) -> dict[str, Any]:
-    count_words = word_counter or word_count
-    detects_placeholder = placeholder_detector or is_placeholder_like
-    current = count_words(value)
-    return semantic_count_check(
-        name,
-        current,
-        minimum,
-        passed=current >= minimum and not detects_placeholder(value),
-    )
-
-
-def semantic_sample_item(
-    *,
-    sample_type: str,
-    sample_key: str,
-    source: str,
-    checks: list[dict[str, Any]],
-) -> dict[str, Any]:
-    return {
-        "sample_type": sample_type,
-        "sample_key": sample_key,
-        "source": source,
-        "checks": checks,
-        "passed": all(check["passed"] for check in checks),
-    }
-
-
 def semantic_sampling_check(stage_analysis: dict[str, dict[str, Any]]) -> dict[str, Any]:
     adr_sample = deterministic_sample(
         structured_adr_entries(stage_analysis["stage_01"]["blocks"]["key_architecture_decisions"]),
@@ -2009,23 +2049,47 @@ def semantic_sampling_check(stage_analysis: dict[str, dict[str, Any]]) -> dict[s
 
     if adr_sample is not None:
         adr_checks = [
-            semantic_count_check(
-                "multiple_alternatives",
-                int(adr_sample["alternative_count"]),
-                2,
-                passed=int(adr_sample["alternative_count"]) >= 2 and int(adr_sample["rejected_because_count"]) >= 2,
-            ),
-            semantic_text_depth_check("context_depth", str(adr_sample["context"]), 8),
-            semantic_text_depth_check("decision_depth", str(adr_sample["decision"]), 8),
-            semantic_text_depth_check("evidence_specificity", str(adr_sample["evidence"]), 4),
-            semantic_text_depth_check("consequences_depth", str(adr_sample["consequences"]), 14),
+            {
+                "name": "multiple_alternatives",
+                "current": int(adr_sample["alternative_count"]),
+                "minimum": 2,
+                "passed": int(adr_sample["alternative_count"]) >= 2 and int(adr_sample["rejected_because_count"]) >= 2,
+            },
+            {
+                "name": "context_depth",
+                "current": word_count(str(adr_sample["context"])),
+                "minimum": 8,
+                "passed": word_count(str(adr_sample["context"])) >= 8 and not is_placeholder_like(str(adr_sample["context"])),
+            },
+            {
+                "name": "decision_depth",
+                "current": word_count(str(adr_sample["decision"])),
+                "minimum": 8,
+                "passed": word_count(str(adr_sample["decision"])) >= 8 and not is_placeholder_like(str(adr_sample["decision"])),
+            },
+            {
+                "name": "evidence_specificity",
+                "current": word_count(str(adr_sample["evidence"])),
+                "minimum": 4,
+                "passed": word_count(str(adr_sample["evidence"])) >= 4 and not is_placeholder_like(str(adr_sample["evidence"])),
+            },
+            {
+                "name": "consequences_depth",
+                "current": word_count(str(adr_sample["consequences"])),
+                "minimum": 14,
+                "passed": word_count(str(adr_sample["consequences"])) >= 14
+                and not is_placeholder_like(str(adr_sample["consequences"])),
+            },
         ]
-        items.append(semantic_sample_item(
-            sample_type="adr",
-            sample_key=adr_sample.get("ad_id") or adr_sample.get("entry_key", ""),
-            source="stage_01 :: key_architecture_decisions",
-            checks=adr_checks,
-        ))
+        items.append(
+            {
+                "sample_type": "adr",
+                "sample_key": adr_sample.get("ad_id") or adr_sample.get("entry_key", ""),
+                "source": "stage_01 :: key_architecture_decisions",
+                "checks": adr_checks,
+                "passed": all(check["passed"] for check in adr_checks),
+            }
+        )
 
     if schema_sample is not None:
         field_rows = [
@@ -2035,153 +2099,225 @@ def semantic_sampling_check(stage_analysis: dict[str, dict[str, Any]]) -> dict[s
         ]
         specific_type_rows = sum(1 for row in field_rows if has_specific_schema_data_type(row.get("data_type", "")))
         schema_checks = [
-            semantic_count_check(
-                "table_name_present",
-                int(bool(normalize_text(str(schema_sample.get("table_name", ""))))),
-                1,
-                passed=not is_placeholder_like(str(schema_sample.get("table_name", ""))),
-            ),
-            semantic_count_check("field_registry_depth", len(field_rows), 3),
-            semantic_count_check("specific_data_types", specific_type_rows, 3),
-            semantic_count_check(
-                "constraint_and_index_specificity",
-                int(
+            {
+                "name": "table_name_present",
+                "current": int(bool(normalize_text(str(schema_sample.get("table_name", ""))))),
+                "minimum": 1,
+                "passed": not is_placeholder_like(str(schema_sample.get("table_name", ""))),
+            },
+            {
+                "name": "field_registry_depth",
+                "current": len(field_rows),
+                "minimum": 3,
+                "passed": len(field_rows) >= 3,
+            },
+            {
+                "name": "specific_data_types",
+                "current": specific_type_rows,
+                "minimum": 3,
+                "passed": specific_type_rows >= 3,
+            },
+            {
+                "name": "constraint_and_index_specificity",
+                "current": int(
                     not is_placeholder_like(str(schema_sample.get("unique_constraints", "")))
                     and not is_placeholder_like(str(schema_sample.get("composite_indexes", "")))
                 ),
-                1,
-            ),
+                "minimum": 1,
+                "passed": not is_placeholder_like(str(schema_sample.get("unique_constraints", "")))
+                and not is_placeholder_like(str(schema_sample.get("composite_indexes", ""))),
+            },
         ]
-        items.append(semantic_sample_item(
-            sample_type="schema_registry",
-            sample_key=schema_sample.get("table_name", ""),
-            source="stage_03 :: schema_draft",
-            checks=schema_checks,
-        ))
+        items.append(
+            {
+                "sample_type": "schema_registry",
+                "sample_key": schema_sample.get("table_name", ""),
+                "source": "stage_03 :: schema_draft",
+                "checks": schema_checks,
+                "passed": all(check["passed"] for check in schema_checks),
+            }
+        )
 
     if endpoint_sample is not None:
         failure_code_count = len(set(HTTP_STATUS_RE.findall(str(endpoint_sample.get("failure_codes", "")))))
         endpoint_checks = [
-            semantic_count_check(
-                "method_and_path_shape",
-                int(
+            {
+                "name": "method_and_path_shape",
+                "current": int(
                     bool(HTTP_METHOD_RE.match(normalize_text(str(endpoint_sample.get("method", "")))))
                     and normalize_text(str(endpoint_sample.get("path", ""))).startswith("/")
                 ),
-                1,
-            ),
-            semantic_text_depth_check("purpose_depth", str(endpoint_sample.get("purpose", "")), 6),
-            semantic_count_check(
-                "json_examples_parse",
-                int(
+                "minimum": 1,
+                "passed": bool(HTTP_METHOD_RE.match(normalize_text(str(endpoint_sample.get("method", "")))))
+                and normalize_text(str(endpoint_sample.get("path", ""))).startswith("/"),
+            },
+            {
+                "name": "purpose_depth",
+                "current": word_count(str(endpoint_sample.get("purpose", ""))),
+                "minimum": 6,
+                "passed": word_count(str(endpoint_sample.get("purpose", ""))) >= 6
+                and not is_placeholder_like(str(endpoint_sample.get("purpose", ""))),
+            },
+            {
+                "name": "json_examples_parse",
+                "current": int(
                     parse_inline_json_object(str(endpoint_sample.get("request_body_example", "")))
                     and parse_inline_json_object(str(endpoint_sample.get("response_body_example", "")))
                 ),
-                1,
-            ),
-            semantic_count_check(
-                "failure_semantics_depth",
-                failure_code_count,
-                3,
-                passed=failure_code_count >= 3 and word_count(str(endpoint_sample.get("failure_codes", ""))) >= 6,
-            ),
-            semantic_count_check(
-                "operational_controls_specificity",
-                word_count(f"{endpoint_sample.get('rate_limit_policy', '')} {endpoint_sample.get('pagination_rule', '')}"),
-                3,
-                passed=not is_placeholder_like(str(endpoint_sample.get("rate_limit_policy", "")))
+                "minimum": 1,
+                "passed": parse_inline_json_object(str(endpoint_sample.get("request_body_example", "")))
+                and parse_inline_json_object(str(endpoint_sample.get("response_body_example", ""))),
+            },
+            {
+                "name": "failure_semantics_depth",
+                "current": failure_code_count,
+                "minimum": 3,
+                "passed": failure_code_count >= 3 and word_count(str(endpoint_sample.get("failure_codes", ""))) >= 6,
+            },
+            {
+                "name": "operational_controls_specificity",
+                "current": word_count(
+                    f"{endpoint_sample.get('rate_limit_policy', '')} {endpoint_sample.get('pagination_rule', '')}"
+                ),
+                "minimum": 3,
+                "passed": not is_placeholder_like(str(endpoint_sample.get("rate_limit_policy", "")))
                 and not is_placeholder_like(str(endpoint_sample.get("pagination_rule", "")))
-                and word_count(f"{endpoint_sample.get('rate_limit_policy', '')} {endpoint_sample.get('pagination_rule', '')}") >= 3,
-            ),
-            semantic_text_depth_check("response_profile_specificity", str(endpoint_sample.get("response_profile", "")), 1),
-            semantic_count_check(
-                "retryability_and_idempotency",
-                word_count(f"{endpoint_sample.get('retryability_policy', '')} {endpoint_sample.get('idempotency_rule', '')}"),
-                4,
-                passed=not is_placeholder_like(str(endpoint_sample.get("retryability_policy", "")))
+                and word_count(
+                    f"{endpoint_sample.get('rate_limit_policy', '')} {endpoint_sample.get('pagination_rule', '')}"
+                )
+                >= 3,
+            },
+            {
+                "name": "response_profile_specificity",
+                "current": word_count(str(endpoint_sample.get("response_profile", ""))),
+                "minimum": 1,
+                "passed": not is_placeholder_like(str(endpoint_sample.get("response_profile", ""))),
+            },
+            {
+                "name": "retryability_and_idempotency",
+                "current": word_count(
+                    f"{endpoint_sample.get('retryability_policy', '')} {endpoint_sample.get('idempotency_rule', '')}"
+                ),
+                "minimum": 4,
+                "passed": not is_placeholder_like(str(endpoint_sample.get("retryability_policy", "")))
                 and not is_placeholder_like(str(endpoint_sample.get("idempotency_rule", "")))
-                and word_count(f"{endpoint_sample.get('retryability_policy', '')} {endpoint_sample.get('idempotency_rule', '')}") >= 4,
-            ),
-            semantic_count_check(
-                "business_system_error_split",
-                int(
+                and word_count(
+                    f"{endpoint_sample.get('retryability_policy', '')} {endpoint_sample.get('idempotency_rule', '')}"
+                )
+                >= 4,
+            },
+            {
+                "name": "business_system_error_split",
+                "current": int(
                     bool(BUSINESS_ERROR_RE.search(str(endpoint_sample.get("failure_codes", ""))))
                     and bool(SYSTEM_ERROR_RE.search(str(endpoint_sample.get("failure_codes", ""))))
                 ),
-                1,
-            ),
+                "minimum": 1,
+                "passed": bool(BUSINESS_ERROR_RE.search(str(endpoint_sample.get("failure_codes", ""))))
+                and bool(SYSTEM_ERROR_RE.search(str(endpoint_sample.get("failure_codes", "")))),
+            },
         ]
-        items.append(semantic_sample_item(
-            sample_type="endpoint",
-            sample_key=endpoint_sample.get("endpoint_name", ""),
-            source="stage_03 :: api_endpoint_draft",
-            checks=endpoint_checks,
-        ))
+        items.append(
+            {
+                "sample_type": "endpoint",
+                "sample_key": endpoint_sample.get("endpoint_name", ""),
+                "source": "stage_03 :: api_endpoint_draft",
+                "checks": endpoint_checks,
+                "passed": all(check["passed"] for check in endpoint_checks),
+            }
+        )
 
     if tech_candidate_sample is not None:
         dimension_count = tech_selection_dimension_count_for_row(
             {key: str(value) for key, value in tech_candidate_sample.items()}
         )
         tech_checks = [
-            semantic_count_check(
-                "candidate_named",
-                int(bool(normalize_text(str(tech_candidate_sample.get("candidate_name", ""))))),
-                1,
-                passed=not is_placeholder_like(str(tech_candidate_sample.get("candidate_name", ""))),
-            ),
-            semantic_count_check("evaluation_dimensions_present", dimension_count, 10),
-            semantic_count_check(
-                "evidence_specificity",
-                int(
+            {
+                "name": "candidate_named",
+                "current": int(bool(normalize_text(str(tech_candidate_sample.get("candidate_name", ""))))),
+                "minimum": 1,
+                "passed": not is_placeholder_like(str(tech_candidate_sample.get("candidate_name", ""))),
+            },
+            {
+                "name": "evaluation_dimensions_present",
+                "current": dimension_count,
+                "minimum": 10,
+                "passed": dimension_count >= 10,
+            },
+            {
+                "name": "evidence_specificity",
+                "current": int(
                     bool(URL_RE.search(str(tech_candidate_sample.get("evidence_sources", ""))))
                     and bool(DATE_RE.search(str(tech_candidate_sample.get("evidence_sources", ""))))
                 ),
-                1,
-            ),
-            semantic_count_check(
-                "decision_and_rejection_reason",
-                int(
+                "minimum": 1,
+                "passed": bool(URL_RE.search(str(tech_candidate_sample.get("evidence_sources", ""))))
+                and bool(DATE_RE.search(str(tech_candidate_sample.get("evidence_sources", "")))),
+            },
+            {
+                "name": "decision_and_rejection_reason",
+                "current": int(
                     not is_placeholder_like(str(tech_candidate_sample.get("final_decision", "")))
                     and not is_placeholder_like(str(tech_candidate_sample.get("rejection_reason", "")))
                 ),
-                1,
-            ),
+                "minimum": 1,
+                "passed": not is_placeholder_like(str(tech_candidate_sample.get("final_decision", "")))
+                and not is_placeholder_like(str(tech_candidate_sample.get("rejection_reason", ""))),
+            },
         ]
-        items.append(semantic_sample_item(
-            sample_type="tech_selection_candidate",
-            sample_key=tech_candidate_sample.get("candidate_name", ""),
-            source="stage_03 :: technology_selection_evaluation_matrix",
-            checks=tech_checks,
-        ))
+        items.append(
+            {
+                "sample_type": "tech_selection_candidate",
+                "sample_key": tech_candidate_sample.get("candidate_name", ""),
+                "source": "stage_03 :: technology_selection_evaluation_matrix",
+                "checks": tech_checks,
+                "passed": all(check["passed"] for check in tech_checks),
+            }
+        )
 
     if scenario_sample is not None:
         scenario_checks = [
-            semantic_count_check(
-                "acceptance_quantified",
-                word_count(str(scenario_sample.get("acceptance_criteria", ""))),
-                10,
-                passed=has_quantitative_signal(str(scenario_sample.get("acceptance_criteria", "")))
+            {
+                "name": "acceptance_quantified",
+                "current": word_count(str(scenario_sample.get("acceptance_criteria", ""))),
+                "minimum": 10,
+                "passed": has_quantitative_signal(str(scenario_sample.get("acceptance_criteria", "")))
                 and word_count(str(scenario_sample.get("acceptance_criteria", ""))) >= 10,
-            ),
-            semantic_text_depth_check("measurement_hook_specific", str(scenario_sample.get("measurement_hook", "")), 4),
-            semantic_text_depth_check("failure_note_specific", str(scenario_sample.get("failure_note", "")), 4),
-            semantic_count_check(
-                "surface_bindings_present",
-                int(
+            },
+            {
+                "name": "measurement_hook_specific",
+                "current": word_count(str(scenario_sample.get("measurement_hook", ""))),
+                "minimum": 4,
+                "passed": word_count(str(scenario_sample.get("measurement_hook", ""))) >= 4
+                and not is_placeholder_like(str(scenario_sample.get("measurement_hook", ""))),
+            },
+            {
+                "name": "failure_note_specific",
+                "current": word_count(str(scenario_sample.get("failure_note", ""))),
+                "minimum": 4,
+                "passed": word_count(str(scenario_sample.get("failure_note", ""))) >= 4
+                and not is_placeholder_like(str(scenario_sample.get("failure_note", ""))),
+            },
+            {
+                "name": "surface_bindings_present",
+                "current": int(
                     bool(normalize_text(str(scenario_sample.get("modules", ""))))
                     and bool(normalize_text(str(scenario_sample.get("contracts / endpoints", ""))))
                 ),
-                1,
-                passed=not is_placeholder_like(str(scenario_sample.get("modules", "")))
+                "minimum": 1,
+                "passed": not is_placeholder_like(str(scenario_sample.get("modules", "")))
                 and not is_placeholder_like(str(scenario_sample.get("contracts / endpoints", ""))),
-            ),
+            },
         ]
-        items.append(semantic_sample_item(
-            sample_type="scenario",
-            sample_key=scenario_sample.get("scenario", ""),
-            source="stage_03 :: scenario_coverage_matrix",
-            checks=scenario_checks,
-        ))
+        items.append(
+            {
+                "sample_type": "scenario",
+                "sample_key": scenario_sample.get("scenario", ""),
+                "source": "stage_03 :: scenario_coverage_matrix",
+                "checks": scenario_checks,
+                "passed": all(check["passed"] for check in scenario_checks),
+            }
+        )
 
     missing_sample_types = sorted(
         {"adr", "schema_registry", "endpoint", "tech_selection_candidate", "scenario"}
@@ -2455,13 +2591,335 @@ def analyze_stage(stage_key: str, path: Path, complexity_profile: str = "standar
     }
     )
 
+    checks: list[dict[str, Any]] = []
     complexity_profile = normalized_complexity_profile(complexity_profile)
-    checks = evaluate_stage_gate_specs(
-        STAGE_GATE_SPECS.get(stage_key, []),
-        metrics,
-        complexity_profile=complexity_profile,
-        profile_minimum=profile_minimum,
-    )
+
+    def add_check(name: str, current: int, minimum: int, evidence: str) -> None:
+        checks.append(
+            {
+                "name": name,
+                "current": current,
+                "minimum": minimum,
+                "passed": current >= minimum,
+                "evidence": evidence,
+            }
+        )
+
+    if stage_key == "stage_01":
+        stage_01_architecture_min = profile_minimum(complexity_profile, "stage_01_architecture_decisions")
+        add_check("architecture_decisions", metrics["architecture_decisions_count"], stage_01_architecture_min, "Section 3 `key_architecture_decisions`")
+        add_check("structured_adr_entries", metrics["structured_adr_count"], stage_01_architecture_min, "Section 3 `key_architecture_decisions`")
+        add_check(
+            "adr_multi_alternative_depth",
+            metrics["structured_adr_multi_alt_count"],
+            stage_01_architecture_min,
+            "Section 3 `key_architecture_decisions` alternatives depth",
+        )
+        add_check(
+            "decision_trace_registry",
+            metrics["decision_trace_registry_count"],
+            profile_minimum(complexity_profile, "stage_01_decision_trace_registry"),
+            "Section 3 `decision_trace_registry`",
+        )
+        add_check("forbidden_assumptions", metrics["forbidden_assumptions_count"], profile_minimum(complexity_profile, "stage_01_forbidden_assumptions"), "Section 3 `forbidden_assumptions_registry`")
+        add_check("constraint_categories", metrics["constraint_categories_count"], 4, "Section 3 `constraints`")
+        add_check("quality_attributes", metrics["quality_attributes_count"], profile_minimum(complexity_profile, "stage_01_quality_attributes"), "Section 3 `quality_attribute_structure`")
+        add_check("capacity_specific_numbers", metrics["capacity_number_count"], profile_minimum(complexity_profile, "stage_01_capacity_numbers"), "Section 3 `capacity_estimation`")
+        add_check("mermaid_C4Context", metrics["mermaid_C4Context_count"], 1, "Section 5 Mermaid system context")
+        add_check("capability_map_diagram", metrics["mermaid_flowchart_td_count"], 1, "Section 5 Mermaid capability map")
+        add_check(
+            "forbidden_assumption_evidence",
+            metrics["forbidden_assumptions_with_evidence"],
+            3,
+            "Section 3 `forbidden_assumptions_registry`",
+        )
+        add_check(
+            "security_architecture_detail",
+            metrics["stage_01_security_detail_fields_present"],
+            1,
+            "Section 3 `security_architecture_sketch`",
+        )
+        add_check(
+            "security_architecture_specificity",
+            metrics["stage_01_security_specificity_present"],
+            1,
+            "Section 3 `security_architecture_sketch` auth/key posture",
+        )
+        add_check(
+            "auth_sequence_diagram",
+            metrics["stage_01_auth_sequence_diagram_present"],
+            1,
+            "Section 3 `security_architecture_sketch` + Section 5 Mermaid auth sequence",
+        )
+        add_check(
+            "capability_groups_priority_maturity",
+            metrics["capability_groups_with_priority_maturity"],
+            profile_minimum(complexity_profile, "stage_01_capability_groups"),
+            "Section 3 `capability_map`",
+        )
+        add_check(
+            "capability_map_labeled_nodes",
+            metrics["capability_map_labeled_nodes"],
+            profile_minimum(complexity_profile, "stage_01_capability_labels"),
+            "Section 5 Mermaid capability map labels",
+        )
+    elif stage_key == "stage_02":
+        add_check("domains", metrics["domain_count"], profile_minimum(complexity_profile, "stage_02_domains"), "Section 3 `domain_map`")
+        add_check("modules", metrics["module_count"], profile_minimum(complexity_profile, "stage_02_modules"), "Section 3 `module_map`")
+        add_check("service_candidates", metrics["service_candidate_count"], profile_minimum(complexity_profile, "stage_02_services"), "Section 3 `service_candidates`")
+        add_check(
+            "service_candidate_canonical_fields",
+            metrics["service_candidates_with_canonical_fields"],
+            profile_minimum(complexity_profile, "stage_02_services"),
+            "Section 3 `service_candidates` canonical fields",
+        )
+        add_check(
+            "aggregate_catalog_entries",
+            metrics["aggregate_catalog_count"],
+            profile_minimum(complexity_profile, "stage_02_aggregate_catalog"),
+            "Section 3 `aggregate_catalog`",
+        )
+        add_check(
+            "canonical_object_structure",
+            int(
+                metrics["aggregate_catalog_count"] > 0
+                and metrics["canonical_object_structure_count"] >= metrics["aggregate_catalog_count"]
+            ),
+            1,
+            "Section 3 `canonical_object_structure`",
+        )
+        add_check(
+            "service_endpoint_mapping",
+            metrics["service_endpoint_mapping_count"],
+            profile_minimum(complexity_profile, "stage_02_service_endpoint_mapping"),
+            "Section 3 `service_endpoint_mapping`",
+        )
+        add_check(
+            "aggregate_lifecycle_coverage",
+            int(
+                metrics["aggregate_catalog_count"] > 0
+                and metrics["aggregate_lifecycle_coverage_count"] == metrics["aggregate_catalog_count"]
+            ),
+            1,
+            "Section 3 `aggregate_lifecycle_coverage`",
+        )
+        add_check(
+            "aggregate_lifecycle_mermaid_bindings",
+            metrics["aggregate_lifecycle_mermaid_binding_count"],
+            profile_minimum(complexity_profile, "stage_02_lifecycle_mermaid_bindings"),
+            "Section 3 `aggregate_lifecycle_coverage` Mermaid bindings",
+        )
+        add_check("state_diagrams", metrics["mermaid_stateDiagram_count"], profile_minimum(complexity_profile, "stage_02_state_diagrams"), "Section 5 Mermaid lifecycle diagrams")
+        add_check("domain_events", metrics["domain_event_count"], profile_minimum(complexity_profile, "stage_02_domain_events"), "Section 3 `domain_event_catalog`")
+        add_check("event_detail_fields", metrics["event_detail_fields_present"], 1, "Section 3 `domain_event_catalog`")
+        add_check("er_diagram", metrics["mermaid_erDiagram_count"], 1, "Section 5 Mermaid ER")
+        add_check("er_entity_depth", metrics["er_entity_count"], profile_minimum(complexity_profile, "stage_02_er_entities"), "Section 5 Mermaid ER entities")
+        add_check(
+            "dependency_anti_cycle_guard",
+            metrics["stage_02_dependency_guard_fields_present"],
+            1,
+            "Section 3 `dependency_collaboration_map`",
+        )
+        add_check(
+            "lifecycle_conflict_detection_rule",
+            metrics["stage_02_lifecycle_conflict_rule_present"],
+            1,
+            "Section 3 `lifecycle_ownership_closure`",
+        )
+    elif stage_key == "stage_03":
+        stage_03_schema_min = profile_minimum(complexity_profile, "stage_03_schema_tables")
+        stage_03_api_min = profile_minimum(complexity_profile, "stage_03_api_endpoints")
+        stage_03_scenario_min = profile_minimum(complexity_profile, "stage_03_scenarios")
+        stage_03_tech_selection_min = profile_minimum(complexity_profile, "stage_03_tech_selection_candidates")
+        add_check("schema_tables", metrics["schema_table_count"], stage_03_schema_min, "Section 3 `schema_draft`")
+        add_check(
+            "schema_field_registries",
+            metrics["schema_field_registry_count"],
+            max(stage_03_schema_min, metrics["schema_table_count"]),
+            "Section 3 `schema_draft` table_field_registry",
+        )
+        add_check(
+            "schema_field_type_specificity",
+            metrics["schema_field_registry_specific_type_count"],
+            max(stage_03_schema_min, metrics["schema_table_count"]),
+            "Section 3 `schema_draft` typed field registry depth",
+        )
+        add_check(
+            "index_strategy_entries",
+            metrics["index_strategy_entry_count"],
+            profile_minimum(complexity_profile, "stage_03_index_strategy_entries"),
+            "Section 3 `access_pattern_and_index_strategy`",
+        )
+        add_check(
+            "data_sensitivity_and_compliance_matrix",
+            int(
+                metrics["schema_table_count"] > 0
+                and metrics["data_sensitivity_matrix_count"] >= metrics["schema_table_count"]
+            ),
+            1,
+            "Section 3 `data_sensitivity_and_compliance_matrix`",
+        )
+        add_check("api_endpoints", metrics["api_endpoint_count"], stage_03_api_min, "Section 3 `api_endpoint_draft`")
+        add_check("api_json_examples", metrics["api_rows_with_json_examples"], max(stage_03_api_min, metrics["api_endpoint_count"]), "Section 3 `api_endpoint_draft`")
+        add_check("api_failure_semantics", metrics["api_endpoints_with_3_failure_codes"], max(stage_03_api_min, metrics["api_endpoint_count"]), "Section 3 `api_endpoint_draft`")
+        add_check(
+            "response_error_contract",
+            metrics["response_error_contract_present"],
+            1,
+            "Section 3 `response_and_error_contract`",
+        )
+        add_check(
+            "response_error_contract_specificity",
+            metrics["response_error_contract_specificity"],
+            1,
+            "Section 3 `response_and_error_contract` canonical error fields",
+        )
+        add_check(
+            "api_contract_controls",
+            metrics["api_contract_control_count"],
+            max(stage_03_api_min, metrics["api_endpoint_count"]),
+            "Section 3 `api_endpoint_draft` response_profile / retryability / idempotency",
+        )
+        add_check(
+            "api_error_type_split",
+            metrics["api_error_type_split_count"],
+            max(stage_03_api_min, metrics["api_endpoint_count"]),
+            "Section 3 `api_endpoint_draft` business/system error split",
+        )
+        add_check(
+            "contract_trace_registry",
+            metrics["contract_trace_registry_count"],
+            profile_minimum(complexity_profile, "stage_03_contract_trace_registry"),
+            "Section 3 `contract_trace_registry`",
+        )
+        add_check("tech_selection_candidates", metrics["tech_selection_candidate_count"], stage_03_tech_selection_min, "Section 3 `technology_selection_evaluation_matrix`")
+        add_check(
+            "tech_selection_structured_depth",
+            metrics["tech_selection_structured_depth_count"],
+            stage_03_tech_selection_min,
+            "Section 3 `technology_selection_evaluation_matrix` comparison dimensions",
+        )
+        add_check(
+            "tech_selection_long_term_ops_depth",
+            metrics["tech_selection_long_term_ops_depth_count"],
+            stage_03_tech_selection_min,
+            "Section 3 `technology_selection_evaluation_matrix` long-term ops depth (TCO/operations + ecosystem/community + observability)",
+        )
+        add_check(
+            "tech_selection_evidence_dates",
+            metrics["tech_selection_candidates_with_evidence_dates"],
+            stage_03_tech_selection_min,
+            "Section 3 `technology_selection_evaluation_matrix` evidence sources",
+        )
+        add_check("interface_contract_schemas", metrics["structured_contract_schema_count"], profile_minimum(complexity_profile, "stage_03_interface_contract_schemas"), "Section 3 `interface_contracts`")
+        add_check("api_operational_controls", metrics["api_operational_controls_count"], profile_minimum(complexity_profile, "stage_03_api_operational_controls"), "Section 3 `api_endpoint_draft`")
+        add_check(
+            "bottleneck_validation_plan",
+            metrics["bottleneck_validation_plan_present"],
+            1,
+            "Section 3 `dominant_bottleneck_hypothesis`",
+        )
+        add_check(
+            "alternative_candidate_structure",
+            metrics["structured_alternative_candidate_count"],
+            profile_minimum(complexity_profile, "stage_03_alt_candidate_structure"),
+            "Section 3 `architecture_alternative_candidate_set`",
+        )
+        add_check(
+            "public_boundary_namespace_rule",
+            metrics["public_boundary_namespace_rule_present"],
+            1,
+            "Section 3 `public_boundary_registry_closure`",
+        )
+        add_check(
+            "public_boundary_namespaces",
+            metrics["public_boundary_namespace_entry_count"],
+            profile_minimum(complexity_profile, "stage_03_public_boundary_namespaces"),
+            "Section 3 `public_boundary_registry_closure`",
+        )
+        add_check("scenarios", metrics["scenario_count"], stage_03_scenario_min, "Section 3 `scenario_coverage_matrix`")
+        add_check(
+            "scenario_quantified_acceptance",
+            metrics["scenario_quantified_acceptance_count"],
+            max(stage_03_scenario_min, metrics["scenario_count"]),
+            "Section 3 `scenario_coverage_matrix` quantified acceptance_criteria",
+        )
+        add_check(
+            "scenario_concurrent_conflict_coverage",
+            metrics["scenario_concurrent_conflict_count"],
+            profile_minimum(complexity_profile, "stage_03_scenario_concurrent_conflicts"),
+            "Section 3 `scenario_coverage_matrix` concurrent_conflict coverage",
+        )
+        add_check("mermaid_diagrams", metrics["mermaid_flowchart_lr_count"], profile_minimum(complexity_profile, "stage_03_mermaid_flowcharts"), "Section 5 Mermaid data/deployment/trust diagrams")
+        add_check("storage_strategy_fields", metrics["storage_capacity_fields_present"], 1, "Section 3 `storage_strategy`")
+        add_check(
+            "security_outline_detail",
+            metrics["stage_03_security_detail_fields_present"],
+            1,
+            "Section 3 `security_architecture_outline`",
+        )
+        add_check(
+            "security_outline_specificity",
+            metrics["stage_03_security_specificity_present"],
+            1,
+            "Section 3 `security_architecture_outline` auth/key posture",
+        )
+    elif stage_key == "stage_04":
+        stage_04_work_package_min = profile_minimum(complexity_profile, "stage_04_work_packages")
+        add_check("sequence_diagrams", metrics["mermaid_sequenceDiagram_count"], profile_minimum(complexity_profile, "stage_04_sequence_diagrams"), "Section 5 Mermaid sequence diagrams")
+        add_check("work_packages", metrics["work_package_count"], stage_04_work_package_min, "Section 3 `implementation_task_sketch`")
+        add_check(
+            "work_package_structured_depth",
+            int(metrics["structured_work_package_count"] >= max(metrics["work_package_count"], stage_04_work_package_min)),
+            1,
+            "Section 3 `implementation_task_sketch` work_package_registry",
+        )
+        add_check("gantt_diagram", metrics["mermaid_gantt_count"], 1, "Section 5 Mermaid gantt")
+        add_check("rbi_items", metrics["rbi_count"], profile_minimum(complexity_profile, "stage_04_rbi_items"), "Section 3 `unresolved_risks_and_review_bound_items`")
+        add_check("rbi_structured_fields", metrics["rbi_structured_fields_present"], 1, "Section 3 `unresolved_risks_and_review_bound_items`")
+        add_check(
+            "rbi_spike_bindings",
+            int(metrics["rbi_matrix_count"] > 0 and metrics["rbi_matrix_count"] == metrics["rbi_binding_count"]),
+            1,
+            "Section 3 `unresolved_risks_and_review_bound_items` rbi_matrix",
+        )
+        add_check(
+            "slice_acceptance_criteria",
+            metrics["stage_04_slice_acceptance_count"],
+            profile_minimum(complexity_profile, "stage_04_slice_acceptance"),
+            "Section 3 `implementation_task_sketch`",
+        )
+        add_check(
+            "optimality_structured_verdict",
+            metrics["stage_04_optimality_structured_present"],
+            1,
+            "Section 3 `optimality_review`",
+        )
+        add_check("convergence_diagram", metrics["convergence_c4container_present"], 1, "Section 3/5 convergence diagram")
+        add_check(
+            "design_verification",
+            metrics["design_verification_detailed_row_count"],
+            profile_minimum(complexity_profile, "stage_04_design_verification"),
+            "Section 3 `design_verification_notes`",
+        )
+        add_check(
+            "verification_replay_evidence",
+            metrics["verification_replay_count"],
+            profile_minimum(complexity_profile, "stage_04_verification_replay"),
+            "Section 3 `verification_replay_evidence`",
+        )
+        add_check(
+            "rbi_trace_registry",
+            metrics["rbi_trace_registry_count"],
+            profile_minimum(complexity_profile, "stage_04_rbi_trace_registry"),
+            "Section 3 `rbi_trace_registry`",
+        )
+        add_check(
+            "observability_operational_readiness",
+            metrics["observability_readiness_count"],
+            profile_minimum(complexity_profile, "stage_04_observability"),
+            "Section 3 `observability_and_operational_readiness`",
+        )
 
     failures = [check for check in checks if not check["passed"]]
     strongest = max(checks, key=lambda item: (item["current"] - item["minimum"], item["current"]), default=None)
@@ -2667,11 +3125,7 @@ def deliverable_triggered(
 
 
 def evaluate_block_verdict(
-    stage_analysis: dict[str, Any],
-    block_name: str,
-    mode: str,
-    complexity_profile: str = "standard",
-    existing_system_change_policy: dict[str, Any] | None = None,
+    stage_analysis: dict[str, Any], block_name: str, mode: str, complexity_profile: str = "standard"
 ) -> tuple[str, str]:
     block = stage_analysis["blocks"].get(block_name, "")
     evidence = f"Section 3 `{block_name}`"
@@ -2752,16 +3206,6 @@ def evaluate_block_verdict(
         current = int(bool(block))
         minimum = 1
 
-    adjusted_minimum = adjusted_minimum_for_existing_system_change_mode(
-        mode=mode,
-        metrics=metrics,
-        complexity_profile=complexity_profile,
-        policy=existing_system_change_policy,
-    )
-    if adjusted_minimum is not None and adjusted_minimum < minimum and current < minimum:
-        minimum = adjusted_minimum
-        evidence = f"{evidence} (bounded existing-system change breadth floor)"
-
     if current >= minimum:
         return "pass", evidence
     if current > 0 or block:
@@ -2770,9 +3214,7 @@ def evaluate_block_verdict(
 
 
 def build_deliverable_matrix(
-    stage_analysis: dict[str, dict[str, Any]],
-    complexity_profile: str = "standard",
-    existing_system_change_policy: dict[str, Any] | None = None,
+    stage_analysis: dict[str, dict[str, Any]], complexity_profile: str = "standard"
 ) -> list[dict[str, str]]:
     rows = []
     for name, stage_key, block_name, mode, tier, trigger_rule in DELIVERABLE_SPECS:
@@ -2796,13 +3238,7 @@ def build_deliverable_matrix(
             )
             continue
         analysis = stage_analysis[stage_key]
-        verdict, evidence = evaluate_block_verdict(
-            analysis,
-            block_name,
-            mode,
-            complexity_profile,
-            existing_system_change_policy=existing_system_change_policy,
-        )
+        verdict, evidence = evaluate_block_verdict(analysis, block_name, mode, complexity_profile)
         block = analysis["blocks"].get(block_name, "")
         if verdict == "fail":
             if tier == "conditional":
@@ -3268,15 +3704,6 @@ def implementation_entry_check(path: Path | None) -> dict[str, Any] | None:
     line_count = len(text.splitlines())
     section_count = count_regex(text, r"^## ")
     checklist_rows = 0
-    readiness_label = normalize_readiness_label(
-        extract_block_scalar(text, "strongest_supported_readiness_label")
-        or extract_block_scalar(text, "最强可支持就绪标签")
-    )
-    may_start = (
-        extract_block_scalar(text, "may_start")
-        or extract_block_scalar(text, "是否可以开始")
-    ).strip().lower()
-    readiness_start_consistency = int(not (readiness_label == "blocked" and may_start in {"yes", "true"}))
 
     def heading_primary_missing(heading: str) -> bool:
         section = markdown_heading_section(text, heading)
@@ -3326,9 +3753,6 @@ def implementation_entry_check(path: Path | None) -> dict[str, Any] | None:
         "line_count": line_count,
         "section_count": section_count,
         "required_sections_without_missing_markers": int(not missing_placeholder_sections),
-        "strongest_supported_readiness_label": readiness_label or "missing",
-        "may_start": may_start or "missing",
-        "readiness_start_consistency": readiness_start_consistency,
     }
     passed = (
         line_count >= 45
@@ -3336,7 +3760,6 @@ def implementation_entry_check(path: Path | None) -> dict[str, Any] | None:
         and checklist_rows >= 6
         and all(checks[name] for name in checks if name.endswith("_present"))
         and not missing_placeholder_sections
-        and bool(readiness_start_consistency)
     )
     return {
         "path": str(path),
@@ -3360,10 +3783,6 @@ def analyze_phase2_case(
 ) -> dict[str, Any]:
     complexity_profile = normalized_complexity_profile(complexity_profile)
     stage_analysis = {key: analyze_stage(key, stage_paths[key], complexity_profile) for key in STAGE_KEYS}
-    existing_system_change_policy = apply_existing_system_change_intake_gate_policy(
-        stage_analysis,
-        complexity_profile,
-    )
     current_metrics = aggregate_metrics(stage_analysis)
     esp_result = esp_check(engineering_spec_pack)
     acd_result = acd_artifact_check(acd_artifact_root) if acd_artifact_root is not None else None
@@ -3375,11 +3794,7 @@ def analyze_phase2_case(
         int((implementation_entry_result or {}).get("checks", {}).get("checklist_row_count", 0))
     )
     review_bound = compute_review_bound_ratio(stage_analysis)
-    deliverable_matrix = build_deliverable_matrix(
-        stage_analysis,
-        complexity_profile,
-        existing_system_change_policy=existing_system_change_policy,
-    )
+    deliverable_matrix = build_deliverable_matrix(stage_analysis, complexity_profile)
     deliverable_matrix_summary = summarize_deliverable_matrix(deliverable_matrix)
     summaries = build_stage_summaries(stage_analysis)
     phase1_phase2_coverage = (
@@ -3569,7 +3984,6 @@ def analyze_phase2_case(
         "overall_quality_gate": "pass" if not stage_failures and not closure_gate_failures else "fail",
         "stage_04_readiness_alignment": readiness_alignment,
         "recommended_formal_state": recommended_formal_state,
-        "existing_system_change_gate_policy": existing_system_change_policy,
         "phase1_phase2_coverage_contract": phase1_phase2_coverage,
         "optional_stage_02_5_check": optional_stage_02_5,
         "engineering_spec_pack_check": esp_result,
@@ -3620,8 +4034,6 @@ def build_phase2_mainline_assessment(
     quality_report: dict[str, Any],
     cross_stage_report: dict[str, Any],
     mermaid_report: dict[str, Any],
-    effective_formal_state: str | None = None,
-    closure_adjustment_reasons: list[str] | None = None,
 ) -> dict[str, Any]:
     stage_metrics = quality_report.get("stage_metrics", {})
     stage_failures = quality_report.get("stage_gate_failures", {})
@@ -3646,10 +4058,7 @@ def build_phase2_mainline_assessment(
     esp_passed = bool(esp_check.get("passed", False))
     implementation_entry_passed = bool(implementation_entry_check.get("passed", False))
     overall_quality_gate = str(quality_report.get("overall_quality_gate", "")).strip() or "fail"
-    pre_closure_recommended_formal_state = str(quality_report.get("recommended_formal_state", "")).strip() or "blocked"
-    closure_capped_state = normalize_readiness_label(str(effective_formal_state or "").strip())
-    recommended_formal_state = closure_capped_state or pre_closure_recommended_formal_state
-    closure_reason_list = [str(reason) for reason in (closure_adjustment_reasons or []) if str(reason).strip()]
+    recommended_formal_state = str(quality_report.get("recommended_formal_state", "")).strip() or "blocked"
     phase1_phase2_coverage_verdict = str(phase1_phase2_coverage.get("verdict", "")).strip() or "fail"
     mermaid_overall_passed = bool(mermaid_report.get("overall_passed", False))
     cross_stage_verdict = str(cross_stage_report.get("overall_consistency_verdict", "")).strip() or "unknown"
@@ -3692,7 +4101,6 @@ def build_phase2_mainline_assessment(
             ),
             "notes": [
                 f"recommended_formal_state={recommended_formal_state}",
-                f"pre_closure_recommended_formal_state={pre_closure_recommended_formal_state}",
                 f"phase1_phase2_coverage={phase1_phase2_coverage_verdict}",
                 f"triggered_conditional_gap_count={triggered_conditional_gap_count}",
                 f"stage_04_readiness_alignment={readiness_alignment_verdict}",
@@ -3748,7 +4156,6 @@ def build_phase2_mainline_assessment(
                 f"overall_quality_gate={overall_quality_gate}",
                 f"review_bound_ratio={review_bound_verdict}",
                 f"stage_04_final_label={readiness_alignment.get('final_label') or 'missing'}",
-                f"closure_adjustment_reasons={len(closure_reason_list)}",
             ],
         },
     ]
@@ -3863,8 +4270,6 @@ def build_phase2_mainline_assessment(
         "phase": "P2",
         "overall_quality_gate": overall_quality_gate,
         "recommended_formal_state": recommended_formal_state,
-        "pre_closure_recommended_formal_state": pre_closure_recommended_formal_state,
-        "closure_adjustment_reasons": closure_reason_list,
         "dimension_scores": dimension_rows,
         "acceptance_rows": acceptance_rows,
         "total_score": total_score,

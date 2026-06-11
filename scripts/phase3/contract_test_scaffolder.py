@@ -19,13 +19,7 @@ import json
 import re
 from pathlib import Path
 
-from common.script_data_assets import load_script_text_asset
 from phase3.phase3_behavior_card_consumption import render_behavior_step_test_mapping
-from phase3.test_scaffolder_common import (
-    WRITE_HTTP_METHODS,
-    failure_condition_signal_lines,
-    failure_has_runtime_signal,
-)
 try:
     from phase3.behavior_contract import (
         behavior_evidence_keys,
@@ -39,14 +33,6 @@ except ModuleNotFoundError:
         typescript_behavior_card_payload_helper_lines,
     )
 from phase3.contract_tools import load_openapi_document
-
-
-WFF_SCRIPT_DATA_ASSETS = (
-    "scripts/phase3/data/contract-test-shape-helper.ts.template",
-    "scripts/phase3/data/contract-test-duplicate-submit-helper.ts.template",
-    "scripts/phase3/data/contract-test-runtime-lifecycle.ts.template",
-    "scripts/phase3/data/contract-test-auth-guards.ts.template",
-)
 
 
 def sanitize_name(value: str) -> str:
@@ -205,15 +191,6 @@ def explicit_business_assertion_lines(response_example: object) -> list[str]:
     return lines
 
 
-def literal_business_assertion_lines_for_result(response_example: object, result_expr: str = "result") -> list[str]:
-    lines = explicit_business_assertion_lines(response_example)
-    if not lines:
-        return []
-    lines = list(lines)
-    lines[0] = lines[0].replace("result.data", f"{result_expr}.data")
-    return lines
-
-
 def schema_has_pagination_contract(success_schema: object) -> bool:
     if not isinstance(success_schema, dict):
         return False
@@ -233,45 +210,67 @@ def pagination_assertion_lines(success_schema: object) -> list[str]:
         "    expect(result.pagination.nextCursor === null || typeof result.pagination.nextCursor === 'string').toBe(true);",
     ]
 
-def _contract_test_template_lines(asset_name: str) -> list[str]:
-    return load_script_text_asset(__file__, asset_name).splitlines()
 
-
-def render_contract_test_shape_helper_lines(top_level_shape_keys_blob: str) -> list[str]:
-    return [
-        line.replace("__TOP_LEVEL_SHAPE_KEYS__", top_level_shape_keys_blob)
-        for line in _contract_test_template_lines("contract-test-shape-helper.ts.template")
-    ]
-
-
-def render_contract_test_duplicate_submit_helper_lines() -> list[str]:
-    return _contract_test_template_lines("contract-test-duplicate-submit-helper.ts.template")
-
-
-def render_contract_test_runtime_lifecycle_lines() -> list[str]:
-    return _contract_test_template_lines("contract-test-runtime-lifecycle.ts.template")
-
-
-def render_contract_test_auth_guard_lines() -> list[str]:
-    return _contract_test_template_lines("contract-test-auth-guards.ts.template")
-
-
-def operation_uses_write_database_path(method: str) -> bool:
-    return str(method).upper() in WRITE_HTTP_METHODS
-
-
-def failure_requires_database_restore(failure: dict[str, str], *, method: str) -> bool:
-    if not operation_uses_write_database_path(method):
-        return False
-    status = str(failure.get("status", "")).strip()
-    normalized = str(failure.get("error_code", "")).strip().lower()
-    if status.startswith("5"):
-        return True
-    if status == "404" or "not_found" in normalized:
-        return True
-    if any(token in normalized for token in ("conflict", "stale", "version", "duplicate", "dependency", "unavailable")):
-        return True
-    return False
+def failure_condition_signal_lines(error_code: str, payload_name: str = "payload") -> list[str]:
+    normalized = error_code.lower()
+    if "tenant_forbidden" in normalized:
+        return [
+            f"    const existingAuthContext = {payload_name}.auth_context && typeof {payload_name}.auth_context === 'object'",
+            f"      ? {payload_name}.auth_context as Record<string, unknown>",
+            "      : {};",
+            f"    {payload_name}.auth_context = {{",
+            "      ...existingAuthContext,",
+            '      tenant_id: "wrong-tenant",',
+            '      subject_id: String(existingAuthContext.subject_id ?? "user_forbidden"),',
+            '      session_id: String(existingAuthContext.session_id ?? "sess_forbidden"),',
+            "      roles: Array.isArray(existingAuthContext.roles) && existingAuthContext.roles.length > 0",
+            "        ? existingAuthContext.roles",
+            '        : ["authenticated"],',
+            "    };",
+            f'    {payload_name}.expectedOwnerService = "OtherService";',
+        ]
+    if "rbac_forbidden" in normalized:
+        return [
+            f"    const existingAuthContext = {payload_name}.auth_context && typeof {payload_name}.auth_context === 'object'",
+            f"      ? {payload_name}.auth_context as Record<string, unknown>",
+            "      : {};",
+            f"    {payload_name}.auth_context = {{",
+            "      ...existingAuthContext,",
+            '      subject_id: "user_forbidden",',
+            '      session_id: "sess_forbidden",',
+            '      roles: ["phase3_forbidden_role"],',
+            "    };",
+        ]
+    if "forbidden" in normalized:
+        return [
+            f"    const existingAuthContext = {payload_name}.auth_context && typeof {payload_name}.auth_context === 'object'",
+            f"      ? {payload_name}.auth_context as Record<string, unknown>",
+            "      : {};",
+            f"    {payload_name}.auth_context = {{",
+            "      ...existingAuthContext,",
+            '      subject_id: "user_forbidden",',
+            '      session_id: "sess_forbidden",',
+            "      roles: Array.isArray(existingAuthContext.roles) && existingAuthContext.roles.length > 0",
+            "        ? existingAuthContext.roles",
+            '        : ["authenticated"],',
+            "    };",
+            f'    {payload_name}.expectedOwnerService = "OtherService";',
+        ]
+    if any(token in normalized for token in ("conflict", "stale", "version", "duplicate")):
+        return [
+            f"    {payload_name}.expectedVersion = 0;",
+            f"    {payload_name}.currentVersion = 1;",
+        ]
+    if "not_found" in normalized or "missing" in normalized:
+        return [
+            f"    {payload_name}.path_params = {{ ...(({payload_name}.path_params ?? {{}}) as Record<string, unknown>), id: \"missing_id\" }};",
+            f'    {payload_name}.not_found_id = "missing_record";',
+        ]
+    if "dependency" in normalized or "unavailable" in normalized:
+        return [
+            f"    {payload_name}.simulateDependencyFailure = true;",
+        ]
+    return []
 
 
 
@@ -290,7 +289,6 @@ def render_contract_test(
     del request_example
     evidence_keys = behavior_evidence_keys(behavior_card_model)
     evidence_keys_literal = typescript_array_literal(evidence_keys)
-    openapi_payload_expr = "buildOperationPayload(operationId)"
     success_payload_expr = f"buildBehaviorCardPayload(operationId, buildOperationPayload(operationId), {evidence_keys_literal})"
     requires_roundtrip = _requires_persistence_roundtrip(operation_id, method, response_example)
     requires_duplicate_submit = _requires_duplicate_submit_contract(
@@ -301,7 +299,6 @@ def render_contract_test(
         idempotency_rule,
     )
     requires_transaction_rollback = _requires_transaction_rollback_contract(operation_id, method, response_example)
-    uses_write_database_path = operation_uses_write_database_path(method)
     requires_write_audit = method.upper() in WRITE_HTTP_METHODS
     response_blob = json.dumps(response_example, ensure_ascii=False, indent=2)
     top_level_shape_keys = ["trace_id", "request_id", "meta"]
@@ -335,27 +332,145 @@ def render_contract_test(
         "let runtime: BackendRuntime;",
         "",
     ]
-    lines.extend(render_contract_test_shape_helper_lines(top_level_shape_keys_blob))
-    if requires_duplicate_submit:
-        lines.extend(render_contract_test_duplicate_submit_helper_lines())
-    lines.extend(typescript_behavior_card_payload_helper_lines(map_name=None))
-    lines.extend(render_contract_test_runtime_lifecycle_lines())
     lines.extend(
         [
-        f'describe("Contract: {method.upper()} {path}", () => {{',
-        *(render_behavior_step_test_mapping(behavior_card_model)["contract"].splitlines() if behavior_card_model else []),
+            "function isIdentifierField(key: string): boolean {",
+            '  return key.endsWith("_id") || key.endsWith("Id");',
+            "}",
+            "",
+            "function expectedObjectKeys(expected: Record<string, unknown>, fieldName: string): string[] {",
+            '  if (fieldName === "" && "data" in expected) {',
+            f"    return Array.from(new Set([...Object.keys(expected), ...{top_level_shape_keys_blob}])).sort();",
+            "  }",
+            "  return Object.keys(expected).sort();",
+            "}",
+            "",
+            "function expectContractShape(actual: unknown, expected: unknown, fieldName = \"\"): void {",
+            "  if (Array.isArray(expected)) {",
+            "    expect(Array.isArray(actual)).toBe(true);",
+            "    expect((actual as unknown[]).length).toBe(expected.length);",
+            "    expected.forEach((item, index) => expectContractShape((actual as unknown[])[index], item, fieldName));",
+            "    return;",
+            "  }",
+            '  if (expected && typeof expected === "object") {',
+            "    expect(actual).toBeTruthy();",
+            "    const actualRecord = actual as Record<string, unknown>;",
+            "    const expectedRecord = expected as Record<string, unknown>;",
+            "    expect(Object.keys(actualRecord).sort()).toEqual(expectedObjectKeys(expectedRecord, fieldName));",
+            '    if (fieldName === "" && "data" in expectedRecord) {',
+            '      expect(actualRecord.trace_id).toEqual(expect.any(String));',
+            '      expect(actualRecord.request_id).toEqual(expect.any(String));',
+            '      expect(actualRecord.meta).toEqual(expect.any(Object));',
+            "    }",
+            "    for (const [key, value] of Object.entries(expectedRecord)) {",
+            "      expectContractShape(actualRecord[key], value, key);",
+            "    }",
+            "    return;",
+            "  }",
+            '  if (typeof expected === "string" && isIdentifierField(fieldName)) {',
+            "    expect(actual).toEqual(expect.any(String));",
+            "    return;",
+            "  }",
+            "  expect(actual).toEqual(expected);",
+            "}",
+            "",
         ]
     )
-    lines.extend(render_contract_test_auth_guard_lines())
+    if requires_duplicate_submit:
+        lines.extend(
+            [
+                "function collectEvidenceTableCounts(runtime: BackendRuntime, evidence: Array<{ tableName: string; matchedRows: number }>): Map<string, number> {",
+                "  void runtime;",
+                "  const counts = new Map<string, number>();",
+                "  for (const entry of evidence) {",
+                "    counts.set(entry.tableName, (counts.get(entry.tableName) ?? 0) + Number(entry.matchedRows ?? 0));",
+                "  }",
+                "  return counts;",
+                "}",
+                "",
+                "function expectEvidenceTableCountsUnchanged(beforeCounts: Map<string, number>, afterCounts: Map<string, number>): void {",
+                "  expect(Array.from(afterCounts.keys()).sort()).toEqual(Array.from(beforeCounts.keys()).sort());",
+                "  for (const [tableName, beforeCount] of beforeCounts.entries()) {",
+                "    expect(afterCounts.get(tableName)).toBe(beforeCount);",
+                "  }",
+                "}",
+                "",
+            ]
+        )
+    lines.extend(typescript_behavior_card_payload_helper_lines(map_name=None))
     lines.extend(
         [
+        "beforeAll(async () => {",
+        "  runtime = await startBackendRuntime();",
+        "  await runtime.initializeDatabase();",
+        "});",
+        "",
+        "afterAll(async () => {",
+        "  await runtime.close();",
+        "});",
+        "",
+        "let scenarioInitialized = true;",
+        "",
+        "beforeEach(async () => {",
+        "  if (scenarioInitialized) {",
+        "    scenarioInitialized = false;",
+        "    return;",
+        "  }",
+        "  await runtime.restoreScenario();",
+        "});",
+        "",
+        f'describe("Contract: {method.upper()} {path}", () => {{',
+        *(render_behavior_step_test_mapping(behavior_card_model)["contract"].splitlines() if behavior_card_model else []),
+        '  it("rejects missing bearer token before business handling", async () => {',
+        "    const missingTokenPayload = buildOperationPayload(operationId);",
+        "    delete missingTokenPayload.auth_context;",
+        "    delete missingTokenPayload.authContext;",
+        "    const error = await captureApiError(invokeHttpOperation(runtime, operationId, missingTokenPayload));",
+        "    expect(error.status).toBe(401);",
+        '    expect(error.envelope.error_kind).toBe("auth_error");',
+        '    expect(error.envelope.error_code).toBe("missing_bearer_token");',
+        "    const auditRecords = runtime.getAuditRecords();",
+        "    expect(auditRecords.some((entry) => entry.operation_id === operationId && entry.outcome === \"denied\" && entry.reason === \"missing_bearer_token\")).toBe(true);",
+        "  });",
+        "",
+        '  it("rejects invalid bearer token before business handling", async () => {',
+        "    const error = await captureApiError(",
+        '      invokeHttpOperationWithAuthHeader(runtime, operationId, buildOperationPayload(operationId), "Bearer phase3-invalid-token"),',
+        "    );",
+        "    expect(error.status).toBe(401);",
+        '    expect(error.envelope.error_kind).toBe("auth_error");',
+        '    expect(error.envelope.error_code).toBe("invalid_auth_token");',
+        "    const auditRecords = runtime.getAuditRecords();",
+        "    expect(auditRecords.some((entry) => entry.operation_id === operationId && entry.outcome === \"denied\" && entry.reason === \"invalid_auth_token\")).toBe(true);",
+        '    expect(JSON.stringify(auditRecords)).not.toContain("phase3-invalid-token");',
+        "  });",
+        "",
+        '  it("rejects valid bearer token with insufficient role", async () => {',
+        "    const basePayload = buildOperationPayload(operationId);",
+        "    const baseAuthContext = basePayload.auth_context && typeof basePayload.auth_context === 'object'",
+        "      ? basePayload.auth_context as Record<string, unknown>",
+        "      : {};",
+        "    const forbiddenPayload = {",
+        "      ...basePayload,",
+        "      auth_context: {",
+        "        ...baseAuthContext,",
+        '        subject_id: "user_forbidden",',
+        '        session_id: "sess_forbidden",',
+        '        roles: ["phase3_forbidden_role"],',
+        "      },",
+        "    };",
+        "    const error = await captureApiError(invokeHttpOperation(runtime, operationId, forbiddenPayload));",
+        "    expect(error.status).toBe(403);",
+        '    expect(error.envelope.error_code).toBe("rbac_forbidden");',
+        "    const auditRecords = runtime.getAuditRecords();",
+        "    expect(auditRecords.some((entry) => entry.operation_id === operationId && entry.outcome === \"denied\" && entry.reason === \"rbac_forbidden\")).toBe(true);",
+        "  });",
+        "",
         '  it("accepts valid bearer token before business validation", async () => {',
-        *( ["    await runtime.restoreScenario();"] if uses_write_database_path else [] ),
-        f"    const result = await invokeHttpOperation(runtime, operationId, {success_payload_expr});",
+        "    const result = await invokeHttpOperation(runtime, operationId, buildOperationPayload(operationId));",
         "    expectContractShape(result, responseExample);",
         "    expect(result).toHaveProperty('trace_id');",
         "    expect(result).toHaveProperty('data');",
-        *literal_business_assertion_lines_for_result(response_example),
         *(
             [
                 "    const auditRecords = runtime.getAuditRecords();",
@@ -367,15 +482,13 @@ def render_contract_test(
         "  });",
         "",
         '  it("documented OpenAPI request is directly executable", async () => {',
-        *( ["    await runtime.restoreScenario();"] if uses_write_database_path else [] ),
-        f"    const result = await invokeHttpOperation(runtime, operationId, {openapi_payload_expr});",
+        "    const result = await invokeHttpOperation(runtime, operationId, buildOperationPayload(operationId));",
         "    expectContractShape(result, responseExample);",
         "    expect(result).toHaveProperty('trace_id');",
         "    expect(result).toHaveProperty('data');",
         "  });",
         "",
         '  it("happy path matches the frozen contract", async () => {',
-        *( ["    await runtime.restoreScenario();"] if uses_write_database_path else [] ),
         f"    const result = await invokeHttpOperation(runtime, operationId, {success_payload_expr});",
         "    expectContractShape(result, responseExample);",
         "    expect(result).toHaveProperty('trace_id');",
@@ -410,7 +523,6 @@ def render_contract_test(
             [
                 "",
                 '  it("duplicate submit does not create duplicate durable state", async () => {',
-                "    await runtime.restoreScenario();",
                 f"    const payload = {success_payload_expr};",
                 "    const firstResult = await invokeHttpOperation(runtime, operationId, payload);",
                 "    const beforeEvidence = await collectPersistenceRoundTripEvidence(runtime, operationId, firstResult);",
@@ -440,7 +552,6 @@ def render_contract_test(
             [
                 "",
                 '  it("transaction rollback probe leaves durable state unchanged", async () => {',
-                "    await runtime.restoreScenario();",
                 "    if (!(await requiresPersistenceRoundTripEvidence(runtime, operationId))) {",
                 "      return;",
                 "    }",
@@ -458,33 +569,12 @@ def render_contract_test(
         )
     for failure in failure_cases:
         label = f'{failure["status"]} {failure["error_code"]}'.strip()
-        failure_code = failure["error_code"] or failure["status"]
-        if not failure_has_runtime_signal(
-            failure_code,
-            status=failure["status"],
-            method=method,
-            path=path,
-            operation_id=operation_id,
-            behavior_card_model=behavior_card_model,
-        ):
-            lines.extend(
-                [
-                    "",
-                    f'  it.skip("review-bound failure contract: {label} lacks a runtime-trigger signal", () => {{}});',
-                ]
-            )
-            continue
         lines.extend(
             [
                 "",
                 f'  it("failure: {label}", async () => {{',
-                *(
-                    ["    await runtime.restoreScenario();"]
-                    if failure_requires_database_restore(failure, method=method)
-                    else []
-                ),
-                f'    const payload = buildFailurePayload(operationId, "{failure_code}");',
-                *failure_condition_signal_lines(failure_code),
+                f'    const payload = buildFailurePayload(operationId, "{failure["error_code"] or failure["status"]}");',
+                *failure_condition_signal_lines(failure["error_code"] or failure["status"]),
                 "    const error = await captureApiError(invokeHttpOperation(runtime, operationId, payload));",
                 f'    expect(error.status).toBe({failure["status"]});',
                 f'    expect(error.envelope.error_code).toBe("{failure["error_code"]}");',

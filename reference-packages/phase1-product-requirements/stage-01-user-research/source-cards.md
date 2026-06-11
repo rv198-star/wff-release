@@ -1,9 +1,9 @@
 # Stage-01 Source Cards — requirements-user-research
 
 ## 0. Common Reasoning Kernel Dependencies
-- `runtime-deps/mindthus/release/skills/3l5s/SKILL.md`
-- `runtime-deps/mindthus/release/skills/3l5s/resources/three-layer-recursive-loop.md`
-- `runtime-deps/mindthus/release/skills/using-mindthus/SKILL.md`
+- `runtime-deps/mindthus/source/skills/3l5s/SKILL.md`
+- `runtime-deps/mindthus/source/skills/3l5s/resources/three-layer-recursive-loop.md`
+- `runtime-deps/mindthus/source/skills/using-mindthus/SKILL.md`
 - `docs/governance/evidence-and-uncertainty-protocol-v0.1.md`
 - `docs/governance/maturity-and-confidence-protocol-v0.1.md`
 - `docs/governance/deepening-and-freeze-protocol-v0.1.md`

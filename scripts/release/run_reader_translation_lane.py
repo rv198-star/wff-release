@@ -15,12 +15,6 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
-if str(SCRIPTS_ROOT) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_ROOT))
-
-from common.human_review_surface import emit_human_review_surface
-
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -145,48 +139,8 @@ def run_one(kind: str, label: str, canonical: Path, *, emit_script: Path, locale
     }
 
 
-def refresh_human_review_surfaces(case_root: Path) -> list[dict]:
-    refreshed: list[dict] = []
-    for dirname, phase in (
-        ("phase-1", "phase1"),
-        ("phase1", "phase1"),
-        ("phase-2", "phase2"),
-        ("phase2", "phase2"),
-        ("phase-3", "phase3"),
-        ("phase3", "phase3"),
-        ("phase-4", "phase4"),
-        ("phase4", "phase4"),
-    ):
-        phase_root = case_root / dirname
-        if not phase_root.exists():
-            continue
-        try:
-            surface = emit_human_review_surface(phase_root, phase)
-        except Exception as exc:  # pragma: no cover - defensive non-blocking reader lane
-            refreshed.append(
-                {
-                    "phase": phase,
-                    "output_dir": str(phase_root),
-                    "status": "failed",
-                    "detail": str(exc),
-                }
-            )
-            continue
-        refreshed.append(
-            {
-                "phase": phase,
-                "output_dir": str(phase_root),
-                "status": "refreshed",
-                "artifact_count": len(surface.get("artifacts", [])),
-                "index": str(phase_root / "human-review" / "INDEX.md"),
-            }
-        )
-    return refreshed
-
-
 def _write_manifest(case_root: Path, locale: str, entries: list[dict],
-                    total_targets: int, manifest_status: str = "",
-                    extra_fields: dict | None = None) -> dict:
+                    total_targets: int, manifest_status: str = "") -> dict:
     """Write the current manifest to disk.  Called incrementally after each target."""
     generated = sum(1 for e in entries if e["status"] == "generated")
     failed = sum(1 for e in entries if e["status"] == "failed")
@@ -215,8 +169,6 @@ def _write_manifest(case_root: Path, locale: str, entries: list[dict],
     }
     if manifest_status:
         manifest["_status"] = manifest_status
-    if extra_fields:
-        manifest.update(extra_fields)
 
     json_path = case_root / "reader-translation-manifest.json"
     json_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2,
@@ -244,13 +196,6 @@ def _write_manifest(case_root: Path, locale: str, entries: list[dict],
             f"- {e['kind']}: `{e['status']}` verdict=`{e['verdict']}` "
             f"canonical=`{e['canonical']}` reader=`{e['reader']}`"
         )
-    if extra_fields and extra_fields.get("human_review_surfaces"):
-        md_lines.append("")
-        md_lines.append("## Human Review Surfaces")
-        for item in extra_fields["human_review_surfaces"]:
-            md_lines.append(
-                f"- {item['phase']}: `{item['status']}` index=`{item.get('index', '')}`"
-            )
     md_path.write_text("\n".join(md_lines).rstrip() + "\n", encoding="utf-8")
 
     return manifest
@@ -277,14 +222,8 @@ def run_lane(case_root: Path, *, emit_script: Path, locale: str) -> dict:
                 "verdict": "dependency-failed",
                 "detail": dep_error.get("error", str(dep_error)),
             })
-        return _write_manifest(
-            case_root,
-            locale,
-            entries,
-            total_targets=total,
-            manifest_status="dependency-failed",
-            extra_fields={"human_review_surfaces": refresh_human_review_surfaces(case_root)},
-        )
+        return _write_manifest(case_root, locale, entries, total_targets=total,
+                               manifest_status="dependency-failed")
 
     # Write initial manifest so external observers see the lane is running
     _write_manifest(case_root, locale, entries, total_targets=total,
@@ -298,14 +237,8 @@ def run_lane(case_root: Path, *, emit_script: Path, locale: str) -> dict:
         _write_manifest(case_root, locale, entries, total_targets=total,
                         manifest_status="running")
 
-    return _write_manifest(
-        case_root,
-        locale,
-        entries,
-        total_targets=total,
-        manifest_status="done",
-        extra_fields={"human_review_surfaces": refresh_human_review_surfaces(case_root)},
-    )
+    return _write_manifest(case_root, locale, entries, total_targets=total,
+                           manifest_status="done")
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -63,25 +63,6 @@ def _process_output(value: Any) -> str:
     return ""
 
 
-def _byte_count(value: str) -> int:
-    return len(value.encode("utf-8"))
-
-
-def _write_batch_output_logs(
-    *,
-    report_path: Path,
-    batch_index: int,
-    completed: subprocess.CompletedProcess[str],
-) -> tuple[Path, Path]:
-    log_dir = report_path.parent / f"{report_path.stem}-logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    stdout_path = log_dir / f"batch-{batch_index:03d}.stdout.log"
-    stderr_path = log_dir / f"batch-{batch_index:03d}.stderr.log"
-    stdout_path.write_text(completed.stdout or "", encoding="utf-8")
-    stderr_path.write_text(completed.stderr or "", encoding="utf-8")
-    return stdout_path, stderr_path
-
-
 def _terminate_process_group(process: subprocess.Popen[str], signal_value: signal.Signals) -> None:
     try:
         os.killpg(process.pid, signal_value)
@@ -132,19 +113,14 @@ def _synthetic_failure_payload(
     target: str,
     completed: subprocess.CompletedProcess[str] | None,
     reason: str,
-    stdout_log_path: Path | None = None,
-    stderr_log_path: Path | None = None,
 ) -> dict[str, Any]:
     resolved_target = str((workspace_root / target).resolve())
     message_parts = [reason]
-    if stdout_log_path is not None:
-        message_parts.append(f"stdout_log_path={stdout_log_path}")
-    if stderr_log_path is not None:
-        message_parts.append(f"stderr_log_path={stderr_log_path}")
-    if completed is not None and (completed.stdout or completed.stderr):
-        message_parts.append(
-            "raw subprocess output is stored in log files; use --show-subprocess-output to mirror it to terminal"
-        )
+    if completed is not None:
+        if completed.stdout:
+            message_parts.append(completed.stdout.strip())
+        if completed.stderr:
+            message_parts.append(completed.stderr.strip())
     message = "\n".join(part for part in message_parts if part).strip()
     return {
         "startTime": 0,
@@ -209,7 +185,6 @@ def run_vitest_targets_sequentially(
     targets: list[str],
     target_timeout_seconds: int = 120,
     batch_size: int = 1,
-    show_subprocess_output: bool = False,
 ) -> dict[str, Any]:
     report_path.parent.mkdir(parents=True, exist_ok=True)
     if not targets:
@@ -259,14 +234,9 @@ def run_vitest_targets_sequentially(
             )
             finished_at = time.time()
             duration_ms = int((time.monotonic() - started_monotonic) * 1000)
-            stdout_log_path, stderr_log_path = _write_batch_output_logs(
-                report_path=report_path,
-                batch_index=index,
-                completed=completed,
-            )
-            if show_subprocess_output and completed.stdout:
+            if completed.stdout:
                 sys.stdout.write(completed.stdout)
-            if show_subprocess_output and completed.stderr:
+            if completed.stderr:
                 sys.stderr.write(completed.stderr)
             payload = _load_vitest_payload(target_report)
             failure_reason = ""
@@ -278,8 +248,6 @@ def run_vitest_targets_sequentially(
                         target=target,
                         completed=completed,
                         reason=failure_reason,
-                        stdout_log_path=stdout_log_path,
-                        stderr_log_path=stderr_log_path,
                     )
                     for target in batch_targets
                 ]
@@ -302,18 +270,10 @@ def run_vitest_targets_sequentially(
                     "exit_code": int(completed.returncode),
                     "timed_out": timed_out,
                     "failure_reason": failure_reason,
-                    "stdout_log_path": str(stdout_log_path),
-                    "stderr_log_path": str(stderr_log_path),
-                    "stdout_bytes": _byte_count(completed.stdout or ""),
-                    "stderr_bytes": _byte_count(completed.stderr or ""),
                 }
             )
             _write_merged_report(report_path, payloads, overall_success, batch_timing)
-            sys.stderr.write(
-                f"[vitest-seq] batch {index}/{len(batches)} done rc={completed.returncode} "
-                f"stdout_bytes={_byte_count(completed.stdout or '')} "
-                f"stderr_bytes={_byte_count(completed.stderr or '')}\n"
-            )
+            sys.stderr.write(f"[vitest-seq] batch {index}/{len(batches)} done rc={completed.returncode}\n")
             sys.stderr.flush()
 
     return _write_merged_report(report_path, payloads, overall_success, batch_timing)
@@ -327,11 +287,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target", action="append", dest="targets", default=[])
     parser.add_argument("--target-timeout-seconds", type=int, default=120)
     parser.add_argument("--batch-size", type=int, default=1)
-    parser.add_argument(
-        "--show-subprocess-output",
-        action="store_true",
-        help="mirror child Vitest stdout/stderr to terminal; by default full output is written only to log artifacts",
-    )
     return parser
 
 
@@ -344,7 +299,6 @@ def main() -> int:
         targets=[str(target).strip() for target in args.targets if str(target).strip()],
         target_timeout_seconds=max(1, int(args.target_timeout_seconds)),
         batch_size=max(1, int(args.batch_size)),
-        show_subprocess_output=bool(args.show_subprocess_output),
     )
     return 0 if merged.get("success") else 1
 

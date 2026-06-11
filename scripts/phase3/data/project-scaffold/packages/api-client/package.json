@@ -1,6 +1,0 @@
-{
-  "name": "@app/api-client",
-  "private": true,
-  "type": "module",
-  "main": "./index.ts"
-}

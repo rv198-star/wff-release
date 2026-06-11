@@ -18,7 +18,6 @@ if str(SCRIPTS_ROOT) not in sys.path:
 
 import argparse
 import json
-import os
 import re
 import sqlite3
 import subprocess
@@ -36,9 +35,7 @@ from phase1.phase1_emit_depth_runtime_artifacts import (
     DEPTH_RUNTIME_SUMMARY_FILENAME,
     DEPTH_RUNTIME_TEXT_ARTIFACTS,
 )
-from phase1.phase1_gate_authority import SUPPRESS_COMPATIBILITY_WARNING_ENV
 from phase1.phase1_named_state import extract_named_state
-from phase1.phase1_runtime_metadata import THINKING_VALUE_GAIN_OUTPUT_PROFILES
 from phase1.phase1_trace_units import PHASE1_PRD_ARTIFACT_ID, PHASE1_TRACE_UNIT_TYPE_MAP, extract_phase1_trace_units
 from phase1.phase1_version_contract import extract_version_identifiers
 ARTIFACT_ID_FIELD_PATTERN = r"^[ \t]*-[ \t]+artifact_id:[ \t]*`?([^`\n]+)`?[ \t]*$"
@@ -50,7 +47,6 @@ PHASE1_STAGE_TRACE_DEFAULTS = {
     "stage_04": "P1-S04-OUT-001",
 }
 PHASE1_MAINLINE_GATE_BUNDLE = "prd_mainline_gate_bundle"
-PHASE1_MAINLINE_ADVISORY_SUBGATES = {"section_scoring_gate"}
 COMMERCIAL_SAME_RUN_DEEPENING_FOCUS_AREAS = {
     "business_value",
     "value_mechanism",
@@ -94,7 +90,6 @@ class Phase1ConvergenceRuntimeContext:
     require_non_shrinking: bool
     depth_mode: str
     thinking_value_gain_mode: str
-    thinking_value_gain_output_profile: str
     output_json_path: Path | None
     auto_remediate: bool
     output_locale: str
@@ -109,9 +104,7 @@ def extract_trial_token(path: Path) -> str | None:
 
 
 def run_command(command: list[str]) -> dict[str, object]:
-    env = os.environ.copy()
-    env[SUPPRESS_COMPATIBILITY_WARNING_ENV] = "1"
-    proc = subprocess.run(command, capture_output=True, text=True, env=env)
+    proc = subprocess.run(command, capture_output=True, text=True)
     return {
         "command": command,
         "returncode": proc.returncode,
@@ -284,7 +277,6 @@ def build_gate_payload(name: str, command: list[str], result: dict[str, object])
 def run_gate_bundle(bundle_name: str, bundle_gates: list[tuple[str, list[str]]]) -> dict[str, object]:
     subgates: list[dict[str, object]] = []
     failed_subgates: list[str] = []
-    advisory_failed_subgates: list[str] = []
     summary_lines = [f"bundle: {bundle_name}"]
     combined_stdout_parts: list[str] = []
     combined_stderr_parts: list[str] = []
@@ -293,23 +285,10 @@ def run_gate_bundle(bundle_name: str, bundle_gates: list[tuple[str, list[str]]])
         result = run_command(command)
         payload = build_gate_payload(gate_name, command, result)
         subgates.append(payload)
-        advisory_failure = (
-            bundle_name == PHASE1_MAINLINE_GATE_BUNDLE
-            and gate_name in PHASE1_MAINLINE_ADVISORY_SUBGATES
-            and result["returncode"] != 0
-        )
-        if result["returncode"] == 0:
-            verdict = "PASS"
-        elif advisory_failure:
-            verdict = "ADVISORY-BLOCKED"
-        else:
-            verdict = "BLOCKED"
+        verdict = "PASS" if result["returncode"] == 0 else "BLOCKED"
         summary_lines.append(f"- {gate_name}: {verdict}")
         if result["returncode"] != 0:
-            if advisory_failure:
-                advisory_failed_subgates.append(gate_name)
-            else:
-                failed_subgates.append(gate_name)
+            failed_subgates.append(gate_name)
         stdout = str(result.get("stdout", "") or "").rstrip()
         stderr = str(result.get("stderr", "") or "").rstrip()
         combined_stdout_parts.append(f"$ {' '.join(command)}\n{stdout}".rstrip())
@@ -324,7 +303,6 @@ def run_gate_bundle(bundle_name: str, bundle_gates: list[tuple[str, list[str]]])
         "stderr": "\n\n".join(part for part in combined_stderr_parts if part).rstrip(),
         "subgates": subgates,
         "failed_subgates": failed_subgates,
-        "advisory_failed_subgates": advisory_failed_subgates,
         "summary": "\n".join(summary_lines),
     }
 
@@ -1006,10 +984,6 @@ def build_phase1_mainline_assessment(
                 if isinstance(agentic_loop_plan, dict)
                 else [],
                 "agentic_loop_deferred_focus_areas": agentic_loop_deferred_focus_areas,
-                "document_delivery_state": delivery_state,
-                "evidence_confidence_state": evidence_state,
-                "blockers_count": blockers_count,
-                "total_score": total_score,
             }
         )
     )
@@ -1021,9 +995,7 @@ def build_phase1_mainline_assessment(
     elif blockers_count > 0:
         verdict = "RETURN-REMEDIATE"
     elif total_score >= 80 and min_dimension_score >= 3:
-        evidence_state_lower = (evidence_state or "").lower()
-        evidence_is_review_bound = "review-bound" in evidence_state_lower or "unvalidated" in evidence_state_lower
-        verdict = "PASS with review-bound items" if review_bound_items_count > 0 or evidence_is_review_bound else "PASS"
+        verdict = "PASS with review-bound items" if review_bound_items_count > 0 or (evidence_state or "").lower() == "review-bound" else "PASS"
     elif total_score >= 70:
         verdict = "PASS with review-bound items"
     else:
@@ -1173,23 +1145,6 @@ def build_same_run_deepening_signal(assessment: dict[str, object] | None) -> dic
         return None
     target_count = int(assessment.get("agentic_loop_target_count", 0) or 0)
     baseline_status = str(assessment.get("baseline_calibration_status", "")).strip().upper()
-    delivery_state = str(assessment.get("document_delivery_state", "")).strip().lower()
-    evidence_state = str(assessment.get("evidence_confidence_state", "")).strip().lower()
-    blockers_count = int(assessment.get("blockers_count", 0) or 0)
-    total_score = float(assessment.get("total_score", 0.0) or 0.0)
-
-    safe_unvalidated_handoff = (
-        active_pass == "business_world_sufficiency"
-        and not commercial_posture
-        and baseline_status == "PASS"
-        and blockers_count == 0
-        and total_score >= 80.0
-        and "downstream-start-safe" in delivery_state
-        and "source-grounded-but-unvalidated" in evidence_state
-    )
-    if safe_unvalidated_handoff:
-        return None
-
     reasons: list[str] = []
     sections_to_deepen: list[str] = []
     consumer_problems: list[str] = []
@@ -1415,7 +1370,6 @@ def execute_remediation_plan(
     document_name: str | None,
     depth_mode: str,
     thinking_value_gain_mode: str = "off",
-    thinking_value_gain_output_profile: str = "coverage_rich",
     output_locale: str | None = None,
 ) -> dict[str, object]:
     stage_map = resolve_stage_map(stage_paths)
@@ -1448,7 +1402,6 @@ def execute_remediation_plan(
             generator_cmd.extend(["--output-locale", str(output_locale)])
         if thinking_value_gain_mode != "off":
             generator_cmd.extend(["--thinking-value-gain-mode", thinking_value_gain_mode])
-            generator_cmd.extend(["--thinking-value-gain-output-profile", thinking_value_gain_output_profile])
         if infer_stage_02b_skip_state(stage_map):
             generator_cmd.append("--skip-stage-02b")
         result = run_command(generator_cmd)
@@ -1751,11 +1704,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Phase-1 v1.2 depth mode; creative still needs baseline sufficiency first",
     )
     parser.add_argument("--thinking-value-gain-mode", choices=("off", "full-use"), default="off")
-    parser.add_argument(
-        "--thinking-value-gain-output-profile",
-        choices=THINKING_VALUE_GAIN_OUTPUT_PROFILES,
-        default="coverage_rich",
-    )
     parser.add_argument("--output-json")
     parser.add_argument(
         "--auto-remediate",
@@ -1801,7 +1749,6 @@ def build_phase1_convergence_runtime_context(args: argparse.Namespace) -> Phase1
         require_non_shrinking=bool(args.require_non_shrinking),
         depth_mode=str(args.depth_mode),
         thinking_value_gain_mode=str(getattr(args, "thinking_value_gain_mode", "off")),
-        thinking_value_gain_output_profile=str(getattr(args, "thinking_value_gain_output_profile", "coverage_rich")),
         output_json_path=Path(args.output_json).resolve() if args.output_json else None,
         auto_remediate=bool(args.auto_remediate),
         output_locale=resolve_output_locale(args.output_locale),
@@ -1814,7 +1761,6 @@ def print_phase1_convergence_runtime_start(context: Phase1ConvergenceRuntimeCont
     print(f"profile: {context.profile}")
     print(f"depth_mode: {context.depth_mode}")
     print(f"thinking_value_gain_mode: {context.thinking_value_gain_mode}")
-    print(f"thinking_value_gain_output_profile: {context.thinking_value_gain_output_profile}")
     if context.report_path:
         print(f"report: {context.report_path}")
     if context.stage_paths:
@@ -2373,7 +2319,6 @@ def main(argv: list[str] | None = None) -> int:
                         document_name=doc_name,
                         depth_mode=context.depth_mode,
                         thinking_value_gain_mode=context.thinking_value_gain_mode,
-                        thinking_value_gain_output_profile=context.thinking_value_gain_output_profile,
                         output_locale=context.output_locale,
                     )
                     round_result["remediation_execution"] = remediation_result
@@ -2424,7 +2369,6 @@ def main(argv: list[str] | None = None) -> int:
                     document_name=doc_name,
                     depth_mode=context.depth_mode,
                     thinking_value_gain_mode=context.thinking_value_gain_mode,
-                    thinking_value_gain_output_profile=context.thinking_value_gain_output_profile,
                     output_locale=context.output_locale,
                 )
                 round_result["remediation_execution"] = remediation_result

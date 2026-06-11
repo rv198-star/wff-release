@@ -167,23 +167,6 @@ def expand_scope_term_equivalents(tokens: set[str]) -> set[str]:
     return expanded
 
 
-def canonical_scope_token(token: str) -> str:
-    group = {token}
-    pending = [token]
-    while pending:
-        current = pending.pop()
-        for equivalent in SCOPE_TERM_EQUIVALENTS.get(current, set()):
-            if equivalent in group:
-                continue
-            group.add(equivalent)
-            pending.append(equivalent)
-    return sorted(group)[0]
-
-
-def scope_concept_tokens(text: str) -> set[str]:
-    return {canonical_scope_token(token) for token in scope_tokens(text)}
-
-
 def suggest_work_packages(
     source_id: str,
     source_subject: str,
@@ -192,8 +175,8 @@ def suggest_work_packages(
     source_type: str = "",
     verification_hook: str = "",
 ) -> list[str]:
-    subject_tokens = scope_concept_tokens(source_subject)
-    hook_tokens = {canonical_scope_token(token) for token in scope_tokens(verification_hook) - VERIFICATION_HOOK_STOPWORDS}
+    subject_tokens = scope_tokens(source_subject)
+    hook_tokens = scope_tokens(verification_hook) - VERIFICATION_HOOK_STOPWORDS
     source_tokens = subject_tokens | hook_tokens
     suggestions: list[str] = []
     fallback_scores: Counter[str] = Counter()
@@ -202,25 +185,16 @@ def suggest_work_packages(
         acceptance = str(row.get("acceptance_criteria", "")).strip()
         scope = str(row.get("scope", "")).strip() or str(row.get("implementation_scope", "")).strip()
         referenced = trace_ids_in_text(f"{scope} {acceptance}")
-        wp_tokens = scope_concept_tokens(f"{scope} {acceptance}")
+        wp_tokens = scope_tokens(f"{scope} {acceptance}")
         if source_id.upper() in referenced:
             suggestions.append(wp_id)
             continue
         subject_overlap = len(subject_tokens & wp_tokens)
         hook_overlap = len(hook_tokens & wp_tokens)
         overlap_count = len(source_tokens & wp_tokens)
-        if source_type == "contract-trace":
-            if hook_overlap >= 1:
-                fallback_scores[wp_id] += hook_overlap * 3 + subject_overlap
-                continue
-            if source_tokens and overlap_count >= 2:
-                suggestions.append(wp_id)
-                continue
-            if subject_overlap >= 2:
-                fallback_scores[wp_id] += subject_overlap
-            continue
         if source_tokens and overlap_count >= 2:
             suggestions.append(wp_id)
+            continue
         if source_type in {"scenario", "replay"}:
             if subject_overlap >= 1:
                 fallback_scores[wp_id] += subject_overlap
@@ -232,12 +206,12 @@ def suggest_work_packages(
     normalized = sorted(set(filter(None, suggestions)))
     if normalized:
         return normalized
-    if source_type not in {"contract-trace", "scenario", "replay"} or not fallback_scores:
-        return normalized
+    if source_type not in {"scenario", "replay"} or not fallback_scores:
+        return []
     best_score = max(fallback_scores.values())
     if best_score <= 0:
-        return normalized
-    return sorted(set(normalized) | {wp_id for wp_id, score in fallback_scores.items() if score == best_score})
+        return []
+    return sorted(wp_id for wp_id, score in fallback_scores.items() if score == best_score)
 
 
 def infer_work_packages_from_targets(

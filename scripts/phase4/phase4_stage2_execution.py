@@ -26,7 +26,6 @@ from phase4.phase4_common import (
     compact_token,
     dedupe_preserve_order,
     ensure_list,
-    extract_phase3_surface_markers_from_text,
     extract_operation_ids_from_file,
     extract_operation_ids_from_text,
     load_json,
@@ -247,11 +246,6 @@ def route_from_implementation_target(target: str) -> str:
     if not route_parts:
         return "/"
     return "/" + "/".join(route_parts)
-
-
-def route_from_executable_surface_marker(executable_text: str) -> str:
-    markers = extract_phase3_surface_markers_from_text(executable_text)
-    return markers[0] if markers else ""
 
 
 def executable_source_text(text: str) -> str:
@@ -909,7 +903,7 @@ def audit_frontend_surface(item: dict[str, Any], phase3_root: Path, ui_ia_contra
         exists = absolute_path.exists()
         text = absolute_path.read_text(encoding="utf-8") if exists else ""
         executable_text = executable_source_text(text)
-        route = route_from_executable_surface_marker(executable_text) or route_from_implementation_target(page_path)
+        route = route_from_implementation_target(page_path)
         contract_page = contract_pages_by_route.get(route, {})
         compiled_interactions = [
             row for row in ensure_list(contract_page.get("compiled_interactions")) if isinstance(row, dict)

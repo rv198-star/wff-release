@@ -20,12 +20,10 @@ if str(SCRIPTS_ROOT) not in sys.path:
 
 import argparse
 
-from phase1.phase1_gate_authority import emit_compatibility_warning
 from phase1.mainline_gates import run_prd_assembly_integrity_gate
 
 
 def main() -> int:
-    emit_compatibility_warning("scripts/phase1/phase1_prd_assembly_integrity_gate.py")
     parser = argparse.ArgumentParser(description="Phase-1 PRD assembly integrity gate")
     parser.add_argument("--source", required=True)
     parser.add_argument("--prd", required=True)

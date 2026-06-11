@@ -1,0 +1,4 @@
+interface:
+  display_name: "Phase-4 Stage-01"
+  short_description: "Freeze acceptance, coverage, and gate posture from Phase-3 evidence"
+  default_prompt: "Use $wff-validation-acceptance-planning to build the Phase-4 Stage-01 planning package from a frozen Phase-3 root, including functional acceptance, UI review items, and explicit visual-evidence posture."

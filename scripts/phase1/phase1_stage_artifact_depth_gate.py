@@ -23,7 +23,6 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from common.script_data_assets import load_script_json_asset
 from phase1.phase1_version_contract import extract_version_identifiers
 
 
@@ -37,38 +36,156 @@ class StageRule:
     required_signals: tuple[tuple[str, str], ...]
 
 
-WFF_SCRIPT_DATA_ASSETS = ("scripts/phase1/data/stage-artifact-depth-rules.json",)
-_STAGE_ARTIFACT_DEPTH_RULES = load_script_json_asset(__file__, "stage-artifact-depth-rules.json")
-
-
-def _load_stage_rules(data: dict[str, object]) -> dict[str, StageRule]:
-    rules: dict[str, StageRule] = {}
-    for key, raw_rule in data.items():
-        rule = raw_rule if isinstance(raw_rule, dict) else {}
-        rules[str(key)] = StageRule(
-            key=str(rule.get("key", key)),
-            min_source_char_ratio=float(rule.get("min_source_char_ratio", 0)),
-            min_source_line_ratio=float(rule.get("min_source_line_ratio", 0)),
-            min_chars_abs=int(rule.get("min_chars_abs", 0)),
-            min_lines_abs=int(rule.get("min_lines_abs", 0)),
-            required_signals=tuple(
-                (str(signal[0]), str(signal[1]))
-                for signal in rule.get("required_signals", [])
-                if isinstance(signal, (list, tuple)) and len(signal) >= 2
+STAGE_RULES: dict[str, StageRule] = {
+    "stage_01": StageRule(
+        key="stage_01",
+        min_source_char_ratio=0.12,
+        min_source_line_ratio=0.10,
+        min_chars_abs=2500,
+        min_lines_abs=80,
+        required_signals=(
+            ("user_boundary", r"Chosen User Boundary|目标用户边界|chosen_segment"),
+            ("problem_statement", r"Problem Statement|问题陈述|final_problem_statement"),
+            ("need_framing", r"Need Framing|需求框架|chosen_framing"),
+            ("open_truths", r"Key Open Truths|开放真相|未决真相"),
+            (
+                "skill_asset_snapshot",
+                r"Skill Asset Ingestion Snapshot|source_bundles_loaded|current_use_rules_compiled",
             ),
-        )
-    return rules
-
-
-STAGE_RULES = _load_stage_rules(_STAGE_ARTIFACT_DEPTH_RULES["stage_rules"])
-MIN_REASONING_UNITS = {
-    str(key): int(value)
-    for key, value in _STAGE_ARTIFACT_DEPTH_RULES["min_reasoning_units"].items()
+        ),
+    ),
+    "stage_02a": StageRule(
+        key="stage_02a",
+        min_source_char_ratio=0.18,
+        min_source_line_ratio=0.16,
+        min_chars_abs=4500,
+        min_lines_abs=140,
+        required_signals=(
+            ("structure_choice", r"Structure Choice|结构选择|chosen_panorama_structure"),
+            ("structure_alternatives", r"Structure Alternatives Comparison|why_chosen"),
+            ("backbone_activities", r"Backbone Activities|主干活动"),
+            ("business_process_identification", r"Business Process Identification|process type"),
+            ("persona_jtbd", r"Persona / JTBD Matrix|main job|success signal"),
+            ("design_requirements", r"Design Requirements Extraction|DR-0[1-9]"),
+            ("nfr_initial_identification", r"NFR Initial Identification|nfr_initial_identification"),
+            ("priority_split", r"Priority Split|优先级分层|P0|P1|P2"),
+            ("stakeholder", r"Stakeholder Profiles|Adoption Chain|利益相关方"),
+            ("scenarios", r"Scenario Decomposition|Key Scenario Deep Analysis|场景"),
+            (
+                "skill_asset_snapshot",
+                r"Skill Asset Ingestion Snapshot|source_bundles_loaded|current_use_rules_compiled",
+            ),
+        ),
+    ),
+    "stage_02b": StageRule(
+        key="stage_02b",
+        min_source_char_ratio=0.18,
+        min_source_line_ratio=0.15,
+        min_chars_abs=4500,
+        min_lines_abs=140,
+        required_signals=(
+            ("nfr", r"NFR|Quality Requirements|质量需求"),
+            ("nfr_reasoning", r"NFR Prioritization Reasoning|reverse risk|deprioritized_attributes"),
+            ("quality_scenario", r"Quality Scenario Matrix|stimulus|environment|expected response"),
+            ("metric_register", r"Metric Definition and Interpretation Register|interpretation risk"),
+            ("domain_model", r"Domain Model|领域模型|core entities"),
+            ("er_diagram", r"Conceptual ER Diagram|erDiagram"),
+            ("subsystem_boundaries", r"Business Subsystem Boundaries|subsystem_interfaces"),
+            ("ia_direction", r"Information Architecture|信息架构"),
+            ("ia_spec", r"IA Spec Precursor Matrix|screen/module"),
+            ("stress_test", r"Stress-Test|压力测试|blind spot"),
+            (
+                "skill_asset_snapshot",
+                r"Skill Asset Ingestion Snapshot|source_bundles_loaded|current_use_rules_compiled",
+            ),
+        ),
+    ),
+    "stage_03": StageRule(
+        key="stage_03",
+        min_source_char_ratio=0.16,
+        min_source_line_ratio=0.14,
+        min_chars_abs=4000,
+        min_lines_abs=130,
+        required_signals=(
+            ("slice_strategy", r"Chosen Slice|切片策略|chosen_slice_strategy"),
+            ("slice_alternatives", r"Slice Alternatives Comparison|why_this_slice_not_that"),
+            ("mvp_scope", r"MVP Scope|in-scope|out-of-scope|首波范围内项|范围外项|非目标项|deferred_items|first-wave abstraction|later slice"),
+            ("experience_loop", r"Loop|体验闭环|minimum_viable_experience_loop"),
+            ("nfr_slice_impact", r"NFR-Aware Slice Impact|nfr_forcing_into_first_slice|dependency_first_chain"),
+            ("value_frequency", r"Value-Frequency Assessment|expected frequency"),
+            ("viability_test", r"MVP Loop Viability Test|what_would_break_viability"),
+            ("deferred", r"Deferred Items Honesty Check|延期|deferred_items"),
+            ("assumptions", r"Key Assumptions to Validate|what_changes_if_positive|what_changes_if_negative"),
+            ("slice_map", r"Slice Map and Dependency View|flowchart"),
+            (
+                "skill_asset_snapshot",
+                r"Skill Asset Ingestion Snapshot|source_bundles_loaded|current_use_rules_compiled",
+            ),
+        ),
+    ),
+    "stage_04": StageRule(
+        key="stage_04",
+        min_source_char_ratio=0.15,
+        min_source_line_ratio=0.13,
+        min_chars_abs=3800,
+        min_lines_abs=120,
+        required_signals=(
+            ("validation_targets", r"Validation Targets|验证对象|validation targets"),
+            ("target_clarity", r"Validation Target Clarity|exact_assumption_tested|what_changes_if_positive"),
+            ("method_fit", r"Method-Fit Comparison|why_this_method_not_that"),
+            ("prototype_fidelity", r"Prototype Fidelity Record|fidelity_chosen"),
+            ("method", r"Method and Signal Definition|验证方法|chosen_method"),
+            ("thresholds", r"Thresholds|阈值|Target\s*[1-9]|signal thresholds"),
+            ("dimensions", r"Validation Dimensions Covered|value_dimension|usability_dimension|feasibility_dimension"),
+            ("evidence_honesty", r"Evidence State Honesty|what_is_design_time_inference"),
+            (
+                "maturity_confidence",
+                r"Delivery Readiness and Evidence Confidence|document_delivery_state|evidence_confidence_state|safe_start_scope",
+            ),
+            ("decision", r"Decision State and Revision Consequences|决策状态|decision"),
+            ("stage_02b_execution_state", r"Stage-02b Execution State Declaration|stage_02b_execution_state"),
+            ("convergence", r"Convergence Readiness|ready-to-converge|unified_product_pack_status"),
+            (
+                "skill_asset_snapshot",
+                r"Skill Asset Ingestion Snapshot|source_bundles_loaded|current_use_rules_compiled",
+            ),
+        ),
+    ),
 }
-REASONING_FIELD_PATTERNS = tuple(
-    (str(pattern[0]), str(pattern[1]), float(pattern[2]))
-    for pattern in _STAGE_ARTIFACT_DEPTH_RULES["reasoning_field_patterns"]
+
+MIN_REASONING_UNITS = {
+    "stage_01": 3,
+    "stage_02a": 4,
+    "stage_02b": 4,
+    "stage_03": 4,
+    "stage_04": 4,
+}
+
+REASONING_FIELD_PATTERNS = (
+    ("artifact_unit", r"^\s*-\s+artifact_unit:", 1.0),
+    ("method_family", r"^\s*-\s+method_family:", 1.0),
+    ("reasoning_operator", r"^\s*-\s+reasoning_operator:", 1.0),
+    (
+        "alternatives_compared",
+        r"^\s*-\s+(?:alternatives_compared|对比过的方案\s+\(alternatives_compared\)):",
+        1.0,
+    ),
+    (
+        "tradeoff_or_tension",
+        r"^\s*-\s+(?:tradeoff_or_tension|权衡\s*/\s*张力\s+\(tradeoff_or_tension\)):",
+        1.0,
+    ),
+    ("decision_effect", r"^\s*-\s+(?:decision_effect|决策效果\s+\(decision_effect\)):", 1.0),
+    ("evidence_classification", r"^\s*-\s+evidence_classification:", 1.0),
+    ("evidence_state", r"^\s*-\s+evidence_state:", 1.0),
+    (
+        "downstream_handoff",
+        r"^\s*-\s+(?:downstream_handoff|向下游的交接要求\s+\(downstream_handoff\)):",
+        1.0,
+    ),
+    ("freeze_rationale", r"^\s*-\s+freeze_rationale:", 1.0),
 )
+
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 

@@ -1,4 +1,0 @@
-interface:
-  display_name: "WFF Project Context"
-  short_description: "Maintain durable project-level Agent context"
-  default_prompt: "Use $wff-project-context to review durable project context candidates, maintain .wff/PROJECT_CONTEXT.md, preserve human-maintained context, curate precise key references, and record conflicts without replacing lifecycle truth."

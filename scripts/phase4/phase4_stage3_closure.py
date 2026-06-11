@@ -14,23 +14,11 @@ if str(SCRIPTS_ROOT) not in sys.path:
 
 
 import argparse
-import json
 from pathlib import Path
-import re
 from typing import Any
 
-from common.claim_ceiling_surface import claim_ceiling_allows_phase4_validation_entry, claim_ceiling_blocks_ready
 from common.output_language import localize_phase4_stage3_closure_markdown
-from phase4.phase4_common import (
-    build_phase4_claim_ceiling_report,
-    ensure_list,
-    load_json,
-    relative_to_root,
-    render_markdown_table,
-    utc_now_iso,
-    write_json,
-    write_text,
-)
+from phase4.phase4_common import ensure_list, load_json, relative_to_root, render_markdown_table, utc_now_iso, write_json, write_text
 from phase4.phase4_stage1_planning import STAGE_DIRNAME as STAGE01_DIRNAME
 from phase4.phase4_stage2_execution import STAGE_DIRNAME as STAGE02_DIRNAME, item_has_residual_review
 
@@ -94,17 +82,6 @@ def decide_closure(items: list[dict[str, Any]]) -> tuple[str, str]:
 
 
 def stage1_closure_blocker(stage1_summary: dict[str, Any]) -> str:
-    claim_ceiling_report = (
-        stage1_summary.get("phase3_claim_ceiling_report")
-        if isinstance(stage1_summary.get("phase3_claim_ceiling_report"), dict)
-        else {}
-    )
-    if claim_ceiling_blocks_ready(claim_ceiling_report) and not claim_ceiling_allows_phase4_validation_entry(claim_ceiling_report):
-        resolved_state = str(claim_ceiling_report.get("resolved_formal_state") or "unknown").strip()
-        return (
-            "Phase-3 claim ceiling is "
-            f"`{resolved_state}`; Phase-4 cannot promote capped upstream evidence to testing-validation-complete."
-        )
     if not bool(stage1_summary.get("trace_mapping_complete")):
         return "Phase-4 Stage-01 trace mapping is incomplete; validation closure must return to the upstream contract boundary."
     high_priority_unmapped_count = int(stage1_summary.get("high_priority_unmapped_count") or 0)
@@ -116,142 +93,7 @@ def stage1_closure_blocker(stage1_summary: dict[str, Any]) -> str:
     return ""
 
 
-def read_text_if_exists(path: Path) -> str:
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8")
-
-
-def load_json_if_exists(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def strip_markdown_scalar(value: str) -> str:
-    cleaned = str(value or "").strip()
-    if len(cleaned) >= 2 and cleaned.startswith("`") and cleaned.endswith("`"):
-        return cleaned[1:-1].strip()
-    return cleaned
-
-
-def unique_strings(values: list[str], *, limit: int) -> list[str]:
-    result: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        cleaned = re.sub(r"\s+", " ", strip_markdown_scalar(value)).strip()
-        if not cleaned:
-            continue
-        key = cleaned.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(cleaned)
-        if len(result) >= limit:
-            break
-    return result
-
-
-def extract_esp_case_signals(esp_text: str) -> dict[str, list[str]]:
-    adr_titles = unique_strings(
-        re.findall(r"-\s+title:\s+`?([^`\n]+)`?", esp_text),
-        limit=5,
-    )
-    tradeoff_signals: list[str] = []
-    for line in esp_text.splitlines():
-        stripped = line.strip()
-        if not stripped.startswith("| TD-"):
-            continue
-        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
-        if len(cells) >= 4:
-            tradeoff_signals.append(" / ".join(cell for cell in cells[1:4] if cell))
-    return {
-        "architecture_decisions": adr_titles,
-        "tradeoff_signals": unique_strings(tradeoff_signals, limit=5),
-    }
-
-
-def extract_openapi_operation_ids(phase3_root: Path) -> list[str]:
-    for candidate in ("openapi-final.json", "openapi-final.yaml", "openapi.yaml", "openapi.json"):
-        spec_path = phase3_root / candidate
-        if not spec_path.exists():
-            continue
-        text = spec_path.read_text(encoding="utf-8")
-        payload = load_json_if_exists(spec_path)
-        operation_ids: list[str] = []
-        if payload:
-            paths = payload.get("paths", {})
-            if isinstance(paths, dict):
-                for path_item in paths.values():
-                    if not isinstance(path_item, dict):
-                        continue
-                    for operation in path_item.values():
-                        if isinstance(operation, dict) and str(operation.get("operationId") or "").strip():
-                            operation_ids.append(str(operation["operationId"]))
-        if not operation_ids:
-            operation_ids = re.findall(r"\boperationId:\s*([A-Za-z0-9_-]+)", text)
-        return unique_strings(operation_ids, limit=8)
-    return []
-
-
-def build_upstream_case_context(phase3_root: Path, stage1_summary: dict[str, Any]) -> dict[str, Any]:
-    phase2_root_raw = str(stage1_summary.get("phase2_root") or "").strip()
-    phase2_root = Path(phase2_root_raw) if phase2_root_raw else None
-    esp_text = read_text_if_exists(phase2_root / "engineering-spec-pack.md") if phase2_root else ""
-    esp_signals = extract_esp_case_signals(esp_text)
-    operation_ids = extract_openapi_operation_ids(phase3_root)
-    return {
-        "phase2_root": phase2_root_raw,
-        "phase3_verdict": str(stage1_summary.get("phase3_mainline_verdict") or ""),
-        "phase3_total_score": str(stage1_summary.get("phase3_mainline_total_score") or ""),
-        "architecture_decisions": esp_signals["architecture_decisions"],
-        "tradeoff_signals": esp_signals["tradeoff_signals"],
-        "operation_ids": operation_ids,
-    }
-
-
-def render_upstream_case_context_markdown(context: dict[str, Any] | None) -> list[str]:
-    if not context:
-        return []
-    lines = [
-        "## Upstream Case Context",
-        "- purpose: Bind this closure judgment to the concrete upstream case instead of emitting a generic validation template.",
-        "- claim_ceiling: context summary only; it does not create release approval or new upstream truth.",
-        f"- phase3_mainline_verdict: `{context.get('phase3_verdict') or 'unknown'}`",
-        f"- phase3_mainline_total_score: `{context.get('phase3_total_score') or 'unknown'}`",
-        "- key_architecture_decisions:",
-    ]
-    decisions = [str(value) for value in ensure_list(context.get("architecture_decisions")) if str(value).strip()]
-    if decisions:
-        lines.extend(f"  - {decision}" for decision in decisions)
-    else:
-        lines.append("  - review-bound: no Phase-2 decision title was available to Stage-03 closure")
-    lines.append("- operation_scope:")
-    operations = [str(value) for value in ensure_list(context.get("operation_ids")) if str(value).strip()]
-    if operations:
-        lines.extend(f"  - {operation}" for operation in operations)
-    else:
-        lines.append("  - review-bound: no Phase-3 operation id was available to Stage-03 closure")
-    lines.append("- tradeoff_signals:")
-    tradeoffs = [str(value) for value in ensure_list(context.get("tradeoff_signals")) if str(value).strip()]
-    if tradeoffs:
-        lines.extend(f"  - {tradeoff}" for tradeoff in tradeoffs)
-    else:
-        lines.append("  - review-bound: no Phase-2 tradeoff signal was available to Stage-03 closure")
-    lines.append("")
-    return lines
-
-
-def build_closure_markdown(
-    decision: str,
-    rationale: str,
-    items: list[dict[str, Any]],
-    upstream_context: dict[str, Any] | None = None,
-) -> str:
+def build_closure_markdown(decision: str, rationale: str, items: list[dict[str, Any]]) -> str:
     review_bound_rows = [
         [
             item["test_id"],
@@ -275,7 +117,6 @@ def build_closure_markdown(
             f"- rationale: {rationale}",
             "- phase_boundary_rule: Phase-4 closes testing-validation only; it does not declare final release approval.",
             "",
-            *render_upstream_case_context_markdown(upstream_context),
             "## Residual Review-Bound / Returned Items",
             render_markdown_table(
                 ["test_id", "acceptance_type", "status", "risk_weight", "critical_path", "human_signoff_status", "acceptance_item", "actual_result"],
@@ -383,10 +224,12 @@ def suggested_commands_for_target(return_target: str, *, phase3_root: Path, phas
     if return_target == "P3":
         commands = []
         commands.append(
-            "rerun P3 with the implementation-delivery profile/source tree "
+            "python3 scripts/phase3/run_phase3_first_version.py "
             f"--phase2-root {phase2_root or '<phase2-root>'} "
             f"--output-dir {phase3_root.parent / 'phase3-rerun'} "
-            "--version <next-version-p3> --output-locale zh-CN --full-targeted-evidence"
+            "--version <next-version-p3> --output-locale zh-CN "
+            "--mainline-verification-mode strict-runtime --install-toolchain --run-runtime-smoke "
+            "--full-targeted-evidence"
         )
         commands.append(
             "python3 scripts/phase4/run_phase4_first_version.py "
@@ -397,12 +240,14 @@ def suggested_commands_for_target(return_target: str, *, phase3_root: Path, phas
         return commands
     if return_target == "P2":
         return [
-            "python3 scripts/phase2/run_phase2_fresh_generation.py "
+            "python3 scripts/phase2/run_phase2_first_version.py "
             "--phase1-prd <phase1-prd> --output-dir <new-phase2-root> "
             "--version <next-version-p2> --output-locale zh-CN --run-wrapper",
-            "rerun P3 with the implementation-delivery profile/source tree "
+            "python3 scripts/phase3/run_phase3_first_version.py "
             "--phase2-root <new-phase2-root> --output-dir <new-phase3-root> "
-            "--version <next-version-p3> --output-locale zh-CN --full-targeted-evidence",
+            "--version <next-version-p3> --output-locale zh-CN "
+            "--mainline-verification-mode strict-runtime --install-toolchain --run-runtime-smoke "
+            "--full-targeted-evidence",
             "python3 scripts/phase4/run_phase4_first_version.py "
             "--phase3-root <new-phase3-root> --output-dir <new-phase4-root> "
             "--version <next-version-p4> --output-locale zh-CN",
@@ -539,11 +384,6 @@ def build_phase4_stage3_closure(
     stage03_dir.mkdir(parents=True, exist_ok=True)
 
     stage1_summary = load_json(stage01_dir / "stage-01-summary.json")
-    upstream_claim_ceiling_report = (
-        stage1_summary.get("phase3_claim_ceiling_report")
-        if isinstance(stage1_summary.get("phase3_claim_ceiling_report"), dict)
-        else {}
-    )
     stage2_results = load_json(stage02_dir / "test-execution-results.json")
     phase3_runtime_truth = stage2_results.get("phase3_runtime_truth", {})
     if not isinstance(phase3_runtime_truth, dict):
@@ -554,18 +394,6 @@ def build_phase4_stage3_closure(
         decision, rationale = "return", stage1_blocker
     else:
         decision, rationale = decide_closure(items)
-        if (
-            decision == "pass"
-            and claim_ceiling_blocks_ready(upstream_claim_ceiling_report)
-            and claim_ceiling_allows_phase4_validation_entry(upstream_claim_ceiling_report)
-        ):
-            upstream_state = str(upstream_claim_ceiling_report.get("resolved_formal_state") or "unknown").strip()
-            decision = "pass-with-review-bound-items"
-            rationale = (
-                "Functional items passed, but upstream Phase-3 claim ceiling is "
-                f"`{upstream_state}` and caps validation closure to review-bound."
-            )
-    upstream_context = build_upstream_case_context(phase3_root, stage1_summary)
 
     closure_md_path = stage03_dir / "test-closure-judgment.md"
     boundary_md_path = stage03_dir / "downstream-boundary-note.md"
@@ -576,10 +404,7 @@ def build_phase4_stage3_closure(
 
     write_text(
         closure_md_path,
-        localize_phase4_stage3_closure_markdown(
-            build_closure_markdown(decision, rationale, items, upstream_context),
-            output_locale,
-        ),
+        localize_phase4_stage3_closure_markdown(build_closure_markdown(decision, rationale, items), output_locale),
     )
     write_text(
         boundary_md_path,
@@ -602,29 +427,6 @@ def build_phase4_stage3_closure(
             localize_phase4_stage3_closure_markdown(build_remediation_markdown(remediation_packet), output_locale),
         )
 
-    requested_formal_state = {
-        "pass": "testing-validation-complete",
-        "pass-with-mock-dependency": "testing-validation-complete-with-mock-dependency",
-        "pass-with-review-bound-items": "testing-validation-complete-with-review-bound-items",
-        "return": "testing-validation-return-required",
-    }[decision]
-    summary_gate_checks = {
-        "review_bound_count": len([item for item in items if item["status"] == "review-bound"]),
-        "signoff_pending_count": len(
-            [item for item in items if item.get("human_signoff_required") and item.get("human_signoff_status") == "review-bound"]
-        ),
-        "signoff_not_ready_count": len(
-            [item for item in items if item.get("human_signoff_required") and item.get("human_signoff_status") == "not-ready"]
-        ),
-        "blocking_count": len([item for item in items if item["status"] in {"fail", "blocked"}]),
-    }
-    claim_ceiling_report = build_phase4_claim_ceiling_report(
-        requested_formal_state=requested_formal_state,
-        closure_decision=decision,
-        checks=summary_gate_checks,
-        upstream_claim_ceiling_report=upstream_claim_ceiling_report,
-    )
-
     summary = {
         "stage": "validation-closure-and-delivery-readiness-judgment",
         "title": title,
@@ -642,14 +444,6 @@ def build_phase4_stage3_closure(
         "phase3_full_targeted_evidence_status": str(
             phase3_runtime_truth.get("full_targeted_evidence_status") or "unknown"
         ),
-        "upstream_claim_ceiling_report": upstream_claim_ceiling_report,
-        "upstream_claim_ceiling_resolved_formal_state": str(
-            upstream_claim_ceiling_report.get("resolved_formal_state") or "unknown"
-        ),
-        "upstream_claim_ceiling_blocks_ready": claim_ceiling_blocks_ready(upstream_claim_ceiling_report),
-        "recommended_formal_state": str(claim_ceiling_report["resolved_formal_state"]),
-        "claim_ceiling_report": claim_ceiling_report,
-        "upstream_case_context": upstream_context,
         "closure_decision": decision,
         "closure_rationale": rationale,
         "functional_pass": all(
@@ -676,36 +470,35 @@ def build_phase4_stage3_closure(
     }
     write_json(summary_path, summary)
 
-    gate_checks = {
-        "phase3_mainline_summary_present": bool(stage1_summary.get("phase3_mainline_summary_present")),
-        "phase3_mainline_backend_verification_present": bool(
-            phase3_runtime_truth.get("mainline_backend_verification_present")
-        ),
-        "phase3_full_targeted_evidence_present": bool(phase3_runtime_truth.get("full_targeted_evidence_present")),
-        "phase3_full_targeted_evidence_status": str(
-            phase3_runtime_truth.get("full_targeted_evidence_status") or "unknown"
-        ),
-        "upstream_claim_ceiling_resolved_formal_state": str(
-            upstream_claim_ceiling_report.get("resolved_formal_state") or "unknown"
-        ),
-        "upstream_claim_ceiling_blocks_ready": claim_ceiling_blocks_ready(upstream_claim_ceiling_report),
-        "functional_items_all_pass": summary["functional_pass"],
-        "trace_mapping_complete": bool(stage1_summary.get("trace_mapping_complete")),
-        "decision_alignment_complete": bool(stage1_summary.get("decision_alignment_complete")),
-        "visual_review_items_explicit": True,
-        "review_bound_count": summary["review_bound_count"],
-        "signoff_pending_count": summary["signoff_pending_count"],
-        "signoff_not_ready_count": summary["signoff_not_ready_count"],
-        "blocking_count": summary["blocking_count"],
-    }
     gate = {
         "generated_at": utc_now_iso(),
         "phase3_root": str(phase3_root),
-        "recommended_formal_state": str(claim_ceiling_report["resolved_formal_state"]),
+        "recommended_formal_state": {
+            "pass": "testing-validation-complete",
+            "pass-with-mock-dependency": "testing-validation-complete-with-mock-dependency",
+            "pass-with-review-bound-items": "testing-validation-complete-with-review-bound-items",
+            "return": "testing-validation-return-required",
+        }[decision],
         "closure_decision": decision,
         "overall_quality_gate": decision,
-        "claim_ceiling_report": claim_ceiling_report,
-        "checks": gate_checks,
+        "checks": {
+            "phase3_mainline_summary_present": bool(stage1_summary.get("phase3_mainline_summary_present")),
+            "phase3_mainline_backend_verification_present": bool(
+                phase3_runtime_truth.get("mainline_backend_verification_present")
+            ),
+            "phase3_full_targeted_evidence_present": bool(phase3_runtime_truth.get("full_targeted_evidence_present")),
+            "phase3_full_targeted_evidence_status": str(
+                phase3_runtime_truth.get("full_targeted_evidence_status") or "unknown"
+            ),
+            "functional_items_all_pass": summary["functional_pass"],
+            "trace_mapping_complete": bool(stage1_summary.get("trace_mapping_complete")),
+            "decision_alignment_complete": bool(stage1_summary.get("decision_alignment_complete")),
+            "visual_review_items_explicit": True,
+            "review_bound_count": summary["review_bound_count"],
+            "signoff_pending_count": summary["signoff_pending_count"],
+            "signoff_not_ready_count": summary["signoff_not_ready_count"],
+            "blocking_count": summary["blocking_count"],
+        },
         "warnings": [
             message
             for message in [
@@ -720,12 +513,6 @@ def build_phase4_stage3_closure(
                 else "",
                 "Some high-priority Phase-2 decisions are not covered by explicit Phase-4 acceptance items."
                 if int(stage1_summary.get("high_priority_unmapped_count") or 0) > 0
-                else "",
-                "Upstream Phase-3 claim ceiling caps testing-validation-complete."
-                if claim_ceiling_blocks_ready(upstream_claim_ceiling_report)
-                and claim_ceiling_allows_phase4_validation_entry(upstream_claim_ceiling_report)
-                else "Upstream Phase-3 claim ceiling blocks testing-validation-complete."
-                if claim_ceiling_blocks_ready(upstream_claim_ceiling_report)
                 else "",
             ]
             if message

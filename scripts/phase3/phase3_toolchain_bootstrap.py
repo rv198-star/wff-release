@@ -15,7 +15,6 @@ if str(SCRIPTS_ROOT) not in sys.path:
 
 import argparse
 import json
-import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -44,33 +43,8 @@ def command_version(binary: str, args: list[str]) -> str:
     return completed.stdout.strip() or completed.stderr.strip()
 
 
-def compose_output_is_v2_or_newer(value: str) -> bool:
-    match = re.search(r"(?:version\s+)?v?(\d+)(?:\.\d+)", value, re.IGNORECASE)
-    return bool(match and int(match.group(1)) >= 2)
-
-
 def package_json_count(workspace_root: Path) -> int:
     return len(list(workspace_root.rglob("package.json")))
-
-
-def required_pnpm_version(workspace_root: Path) -> str:
-    package_path = workspace_root / "package.json"
-    if not package_path.exists():
-        return ""
-    try:
-        package_data = json.loads(package_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return ""
-    package_manager = str(package_data.get("packageManager") or "").strip()
-    if not package_manager.startswith("pnpm@"):
-        return ""
-    return package_manager.split("@", 1)[1].strip()
-
-
-def pnpm_version_matches_required(current_version: str, required_version: str) -> bool:
-    if not required_version:
-        return True
-    return current_version.strip().lstrip("v") == required_version.strip().lstrip("v")
 
 
 def node_modules_present(workspace_root: Path) -> bool:
@@ -91,12 +65,9 @@ def normalize_process_output(value: str | bytes | None) -> str:
 
 def compose_version() -> str:
     docker_compose = command_version("docker", ["compose", "version"])
-    if docker_compose and compose_output_is_v2_or_newer(docker_compose):
+    if docker_compose:
         return docker_compose
-    docker_compose_standalone = command_version("docker-compose", ["--version"])
-    if docker_compose_standalone and compose_output_is_v2_or_newer(docker_compose_standalone):
-        return docker_compose_standalone
-    return ""
+    return command_version("docker-compose", ["--version"])
 
 
 def build_markdown(report: dict[str, Any], output_locale: str | None = None) -> str:
@@ -150,8 +121,6 @@ def bootstrap_phase3_toolchain(
     docker_version = command_version("docker", ["--version"])
     docker_server_version = command_version("docker", ["version", "--format", "{{.Server.Version}}"])
     docker_compose_version = compose_version()
-    required_pnpm = required_pnpm_version(workspace_root)
-    pnpm_version_ok = pnpm_version_matches_required(pnpm_version, required_pnpm)
     before_node_modules = node_modules_present(workspace_root)
     package_count = package_json_count(workspace_root)
     install_payload: dict[str, Any] = {
@@ -163,7 +132,7 @@ def bootstrap_phase3_toolchain(
     }
 
     install_requested = bool(install or strict)
-    if install_requested and node_version and pnpm_version and pnpm_version_ok and not before_node_modules:
+    if install_requested and node_version and pnpm_version and not before_node_modules:
         try:
             completed = subprocess.run(
                 [
@@ -201,8 +170,6 @@ def bootstrap_phase3_toolchain(
         findings.append("node_missing")
     if not pnpm_version:
         findings.append("pnpm_missing")
-    if pnpm_version and not pnpm_version_ok:
-        findings.append("pnpm_version_mismatch")
     if not docker_version:
         findings.append("docker_missing")
     if docker_version and not docker_server_version:
@@ -221,7 +188,6 @@ def bootstrap_phase3_toolchain(
         for marker in (
             "node_missing",
             "pnpm_missing",
-            "pnpm_version_mismatch",
             "docker_missing",
             "docker_compose_missing",
             "package_json_missing",
@@ -236,7 +202,6 @@ def bootstrap_phase3_toolchain(
         not install_payload["attempted"]
         and node_version
         and pnpm_version
-        and pnpm_version_ok
         and docker_version
         and docker_compose_version
         and package_count > 0
@@ -262,8 +227,6 @@ def bootstrap_phase3_toolchain(
             "node_modules_present_after": after_node_modules,
             "node_version": node_version,
             "pnpm_version": pnpm_version,
-            "required_pnpm_version": required_pnpm,
-            "pnpm_version_matches_required": pnpm_version_ok,
             "docker_version": docker_version,
             "docker_server_version": docker_server_version,
             "compose_version": docker_compose_version,

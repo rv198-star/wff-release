@@ -1,4 +1,0 @@
-interface:
-  display_name: "Phase-3 Code Review"
-  short_description: "Audit structure, drift, duplication, and dependency direction"
-  default_prompt: "Use $wff-impl-review to audit a stabilized Phase-3 codebase for structural drift, naming drift, duplication, complexity, and dependency-direction problems after the test pack is green."

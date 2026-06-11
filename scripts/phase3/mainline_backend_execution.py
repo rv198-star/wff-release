@@ -4,11 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from phase3.validation_levels import build_validation_profile, normalize_validation_level
-from phase3.verification_plan import build_verification_commands
-from phase3.verification_ledger import record_verification_report
+from phase3.execution_loop_builder import build_verification_commands
 from phase3.wp_gate_cycle import analyze_phase3_wp_gate
-from phase3.runtime_verification_support import run_verification_commands
+from phase3.worker_packet_runner import record_verification_report, run_verification_commands
 
 
 def write_text(path: Path, content: str) -> None:
@@ -66,37 +64,11 @@ def classify_backend_test_targets(test_targets: list[str]) -> dict[str, list[str
     return classified
 
 
-def discover_backend_test_targets(workspace_root: Path | None) -> list[str]:
-    if workspace_root is None:
-        return []
-    tests_root = workspace_root / "tests"
-    if not tests_root.exists():
-        return []
-    discovered: list[str] = []
-    for path in sorted(tests_root.rglob("*.test.ts")):
-        if not path.is_file():
-            continue
-        target = normalize_target(str(path.relative_to(workspace_root)))
-        if target and target not in discovered:
-            discovered.append(target)
-    return discovered
-
-
 def build_phase3_mainline_backend_packet(
     *,
     implementation_bindings: dict[str, Any],
-    validation_level: str = "",
     full_targeted_evidence: bool = True,
-    workspace_root: Path | None = None,
 ) -> dict[str, Any]:
-    validation_level = normalize_validation_level(
-        validation_level,
-        full_targeted_evidence=full_targeted_evidence,
-    )
-    validation_profile = build_validation_profile(
-        validation_level,
-        full_targeted_evidence=full_targeted_evidence,
-    )
     rows = implementation_bindings.get("rows", [])
     if not isinstance(rows, list):
         rows = []
@@ -133,9 +105,6 @@ def build_phase3_mainline_backend_packet(
             if test_target and test_target not in collected_tests:
                 collected_tests.append(test_target)
 
-    if not collected_tests:
-        collected_tests = discover_backend_test_targets(workspace_root)
-
     test_targets = classify_backend_test_targets(collected_tests)
     primary_test_categories = [key for key, values in test_targets.items() if values]
 
@@ -149,12 +118,9 @@ def build_phase3_mainline_backend_packet(
         "work_package_ids": work_package_ids,
         "source_rows": source_rows,
         "test_targets": test_targets,
-        "validation_level": validation_level,
-        "validation_profile": validation_profile,
         "verification_commands": build_verification_commands(
             "backend",
             test_targets,
-            validation_level=validation_level,
             full_targeted_evidence=full_targeted_evidence,
         ),
         "coordination_notes": [
@@ -237,24 +203,13 @@ def execute_phase3_mainline_backend_verification(
     implementation_bindings_path: Path,
     actor: str = "run_phase3_first_version",
     note: str = "",
-    validation_level: str = "",
     full_targeted_evidence: bool = True,
 ) -> dict[str, Any]:
     output_dir = output_dir.resolve()
     implementation_bindings = json.loads(implementation_bindings_path.read_text(encoding="utf-8"))
-    validation_level = normalize_validation_level(
-        validation_level,
-        full_targeted_evidence=full_targeted_evidence,
-    )
-    validation_profile = build_validation_profile(
-        validation_level,
-        full_targeted_evidence=full_targeted_evidence,
-    )
     packet = build_phase3_mainline_backend_packet(
         implementation_bindings=implementation_bindings,
-        validation_level=validation_level,
         full_targeted_evidence=full_targeted_evidence,
-        workspace_root=output_dir,
     )
     run_dir = next_mainline_verification_run_dir(output_dir)
     packet_path = output_dir / ".phase3-mainline-execution" / "mainline-backend-packet.json"
@@ -296,8 +251,6 @@ def execute_phase3_mainline_backend_verification(
         "wp_gate_report_path": wp_gate_report_path,
         "wp_gate_report_overall_quality_gate": wp_gate_report.get("overall_quality_gate", ""),
         "backend_evidence": verification_execution.get("backend_evidence"),
-        "validation_level": validation_level,
-        "validation_profile": validation_profile,
         "full_targeted_evidence": bool(full_targeted_evidence),
     }
     write_text(summary_path, json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n")

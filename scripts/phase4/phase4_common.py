@@ -6,21 +6,10 @@ Shared helpers for Phase-4 testing-validation scripts.
 from __future__ import annotations
 
 import json
-import hashlib
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
-
-from common.claim_ceiling_surface import (
-    claim_ceiling_allows_phase4_validation_entry,
-    claim_ceiling_blocks_ready,
-    read_claim_ceiling_report,
-)
-from common.markdown_table_tools import (
-    render_markdown_table as render_common_markdown_table,
-    sanitize_markdown_table_cell,
-)
 
 
 VISUAL_EVIDENCE_SUFFIXES = {
@@ -61,25 +50,11 @@ def stable_suffix(raw: str) -> str:
     text = raw.strip().upper()
     text = re.sub(r"[^A-Z0-9]+", "-", text)
     text = re.sub(r"-{2,}", "-", text).strip("-")
-    if text:
-        return text
-    digest = hashlib.sha1(str(raw or "").encode("utf-8")).hexdigest()[:10].upper()
-    return f"U-{digest}" if digest else "UNKNOWN"
+    return text or "UNKNOWN"
 
 
 def compact_token(raw: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", raw.lower())
-
-
-def extract_phase3_surface_markers_from_text(text: str) -> list[str]:
-    markers = re.findall(r"data-phase3-surface\s*=\s*[\"']([^\"']+)[\"']", text)
-    return dedupe_preserve_order(str(marker).strip() for marker in markers if str(marker).strip())
-
-
-def extract_phase3_surface_markers_from_file(path: Path) -> list[str]:
-    if not path.exists() or not path.is_file():
-        return []
-    return extract_phase3_surface_markers_from_text(path.read_text(encoding="utf-8"))
 
 
 def api_id_for_operation(operation_id: str) -> str:
@@ -179,7 +154,6 @@ def load_phase3_mainline_summary(phase3_root: Path) -> dict[str, Any]:
     metadata_summary = metadata.get("mainline_assessment_summary")
     metadata_artifacts = metadata.get("mainline_assessment_artifacts")
     verdict = load_json_if_exists(phase3_root / "phase-verdict.json") or {}
-    claim_ceiling_report = read_claim_ceiling_report(phase3_root)
 
     if not isinstance(metadata_summary, dict):
         metadata_summary = {}
@@ -205,12 +179,6 @@ def load_phase3_mainline_summary(phase3_root: Path) -> dict[str, Any]:
         "blockers_count": int(verdict.get("blockers_count", metadata_summary.get("blockers_count", 0)) or 0),
         "warning_count": int(verdict.get("warning_count", metadata_summary.get("warning_count", 0)) or 0),
         "failure_count": int(verdict.get("failure_count", metadata_summary.get("failure_count", 0)) or 0),
-        "claim_ceiling_report": claim_ceiling_report,
-        "claim_ceiling_present": bool(claim_ceiling_report.get("present")),
-        "claim_ceiling_resolved_formal_state": str(
-            claim_ceiling_report.get("resolved_formal_state") or "unknown"
-        ).strip(),
-        "claim_ceiling_blocks_ready": claim_ceiling_blocks_ready(claim_ceiling_report),
         "phase_complete": bool(verdict.get("phase_complete", metadata_summary.get("phase_complete", False))),
         "implementation_complete": bool(
             verdict.get("implementation_complete", metadata_summary.get("implementation_complete", False))
@@ -278,141 +246,24 @@ def relative_to_root(path: Path, root: Path) -> str:
 
 
 def markdown_cell(value: Any) -> str:
-    return sanitize_markdown_table_cell(
-        value,
-        pipe_escape="backslash",
-        none_replacement="",
-        list_separator=", ",
-    )
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        text = ", ".join(str(item) for item in value)
+    else:
+        text = str(value)
+    return text.replace("|", "\\|").replace("\n", "<br>")
 
 
 def render_markdown_table(headers: list[str], rows: list[list[Any]]) -> str:
-    return render_common_markdown_table(
-        headers,
-        rows,
-        pipe_escape="backslash",
-        none_replacement="",
-        list_separator=", ",
-    )
+    header_row = "| " + " | ".join(headers) + " |"
+    separator = "| " + " | ".join("---" for _ in headers) + " |"
+    body = ["| " + " | ".join(markdown_cell(cell) for cell in row) + " |" for row in rows]
+    return "\n".join([header_row, separator, *body]) if body else "\n".join([header_row, separator])
 
 
 def clamp_assessment_dimension(score: int) -> int:
     return max(0, min(5, score))
-
-
-PHASE4_FORMAL_STATE_RANK = {
-    "testing-validation-return-required": 0,
-    "testing-validation-complete-with-review-bound-items": 1,
-    "testing-validation-complete-with-mock-dependency": 1,
-    "testing-validation-complete": 2,
-}
-
-
-def build_phase4_claim_ceiling_report(
-    *,
-    requested_formal_state: str,
-    closure_decision: str,
-    checks: dict[str, Any],
-    upstream_claim_ceiling_report: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    upstream_claim_ceiling_report = upstream_claim_ceiling_report or {}
-    checks = checks if isinstance(checks, dict) else {}
-    requested = str(requested_formal_state or "").strip() or "testing-validation-return-required"
-    requested_rank = PHASE4_FORMAL_STATE_RANK.get(requested, 0)
-    resolved_rank = requested_rank
-    reasons: list[dict[str, str]] = []
-
-    def cap(state: str, reason: str, signal: str, detail: str) -> None:
-        nonlocal resolved_rank
-        rank = PHASE4_FORMAL_STATE_RANK.get(state, 0)
-        resolved_rank = min(resolved_rank, rank)
-        reasons.append(
-            {
-                "reason": reason,
-                "signal": signal,
-                "detail": detail,
-                "ceiling": state,
-            }
-        )
-
-    upstream_state = str(upstream_claim_ceiling_report.get("resolved_formal_state") or "unknown").strip()
-    upstream_claim_ceiling_blocks_ready = claim_ceiling_blocks_ready(upstream_claim_ceiling_report)
-    upstream_claim_ceiling_allows_validation = claim_ceiling_allows_phase4_validation_entry(upstream_claim_ceiling_report)
-    if upstream_claim_ceiling_blocks_ready:
-        if upstream_claim_ceiling_allows_validation:
-            cap(
-                "testing-validation-complete-with-review-bound-items",
-                "upstream_claim_ceiling_caps_release_ready",
-                "phase3_claim_ceiling",
-                f"Phase-3 claim ceiling is `{upstream_state}`; Phase-4 may validate but must keep release readiness review-bound.",
-            )
-        else:
-            cap(
-                "testing-validation-return-required",
-                "upstream_claim_ceiling_blocks_ready",
-                "phase3_claim_ceiling",
-                f"Phase-3 claim ceiling is `{upstream_state}` and cannot be upgraded by Phase-4.",
-            )
-
-    blocking_count = int(checks.get("blocking_count") or 0)
-    review_bound_count = int(checks.get("review_bound_count") or 0)
-    signoff_pending_count = int(checks.get("signoff_pending_count") or 0)
-    signoff_not_ready_count = int(checks.get("signoff_not_ready_count") or 0)
-
-    if closure_decision in {"return", "testing-validation-return-required"} or blocking_count > 0:
-        cap(
-            "testing-validation-return-required",
-            "phase4_closure_return_required",
-            "phase4_closure",
-            "Phase-4 closure contains blocking or return-required evidence.",
-        )
-    if closure_decision == "pass-with-mock-dependency":
-        cap(
-            "testing-validation-complete-with-mock-dependency",
-            "mock_dependency_present",
-            "phase4_closure",
-            "Runtime evidence still depends on mock or unresolved runtime-environment truth.",
-        )
-    if (
-        closure_decision == "pass-with-review-bound-items"
-        or review_bound_count > 0
-        or signoff_pending_count > 0
-        or signoff_not_ready_count > 0
-    ):
-        cap(
-            "testing-validation-complete-with-review-bound-items",
-            "residual_review_bound_items",
-            "phase4_closure",
-            "Review-bound, visual, or signoff items remain and cannot be promoted to complete.",
-        )
-
-    if any(row.get("reason") == "mock_dependency_present" for row in reasons) and not any(
-        row.get("reason") in {"upstream_claim_ceiling_blocks_ready", "phase4_closure_return_required"}
-        for row in reasons
-    ):
-        resolved_state = "testing-validation-complete-with-mock-dependency"
-    else:
-        resolved_state = next(
-            state for state, rank in PHASE4_FORMAL_STATE_RANK.items() if rank == resolved_rank
-        )
-    return {
-        "artifact_kind": "phase4-claim-ceiling-report.v1",
-        "requested_formal_state": requested,
-        "resolved_formal_state": resolved_state,
-        "claim_ceiling": resolved_state,
-        "blocking_delivery_ready": resolved_state != "testing-validation-complete",
-        "reasons": reasons,
-        "inputs": {
-            "closure_decision": closure_decision,
-            "blocking_count": blocking_count,
-            "review_bound_count": review_bound_count,
-            "signoff_pending_count": signoff_pending_count,
-            "signoff_not_ready_count": signoff_not_ready_count,
-            "upstream_claim_ceiling_state": upstream_state,
-        },
-        "upstream_claim_ceiling_report": upstream_claim_ceiling_report,
-        "policy": "Phase-4 may confirm or lower upstream ceilings; it must not upgrade review-bound or unknown evidence.",
-    }
 
 
 def render_phase4_scorecard_markdown(assessment: dict[str, Any]) -> str:
@@ -472,21 +323,6 @@ def build_phase4_mainline_assessment(
     )
 
     closure_decision = str(stage3_summary.get("closure_decision", "")).strip() or "return"
-    upstream_claim_ceiling_report = (
-        stage3_summary.get("upstream_claim_ceiling_report")
-        if isinstance(stage3_summary.get("upstream_claim_ceiling_report"), dict)
-        else stage1_summary.get("phase3_claim_ceiling_report")
-        if isinstance(stage1_summary.get("phase3_claim_ceiling_report"), dict)
-        else {}
-    )
-    upstream_claim_ceiling_blocks_ready = claim_ceiling_blocks_ready(upstream_claim_ceiling_report)
-    upstream_claim_ceiling_allows_validation = claim_ceiling_allows_phase4_validation_entry(upstream_claim_ceiling_report)
-    upstream_claim_ceiling_blocks_validation = (
-        upstream_claim_ceiling_blocks_ready and not upstream_claim_ceiling_allows_validation
-    )
-    upstream_claim_ceiling_state = str(
-        upstream_claim_ceiling_report.get("resolved_formal_state") or "unknown"
-    ).strip()
     blocking_count = int(stage3_summary.get("blocking_count") or 0)
     mock_dependency_present = functional_conditional_pass_count > 0 or data_fidelity_conditional_pass_count > 0
     review_pending = (
@@ -495,29 +331,6 @@ def build_phase4_mainline_assessment(
         or signoff_pending_count > 0
         or signoff_not_ready_count > 0
         or review_bound_count > 0
-    )
-    requested_formal_state = str(stage3_summary.get("recommended_formal_state") or "").strip()
-    if not requested_formal_state:
-        requested_formal_state = {
-            "pass": "testing-validation-complete",
-            "pass-with-mock-dependency": "testing-validation-complete-with-mock-dependency",
-            "pass-with-review-bound-items": "testing-validation-complete-with-review-bound-items",
-            "return": "testing-validation-return-required",
-        }.get(closure_decision, "testing-validation-return-required")
-    claim_ceiling_report = (
-        stage3_summary.get("claim_ceiling_report")
-        if isinstance(stage3_summary.get("claim_ceiling_report"), dict)
-        else build_phase4_claim_ceiling_report(
-            requested_formal_state=requested_formal_state,
-            closure_decision=closure_decision,
-            checks={
-                "blocking_count": blocking_count,
-                "review_bound_count": review_bound_count,
-                "signoff_pending_count": signoff_pending_count,
-                "signoff_not_ready_count": signoff_not_ready_count,
-            },
-            upstream_claim_ceiling_report=upstream_claim_ceiling_report,
-        )
     )
 
     dimension_rows = [
@@ -567,11 +380,9 @@ def build_phase4_mainline_assessment(
                 + int(trace_mapping_complete)
                 + int(decision_alignment_complete)
                 + int(phase3_mainline_summary_present)
-                - int(upstream_claim_ceiling_blocks_validation)
             ),
             "notes": [
                 f"closure_decision={closure_decision}",
-                f"upstream_claim_ceiling_state={upstream_claim_ceiling_state}",
                 f"blocking_count={blocking_count}",
                 f"signoff_pending_count={signoff_pending_count}",
                 f"signoff_not_ready_count={signoff_not_ready_count}",
@@ -662,11 +473,6 @@ def build_phase4_mainline_assessment(
         else "non-functional evidence still contains structural blockers or hidden unresolved truth"
     )
     closure_status = (
-        "BLOCKED"
-        if upstream_claim_ceiling_blocks_validation
-        else "REVIEW-BOUND"
-        if upstream_claim_ceiling_blocks_ready
-        else
         "PASS"
         if closure_decision == "pass"
         else "REVIEW-BOUND"
@@ -674,11 +480,6 @@ def build_phase4_mainline_assessment(
         else "BLOCKED"
     )
     closure_why = (
-        f"upstream claim ceiling is `{upstream_claim_ceiling_state}`, so P4 cannot promote the package to testing-validation-complete"
-        if upstream_claim_ceiling_blocks_validation
-        else f"upstream claim ceiling is `{upstream_claim_ceiling_state}`, so validation closure remains review-bound"
-        if upstream_claim_ceiling_blocks_ready
-        else
         "closure package gives a clear downstream decision boundary without residual review-bound items"
         if closure_status == "PASS"
         else "closure package is usable, but downstream must keep the explicit review-bound boundary visible"
@@ -730,8 +531,6 @@ def build_phase4_mainline_assessment(
 
     if closure_decision == "return" or blockers_count > 0 or total_score < 70:
         verdict = "RETURN-REMEDIATE"
-    elif upstream_claim_ceiling_blocks_validation:
-        verdict = "RETURN-REMEDIATE"
     elif total_score >= 85 and min_dimension_score >= 3 and review_bound_items_count == 0 and closure_decision == "pass":
         verdict = "PASS"
     else:
@@ -749,13 +548,6 @@ def build_phase4_mainline_assessment(
         "signoff_pending_count": signoff_pending_count,
         "signoff_not_ready_count": signoff_not_ready_count,
         "phase3_mainline_summary_present": phase3_mainline_summary_present,
-        "recommended_formal_state": str(claim_ceiling_report.get("resolved_formal_state") or requested_formal_state),
-        "claim_ceiling_report": claim_ceiling_report,
-        "upstream_claim_ceiling_report": upstream_claim_ceiling_report,
-        "upstream_claim_ceiling_blocks_ready": upstream_claim_ceiling_blocks_ready,
-        "upstream_claim_ceiling_allows_validation": upstream_claim_ceiling_allows_validation,
-        "upstream_claim_ceiling_blocks_validation": upstream_claim_ceiling_blocks_validation,
-        "upstream_claim_ceiling_state": upstream_claim_ceiling_state,
         "functional_non_pass_count": functional_non_pass_count,
         "data_fidelity_non_pass_count": data_fidelity_non_pass_count,
     }
@@ -1022,206 +814,3 @@ def extract_operation_ids_from_file(path: Path) -> list[str]:
     if not path.exists() or not path.is_file():
         return []
     return extract_operation_ids_from_text(path.read_text(encoding="utf-8"))
-
-
-def _alias_tuple(value: str, aliases: Iterable[str] | None = None) -> tuple[str, ...]:
-    resolved = tuple(str(item) for item in (aliases or ()) if str(item))
-    return resolved or (value,)
-
-
-def normalize_text(value: str) -> str:
-    return " ".join(str(value).replace(" ", " ").split())
-
-
-def block_lines(text: str, block_name: str) -> list[str]:
-    lines = text.splitlines()
-    start = None
-    marker = f"- {block_name}:"
-    for idx, line in enumerate(lines):
-        if line.startswith(marker):
-            start = idx
-            break
-    if start is None:
-        return []
-    collected = [lines[start]]
-    for line in lines[start + 1 :]:
-        if line.startswith("## "):
-            break
-        if line.startswith("- ") and not line.startswith("  - "):
-            break
-        collected.append(line)
-    return collected
-
-
-def block_text(text: str, block_name: str) -> str:
-    return "\n".join(block_lines(text, block_name)).strip()
-
-
-def heading_section(text: str, heading: str) -> str:
-    lines = text.splitlines()
-    prefix = f"## {heading}"
-    start = None
-    for idx, line in enumerate(lines):
-        if line.startswith(prefix):
-            start = idx
-            break
-    if start is None:
-        return ""
-    collected = [lines[start]]
-    for line in lines[start + 1 :]:
-        if line.startswith("## "):
-            break
-        collected.append(line)
-    return "\n".join(collected).strip()
-
-
-def markdown_heading_section(text: str, heading: str, *, aliases: Iterable[str] | None = None) -> str:
-    for candidate in _alias_tuple(heading, aliases):
-        pattern = re.compile(rf"^(#+)\s+{re.escape(candidate)}\s*$", re.MULTILINE)
-        match = pattern.search(text)
-        if not match:
-            continue
-        level = len(match.group(1))
-        start = match.start()
-        end = len(text)
-        for next_match in pattern.finditer(text):
-            if next_match.start() == match.start():
-                continue
-            if len(next_match.group(1)) <= level:
-                end = next_match.start()
-                break
-        general_heading_re = re.compile(r"^(#+)\s+.+$", re.MULTILINE)
-        for next_match in general_heading_re.finditer(text, match.end()):
-            if len(next_match.group(1)) <= level:
-                end = next_match.start()
-                break
-        return text[start:end].strip()
-    return ""
-
-
-def extract_structured_field(
-    entry: str,
-    field_name: str,
-    *,
-    indent: int = 4,
-    aliases: Iterable[str] | None = None,
-) -> str:
-    field_names = _alias_tuple(field_name, aliases)
-    candidate_indents = [indent]
-    candidate_indents.extend(
-        indent_value
-        for indent_value in (
-            len(match.group(1))
-            for alias in field_names
-            for match in re.finditer(rf"^( *)- {re.escape(alias)}:", entry, flags=re.MULTILINE)
-        )
-        if indent_value not in candidate_indents
-    )
-    for current_indent in candidate_indents:
-        value = extract_structured_field_at_indent(
-            entry,
-            field_name,
-            indent=current_indent,
-            aliases=field_names,
-        )
-        if value:
-            return value
-    return ""
-
-
-def extract_structured_field_at_indent(
-    entry: str,
-    field_name: str,
-    *,
-    indent: int = 4,
-    aliases: Iterable[str] | None = None,
-) -> str:
-    del field_name
-    field_names = _alias_tuple("", aliases)
-    lines = entry.splitlines()
-    collected: list[str] = []
-    capturing = False
-    for line in lines:
-        for alias in field_names:
-            prefix = " " * indent + f"- {alias}:"
-            if line.startswith(prefix):
-                capturing = True
-                remainder = line[len(prefix) :].strip()
-                if remainder:
-                    collected.append(remainder.strip("`"))
-                break
-        else:
-            prefix = ""
-        if prefix:
-            continue
-        if not capturing:
-            continue
-        if line.startswith(" " * indent + "- ") and not line.startswith(" " * (indent + 2) + "- "):
-            break
-        stripped = line.strip()
-        if stripped:
-            collected.append(stripped.strip("`"))
-    return normalize_text(" ".join(collected))
-
-
-def extract_structured_block(
-    entry: str,
-    field_name: str,
-    *,
-    indent: int = 4,
-    aliases: Iterable[str] | None = None,
-) -> str:
-    field_names = _alias_tuple(field_name, aliases)
-    candidate_indents = [indent]
-    candidate_indents.extend(
-        indent_value
-        for indent_value in (
-            len(match.group(1))
-            for alias in field_names
-            for match in re.finditer(rf"^( *)- {re.escape(alias)}:", entry, flags=re.MULTILINE)
-        )
-        if indent_value not in candidate_indents
-    )
-    for current_indent in candidate_indents:
-        value = extract_structured_block_at_indent(
-            entry,
-            field_name,
-            indent=current_indent,
-            aliases=field_names,
-        )
-        if value:
-            return value
-    return ""
-
-
-def extract_structured_block_at_indent(
-    entry: str,
-    field_name: str,
-    *,
-    indent: int = 4,
-    aliases: Iterable[str] | None = None,
-) -> str:
-    del field_name
-    field_names = _alias_tuple("", aliases)
-    lines = entry.splitlines()
-    collected: list[str] = []
-    capturing = False
-    for line in lines:
-        for alias in field_names:
-            prefix = " " * indent + f"- {alias}:"
-            if line.startswith(prefix):
-                capturing = True
-                remainder = line[len(prefix) :].rstrip()
-                if remainder.strip():
-                    collected.append(remainder.strip())
-                break
-        else:
-            prefix = ""
-        if prefix:
-            continue
-        if not capturing:
-            continue
-        if line.startswith(" " * indent + "- ") and not line.startswith(" " * (indent + 2) + "- "):
-            break
-        collected.append(line.rstrip())
-    return "\n".join(collected).strip()

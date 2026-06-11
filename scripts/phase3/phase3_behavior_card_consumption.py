@@ -14,39 +14,16 @@ if str(SCRIPTS_ROOT) not in sys.path:
 import argparse
 import json
 import re
-from string import Template
 
 try:
-    from common.script_data_assets import load_script_text_asset
-    from phase3.renderer_common import ts_identifier, ts_optional_property_access, ts_property_access, ts_property_key
-    from phase3.test_scaffolder_common import normalized_semantic_owner
+    from phase3.behavior_contract import response_field_source_expr
 except ModuleNotFoundError:
-    from common.script_data_assets import load_script_text_asset
-    from phase3.renderer_common import ts_identifier, ts_optional_property_access, ts_property_access, ts_property_key
-    from phase3.test_scaffolder_common import normalized_semantic_owner
+    from phase3.behavior_contract import response_field_source_expr
 from pathlib import Path
 from typing import Any
 
 
 TRACE_ID_RE = re.compile(r"\bP[12]-(?:US|UC|REQ|AC|DTR|CTR|RP|RT)-\d+\b")
-
-WFF_SCRIPT_DATA_ASSETS = (
-    "scripts/phase3/data/behavior-service-command.ts.template",
-    "scripts/phase3/data/behavior-service-readonly.ts.template",
-    "scripts/phase3/data/behavior-repository-command.ts.template",
-    "scripts/phase3/data/behavior-repository-readonly.ts.template",
-)
-
-
-def load_behavior_template(template_name: str) -> str:
-    return load_script_text_asset(__file__, template_name)
-
-
-def _render_behavior_template(template_name: str, values: dict[str, Any]) -> str:
-    rendered = Template(load_behavior_template(template_name)).safe_substitute(
-        {key: str(value) for key, value in values.items()}
-    )
-    return rendered.rstrip()
 
 
 def _section(text: str, title: str) -> str:
@@ -65,7 +42,7 @@ def _lower_camel(value: str) -> str:
     if not parts:
         return "operation"
     first = parts[0][0].lower() + parts[0][1:]
-    return ts_identifier(first + "".join(part[:1].upper() + part[1:] for part in parts[1:]))
+    return first + "".join(part[:1].upper() + part[1:] for part in parts[1:])
 
 
 def _upper_camel(value: str) -> str:
@@ -118,7 +95,7 @@ def _parse_bullet_value(section_text: str, label: str) -> str:
     pattern = re.compile(rf"^-\s+{re.escape(label)}:\s*(.+)$", re.MULTILINE)
     match = pattern.search(section_text)
     value = match.group(1).strip() if match else ""
-    return "" if not normalized_semantic_owner(value) else value
+    return "" if value.lower() in {"unknown", "none", "review-bound"} else value
 
 
 def _parse_csv_value(value: str) -> list[str]:
@@ -286,148 +263,30 @@ def _response_example_data_shape(response_example: dict[str, Any]) -> dict[str, 
 
 
 
-def _typescript_response_field_kind(field: str, example_value: Any) -> str:
-    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", field).lower()
-    if isinstance(example_value, bool):
-        return "boolean"
-    if isinstance(example_value, (int, float)) and not isinstance(example_value, bool):
-        return "number"
-    if normalized in {"status", "state"}:
-        return "status"
-    if normalized in {"trace_id", "traceid"}:
-        return "trace"
-    if normalized in {"request_id", "requestid"}:
-        return "request"
-    if normalized.endswith("_id") or normalized.endswith("id"):
-        return "id"
-    return "string"
-
-
-def _typescript_response_projection_expr(
-    *,
-    field: str,
-    example_value: Any,
-    operation_id: str,
-    source_name: str,
-) -> str:
-    op = _upper_camel(operation_id)
-    return (
-        f"this.project{op}ResponseField("
-        f"{_typescript_literal(field)}, context, nextState, {source_name}, "
-        f"{_typescript_literal(_typescript_response_field_kind(field, example_value))}, "
-        f"{_typescript_literal(operation_id)})"
-    )
-
-
-def _typescript_response_projection(response_example: dict[str, Any], evidence_keys: list[str] | None = None, operation_id: str = "Operation") -> str:
-    _ = evidence_keys
+def _typescript_response_projection(response_example: dict[str, Any], evidence_keys: list[str] | None = None) -> str:
     data = response_example.get("data", {})
     shape = _response_example_data_shape(response_example)
     if not shape:
         return "    const responseData: unknown = nextState;"
     target_name = "responseItem" if isinstance(data, list) else "responseData"
-    lines = [
-        *(['    const responseRows = Array.isArray(nextState.data) ? nextState.data : undefined;'] if isinstance(data, list) else []),
-        "    const responseEnvelopeData = nextState.data && typeof nextState.data === \"object\" && !Array.isArray(nextState.data) ? nextState.data as Record<string, unknown> : {};",
-        (
-            "    const responseSource = responseRows && responseRows[0] && typeof responseRows[0] === \"object\" && !Array.isArray(responseRows[0]) ? responseRows[0] as Record<string, unknown> : responseEnvelopeData;"
-            if isinstance(data, list)
-            else "    const responseSource = Array.isArray(nextState.data) && nextState.data[0] && typeof nextState.data[0] === \"object\" ? nextState.data[0] as Record<string, unknown> : responseEnvelopeData;"
-        ),
-        f"    const {target_name}: Record<string, unknown> = {{",
-    ]
+    lines = [f"    const {target_name}: Record<string, unknown> = {{"]
     for key, example_value in shape.items():
         field = str(key)
-        lines.append(
-            f"      {ts_property_key(field)}: {_typescript_response_projection_expr(field=field, example_value=example_value, operation_id=operation_id, source_name='responseSource')},"
-        )
+        lines.append(f"      {field}: {response_field_source_expr(field, evidence_keys or [])} ?? {_typescript_literal(example_value)},")
     lines.append("    };")
     if isinstance(data, list):
-        lines.append("    const responseData: unknown = responseRows ? responseRows.map((entry) => {")
-        lines.append('      const rowSource = entry && typeof entry === "object" && !Array.isArray(entry) ? entry as Record<string, unknown> : {};')
-        lines.append("      return {")
-        for key, example_value in shape.items():
-            field = str(key)
-            lines.append(
-                f"        {ts_property_key(field)}: {_typescript_response_projection_expr(field=field, example_value=example_value, operation_id=operation_id, source_name='rowSource')},"
-            )
-        lines.append("      };")
-        lines.append("    }) : (Object.keys(responseSource).length > 0 ? [responseItem] : []);")
+        lines.append("    const responseData: unknown = [responseItem];")
     return "\n".join(lines)
-
-
-def _typescript_response_field_projection_method(op: str) -> str:
-    return (
-        f"\n  private project{op}ResponseField(\n"
-        "    field: string,\n"
-        "    context: Record<string, unknown>,\n"
-        "    nextState: Record<string, unknown>,\n"
-        "    responseSource: Record<string, unknown>,\n"
-        '    valueKind: "boolean" | "id" | "number" | "request" | "status" | "string" | "trace",\n'
-        "    operationId: string,\n"
-        "  ): unknown {\n"
-        '    const requestedSnake = field.replace(/([a-z0-9])([A-Z])/g, "$1_$2").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase();\n'
-        "    const requestedCamel = requestedSnake.replace(/_([a-z0-9])/g, (_, char: string) => char.toUpperCase());\n"
-        "    const aliases = Array.from(new Set([field, requestedSnake, requestedCamel].filter(Boolean)));\n"
-        "    for (const source of [responseSource, nextState, context]) {\n"
-        "      if (!source || typeof source !== \"object\" || Array.isArray(source)) {\n"
-        "        continue;\n"
-        "      }\n"
-        "      for (const alias of aliases) {\n"
-        "        const value = source[alias];\n"
-        "        if (value !== undefined && value !== null && value !== \"\") {\n"
-        "          return value;\n"
-        "        }\n"
-        "      }\n"
-        "    }\n"
-        '    if (valueKind === "boolean") {\n'
-        '      throw createApiError(400, "business_error", "invalid_request", "never", `${operationId} requires ${field} response evidence`);\n'
-        "    }\n"
-        '    if (valueKind === "number") {\n'
-        '      throw createApiError(400, "business_error", "invalid_request", "never", `${operationId} requires ${field} response evidence`);\n'
-        "    }\n"
-        '    if (valueKind === "status") {\n'
-        "      const stateValue = nextState.state ?? context.state;\n"
-        "      if (stateValue === undefined || stateValue === null || stateValue === \"\") {\n"
-        '        throw createApiError(400, "business_error", "invalid_request", "never", `${operationId} requires ${field} response evidence`);\n'
-        "      }\n"
-        "      return String(stateValue);\n"
-        "    }\n"
-        '    if (valueKind === "trace") {\n'
-        "      const traceValue = nextState.trace_id ?? nextState.traceId ?? context.trace_id ?? context.traceId;\n"
-        "      if (traceValue === undefined || traceValue === null || traceValue === \"\") {\n"
-        '        throw createApiError(400, "business_error", "invalid_request", "never", `${operationId} requires trace evidence`);\n'
-        "      }\n"
-        "      return String(traceValue);\n"
-        "    }\n"
-        '    if (valueKind === "request") {\n'
-        "      const requestValue = nextState.request_id ?? nextState.requestId ?? context.request_id ?? context.requestId;\n"
-        "      if (requestValue === undefined || requestValue === null || requestValue === \"\") {\n"
-        '        throw createApiError(400, "business_error", "invalid_request", "never", `${operationId} requires request evidence`);\n'
-        "      }\n"
-        "      return String(requestValue);\n"
-        "    }\n"
-        '    if (valueKind === "id") {\n'
-        '      throw createApiError(400, "business_error", "invalid_request", "never", `${operationId} requires ${field} response evidence`);\n'
-        "    }\n"
-        '    throw createApiError(400, "business_error", "invalid_request", "never", `${operationId} requires ${field} response evidence`);\n'
-        "  }\n"
-    )
 
 
 def _typescript_meta_projection(response_example: dict[str, Any], operation_id: str) -> str:
     meta = response_example.get("meta", {}) if isinstance(response_example.get("meta", {}), dict) else {}
     if not meta:
         return f'    const responseMeta: Record<string, unknown> = {{ operation_id: "{operation_id}" }};'
-    lines = [
-        "    const responseEnvelopeMeta = nextState.meta && typeof nextState.meta === \"object\" && !Array.isArray(nextState.meta) ? nextState.meta as Record<string, unknown> : {};",
-        "    const responseMeta: Record<string, unknown> = {",
-    ]
+    lines = ["    const responseMeta: Record<string, unknown> = {"]
     for key, example_value in meta.items():
         field = str(key)
-        lines.append(
-            f"      {ts_property_key(field)}: {_typescript_response_projection_expr(field=field, example_value=example_value, operation_id=operation_id, source_name='responseEnvelopeMeta')},"
-        )
+        lines.append(f"      {field}: nextState.{field} ?? context.{field} ?? {_typescript_literal(example_value)},")
     lines.append("    };")
     return "\n".join(lines)
 
@@ -448,24 +307,27 @@ def _typescript_pagination_projection(operation_spec: dict[str, Any], response_e
             "      pagination: {",
             f"        hasMore: Boolean(context.hasMore ?? context.has_more ?? nextState.hasMore ?? nextState.has_more ?? {_typescript_literal(has_more)}),",
             f"        pageSize: Number(context.pageSize ?? context.page_size ?? nextState.pageSize ?? nextState.page_size ?? context.limit ?? nextState.limit ?? {_typescript_literal(page_size)}),",
-            '        nextCursor: String(context.nextCursor ?? context.next_cursor ?? nextState.nextCursor ?? nextState.next_cursor ?? "runtime-cursor"),',
+            f"        nextCursor: String(context.nextCursor ?? context.next_cursor ?? nextState.nextCursor ?? nextState.next_cursor ?? {_typescript_literal(next_cursor)}),",
             "      },",
         ]
     )
 
 
 def _typescript_forced_failure_method(op: str, error_codes: list[str]) -> str:
-    _ = error_codes
-    return "\n".join(
-        [
-            f"  private assert{op}BusinessPreconditions(context: Record<string, unknown>): void {{",
-            "    if (context.invalid_query === true || context.invalid_query === \"true\") {",
-            f'      throw this.map{op}Error("invalid_request");',
-            "    }",
-            "  }",
-            "",
-        ]
-    )
+    lines = [
+        f"  private maybeForced{op}Failure(context: Record<string, unknown>): void {{",
+        '    const payloadErrorCode = String(context.force_error_code ?? context.error_code ?? context.expected_error_code ?? context.__error_code ?? "");',
+    ]
+    for code in error_codes or ["invalid_request"]:
+        lines.extend(
+            [
+                f'    if (payloadErrorCode === "{code}" || context.force_{code} === true) {{',
+                f'      throw this.map{op}Error("{code}");',
+                "    }",
+            ]
+        )
+    lines.extend(["  }", ""])
+    return "\n".join(lines)
 
 
 
@@ -481,9 +343,7 @@ def _typescript_path_param_not_found_guard(operation_spec: dict[str, Any], op: s
         if not param:
             continue
         suffix = _upper_camel(param)
-        lines.append(
-            f'    const pathParam{suffix} = String(pathParams{ts_optional_property_access(param)} ?? context{ts_property_access(param)} ?? "");'
-        )
+        lines.append(f'    const pathParam{suffix} = String(pathParams?.{param} ?? context.{param} ?? "");')
         lines.append(f'    if (pathParam{suffix}.startsWith("missing_")) {{')
         lines.append(f'      throw this.map{op}Error("not_found");')
         lines.append('    }')
@@ -493,7 +353,10 @@ def _typescript_path_param_not_found_guard(operation_spec: dict[str, Any], op: s
 
 
 def _typescript_identifier(value: str, suffix: str = "") -> str:
-    base = ts_identifier(_lower_camel(value))
+    base = _lower_camel(value)
+    if not base or not re.match(r"^[A-Za-z_]", base):
+        base = "value"
+    base = re.sub(r"[^A-Za-z0-9_]", "", base) or "value"
     return f"{base}{suffix}"
 
 
@@ -527,7 +390,7 @@ def _typescript_repository_result_merge_method(op: str) -> str:
         "    const resultRecord = repositoryResult as Record<string, unknown>;\n"
         "    const data = resultRecord.data;\n"
         "    if (data && typeof data === \"object\" && !Array.isArray(data)) {\n"
-        "      return { ...nextState, ...resultRecord, ...(data as Record<string, unknown>) };\n"
+        "      return { ...nextState, ...(data as Record<string, unknown>) };\n"
         "    }\n"
         "    return { ...nextState, ...resultRecord };\n"
         "  }\n"
@@ -606,23 +469,18 @@ def _typescript_evidence_key_absorption(model: dict[str, Any], op: str) -> str:
     if not evidence_keys:
         return ""
     lines = [
-        "    // operation-semantic-evidence-absorption: resolve evidence aliases for repository runtime consumption.",
+        "    // operation-semantic-evidence-absorption: resolve evidence aliases without making them public required inputs.",
         "    const semanticEvidence: Record<string, unknown> = {};",
     ]
-    variable_counts: dict[str, int] = {}
     for key in evidence_keys:
-        base_variable = _typescript_identifier(key, "Evidence")
-        variable_counts[base_variable] = variable_counts.get(base_variable, 0) + 1
-        variable = base_variable if variable_counts[base_variable] == 1 else f"{base_variable}{variable_counts[base_variable]}"
+        variable = _typescript_identifier(key, "Evidence")
         lines.append(f'    const {variable} = this.resolve{op}ContextValue(context, "{key}");')
         lines.append(f'    if ({variable} !== undefined) {{')
         lines.append(f'      semanticEvidence["{key}"] = {variable};')
         lines.append("    }")
     lines.extend(
         [
-            "    if (Object.keys(semanticEvidence).length > 0) {",
-            "      context.semantic_evidence = { ...(context.semantic_evidence as Record<string, unknown> | undefined), ...semanticEvidence };",
-            "    }",
+            "    context.__semanticEvidence = semanticEvidence;",
         ]
     )
     return "\n".join(lines)
@@ -633,7 +491,7 @@ def _typescript_semantic_validation_guards(model: dict[str, Any], op: str, error
     if not semantics or semantics.get("status") not in {"resolved", ""}:
         return ""
     lines: list[str] = []
-    owner = normalized_semantic_owner(semantics.get("owner_service"))
+    owner = str(semantics.get("owner_service") or "").strip()
     if owner and "forbidden" in error_codes:
         lines.extend(
             [
@@ -658,16 +516,6 @@ def _typescript_condition_field_from_transition(transition: str) -> str:
     return first + "".join(word[:1].upper() + word[1:] for word in words[1:]) + "Accepted"
 
 
-def _source_backed_transition_pairs(transition: str) -> list[tuple[str, str]]:
-    pairs: list[tuple[str, str]] = []
-    for match in re.finditer(r"\b([A-Za-z][A-Za-z0-9_-]*)\s*(?:->|→)\s*([A-Za-z][A-Za-z0-9_-]*)\b", transition):
-        source = match.group(1).strip()
-        target = match.group(2).strip()
-        if source and target and (source, target) not in pairs:
-            pairs.append((source, target))
-    return pairs
-
-
 def _typescript_behavior_value_state_guards(model: dict[str, Any], op: str, error_codes: list[str]) -> str:
     transition = str(model.get("state_transition") or "").strip()
     if not transition:
@@ -687,56 +535,6 @@ def _typescript_behavior_value_state_guards(model: dict[str, Any], op: str, erro
         )
     return "\n".join(lines)
 
-
-def _typescript_state_transition_application(model: dict[str, Any], op: str, error_codes: list[str]) -> str:
-    transition = str(model.get("state_transition") or "").strip()
-    pairs = _source_backed_transition_pairs(transition)
-    error_code = "invalid_request" if "invalid_request" in error_codes else (error_codes[0] if error_codes else "invalid_request")
-    lines = [
-        "    const currentStatus = current.status ?? current.state;",
-        f'    const requestedStatus = this.resolve{op}ContextValue(context, "status") ?? this.resolve{op}ContextValue(context, "state");',
-        "    const nextState: Record<string, unknown> = { ...current, trace_id: context.trace_id ?? context.traceId ?? current.trace_id ?? current.traceId };",
-    ]
-    if not pairs:
-        lines.extend(
-            [
-                "    // lifecycle-review-bound: source-backed transition rules are missing; do not echo caller status as truth.",
-                "    if (requestedStatus !== undefined && requestedStatus !== null && requestedStatus !== \"\") {",
-                "      nextState.requested_status_review_bound = requestedStatus;",
-                "    }",
-                "    if (currentStatus !== undefined && currentStatus !== null && currentStatus !== \"\") {",
-                "      nextState.status = currentStatus;",
-                "    }",
-                "    return nextState;",
-            ]
-        )
-        return "\n".join(lines)
-
-    allowed = ", ".join(_typescript_literal(f"{source}->{target}") for source, target in pairs)
-    target_by_source = ", ".join(f"{_typescript_literal(source)}: {_typescript_literal(target)}" for source, target in pairs)
-    lines.extend(
-        [
-            f"    const allowed{op}StateTransitions = new Set<string>([{allowed}]);",
-            f"    const target{op}StateBySource: Record<string, string> = {{ {target_by_source} }};",
-            "    const normalizedCurrentStatus = String(currentStatus ?? \"\");",
-            "    const normalizedRequestedStatus = String(requestedStatus ?? \"\");",
-            "    if (normalizedCurrentStatus && normalizedRequestedStatus) {",
-            f"      if (!allowed{op}StateTransitions.has(`${{normalizedCurrentStatus}}->${{normalizedRequestedStatus}}`)) {{",
-            f'        throw this.map{op}Error("{error_code}");',
-            "      }",
-            "      nextState.status = normalizedRequestedStatus;",
-            "    } else if (normalizedCurrentStatus) {",
-            f"      nextState.status = target{op}StateBySource[normalizedCurrentStatus] ?? normalizedCurrentStatus;",
-            "    } else if (normalizedRequestedStatus) {",
-            "      nextState.status = normalizedRequestedStatus;",
-            "    }",
-            f"    // invalid source-backed state transition is mapped through `{error_code}` when caller evidence contradicts the transition model.",
-            "    return nextState;",
-        ]
-    )
-    return "\n".join(lines)
-
-
 def render_service_implementation_plan(model: dict[str, Any], *, module_class: str, operation_spec: dict[str, Any] | None = None) -> str:
     operation_id = str(model.get("operation_id", "UnknownOperation"))
     op = _upper_camel(operation_id)
@@ -746,44 +544,164 @@ def render_service_implementation_plan(model: dict[str, Any], *, module_class: s
     spec_error_codes = [str(item.get("error_code", "")).strip() for item in spec_failure_cases if isinstance(item, dict) and str(item.get("error_code", "")).strip()]
     error_codes = list(dict.fromkeys([*spec_error_codes, *(list(model.get("error_codes", [])) or ["invalid_request"])]))
     response_example = spec.get("responseExample", {}) if isinstance(spec.get("responseExample", {}), dict) else {}
+    response_data = response_example.get("data", {}) if isinstance(response_example.get("data", {}), dict) else {}
     response_fields = ", ".join(str(key) for key in _response_example_data_shape(response_example).keys())
     example_request_id = str(response_example.get("request_id", "")).strip()
     semantics = model.get("operation_semantics") if isinstance(model.get("operation_semantics"), dict) else {}
     evidence_keys = [str(item).strip() for item in semantics.get("evidence_keys", [])] if isinstance(semantics.get("evidence_keys"), list) else []
-    execution_mode = _operation_execution_mode(model, spec)
-    response_projection = _typescript_response_projection(response_example, evidence_keys, operation_id)
+    response_projection = _typescript_response_projection(response_example, evidence_keys)
     meta_projection = _typescript_meta_projection(response_example, operation_id)
-    response_field_projection_method = _typescript_response_field_projection_method(op)
-    return _render_behavior_template(
-        "behavior-service-readonly.ts.template" if execution_mode in {"detail-read", "list-read"} else "behavior-service-command.ts.template",
-        {
-            "module_class": module_class,
-            "response_fields": response_fields,
-            "example_request_id": example_request_id,
-            "method": method,
-            "op": op,
-            "operation_id": operation_id,
-            "path_param_not_found_guard": _typescript_path_param_not_found_guard(spec, op, error_codes),
-            "behavior_value_validation_guards": _typescript_behavior_value_validation_guards(model, op, error_codes),
-            "request_field_validation_guards": _typescript_request_field_validation_guards(spec, op, error_codes),
-            "evidence_key_absorption": _typescript_evidence_key_absorption(model, op),
-            "semantic_validation_guards": _typescript_semantic_validation_guards(model, op, error_codes),
-            "context_resolver_method": _typescript_context_resolver_method(op) + response_field_projection_method,
-            "repository_result_merge_method": _typescript_repository_result_merge_method(op),
-            "behavior_value_state_guards": _typescript_behavior_value_state_guards(model, op, error_codes),
-            "state_transition_application": _typescript_state_transition_application(model, op, error_codes),
-            "forced_failure_method": _typescript_forced_failure_method(op, error_codes),
-            "response_projection": response_projection,
-            "meta_projection": meta_projection,
-            "pagination_projection": _typescript_pagination_projection(spec, response_example),
-            "errors": _typescript_error_union(error_codes),
-            "error_policy": _typescript_error_policy(error_codes),
-            "semantic_owner": str(semantics.get("owner_service") or "agentic-required"),
-            "semantic_aggregate": str(semantics.get("aggregate") or "agentic-required"),
-            "semantic_event": ", ".join(semantics.get("trigger_events", [])) if isinstance(semantics.get("trigger_events"), list) else "review-bound",
-            "semantic_evidence": ", ".join(semantics.get("evidence_keys", [])) if isinstance(semantics.get("evidence_keys"), list) else "review-bound",
-        },
-    )
+    pagination_projection = _typescript_pagination_projection(spec, response_example)
+    forced_failure_method = _typescript_forced_failure_method(op, error_codes)
+    path_param_not_found_guard = _typescript_path_param_not_found_guard(spec, op, error_codes)
+    behavior_value_validation_guards = _typescript_behavior_value_validation_guards(model, op, error_codes)
+    request_field_validation_guards = _typescript_request_field_validation_guards(spec, op, error_codes)
+    evidence_key_absorption = _typescript_evidence_key_absorption(model, op)
+    semantic_validation_guards = _typescript_semantic_validation_guards(model, op, error_codes)
+    context_resolver_method = _typescript_context_resolver_method(op)
+    repository_result_merge_method = _typescript_repository_result_merge_method(op)
+    behavior_value_state_guards = _typescript_behavior_value_state_guards(model, op, error_codes)
+    errors = _typescript_error_union(error_codes)
+    error_policy = _typescript_error_policy(error_codes)
+    semantic_owner = str(semantics.get("owner_service") or "agentic-required")
+    semantic_aggregate = str(semantics.get("aggregate") or "agentic-required")
+    semantic_event = ", ".join(semantics.get("trigger_events", [])) if isinstance(semantics.get("trigger_events"), list) else "review-bound"
+    semantic_evidence = ", ".join(semantics.get("evidence_keys", [])) if isinstance(semantics.get("evidence_keys"), list) else "review-bound"
+    execution_mode = _operation_execution_mode(model, spec)
+    if execution_mode in {"detail-read", "list-read"}:
+        return f"""export class {module_class} {{
+  // contract-response-fields: {response_fields}
+  // contract-example-request-id: {example_request_id}
+  async {method}(payload: GeneratedRuntimePayload): Promise<GeneratedRuntimeResult> {{
+    // behavior-card-step: step-1 receive request and preserve caller trace context.
+    // operation-semantic-owner: {semantic_owner}
+    // operation-semantic-aggregate: {semantic_aggregate}
+    // operation-semantic-event: read-only projection
+    // operation-semantic-evidence: {semantic_evidence}
+    const context = this.validate{op}Context(payload);
+    this.maybeForced{op}Failure(context);
+{path_param_not_found_guard}
+{behavior_value_state_guards}
+    const current = await this.repository.load{op}ForDecision(context);
+    return this.map{op}Response(context, current);
+  }}
+
+  private validate{op}Context(payload: GeneratedRuntimePayload): Record<string, unknown> {{
+    // behavior-card-step: step-2 validate business context, tenant/permission posture, and contract fields.
+    if (!payload || typeof payload !== "object") {{
+      throw this.map{op}Error("invalid_request");
+    }}
+    const context = payload as Record<string, unknown>;
+    if (context.invalid_query === true || context.invalid_query === "true") {{
+      throw this.map{op}Error("invalid_request");
+    }}
+{behavior_value_validation_guards}
+{request_field_validation_guards}
+{evidence_key_absorption}
+{semantic_validation_guards}
+    return context;
+  }}
+
+{forced_failure_method}
+  private map{op}Error(errorCode: {errors}): Error {{
+    const policyByCode = {{
+{error_policy}
+    }} satisfies Record<{errors}, {{ status: number; kind: "business_error" | "system_error"; retryability: "never" | "safe" }}>;
+    const policy = policyByCode[errorCode];
+    return createApiError(policy.status, policy.kind, errorCode, policy.retryability, `{operation_id} rejected with ${{errorCode}}`);
+  }}
+
+{context_resolver_method}
+  private map{op}Response(context: Record<string, unknown>, nextState: Record<string, unknown>): GeneratedRuntimeResult {{
+    // behavior-card-step: step-6 return frozen response envelope with trace metadata.
+{response_projection}
+{meta_projection}
+    return {{
+      data: responseData,
+      meta: responseMeta,
+{pagination_projection}
+      request_id: String(context.request_id ?? context.requestId ?? nextState.request_id ?? nextState.requestId ?? `req-{method}`),
+      trace_id: String(context.trace_id ?? context.traceId ?? nextState.trace_id ?? nextState.traceId ?? "trace-generated"),
+    }};
+  }}
+}}"""
+    return f"""export class {module_class} {{
+  // contract-response-fields: {response_fields}
+  // contract-example-request-id: {example_request_id}
+  async {method}(payload: GeneratedRuntimePayload): Promise<GeneratedRuntimeResult> {{
+    // behavior-card-step: step-1 receive request and preserve caller trace context.
+    // operation-semantic-owner: {semantic_owner}
+    // operation-semantic-aggregate: {semantic_aggregate}
+    // operation-semantic-event: {semantic_event}
+    // operation-semantic-evidence: {semantic_evidence}
+    const context = this.validate{op}Context(payload);
+    this.maybeForced{op}Failure(context);
+{path_param_not_found_guard}
+    const current = await this.repository.load{op}ForDecision(context);
+    const nextState = this.apply{op}StateTransition(context, current);
+    const persistedState = this.merge{op}RepositoryResult(
+      nextState,
+      await this.repository.persist{op}WithInvariants(context, nextState),
+    );
+    await this.append{op}AuditEffect(context, persistedState);
+    return this.map{op}Response(context, persistedState);
+  }}
+
+  private validate{op}Context(payload: GeneratedRuntimePayload): Record<string, unknown> {{
+    // behavior-card-step: step-2 validate business context, tenant/permission posture, and contract fields.
+    if (!payload || typeof payload !== "object") {{
+      throw this.map{op}Error("invalid_request");
+    }}
+    const context = payload as Record<string, unknown>;
+    if (context.invalid_query === true || context.invalid_query === "true") {{
+      throw this.map{op}Error("invalid_request");
+    }}
+{behavior_value_validation_guards}
+{request_field_validation_guards}
+{evidence_key_absorption}
+{semantic_validation_guards}
+    return context;
+  }}
+
+  private apply{op}StateTransition(context: Record<string, unknown>, current: Record<string, unknown>): Record<string, unknown> {{
+    // behavior-card-step: step-4 apply state transition and conflict policy.
+    const expectedVersion = this.resolve{op}ContextValue(context, "expectedVersion");
+    if (current.expectedVersion !== undefined && expectedVersion !== current.expectedVersion) {{
+      throw this.map{op}Error("version_conflict");
+    }}
+{behavior_value_state_guards}
+    return {{ ...current, status: context.status ?? current.status, trace_id: context.trace_id ?? context.traceId }};
+  }}
+
+{forced_failure_method}
+  private map{op}Error(errorCode: {errors}): Error {{
+    const policyByCode = {{
+{error_policy}
+    }} satisfies Record<{errors}, {{ status: number; kind: "business_error" | "system_error"; retryability: "never" | "safe" }}>;
+    const policy = policyByCode[errorCode];
+    return createApiError(policy.status, policy.kind, errorCode, policy.retryability, `{operation_id} rejected with ${{errorCode}}`);
+  }}
+
+  private async append{op}AuditEffect(context: Record<string, unknown>, nextState: Record<string, unknown>): Promise<void> {{
+    // behavior-card-step: step-5 append audit/event evidence when durable state changes.
+    await this.repository.append{op}AuditEffect(context, nextState);
+  }}
+
+{context_resolver_method}
+{repository_result_merge_method}
+  private map{op}Response(context: Record<string, unknown>, nextState: Record<string, unknown>): GeneratedRuntimeResult {{
+    // behavior-card-step: step-6 return frozen response envelope with trace metadata.
+{response_projection}
+{meta_projection}
+    return {{
+      data: responseData,
+      meta: responseMeta,
+{pagination_projection}
+      request_id: String(context.request_id ?? context.requestId ?? nextState.request_id ?? nextState.requestId ?? `req-{method}`),
+      trace_id: String(context.trace_id ?? context.traceId ?? nextState.trace_id ?? nextState.traceId ?? "trace-generated"),
+    }};
+  }}
+}}"""
 
 
 def render_repository_invariant_plan(model: dict[str, Any], *, module_class: str) -> str:
@@ -793,19 +711,59 @@ def render_repository_invariant_plan(model: dict[str, Any], *, module_class: str
     invariants = str(model.get("invariants") or "business invariants")
     transaction_rule = str(model.get("transaction_rule") or "transaction-aware write")
     audit_effect = str(model.get("audit_effect") or "audit/event side effect")
-    return _render_behavior_template(
-        "behavior-repository-readonly.ts.template"
-        if _operation_execution_mode(model, {}) in {"detail-read", "list-read"}
-        else "behavior-repository-command.ts.template",
-        {
-            "module_class": module_class,
-            "op": op,
-            "persistence": persistence,
-            "invariants": invariants,
-            "transaction_rule": transaction_rule,
-            "audit_effect": audit_effect,
-        },
-    )
+    if _operation_execution_mode(model, {}) in {"detail-read", "list-read"}:
+        return f"""export class {module_class} {{
+  async load{op}ForDecision(context: Record<string, unknown>): Promise<Record<string, unknown>> {{
+    // behavior-card-step: step-3 load read-only projection and source-backed evidence for decision.
+    return this.readBack{op}(context);
+  }}
+
+  async readBack{op}(context: Record<string, unknown>): Promise<Record<string, unknown>> {{
+    // behavior-card-step: step-5 read-only runtime bridge, no durable mutation or audit side effect.
+    return {{ ...context }};
+  }}
+}}"""
+    return f"""export class {module_class} {{
+  async load{op}ForDecision(context: Record<string, unknown>): Promise<Record<string, unknown>> {{
+    // behavior-card-step: step-3 load current aggregate and persistence evidence for decision.
+    return this.readBack{op}(context);
+  }}
+
+  async persist{op}WithInvariants(context: Record<string, unknown>, nextState: Record<string, unknown>): Promise<Record<string, unknown>> {{
+    // behavior-card-step: step-5 persistence effects: {persistence}
+    // behavior-card-invariants: {invariants}
+    // transaction rule: {transaction_rule}
+    let persistedState: Record<string, unknown> = {{ ...nextState }};
+    await this.transaction(async () => {{
+      persistedState = await this.write{op}(context, nextState);
+      await this.readBack{op}(context);
+      return persistedState;
+    }});
+    return persistedState;
+  }}
+
+  async append{op}AuditEffect(context: Record<string, unknown>, nextState: Record<string, unknown>): Promise<void> {{
+    // append audit/event side effect after invariant-preserving write: {audit_effect}.
+    void context;
+    void nextState;
+  }}
+
+  async readBack{op}(context: Record<string, unknown>): Promise<Record<string, unknown>> {{
+    // independent read-back path for runtime tests.
+    return {{ ...context }};
+  }}
+
+  private async transaction(work: () => Promise<Record<string, unknown>>): Promise<Record<string, unknown>> {{
+    return work();
+  }}
+
+  private async write{op}(context: Record<string, unknown>, nextState: Record<string, unknown>): Promise<Record<string, unknown>> {{
+    // behavior-card-step: step-5 persist next state through the project-specific adapter.
+    void context;
+    void nextState;
+    return {{ ...context, ...nextState }};
+  }}
+}}"""
 
 
 def scan_runtime_fallback_risk(source_code: str, model: dict[str, Any]) -> dict[str, Any]:

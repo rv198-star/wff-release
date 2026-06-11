@@ -20,22 +20,23 @@ from pathlib import Path
 from typing import Any
 
 from common.output_language import localize_phase4_stage1_markdown
-from common.markdown_table_tools import markdown_tables
+from phase2.phase2_quality_check import (
+    block_text,
+    extract_structured_field,
+    markdown_heading_section,
+    markdown_tables,
+)
 from phase4.phase4_common import (
     api_id_for_operation,
-    block_text,
     collect_visual_evidence_paths,
     compact_token,
     dedupe_preserve_order,
     discover_openapi_path,
     ensure_list,
-    extract_phase3_surface_markers_from_file,
     extract_operation_ids_from_file,
-    extract_structured_field,
     load_frontend_packets,
     load_worker_packets,
     load_json,
-    markdown_heading_section,
     load_json_if_exists,
     load_phase3_mainline_summary,
     load_openapi_spec,
@@ -157,7 +158,7 @@ def is_unexecutable_contract_trace_gap(row: dict[str, Any]) -> bool:
         return False
     final_resolution = str(row.get("final_resolution") or "").strip().lower()
     binding_status = str(row.get("binding_status") or "").strip().lower()
-    return final_resolution in {"review", "unresolved"} or binding_status in {"suggested", "review", "unresolved"}
+    return final_resolution == "unresolved" or binding_status in {"suggested", "unresolved"}
 
 
 def functional_item_has_requirement_anchor(item: dict[str, Any]) -> bool:
@@ -599,18 +600,9 @@ def build_source_to_api_ids(worker_packets: list[dict[str, Any]]) -> dict[str, l
     return mapping
 
 
-def select_surface_targets(surface_name: str, packet_targets: list[str], *, phase3_root: Path | None = None) -> list[str]:
+def select_surface_targets(surface_name: str, packet_targets: list[str]) -> list[str]:
     if len(packet_targets) <= 1:
         return packet_targets
-    expected_route = f"/{str(surface_name).strip()}".replace("//", "/")
-    if phase3_root is not None and surface_name.strip():
-        marker_matches: list[str] = []
-        for target in packet_targets:
-            markers = extract_phase3_surface_markers_from_file(phase3_root / target)
-            if expected_route in markers:
-                marker_matches.append(target)
-        if marker_matches:
-            return dedupe_preserve_order(marker_matches)
     surface_token = compact_token(surface_name)
     ordered_matches: list[str] = []
     for target in packet_targets:
@@ -646,7 +638,7 @@ def build_surface_records(
             if len(surface_names) == len(packet_targets) and packet_targets:
                 selected_targets = [packet_targets[surface_index]]
             else:
-                selected_targets = select_surface_targets(surface_name, packet_targets, phase3_root=phase3_root)
+                selected_targets = select_surface_targets(surface_name, packet_targets)
             file_api_ids: list[str] = []
             for target in selected_targets:
                 for operation_id in extract_operation_ids_from_file(phase3_root / target):
@@ -675,93 +667,6 @@ def build_surface_records(
             record["source_ids"] = dedupe_preserve_order([*record["source_ids"], *packet_source_ids])
             record["test_targets"] = dedupe_preserve_order([*record["test_targets"], *packet_test_targets])
     return sorted(surfaces.values(), key=lambda row: row["surface_name"])
-
-
-def load_phase3_full_targeted_passed_tests(phase3_root: Path) -> list[str]:
-    passed: list[str] = []
-    for report_path in sorted((phase3_root / ".phase3-mainline-execution" / "backend-runs").glob("run-*/full-test-report.json")):
-        report = load_json_if_exists(report_path) or {}
-        failed = [str(item) for item in ensure_list(report.get("failed_tests")) if str(item).strip()]
-        if failed:
-            continue
-        passed.extend(str(item) for item in ensure_list(report.get("passed_tests")) if str(item).strip())
-    return dedupe_preserve_order(passed)
-
-
-def build_phase2_decision_runtime_acceptance_items(
-    *,
-    decision_records: list[dict[str, Any]],
-    operation_rows: list[dict[str, Any]],
-    phase3_root: Path,
-) -> list[dict[str, Any]]:
-    passed_tests = load_phase3_full_targeted_passed_tests(phase3_root)
-    if not passed_tests:
-        return []
-
-    operation_tokens_by_api_id = {
-        row["api_id"]: set(signal_tokens(row.get("operation_id", ""), row.get("summary", ""), row.get("path", ""), row.get("owner", "")))
-        for row in operation_rows
-    }
-    test_tokens_by_target = {target: set(signal_tokens(Path(target).stem, target)) for target in passed_tests}
-    items: list[dict[str, Any]] = []
-    for record in decision_records:
-        if str(record.get("priority") or "").strip().lower() not in {"critical", "high"}:
-            continue
-        record_tokens = set(str(item) for item in ensure_list(record.get("match_tokens")) if str(item).strip())
-        if str(record.get("category") or "") == "identity":
-            record_tokens |= set(IDENTITY_DECISION_HINTS.get(str(record.get("decision_id") or ""), ()))
-            record_tokens |= SECURITY_NEGATIVE_TOKENS
-        related_api_ids = [
-            api_id
-            for api_id, tokens in operation_tokens_by_api_id.items()
-            if record_tokens & tokens
-        ]
-        if not related_api_ids and operation_rows:
-            related_api_ids = [row["api_id"] for row in operation_rows if str(row.get("method") or "").upper() in WRITE_METHODS][:5]
-        selected_tests = [
-            target
-            for target, tokens in test_tokens_by_target.items()
-            if record_tokens & tokens
-        ]
-        if not selected_tests:
-            related_operation_tokens = set()
-            for row in operation_rows:
-                if row["api_id"] in related_api_ids:
-                    related_operation_tokens.add(compact_token(str(row.get("operation_id") or "")))
-            selected_tests = [
-                target
-                for target in passed_tests
-                if any(token and token in compact_token(target) for token in related_operation_tokens)
-            ]
-        if not selected_tests:
-            selected_tests = passed_tests
-
-        decision_id = str(record.get("decision_id") or "phase2-decision").strip()
-        title = str(record.get("title") or decision_id).strip()
-        items.append(
-            {
-                "test_id": f"TEST-P2-DECISION-{stable_suffix(decision_id)}",
-                "acceptance_type": "functional",
-                "source_id": decision_id,
-                "source_type": "phase2-decision",
-                "acceptance_item": f"{title} remains covered by Phase-3 full-targeted runtime evidence",
-                "related_api_ids": dedupe_preserve_order(related_api_ids),
-                "api_linkage_status": "mapped" if related_api_ids else "explicit-mainline-runtime-evidence",
-                "related_req_ids": [],
-                "related_surface_refs": [],
-                "scenario_prompt": "Consume Phase-3 mainline full-targeted evidence before accepting this Phase-2 decision as closed.",
-                "expected_result": "Relevant contract, SQL, replay, or service-boundary evidence is green in the Phase-3 full-targeted report.",
-                "actual_result": "",
-                "expected_evidence": ["full-test-report.json", "phase3-verification-ledger.json"],
-                "status": "not-run",
-                "evidence_path": [],
-                "owner_or_executor": "phase4-stage02",
-                "notes": str(record.get("summary") or title),
-                "test_targets": dedupe_preserve_order(selected_tests),
-                "implementation_targets": [],
-            }
-        )
-    return sorted(items, key=lambda item: item["test_id"])
 
 
 def build_acceptance_items(
@@ -1414,18 +1319,18 @@ def build_planning_package_markdown(
             "",
             "## Intake Summary",
             f"- upstream_phase3_handoff_reference: `{relative_to_root(phase3_root, phase3_root) or '.'}`",
-            f"- implementation_scope_summary: Phase-3 delivery state = `{delivery_state}`",
+            f"- implementation_scope_summary: inherited Phase-3 delivery state = `{delivery_state}`",
             f"- phase3_mainline_verdict: `{str(phase3_mainline_summary.get('phase_verdict') or 'unknown')}`",
             f"- phase3_mainline_total_score: `{phase3_mainline_summary.get('phase_total_score', 'unknown')}`",
             f"- requirement_and_contract_scope_summary: {functional_count} mandatory functional items, {data_fidelity_count} data-fidelity items, {ui_count} UI review items, {visual_count} visual evidence items",
-            "- review_bound_or_unresolved_inputs: visual capture stays review-bound when no capture environment exists",
-            "- acceptance_priority_summary: functional/data-fidelity first; UI/visual explicit, not faked",
+            "- review_bound_or_unresolved_inputs: visual capture may remain review-bound when the environment cannot produce screenshots/video/manual recordings",
+            "- human_risk_priorities_or_acceptance_constraints: functional and data-fidelity acceptance are primary; UI/visual evidence is explicit but must not be faked",
             "",
             "## Stage-01 Posture",
             "- decision_mode: `auto-proposed`",
             "- stage01_status: `ready`",
             "- why_this_status: inherited Phase-3 evidence is sufficient to freeze acceptance scope and Stage-02 controls",
-            "- validation_posture_summary: functional/data-fidelity mandatory; UI/visual secondary evidence",
+            "- validation_posture_summary: functional and data-fidelity acceptance are mandatory, UI/visual acceptance is explicit secondary evidence",
             "- coverage_priority_basis: `mixed`",
             "- execution_control_posture: `lightweight-equivalent`",
             "",
@@ -1437,7 +1342,7 @@ def build_planning_package_markdown(
             f"- traceability_mapping_summary: `TEST-* -> API-* -> REQ-*` mapping {'complete' if trace_mapping_complete else 'incomplete'}; functional_api_mapping_complete=`{str(functional_api_mapping_complete).lower()}`; functional_req_mapping_complete=`{str(functional_req_mapping_complete).lower()}`",
             f"- phase2_decision_alignment_summary: decision_alignment_complete=`{str(decision_alignment_complete).lower()}`; high_priority_unmapped_count=`{high_priority_unmapped_count}`",
             "- ui_and_visual_acceptance_summary: data-fidelity, UI review, and screenshot/manual capture are modeled as separate acceptance item types",
-            "- stage02_entry_gate_summary: Stage-02 may start from inherited mandatory evidence; visual gaps stay explicit",
+            "- stage02_entry_gate_summary: Stage-02 may start because mandatory functional/data-fidelity evidence is inherited and visual gaps are explicit rather than hidden",
             "",
             "## Gate and Execution-Control Linkage",
             "- test_entry_exit_gate_checklist_reference: `test-entry-exit-gate-checklist.md`",
@@ -1519,14 +1424,6 @@ def build_phase4_stage1_planning(
         operation_rows=operation_rows,
         phase3_root=phase3_root,
     )
-    if not [item for item in acceptance_items if item.get("acceptance_type") == "functional"]:
-        acceptance_items.extend(
-            build_phase2_decision_runtime_acceptance_items(
-                decision_records=phase2_decisions["records"],
-                operation_rows=operation_rows,
-                phase3_root=phase3_root,
-            )
-        )
     acceptance_items, api_lookup = apply_risk_metadata(acceptance_items, operation_rows)
     decision_alignment = build_phase2_decision_alignment(phase2_decisions["records"], acceptance_items, api_lookup)
     acceptance_items = [
@@ -1552,11 +1449,6 @@ def build_phase4_stage1_planning(
         phase3_mainline_summary.get("recommended_formal_state")
         or delivery_gate.get("recommended_formal_state")
         or "unknown"
-    )
-    phase3_claim_ceiling_report = (
-        phase3_mainline_summary.get("claim_ceiling_report")
-        if isinstance(phase3_mainline_summary.get("claim_ceiling_report"), dict)
-        else {}
     )
     contract_registry_approved = delivery_state == "delivery-ready" and str(
         phase3_mainline_summary.get("phase_verdict") or ""
@@ -1728,11 +1620,6 @@ def build_phase4_stage1_planning(
         "phase3_mainline_verdict": str(phase3_mainline_summary.get("phase_verdict") or ""),
         "phase3_mainline_total_score": phase3_mainline_summary.get("phase_total_score"),
         "phase3_delivery_state": delivery_state,
-        "phase3_claim_ceiling_report": phase3_claim_ceiling_report,
-        "phase3_claim_ceiling_resolved_formal_state": str(
-            phase3_mainline_summary.get("claim_ceiling_resolved_formal_state") or "unknown"
-        ),
-        "phase3_claim_ceiling_blocks_ready": bool(phase3_mainline_summary.get("claim_ceiling_blocks_ready")),
         "trace_mapping_complete": trace_mapping_complete,
         "functional_api_mapping_complete": functional_api_mapping_complete,
         "functional_req_mapping_complete": functional_req_mapping_complete,

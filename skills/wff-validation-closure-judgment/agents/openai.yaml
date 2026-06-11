@@ -1,0 +1,4 @@
+interface:
+  display_name: "Phase-4 Stage-03"
+  short_description: "Close validation with explicit downstream boundaries"
+  default_prompt: "Use $wff-validation-closure-judgment to close Phase-4 from Stage-02 evidence, return on any non-pass functional item, and preserve unresolved UI/visual acceptance as explicit review-bound carryover."

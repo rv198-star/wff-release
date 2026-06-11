@@ -1,4 +1,0 @@
-interface:
-  display_name: "Phase-3 DB Schema Implementation"
-  short_description: "Generate P3 DB migration plus schema and SQL tests without backend/frontend apps"
-  default_prompt: "Use $wff-impl-db-schema to generate Phase-3 database migration and schema/SQL tests from the Phase-2 handoff, preserving P2 storage decisions and reporting runtime-proof gaps honestly."

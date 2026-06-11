@@ -10,8 +10,6 @@ This script is intentionally deterministic:
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from dataclasses import dataclass
 from pathlib import Path
 import sys
 
@@ -41,290 +39,7 @@ from phase1.phase1_reasoning_runtime import (
     compile_stage_reasoning_units,
     sanitize_domain_default_truth,
 )
-from phase1.phase1_runtime_metadata import THINKING_VALUE_GAIN_OUTPUT_PROFILES
 from phase1.phase1_source_text_normalization import normalize_source_handoff_phrases
-from phase1.phase1_generation_kernel import (
-    SOURCE_PACKET_EVIDENCE_ALIASES,
-    HANDOFF_QUALIFIER_PATTERN,
-    VALUE_SIGNAL_PATTERNS,
-    COMMERCIAL_DECISION_PATTERNS,
-    USER_EXPERIENCE_SIGNAL_PATTERNS,
-    PRESSURE_SIGNAL_PATTERNS,
-    SIGNAL_CONDITIONAL_PATTERN,
-    SIGNAL_CONTRAST_PATTERN,
-    SIGNAL_DECISION_PATTERN,
-    SIGNAL_PAIN_PATTERN,
-    SIGNAL_ACTIONABILITY_PATTERN,
-    SIGNAL_NOUNISH_PATTERN,
-    SIGNAL_LABEL_PREFIX_PATTERN,
-    SIGNAL_SCAFFOLD_PREFIX_PATTERN,
-    SIGNAL_OPERATIONAL_FRAGMENT_PATTERN,
-    SIGNAL_CONSEQUENCE_PATTERN,
-    SIGNAL_OPPORTUNITY_PREFIX_PATTERN,
-    SIGNAL_NEGATIVE_CONDITIONAL_PATTERN,
-    list_items_from_block,
-    find_markdown_block,
-    find_named_h2_block,
-    source_packet_evidence_block,
-    flatten_bullets,
-    source_fact_text,
-    is_handoff_qualifier_label,
-    label_block_items,
-    find_h2_block,
-    demote_headings,
-    unique_preserve_order,
-    role_label,
-    _normalized_label_key,
-    preserved_display_label,
-    detect_source_segments,
-    extract_product_label,
-    extract_main_flow_block,
-    parse_markdown_table,
-    slug_token,
-    title_case_token,
-    extract_table_rows,
-    extract_target_user_rows,
-    build_source_semantic_profile,
-    _role_name_list,
-    _find_role_by_hint,
-    infer_fallback_module_contract,
-    extract_module_rows,
-    extract_object_rows,
-    extract_business_objectives,
-    extract_non_functional_requirements,
-    extract_architectural_constraints,
-    extract_out_of_scope_items,
-    extract_priority_bucket,
-    is_generic_flow_container_title,
-    extract_flow_rows,
-    derive_navigation_surfaces,
-    infer_first_slice_modules,
-    compact_signal_line,
-    normalize_signal_candidate,
-    collect_source_signal_pool,
-    signal_intent_match,
-    signal_priority_score,
-    select_source_grounded_signals,
-    extract_domain_context,
-)
-
-REVIEW_BOUND_MISSING = "review-bound / missing evidence"
-
-
-SEMANTIC_POSTURE_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    (
-        "growth-observation",
-        (
-            "recommendation",
-            "attribution",
-            "conversion",
-            "citation",
-            "ai-friendly",
-            "ai 友好",
-            "引用",
-            "转化",
-            "归因",
-            "竞品",
-            "tracked scope",
-            "finding",
-            "baseline",
-        ),
-    ),
-    (
-        "operational-service",
-        (
-            "appointment",
-            "visit",
-            "treatment",
-            "follow-up",
-            "handoff",
-            "work item",
-            "service loop",
-            "接诊",
-            "就诊",
-            "治疗",
-            "复诊",
-            "随访",
-            "交接",
-        ),
-    ),
-)
-
-SEMANTIC_TOKEN_PATTERNS: tuple[tuple[str, str], ...] = (
-    ("ai_friendliness", r"ai[-\s]*friendly|ai\s*友好|AI\s*友好"),
-    ("quality_diagnosis", r"quality diagnosis|内容质量|质量诊断"),
-    ("citation_likelihood", r"citation|引用概率|引用"),
-    ("attribution", r"attribution|归因"),
-    ("conversion_event", r"conversion|转化"),
-    ("identity_resolution", r"identity|身份|跨设备"),
-    ("keyword_focus", r"keyword|关键词"),
-    ("question_focus", r"question|问答|问题"),
-    ("rewrite_suggestion", r"rewrite|改写"),
-    ("recommendation", r"recommendation|建议"),
-    ("evidence_link", r"evidence|证据"),
-    ("review_cycle", r"review|复盘|评审"),
-    ("follow_up", r"follow[-\s]*up|复诊|随访"),
-    ("treatment_record", r"treatment|治疗"),
-    ("visit_record", r"visit|接诊|就诊"),
-    ("appointment", r"appointment|预约"),
-)
-
-
-def nonempty_string_values(items: object) -> list[str]:
-    candidates: Iterable[object] = items if not isinstance(items, str) and isinstance(items, Iterable) else [items]
-    return [str(item).strip() for item in candidates if str(item).strip()]
-
-
-def dict_or_empty(value: object) -> dict[str, object]:
-    return value if isinstance(value, dict) else {}
-
-
-def sequence_item_text(items: list[object], index: int, fallback: str) -> str:
-    value = items[index] if -len(items) <= index < len(items) else ""
-    text = str(value or "").strip()
-    return text or fallback
-
-
-def dict_sequence_field_text(rows: list[dict[str, object]], index: int, field: str, fallback: str) -> str:
-    if not -len(rows) <= index < len(rows) or not isinstance(rows[index], dict):
-        return fallback
-    text = str(rows[index].get(field, "") or "").strip()
-    return text or fallback
-
-
-def source_semantic_profile_from_context(
-    context: dict[str, object],
-    *,
-    module_name: str = "",
-) -> dict[str, object]:
-    existing = context.get("source_semantic_profile")
-    if isinstance(existing, dict) and existing:
-        return existing
-    source_text = str(context.get("source_text", ""))
-    roles = [
-        {"Role": str(row.get("Role", "")).strip()}
-        for row in context.get("roles", [])
-        if isinstance(row, dict) and str(row.get("Role", "")).strip()
-    ]
-    module_hint = module_name or dict_sequence_field_text(
-        [row for row in context.get("modules", []) if isinstance(row, dict)],
-        0,
-        "module",
-        "",
-    )
-    return build_source_semantic_profile(source_text, module_name=module_hint, roles=roles)
-
-
-def _source_semantic_blob(context: dict[str, object], profile: dict[str, object] | None = None) -> str:
-    profile = profile or source_semantic_profile_from_context(context)
-    values: list[str] = [str(context.get("source_text", ""))]
-    for key in (
-        "module_name",
-        "domain_profile",
-        "primary_actor",
-        "role_names",
-        "core_objects",
-        "flow_steps",
-        "source_evidence",
-        "constraints",
-        "outcomes",
-    ):
-        value = profile.get(key)
-        if isinstance(value, list):
-            values.extend(str(item) for item in value)
-        else:
-            values.append(str(value or ""))
-    for key in (
-        "objectives",
-        "constraints",
-        "nfrs",
-        "out_of_scope",
-        "p0",
-        "p1",
-        "p2",
-        "business_value_signals",
-        "pressure_signals",
-        "commercial_decision_signals",
-        "user_experience_signals",
-    ):
-        values.extend(str(item) for item in context.get(key, []) if str(item).strip())
-    for row in context.get("modules", []):
-        if isinstance(row, dict):
-            values.extend(str(value) for value in row.values() if str(value).strip())
-    return "\n".join(values)
-
-
-def infer_source_semantic_posture(context: dict[str, object] | None, *, text: str = "") -> str:
-    local_context = context if isinstance(context, dict) else {"source_text": text}
-    profile = source_semantic_profile_from_context(local_context)
-    blob = "\n".join([text, _source_semantic_blob(local_context, profile)]).casefold()
-    scores: dict[str, int] = {}
-    for posture, patterns in SEMANTIC_POSTURE_PATTERNS:
-        scores[posture] = sum(1 for pattern in patterns if pattern.casefold() in blob)
-    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
-    if not ranked or ranked[0][1] <= 0:
-        return "generic-workflow"
-    if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
-        return "generic-workflow"
-    return ranked[0][0]
-
-
-def source_semantic_guard_context(
-    context: dict[str, object] | None = None,
-    *,
-    text: str = "",
-) -> dict[str, object]:
-    local_context = context if isinstance(context, dict) else {"source_text": text}
-    profile = source_semantic_profile_from_context(local_context)
-    role_labels = [
-        str(row.get("Role", "")).strip()
-        for row in local_context.get("roles", [])
-        if isinstance(row, dict) and str(row.get("Role", "")).strip()
-    ]
-    if not role_labels:
-        role_labels = [str(item).strip() for item in profile.get("role_names", []) if str(item).strip()]
-    primary_segment = str(profile.get("primary_actor", "")).strip() or sequence_item_text(role_labels, 0, "primary operator")
-    return {
-        "domain_posture": infer_source_semantic_posture(local_context, text=text),
-        "primary_segment": primary_segment,
-        "role_labels": role_labels,
-        "supporting_role_label": sequence_item_text(role_labels, 1, ""),
-        "decision_role_label": sequence_item_text(role_labels, -1, primary_segment),
-    }
-
-
-def render_labeled_markdown_list_lines(
-    label: str,
-    items: object,
-    *,
-    fallback: str,
-    code: bool = False,
-) -> list[str]:
-    values = nonempty_string_values(items) or [fallback]
-    return [
-        f"- {label}:",
-        *(f"  - `{item}`" if code else f"  - {item}" for item in values),
-    ]
-
-
-def truth_slot_value(slot: object) -> str:
-    return str(slot.get("value", "") if isinstance(slot, dict) else slot or "").strip()
-
-
-def render_truth_slot_lines(label: str, slot: object) -> list[str]:
-    if not isinstance(slot, dict):
-        return [f"### {label}", f"- truth_state: `{REVIEW_BOUND_MISSING}`", f"- value: {REVIEW_BOUND_MISSING}"]
-    lines = [
-        f"### {label}",
-        f"- truth_state: `{slot.get('truth_state', 'review-bound')}`",
-        f"- value: {slot.get('value', REVIEW_BOUND_MISSING)}",
-    ]
-    source_signals = nonempty_string_values(slot.get("source_signals", []))
-    if source_signals:
-        lines.append("- source_signals:")
-        lines.extend(f"  - {item}" for item in source_signals)
-    return lines
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STAGE_ASSET_PATHS = {
@@ -418,526 +133,8 @@ STAGE_TRACEABILITY = {
 }
 
 
-@dataclass(frozen=True)
-class Phase1SourceSections:
-    h21: str
-    h22: str
-    h23: str
-    h24: str
-    h31: str
-    h32: str
-    h33: str
-    h34: str
-    h41: str
-    h42: str
-    h43: str
-    h51: str
-    h52: str
-    h53: str
-    h61: str
-    h62: str
-    h7p0: str
-    h7p1: str
-    h7p2: str
-    h8: str
-    h_features: str
-    h_ui: str
-    h_adv: str
-    h9: str
-    h10: str
-    h12: str
-    first_part: str
-
-
-def build_phase1_source_sections(source_text: str) -> Phase1SourceSections:
-    return Phase1SourceSections(
-        h21=find_h2_block(source_text, r"2\.1\s+项目/产品背景"),
-        h22=find_h2_block(source_text, r"2\.2\s+业务机会描述"),
-        h23=find_h2_block(source_text, r"2\.3\s+研究对象/目标用户边界"),
-        h24=find_h2_block(source_text, r"2\.4\s+至少\s*1\s*条可引用证据线索"),
-        h31=find_h2_block(source_text, r"3\.1\s+产品/业务目标方向"),
-        h32=find_h2_block(source_text, r"3\.2\s+结构化问题清单"),
-        h33=find_h2_block(source_text, r"3\.3\s+结构化机会清单"),
-        h34=find_h2_block(source_text, r"3\.4\s+至少\s*1\s*条用户叙事"),
-        h41=find_h2_block(source_text, r"4\.1\s+关键约束"),
-        h42=find_h2_block(source_text, r"4\.2\s+指标口径最小定义"),
-        h43=find_h2_block(source_text, r"4\.3\s+范围边界与非目标"),
-        h51=find_h2_block(source_text, r"5\.1\s+MVP 分期"),
-        h52=find_h2_block(source_text, r"5\.2\s+最小可用体验闭环"),
-        h53=find_h2_block(source_text, r"5\.3\s+影响切片顺序的依赖假设"),
-        h61=find_h2_block(source_text, r"6\.1\s+验证对象"),
-        h62=find_h2_block(source_text, r"6\.2\s+每条验证的最小方法与判定信号"),
-        h7p0=find_h2_block(source_text, r"P0（MVP 必须有）"),
-        h7p1=find_h2_block(source_text, r"P1（MVP 后尽快补）"),
-        h7p2=find_h2_block(source_text, r"P2（后续阶段）"),
-        h8=extract_main_flow_block(source_text),
-        h_features=find_h2_block(source_text, r"🛠️\s*产品必须实现的核心功能"),
-        h_ui=find_h2_block(source_text, r"📱\s*详细产品功能设计"),
-        h_adv=find_h2_block(source_text, r"🚀\s*产品优势"),
-        h9=find_h1_block(source_text, r"第九部分：需要后续补实的 unknown / provisional 信息"),
-        h10=find_h1_block(source_text, r"第十部分：统一 provenance / provisional 标记表"),
-        h12=find_h1_block(source_text, r"第十二部分：结论（供 Phase-1 验收使用）"),
-        first_part=find_h1_block(source_text, r"第一部分：原版\s*PRD\s*核心内容"),
-    )
-
-
-@dataclass(frozen=True)
-class Phase1SourceSnapshot:
-    sections: Phase1SourceSections
-    context: dict[str, object]
-    business_world_model: dict[str, object]
-    product_label: str
-    segments: list[str]
-    primary_segment: str
-    alternative_segments: list[str]
-    roles: list[dict[str, str]]
-    modules: list[dict[str, str]]
-    flows: list[dict[str, object]]
-    first_slice_modules: list[str]
-    module_names: list[str]
-    module_chain: str
-    primary_flow_name: str
-    main_roles: list[str]
-
-
-def build_phase1_source_snapshot(source_text: str) -> Phase1SourceSnapshot:
-    sections = build_phase1_source_sections(source_text)
-    context = extract_domain_context(source_text)
-    business_world_model = build_business_world_model(source_text)
-    segments = list(context["segments"])
-    primary_segment = str(segments[0])
-    roles = list(context["roles"])
-    modules = list(context["modules"])
-    flows = list(context["flows"])
-    first_slice_modules = [str(item).strip() for item in context.get("first_slice_modules", []) if str(item).strip()]
-    module_names = [str(row.get("module", "")).strip() for row in modules if str(row.get("module", "")).strip()]
-    main_roles = [str(role.get("Role", "")).strip() for role in roles if str(role.get("Role", "")).strip()] or [primary_segment]
-    return Phase1SourceSnapshot(
-        sections=sections,
-        context=context,
-        business_world_model=business_world_model,
-        product_label=str(context["product_label"]),
-        segments=segments,
-        primary_segment=primary_segment,
-        alternative_segments=segments[1:] or ["secondary collaborator", "review stakeholder"],
-        roles=roles,
-        modules=modules,
-        flows=flows,
-        first_slice_modules=first_slice_modules,
-        module_names=module_names,
-        module_chain=" -> ".join(module_names) or "source-defined workflow",
-        primary_flow_name=dict_sequence_field_text(flows, 0, "name", "Primary Flow"),
-        main_roles=main_roles,
-    )
-
-
-@dataclass(frozen=True)
-class Stage01SourceBundle:
-    h21: str
-    h22: str
-    h23: str
-    h24: str
-    h31: str
-    h32: str
-    h33: str
-    h34: str
-    first_part: str
-    context: dict[str, object]
-    business_world_model: dict[str, object]
-    product_label: str
-    segments: list[str]
-    primary_segment: str
-    alternative_segments: list[str]
-    objectives: list[str]
-    modules: list[dict[str, str]]
-    roles: list[dict[str, str]]
-    flows: list[dict[str, object]]
-    constraints: list[str]
-    nfrs: list[str]
-    out_of_scope: list[str]
-    flow_summary: str
-    problem_cluster_lines: str
-    opportunity_cluster_lines: str
-    deferred_lines: str
-    open_truth_lines: str
-    persona_chain_rows: str
-
-
-@dataclass(frozen=True)
-class Stage02aSourceBundle:
-    h23: str
-    h31: str
-    h32: str
-    h33: str
-    h34: str
-    h41: str
-    h43: str
-    h7p0: str
-    h7p1: str
-    h7p2: str
-    h8: str
-    h51: str
-    h52: str
-    h53: str
-    h61: str
-    h62: str
-    context: dict[str, object]
-    business_world_model: dict[str, object]
-    product_label: str
-    segments: list[str]
-    primary_segment: str
-    modules: list[dict[str, str]]
-    objectives: list[str]
-    flows: list[dict[str, object]]
-    module_names: list[str]
-    workflow_chain: str
-    roles: list[dict[str, str]]
-    constraints: list[str]
-    out_of_scope: list[str]
-    p0_items: list[str]
-    p1_items: list[str]
-    p2_items: list[str]
-
-
-@dataclass(frozen=True)
-class Stage02aStructuralMappingContext:
-    supporting_role_lines: str
-    problem_cluster_lines: str
-    opportunity_cluster_lines: str
-    backbone_lines: str
-    process_rows: str
-    first_flow_steps: list[str]
-    primary_step_lines: str
-    actor_system_lines: str
-
-
-@dataclass(frozen=True)
-class Stage02aStakeholderValueLines:
-    profile_rows: str
-    adoption_chain_lines: str
-    conflict_map_lines: str
-    value_loop_lines: str
-    chain_line: str
-    scenario_set_lines: str
-
-
-@dataclass(frozen=True)
-class Stage02aStakeholderValueContext:
-    stress_business: str
-    stress_technical: str
-    stress_compliance: str
-    stress_resource: str
-    value_pressure: str
-    commercial_pressure: str
-    experience_pressure: str
-    stakeholder_profile_rows: str
-    adoption_chain_lines: str
-    conflict_map_lines: str
-    value_loop_lines: str
-    stakeholder_chain_line: str
-    scenario_set_lines: str
-
-
-@dataclass(frozen=True)
-class Stage02aAnalysisBlocks:
-    scenario_decomposition: str
-    key_scenario_deep_analysis: str
-    persona_context: str
-    design_requirements: str
-    nfr_identification: str
-
-
-@dataclass(frozen=True)
-class Stage02aRenderContext:
-    source_bundle: Stage02aSourceBundle
-    structural_mapping_context: Stage02aStructuralMappingContext
-    analysis_blocks: Stage02aAnalysisBlocks
-    stakeholder_value_context: Stage02aStakeholderValueContext
-    skill_assets: dict[str, object]
-    reasoning_units: list[dict[str, object]]
-
-
-@dataclass(frozen=True)
-class Stage02bSpecificationContext:
-    nfr_lines: str
-    nfr_reasoning_rows: str
-    metric_rows: str
-    subsystem_lines: str
-    subsystem_interface_lines: str
-    screen_precursor_lines: str
-    screen_object_lines: str
-    payload_heading: str
-    deferred_heading: str
-    er_rows: str
-
-
-@dataclass(frozen=True)
-class Stage02bRenderContext:
-    product_label: str
-    domain_context: dict[str, object]
-    business_world_model: dict[str, object]
-    specification_context: Stage02bSpecificationContext
-    primary_actor: str
-    module_chain: str
-    objects: list[dict[str, str]]
-    navigation_surfaces: list[str]
-    modules: list[dict[str, str]]
-    reasoning_units: list[dict[str, object]]
-    skill_assets: dict[str, object]
-    source_evidence_blocks: list[str]
-
-
-@dataclass(frozen=True)
-class Stage02bSkipStubContext:
-    stage_02a_nfr: str
-    stage_02a_value_loop: str
-
-
-@dataclass(frozen=True)
-class Stage03SourceBundle:
-    h51: str
-    h52: str
-    h53: str
-    h7p0: str
-    h7p1: str
-    h7p2: str
-    h8: str
-    context: dict[str, object]
-    business_world_model: dict[str, object]
-    product_label: str
-    segments: list[str]
-    primary_segment: str
-    roles: list[dict[str, str]]
-    modules: list[dict[str, str]]
-    flows: list[dict[str, object]]
-    nfrs: list[str]
-    constraints: list[str]
-    out_of_scope: list[str]
-    p0_items: list[str]
-    p1_items: list[str]
-    p2_items: list[str]
-    full_loop: str
-    first_slice_loop: str
-    minimum_loop: str
-    primary_flow_name: str
-    main_roles: list[str]
-
-
-@dataclass(frozen=True)
-class Stage04ValidationPlan:
-    stage03_assumptions: list[dict[str, str]]
-    validation_targets: list[dict[str, str]]
-    method_rows: list[str]
-
-
-@dataclass(frozen=True)
-class Stage04SourceBundle:
-    h61: str
-    h62: str
-    h9: str
-    h10: str
-    h12: str
-    context: dict[str, object]
-    product_label: str
-    segments: list[str]
-    primary_segment: str
-    roles: list[dict[str, str]]
-    modules: list[dict[str, str]]
-    flows: list[dict[str, object]]
-    objectives: list[str]
-    constraints: list[str]
-    out_of_scope: list[str]
-    module_chain: str
-    primary_flow_name: str
-    stage03_assumptions: list[dict[str, str]]
-    validation_targets: list[dict[str, str]]
-    method_rows: list[str]
-
-
-@dataclass(frozen=True)
-class Stage04Stage02bExecutionContext:
-    upstream_lines: str
-    state_block: str
-
-
-@dataclass(frozen=True)
-class Stage04RenderContext:
-    source_bundle: Stage04SourceBundle
-    stage_02b_execution_context: Stage04Stage02bExecutionContext
-    upstream_evidence_blocks: list[str]
-    source_evidence_blocks: list[str]
-    skill_assets: dict[str, object]
-    reasoning_units: list[dict[str, object]]
-    maturity_rows: list[dict[str, str]]
-
-
-@dataclass(frozen=True)
-class Stage03SlicePlanningContext:
-    comparison_rows: list[str]
-    nfr_force_lines: str
-    nfr_relaxed_lines: str
-    dependency_impact_lines: str
-    value_frequency_rows: str
-    deferred_honesty_rows: str
-    key_assumption_lines: str
-    flow_nodes: list[str]
-    slice_map: str
-
-
-@dataclass(frozen=True)
-class Stage03SlicePlanningLines:
-    comparison_rows: list[str]
-    nfr_force_lines: str
-    nfr_relaxed_lines: str
-    dependency_impact_lines: str
-    value_frequency_rows: str
-    deferred_honesty_rows: str
-
-
-@dataclass(frozen=True)
-class Stage03SliceValidationItems:
-    first_slice_items: list[str]
-    later_slice_items: list[str]
-    deferred_items: list[str]
-    first_break_item: str
-    second_break_item: str
-
-
-@dataclass(frozen=True)
-class Stage03Stage02bCarryoverContext:
-    upstream_lines: str
-    availability: str
-    skip_effect: str
-
-
-@dataclass(frozen=True)
-class Stage03EvidenceContext:
-    upstream_value_loop_block: str
-    upstream_evidence_blocks: list[str]
-    source_evidence_blocks: list[str]
-
-
-@dataclass(frozen=True)
-class Stage03RenderContext:
-    source_bundle: Stage03SourceBundle
-    slice_planning_context: Stage03SlicePlanningContext
-    stage_02b_carryover_context: Stage03Stage02bCarryoverContext
-    evidence_context: Stage03EvidenceContext
-    skill_assets: dict[str, object]
-    reasoning_units: list[dict[str, object]]
-
-
-@dataclass(frozen=True)
-class Phase1DeepStageTexts:
-    stage_01_text: str
-    stage_02a_text: str
-    stage_02b_text: str
-    stage_03_text: str
-    stage_04_text: str
-
-    def ordered_texts(self) -> list[str]:
-        return [
-            self.stage_01_text,
-            self.stage_02a_text,
-            self.stage_02b_text,
-            self.stage_03_text,
-            self.stage_04_text,
-        ]
-
-
-@dataclass(frozen=True)
-class BusinessWorldModelArtifactPaths:
-    business_world_model: Path
-    semantic_authoring_spine: Path
-    operating_baseline_model: Path
-    product_world_decision: Path
-    business_release_truth_pack: Path
-    planning_control_truth_pack: Path
-    business_exploration_arena_json: Path
-    business_exploration_arena_md: Path
-    commercial_argument_draft_json: Path
-    commercial_argument_draft_md: Path
-    chosen_business_thesis_json: Path
-    chosen_business_thesis_md: Path
-
-
-@dataclass(frozen=True)
-class ThinkingValueGainContext:
-    output_profile: str
-    profile_copy: dict[str, str]
-    arena: dict[str, object]
-    chosen_name: str
-    primary_substitute: str
-    primary_pain: str
-    proof_target: str
-    continuation_owner: str
-    boundary: str
-    reality_focus: str
-    delivery_handoff_items: list[dict[str, str]]
-
-
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
-
-
-def render_demoted_evidence_pack(heading: str, *blocks: str) -> str:
-    return f"{heading}\n" + "\n\n".join(demote_headings(block) for block in blocks)
-
-
-def render_source_evidence_pack(heading: str, *blocks: str) -> str:
-    return render_demoted_evidence_pack(heading, *blocks)
-
-
-def render_evidence_chain_sections(
-    *,
-    ledger_heading: str,
-    material_heading: str,
-    snapshot_heading: str,
-    method_heading: str,
-    source_heading: str,
-    reasoning_units: list[dict[str, str | list[str]]],
-    context: dict[str, object],
-    skill_assets: dict[str, object],
-    snapshot_runtime_use_rules: list[str],
-    source_evidence_blocks: list[str],
-    upstream_heading: str | None = None,
-    upstream_evidence_blocks: list[str] | None = None,
-    extra_sections_after_ledger: list[str] | None = None,
-    snapshot_before_method: bool = True,
-) -> str:
-    sections = [render_reasoning_unit_ledger(ledger_heading, reasoning_units, context=context)]
-    sections.extend(extra_sections_after_ledger or [])
-    sections.append(render_material_grounding_bridge(material_heading, skill_assets, context))
-    snapshot_section = render_skill_asset_snapshot(snapshot_heading, skill_assets, snapshot_runtime_use_rules, context)
-    method_section = render_method_activation_evidence(method_heading, reasoning_units, context=context)
-    sections.extend([snapshot_section, method_section] if snapshot_before_method else [method_section, snapshot_section])
-    if upstream_heading:
-        sections.append(render_demoted_evidence_pack(upstream_heading, *(upstream_evidence_blocks or [])))
-    sections.append(render_source_evidence_pack(source_heading, *source_evidence_blocks))
-    return "\n\n".join(sections)
-
-
-def render_stage_document_opening(
-    *,
-    stage_display: str,
-    stage_slug: str,
-    document_suffix: str,
-    product_label: str,
-    version: str,
-    owner: str,
-    title_state: str = "deep-compiled",
-    status: str = "provisional",
-    source_status: str = "mixed",
-) -> str:
-    return f"""# {stage_display} Output — {stage_slug} ({title_state})
-
-## 1. Document Metadata
-- document_name: `{product_label} Phase-1 Trial {stage_display} {document_suffix} {version}`
-- stage: `{stage_slug}`
-- version: `{version}`
-- status: `{status}`
-- owner: `{owner}`
-- source_status: `{source_status}`"""
 
 
 def render_traceability_block(stage_key: str) -> str:
@@ -947,9 +144,14 @@ def render_traceability_block(stage_key: str) -> str:
         f"- artifact_id: `{trace['artifact_id']}`",
         "- artifact_type:",
         f"  - `{trace['artifact_type']}`",
-        *render_labeled_markdown_list_lines("depends_on", trace["depends_on"], fallback="(none)", code=True),
-        *render_labeled_markdown_list_lines("feeds", trace["feeds"], fallback="(none)", code=True),
+        "- depends_on:",
     ]
+    if trace["depends_on"]:
+        lines.extend(f"  - `{value}`" for value in trace["depends_on"])
+    else:
+        lines.append("  - `(none)`")
+    lines.append("- feeds:")
+    lines.extend(f"  - `{value}`" for value in trace["feeds"])
     lines.extend(
         [
             "- traceability_managed_by:",
@@ -961,10 +163,210 @@ def render_traceability_block(stage_key: str) -> str:
     return "\n".join(lines)
 
 
+def find_named_h2_block(text: str, heading_keywords: list[str]) -> str:
+    for keyword in heading_keywords:
+        match = re.search(
+            rf"^##\s+(?:\d+(?:\.\d+)?\s+)?[^\n]*{re.escape(keyword)}[^\n]*$",
+            text,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+        if not match:
+            continue
+        start = match.start()
+        tail = text[start:]
+        next_h2 = re.search(r"^##\s+", tail[1:], flags=re.MULTILINE)
+        end = next_h2.start() + 1 if next_h2 else len(tail)
+        return tail[:end].strip()
+    return ""
+
+
+def list_items_from_block(block: str) -> list[str]:
+    if not block:
+        return []
+    items: list[str] = []
+    for line in block.splitlines()[1:]:
+        bullet = re.match(r"^\s*-\s+`?([^`]+?)`?\s*$", line)
+        if bullet:
+            items.append(bullet.group(1).strip())
+            continue
+        numbered = re.match(r"^\s*\d+\.\s+(.+?)\s*$", line)
+        if numbered:
+            items.append(numbered.group(1).strip())
+    return [item for item in items if item and "source section not found" not in item.lower()]
+
+
+def find_markdown_block(text: str, heading_keywords: list[str]) -> str:
+    for keyword in heading_keywords:
+        match = re.search(
+            rf"^##+\s+(?:\d+(?:\.\d+)?\s+)?[^\n]*{re.escape(keyword)}[^\n]*$",
+            text,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+        if not match:
+            continue
+        start = match.start()
+        heading_line = match.group(0)
+        heading_level = len(re.match(r"^#+", heading_line).group(0))
+        tail = text[start:]
+        next_heading = re.search(
+            rf"^#{{2,{heading_level}}}\s+",
+            tail[match.end() - start :],
+            flags=re.MULTILINE,
+        )
+        end = (match.end() - start) + next_heading.start() if next_heading else len(tail)
+        return tail[:end].strip()
+    return ""
+
+
+SOURCE_PACKET_EVIDENCE_ALIASES: list[tuple[tuple[str, ...], list[str]]] = [
+    (("2\\.1", "项目/产品背景", "第一部分", "原版"), ["Project Context"]),
+    (("2\\.2", "业务机会描述", "3\\.2", "结构化问题清单", "3\\.3", "结构化机会清单"), ["Project Context", "Desired Outcome"]),
+    (("2\\.3", "研究对象", "目标用户"), ["User, Buyer, Operator"]),
+    (("2\\.4", "证据线索", "6\\.1", "验证对象", "6\\.2", "判定信号"), ["Desired Outcome", "Success Signals"]),
+    (("3\\.1", "产品/业务目标", "目标方向"), ["Desired Outcome"]),
+    (("3\\.4", "用户叙事", "主流程"), ["Key Workflows", "Scenarios"]),
+    (("4\\.1", "关键约束", "4\\.2", "指标口径"), ["Constraints"]),
+    (("4\\.3", "范围边界", "非目标", "P0", "P1", "P2"), ["Scope Boundary"]),
+    (("第九部分", "unknown", "provisional"), ["Open Truth Gaps"]),
+    (("第十部分", "provenance", "标记"), ["Truth-State Ledger"]),
+    (("第十二部分", "结论", "验收"), ["Admission Decision", "Handoff Note For wff-req"]),
+]
+
+
+def source_packet_evidence_block(source_text: str, heading_pattern: str) -> str:
+    """Map legacy P1 source evidence headings to source-input-packet sections.
+
+    Stage evidence packs cite raw source sections for review. A source input
+    packet uses a different section contract, so missing legacy headings should
+    resolve to the closest packet fact/review section instead of emitting
+    `(source section not found)` noise.
+    """
+
+    if not re.search(r"^#\s+P1 Source Input Packet\b", source_text, flags=re.IGNORECASE | re.MULTILINE):
+        return ""
+    for triggers, packet_headings in SOURCE_PACKET_EVIDENCE_ALIASES:
+        if not any(re.search(trigger, heading_pattern, flags=re.IGNORECASE) for trigger in triggers):
+            continue
+        for heading in packet_headings:
+            block = find_markdown_block(source_text, [heading])
+            if block:
+                return f"## P1 Source Brief Evidence: {heading}\n{normalize_source_handoff_phrases(demote_headings(block))}"
+    block = source_fact_text(source_text)
+    if block:
+        lines = block.splitlines()
+        excerpt = normalize_source_handoff_phrases("\n".join(lines[: min(len(lines), 20)]).strip())
+        return f"## P1 Source Brief Evidence: excerpt\n{demote_headings(excerpt)}"
+    return ""
+
+
+def flatten_bullets(block: str, limit: int) -> list[str]:
+    if not block:
+        return []
+    items: list[str] = []
+    for line in block.splitlines()[1:]:
+        bullet = re.match(r"^\s*-\s+(.+?)\s*$", line)
+        if bullet:
+            value = bullet.group(1).strip().strip("`")
+            if value and "source section not found" not in value.casefold():
+                items.append(value)
+        if len(items) >= limit:
+            break
+    if items:
+        return items
+    fallbacks: list[str] = []
+    for line in block.splitlines()[1:]:
+        value = line.strip().strip("`")
+        if not value or value.startswith("#"):
+            continue
+        if "source section not found" in value.casefold():
+            continue
+        fallbacks.append(value)
+        if len(fallbacks) >= limit:
+            break
+    return fallbacks
+
+
+def source_fact_text(source_text: str) -> str:
+    """Return the authoritative fact-bearing body for a P1 source input packet.
+
+    `wff-req-chat` packets contain both product facts and review/control
+    metadata. Phase-1 extraction should use the `P1 Source Brief` as the
+    business fact surface; challenge axes and ledgers are constraints, not
+    product nouns.
+    """
+
+    if not re.search(r"^#\s+P1 Source Input Packet\b", source_text, flags=re.IGNORECASE | re.MULTILINE):
+        return source_text
+    block = find_markdown_block(source_text, ["P1 Source Brief"])
+    if block:
+        return normalize_source_handoff_phrases(block)
+    return block or source_text
+
+
+HANDOFF_QUALIFIER_PATTERN = re.compile(
+    r"\b(?:role[- ]owned\s+|owner[- ]owned\s+|responsibility[- ]owned\s+)?next\s+(?:action|step)\b|"
+    r"下一步.*(?:责任|动作)|(?:责任|角色).*下一步",
+    flags=re.IGNORECASE,
+)
+
+
+def is_handoff_qualifier_label(value: str) -> bool:
+    """Return true when a source label describes handoff ownership, not a module.
+
+    Source packets often say a manager needs to see the "role-owned next
+    action". That phrase should shape state/role semantics inside a workflow;
+    treating it as a standalone module creates synthetic pages, inputs, outputs,
+    and acceptance rows.
+    """
+
+    text = re.sub(r"\s+", " ", str(value or "")).strip(" `。.;；")
+    if not text or len(text) > 80:
+        return False
+    if not HANDOFF_QUALIFIER_PATTERN.search(text):
+        return False
+    lowered = text.casefold()
+    if any(token in lowered for token in ("view", "dashboard", "screen", "page", "report", "queue", "task list")):
+        return False
+    if any(token in text for token in ("视图", "看板", "页面", "报表", "队列", "任务列表")):
+        return False
+    return True
+
+
 def packet_open_truth_gap_items(source_text: str) -> list[str]:
     if not re.search(r"^#\s+P1 Source Input Packet\b", source_text, flags=re.IGNORECASE | re.MULTILINE):
         return []
     return flatten_bullets(find_markdown_block(source_text, ["Open Truth Gaps"]), 12)
+
+
+def label_block_items(source_text: str, label_patterns: list[str], *, limit: int = 12) -> list[str]:
+    """Extract bullets under a plain label such as `P0:` inside a section."""
+
+    lines = source_text.splitlines()
+    items: list[str] = []
+    active = False
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            active = False
+            continue
+        is_label = any(re.match(rf"^{pattern}\s*[:：]\s*$", line, flags=re.IGNORECASE) for pattern in label_patterns)
+        if is_label:
+            active = True
+            continue
+        if active and re.match(r"^[A-Za-z0-9 /_-]{1,40}\s*[:：]\s*$", line):
+            break
+        if active:
+            bullet = re.match(r"^(?:[-*]|\d+[.)])\s+(.+?)\s*$", line)
+            if not bullet:
+                continue
+            value = bullet.group(1).strip().strip("`")
+            if value and "source section not found" not in value.casefold():
+                items.append(value)
+            if len(items) >= limit:
+                break
+    return items
 
 
 def first_field_value(block: str, label: str) -> str:
@@ -1091,7 +493,28 @@ def bullet_lines(items: list[str], indent: str = "") -> str:
 def skill_asset_sanitizer_context(context: dict[str, object] | None) -> dict[str, object] | None:
     if not isinstance(context, dict):
         return None
-    return source_semantic_guard_context(context)
+    source_text = str(context.get("source_text", ""))
+    style = detect_source_style(source_text)
+    domain_posture = (
+        "growth-observation"
+        if style == "growth_observation"
+        else "operational-service"
+        if style == "pet_clinic"
+        else "generic-workflow"
+    )
+    role_labels = [
+        str(row.get("Role", "")).strip()
+        for row in context.get("roles", [])
+        if isinstance(row, dict) and str(row.get("Role", "")).strip()
+    ]
+    primary_segment = role_labels[0] if role_labels else "primary operator"
+    return {
+        "domain_posture": domain_posture,
+        "primary_segment": primary_segment,
+        "role_labels": role_labels,
+        "supporting_role_label": role_labels[1] if len(role_labels) > 1 else "",
+        "decision_role_label": role_labels[-1] if role_labels else primary_segment,
+    }
 
 
 def sanitized_bullet_lines(
@@ -1256,57 +679,6 @@ def material_grounding_lines(skill_assets: dict[str, object], limit: int = 4) ->
     return lines[:limit]
 
 
-def attach_material_grounding_to_reasoning_units(
-    units: list[dict[str, object]],
-    material_grounding: list[str],
-) -> list[dict[str, object]]:
-    return [{**unit, "material_grounding": list(material_grounding)} for unit in units]
-
-
-def build_reasoning_unit(
-    title: str,
-    artifact_unit: str,
-    loop_round_state: str,
-    weakness_trigger: str,
-    method: tuple[str, list[str], str],
-    comparison: tuple[list[str], str, str],
-    evidence: tuple[str, str, str],
-    maturity: tuple[str, str, str, str],
-) -> dict[str, object]:
-    method_family, method_assets, reasoning_operator = method
-    alternatives_compared, tradeoff_or_tension, decision_effect = comparison
-    observed, interpreted, decision = evidence
-    evidence_state, remaining_unknown, downstream_handoff, freeze_rationale = maturity
-    return dict(
-        title=title,
-        artifact_unit=artifact_unit,
-        loop_round_state=loop_round_state,
-        weakness_trigger=weakness_trigger,
-        method_family=method_family,
-        method_assets=method_assets,
-        reasoning_operator=reasoning_operator,
-        alternatives_compared=alternatives_compared,
-        tradeoff_or_tension=tradeoff_or_tension,
-        decision_effect=decision_effect,
-        evidence_classification=[
-            f"observed fact: {observed}",
-            f"interpreted pattern: {interpreted}",
-            f"decision: {decision}",
-        ],
-        evidence_state=evidence_state,
-        remaining_unknown=remaining_unknown,
-        downstream_handoff=downstream_handoff,
-        freeze_rationale=freeze_rationale,
-    )
-
-
-def build_material_grounded_reasoning_units(
-    units: list[dict[str, object]],
-    skill_assets: dict[str, object],
-) -> list[dict[str, object]]:
-    return attach_material_grounding_to_reasoning_units(units, material_grounding_lines(skill_assets))
-
-
 def render_method_activation_evidence(
     heading: str,
     units: list[dict[str, str | list[str]]],
@@ -1373,6 +745,21 @@ def render_maturity_confidence_section(
     return "\n".join(lines)
 
 
+def find_h2_block(text: str, heading_pattern: str) -> str:
+    match = re.search(
+        rf"^##\s+{heading_pattern}.*$",
+        text,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    if not match:
+        return source_packet_evidence_block(text, heading_pattern)
+    start = match.start()
+    tail = text[start:]
+    next_h2 = re.search(r"^##\s+", tail[1:], flags=re.MULTILINE)
+    end = next_h2.start() + 1 if next_h2 else len(tail)
+    return tail[:end].strip()
+
+
 def find_h1_block(text: str, heading_pattern: str) -> str:
     match = re.search(
         rf"^#\s+{heading_pattern}.*$",
@@ -1388,6 +775,17 @@ def find_h1_block(text: str, heading_pattern: str) -> str:
     return tail[:end].strip()
 
 
+def demote_headings(text: str, levels: int = 1) -> str:
+    out: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("#"):
+            size = len(line) - len(line.lstrip("#"))
+            out.append(f"{'#' * min(size + levels, 6)}{line[size:]}")
+        else:
+            out.append(line)
+    return "\n".join(out).strip()
+
+
 def write(path: Path, content: str, locale: str | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     text = normalize_domain_terms(content).rstrip() + "\n"
@@ -1397,13 +795,39 @@ def write(path: Path, content: str, locale: str | None = None) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def write_json_artifact(path: Path, payload: object) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
 def normalize_domain_terms(text: str) -> str:
-    return str(sanitize_domain_default_truth(text, context=source_semantic_guard_context(text=text)))
+    style = detect_source_style(text)
+    domain_posture = (
+        "growth-observation"
+        if style == "growth_observation"
+        else "operational-service"
+        if style == "pet_clinic"
+        else "generic-workflow"
+    )
+    return str(sanitize_domain_default_truth(text, context={"domain_posture": domain_posture}))
+
+
+def unique_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in items:
+        value = item.strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
+
+
+def role_label(row: dict[str, str]) -> str:
+    return str(
+        row.get('Role')
+        or row.get('role')
+        or row.get('persona')
+        or row.get('user')
+        or row.get('target_user')
+        or ''
+    ).strip()
 
 
 def _label_variants(label: str) -> list[str]:
@@ -1418,6 +842,10 @@ def _label_variants(label: str) -> list[str]:
     return unique_preserve_order(variants)
 
 
+def _normalized_label_key(label: str) -> str:
+    return re.sub(r'\s+', ' ', str(label or '').strip().strip('`')).casefold()
+
+
 def _label_match_keys(label: str) -> set[str]:
     keys: set[str] = set()
     for value in _label_variants(label):
@@ -1428,6 +856,16 @@ def _label_match_keys(label: str) -> set[str]:
         if token != "item":
             keys.add(f"slug:{token}")
     return keys
+
+
+def preserved_display_label(label: str, fallback: str = "Item") -> str:
+    cleaned = str(label or "").strip().strip("`")
+    if not cleaned:
+        return fallback
+    token = slug_token(cleaned)
+    if re.search(r"[^\x00-\x7F]", cleaned) and token == "item":
+        return cleaned
+    return title_case_token(token)
 
 
 def _token_candidate_values(value: str) -> list[str]:
@@ -1453,15 +891,6 @@ def stable_ascii_token(
             if token and token not in {"item", prefix}:
                 return token
     return f"{prefix}_{index + 1}" if index is not None else prefix
-
-
-def source_semantic_token_hits(context: dict[str, object]) -> list[str]:
-    blob = _source_semantic_blob(context)
-    hits: list[str] = []
-    for token, pattern in SEMANTIC_TOKEN_PATTERNS:
-        if re.search(pattern, blob, flags=re.IGNORECASE):
-            hits.append(token)
-    return unique_preserve_order(hits)
 
 
 def unique_ascii_token(
@@ -1651,11 +1080,738 @@ def infer_surface_primary_actor(surface: str, context: dict[str, object]) -> str
     return roles[0]
 
 
+def detect_source_segments(source_text: str) -> list[str]:
+    fact_text = source_fact_text(source_text)
+
+    def normalize_candidate(value: str) -> str:
+        cleaned = str(value or "").strip().strip("`")
+        cleaned = re.sub(r"^\s*(?:主要用户|次要用户|评审用户)\s*[：:]\s*", "", cleaned).strip()
+        if not cleaned:
+            return ""
+        lowered = cleaned.casefold()
+        excluded_prefixes = ("客群边界", "使用边界", "边界", "首发不做", "不做", "非目标")
+        if any(lowered.startswith(prefix.casefold()) for prefix in excluded_prefixes):
+            return ""
+        if "不承诺" in cleaned or "不做" in cleaned:
+            return ""
+        return cleaned
+
+    candidate_block = find_h2_block(fact_text, r"2\.3\s+研究对象/目标用户边界")
+    candidates = [value for value in (normalize_candidate(item) for item in list_items_from_block(candidate_block)) if value]
+    if not candidates:
+        table_rows = parse_markdown_table(find_markdown_block(fact_text, ["User, Buyer, Operator", "2. Target Users", "Target Users", "目标用户"]))
+        candidates = [
+            normalize_candidate(str(row.get("Role", "") or row.get("role", "")).strip())
+            for row in table_rows
+            if normalize_candidate(str(row.get("Role", "") or row.get("role", "")).strip())
+        ]
+    if not candidates:
+        target_users_block = find_markdown_block(fact_text, ["User, Buyer, Operator", "Target Users", "目标用户"])
+        candidates = [value for value in (normalize_candidate(item) for item in list_items_from_block(target_users_block)) if value]
+    if not candidates:
+        for line in fact_text.splitlines():
+            row = re.match(r"^\|\s*([^|]+?)\s*\|", line)
+            if row:
+                cell = normalize_candidate(row.group(1).strip())
+                if cell and cell.lower() not in {"role", "---"} and "source section not found" not in cell.lower():
+                    candidates.append(cell)
+            if len(candidates) >= 5:
+                break
+    return unique_preserve_order(candidates) or ["primary operator", "secondary collaborator", "review stakeholder"]
+
+
+def extract_product_label(source_text: str) -> str:
+    match = re.search(r"^#\s+(.+?)\s*$", source_text, flags=re.MULTILINE)
+    if not match:
+        return "Source-Derived"
+    title = match.group(1).strip()
+    title = re.sub(r"\s*(Product Requirements Document|产品需求文档|PRD)\b.*$", "", title, flags=re.IGNORECASE).strip(" -—")
+    return title or "Source-Derived"
+
+
+def extract_main_flow_block(source_text: str) -> str:
+    fact_text = source_fact_text(source_text)
+    for pattern in (r"主流程[:：].+", r"Main Flow[:：].+", r"Core Flow[:：].+"):
+        match = re.search(rf"^##\s+{pattern}\s*$", fact_text, flags=re.IGNORECASE | re.MULTILINE)
+        if match:
+            return find_h2_block(fact_text, re.escape(match.group(0).split("##", 1)[1].strip()))
+    return find_h2_block(fact_text, r"5\.2\s+最小可用体验闭环")
+
+
+def parse_markdown_table(block: str) -> list[dict[str, str]]:
+    lines = [line.strip() for line in block.splitlines() if line.strip().startswith("|")]
+    if len(lines) < 2:
+        return []
+    headers = [cell.strip() for cell in lines[0].strip("|").split("|")]
+    rows: list[dict[str, str]] = []
+    for line in lines[2:]:
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) != len(headers):
+            continue
+        rows.append({headers[idx]: cells[idx] for idx in range(len(headers))})
+    return rows
+
+
+def slug_token(text: str) -> str:
+    token = re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
+    return token or "item"
+
+
+def title_case_token(text: str) -> str:
+    return re.sub(r"[_\-]+", " ", text).strip().title() or "Item"
+
+
+def extract_table_rows(source_text: str, heading_keywords: list[str]) -> list[dict[str, str]]:
+    fact_text = source_fact_text(source_text)
+    for keyword in heading_keywords:
+        block = find_markdown_block(fact_text, [keyword])
+        rows = parse_markdown_table(block)
+        if rows:
+            return rows
+    return []
+
+
+def extract_target_user_rows(source_text: str) -> list[dict[str, str]]:
+    fact_text = source_fact_text(source_text)
+    candidate_block = find_h2_block(fact_text, r"2\.3\s+研究对象/目标用户边界")
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in list_items_from_block(candidate_block):
+        match = re.match(r"^\s*(主要用户|次要用户|评审用户)\s*[：:]\s*(.+?)\s*$", item)
+        role_name = detect_source_segments(f"## 2.3 研究对象/目标用户边界\n- {item}")[0] if item else ""
+        description = match.group(1) if match else ""
+        if role_name and role_name not in seen:
+            rows.append({"Role": role_name, "Description": description})
+            seen.add(role_name)
+    if rows:
+        return rows
+    rows = extract_table_rows(fact_text, ["User, Buyer, Operator", "2. Target Users", "Target Users", "目标用户"])
+    if rows:
+        normalized_rows: list[dict[str, str]] = []
+        for row in rows:
+            role = str(row.get("Role") or row.get("role") or "").strip().strip("`")
+            if role:
+                normalized = dict(row)
+                normalized["Role"] = role
+                normalized_rows.append(normalized)
+        return normalized_rows or rows
+    return [{"Role": value.strip("`"), "Description": ""} for value in detect_source_segments(fact_text)]
+
+
+def detect_source_style(source_text: str) -> str:
+    lowered = source_fact_text(source_text).casefold()
+    if re.search(
+        r"\bgeo\b|ai 搜索|生成式回答|ai 可见性|visibility|tracked scope|citation|competitor|竞争对手|归因|roi|conversion|b2b 市场|marketing owner|content operator|growth owner|baseline run",
+        lowered,
+    ):
+        return "growth_observation"
+    if re.search(r"pet|clinic|veterinar|宠物|诊所|就诊|治疗|复诊|随访|discharge|follow-up", lowered):
+        return "pet_clinic"
+    return "generic"
+
+
+def _role_name_list(roles: list[dict[str, str]]) -> list[str]:
+    return [role_label(row) for row in roles if role_label(row)]
+
+
+def _find_role_by_hint(role_names: list[str], patterns: list[str], fallback_index: int) -> str:
+    for role in role_names:
+        lowered = role.casefold()
+        if any(re.search(pattern, lowered) for pattern in patterns):
+            return role
+    return role_names[fallback_index] if role_names else "primary operator"
+
+
+def infer_fallback_module_contract(
+    source_text: str,
+    business_name: str,
+    roles: list[dict[str, str]],
+) -> dict[str, str]:
+    style = detect_source_style(source_text)
+    role_names = _role_name_list(roles)
+    lowered = business_name.casefold()
+
+    if style == "growth_observation":
+        primary_actor = _find_role_by_hint(role_names, [r"marketing", r"市场"], 0)
+        execution_actor = _find_role_by_hint(role_names, [r"content", r"内容"], 1 if len(role_names) > 1 else 0)
+        reviewer_actor = _find_role_by_hint(role_names, [r"business", r"增长", r"review"], 2 if len(role_names) > 2 else 0)
+        if any(token in lowered for token in ["tenant", "audit", "actor"]):
+            return {
+                "module": business_name,
+                "primary_actor": primary_actor,
+                "core_objects": "TenantWorkspace, ActorRole, AuditRecord",
+                "responsibility": "establish tenant, actor, and audit boundary for the GEO operating loop",
+                "input": "tenant identity, member roles, and audit policy",
+                "output": "active tenant workspace, role boundary, and audit-ready context",
+                "exit_action": "save tenant/audit setup and enter tracked scope configuration",
+                "architectural note": "preserve tenant-safe boundary and audit provenance before scope operations",
+            }
+        if "tracked scope" in lowered:
+            return {
+                "module": business_name,
+                "primary_actor": primary_actor,
+                "core_objects": "TrackedScope, ScopeTopicSet, CompetitorSet",
+                "responsibility": "define monitored brand, competitor, topic, and prompt scope for one GEO cycle",
+                "input": "brand targets, competitor set, topic boundaries, and prompt scope definition",
+                "output": "versioned tracked scope, monitored topic set, and scope boundary",
+                "exit_action": "freeze tracked scope and start baseline generation",
+                "architectural note": "preserve scope provenance and downstream baseline comparability",
+            }
+        if "baseline" in lowered:
+            return {
+                "module": business_name,
+                "primary_actor": primary_actor,
+                "core_objects": "BaselineRun, EvidenceSnapshot, BaselineSummary",
+                "responsibility": "run baseline collection and preserve explainable GEO evidence for the current cycle",
+                "input": "tracked scope, prompt set, and collection window",
+                "output": "baseline snapshot, evidence set, and freshness status",
+                "exit_action": "review baseline freshness and open findings",
+                "architectural note": "preserve evidence freshness, provenance, and cycle-level comparability",
+            }
+        if "finding" in lowered:
+            return {
+                "module": business_name,
+                "primary_actor": primary_actor,
+                "core_objects": "Finding, EvidenceLink, PriorityReason",
+                "responsibility": "structure findings with evidence link, priority reason, and actionability signal",
+                "input": "baseline snapshot, evidence set, and monitored scope context",
+                "output": "prioritized findings, evidence links, and actionability rationale",
+                "exit_action": "confirm finding priority and open recommendation/task handoff",
+                "architectural note": "preserve finding readability and downstream recommendation continuity",
+            }
+        if "recommendation" in lowered or "task" in lowered:
+            return {
+                "module": business_name,
+                "primary_actor": execution_actor,
+                "core_objects": "Recommendation, ActionTask, ExecutionStatus",
+                "responsibility": "turn recommendation-ready findings into assigned tasks with explicit evidence linkage",
+                "input": "finding, evidence link, priority rationale, and owner hint",
+                "output": "task-ready recommendation, assigned task, and execution status",
+                "exit_action": "handoff execution and keep review linkage visible",
+                "architectural note": "preserve finding-to-task bridge, ownership, and blocked-reason visibility",
+            }
+        if "review" in lowered:
+            return {
+                "module": business_name,
+                "primary_actor": reviewer_actor,
+                "core_objects": "ReviewCycle, DecisionRecord, ReviewSummary",
+                "responsibility": "summarize one GEO cycle and record continue/revise/pause judgment with evidence",
+                "input": "task outcomes, finding deltas, and cycle evidence",
+                "output": "continue/revise/pause decision, review summary, and cycle conclusion",
+                "exit_action": "record cycle decision and close the current review window",
+                "architectural note": "preserve review judgment, evidence lineage, and audit trace",
+            }
+
+    if style == "pet_clinic":
+        intake_actor = _find_role_by_hint(role_names, [r"reception", r"front desk", r"接待", r"前台"], 0)
+        clinician_actor = _find_role_by_hint(role_names, [r"veter", r"vet", r"兽医"], 1 if len(role_names) > 1 else 0)
+        manager_actor = _find_role_by_hint(role_names, [r"manager", r"admin", r"clinic", r"管理"], 2 if len(role_names) > 2 else 0)
+        if any(token in lowered for token in ["接诊", "登记", "intake", "register", "预约", "arriv"]):
+            return {
+                "module": business_name,
+                "primary_actor": intake_actor,
+                "core_objects": "VisitRecord, PetProfile, IntakeSnapshot",
+                "responsibility": "register the arriving pet and preserve clinician-ready intake context",
+                "input": "arrival request, owner details, pet profile, and visit reason",
+                "output": "checked-in visit, pet record, and intake handoff context",
+                "exit_action": "complete intake and hand off to consultation or treatment",
+                "architectural note": "preserve intake evidence, blocked reason, and clinician-ready handoff context",
+            }
+        if any(token in lowered for token in ["治疗", "检查", "consult", "care", "visit", "诊疗"]):
+            return {
+                "module": business_name,
+                "primary_actor": clinician_actor,
+                "core_objects": "TreatmentRecord, DiagnosticOrder, VisitPlan",
+                "responsibility": "record diagnosis, treatment execution, and the next clinical action",
+                "input": "checked-in visit, symptoms, prior record, and exam notes",
+                "output": "treatment record, diagnostic result, and next action",
+                "exit_action": "record treatment result and prepare discharge or follow-up",
+                "architectural note": "preserve treatment evidence, blocked reason, and downstream discharge continuity",
+            }
+        if any(token in lowered for token in ["复诊", "随访", "review", "follow", "discharge", "离院"]):
+            return {
+                "module": business_name,
+                "primary_actor": manager_actor,
+                "core_objects": "FollowUpTask, DischargePacket, ReviewSummary",
+                "responsibility": "arrange follow-up, discharge closure, and review-ready clinic summary",
+                "input": "treatment result, discharge context, and follow-up need",
+                "output": "follow-up plan, discharge confirmation, and review-ready summary",
+                "exit_action": "close the visit and schedule follow-up or review",
+                "architectural note": "preserve discharge closure, follow-up timing, and clinic review context",
+            }
+
+    return {
+        "module": business_name,
+        "primary_actor": _find_role_by_hint(role_names, [r".*"], 0),
+        "core_objects": preserved_display_label(business_name, fallback="Business Object"),
+        "responsibility": f"complete {business_name} with explicit input, output, and handoff",
+        "input": f"{business_name} required input context",
+        "output": f"{business_name} completion record",
+        "exit_action": f"confirm {business_name} and hand off to the next step",
+        "architectural note": "preserve explicit responsibility and downstream handoff",
+    }
+
+
+def extract_module_rows(source_text: str) -> list[dict[str, str]]:
+    fact_text = source_fact_text(source_text)
+    rows = extract_table_rows(
+        fact_text,
+        ["4. Module Responsibility Matrix", "Module Responsibility Matrix", "模块与实体清单"],
+    )
+    if rows:
+        return rows
+    fallbacks = flatten_bullets(find_markdown_block(fact_text, ["P0（MVP 必须有）"]), 6)
+    if not fallbacks:
+        fallbacks = label_block_items(fact_text, [r"P0"], limit=8)
+    if not fallbacks:
+        fallbacks = flatten_bullets(extract_main_flow_block(fact_text), 6)
+    fallbacks = [item for item in fallbacks if not is_handoff_qualifier_label(item)]
+    roles = extract_target_user_rows(fact_text)
+    modules: list[dict[str, str]] = []
+    for item in fallbacks:
+        business_name = item.strip() or "source-defined module"
+        if "source section not found" in business_name.casefold():
+            continue
+        modules.append(infer_fallback_module_contract(fact_text, business_name, roles))
+    return modules
+
+
+def extract_object_rows(source_text: str) -> list[dict[str, str]]:
+    fact_text = source_fact_text(source_text)
+    rows = extract_table_rows(
+        fact_text,
+        ["5. Core Business Objects", "Core Business Objects", "核心业务对象", "Core Objects"],
+    )
+    if rows:
+        return rows
+    modules = extract_module_rows(fact_text)
+
+    def fallback_object_name(module_name: str) -> str:
+        stripped = str(module_name or "").strip()
+        slug = slug_token(stripped)
+        if stripped and (re.search(r"[^\x00-\x7F]", stripped) or slug == "item"):
+            return stripped
+        return title_case_token(slug)
+
+    object_rows: list[dict[str, str]] = []
+    for row in modules[:6]:
+        core_objects = [item.strip() for item in str(row.get("core_objects", "")).split(",") if item.strip()]
+        object_rows.append(
+            {
+                "Object": core_objects[0] if core_objects else fallback_object_name(str(row.get("module", "Business Object"))),
+                "Owner Module": str(row.get("module", "workflow")),
+                "Description": (
+                    str(row.get("output", "")).strip()
+                    or f"business record and state needed to keep {str(row.get('module', 'the business capability')).strip()} executable"
+                ),
+            }
+        )
+    return object_rows
+
+
+def extract_business_objectives(source_text: str) -> list[str]:
+    fact_text = source_fact_text(source_text)
+    block = find_markdown_block(fact_text, ["3. Core Business Objectives", "Core Business Objectives", "Desired Outcome", "产品/业务目标方向"])
+    items = list_items_from_block(block)
+    if not items:
+        items = label_block_items(block, [r"目标", r"success signals?", r"成功信号"], limit=8)
+    return items
+
+
+def extract_non_functional_requirements(source_text: str) -> list[str]:
+    fact_text = source_fact_text(source_text)
+    block = find_markdown_block(fact_text, ["7. Non-functional Requirements", "Non-functional Requirements", "Constraints", "关键约束"])
+    return list_items_from_block(block)
+
+
+def extract_architectural_constraints(source_text: str) -> list[str]:
+    fact_text = source_fact_text(source_text)
+    block = find_markdown_block(fact_text, ["8. Architectural Constraints", "Architectural Constraints", "Constraints", "关键约束"])
+    return list_items_from_block(block)
+
+
+def extract_out_of_scope_items(source_text: str) -> list[str]:
+    fact_text = source_fact_text(source_text)
+    block = find_markdown_block(fact_text, ["9. Out of Scope (MVP)", "Out of Scope (MVP)", "Scope Boundary", "范围边界与非目标"])
+    items = label_block_items(block, [r"Out of scope"], limit=8)
+    if not items:
+        items = list_items_from_block(block)
+    return items
+
+
+def extract_priority_bucket(source_text: str, heading: str) -> list[str]:
+    fact_text = source_fact_text(source_text)
+    values = flatten_bullets(find_markdown_block(fact_text, [heading]), 8)
+    if not values and "P0" in heading:
+        values = label_block_items(fact_text, [r"P0"], limit=8)
+    if not values and "P1" in heading:
+        values = label_block_items(fact_text, [r"P1"], limit=8)
+    if not values and "P2" in heading:
+        values = label_block_items(fact_text, [r"P2"], limit=8)
+    return values
+
+
+def extract_flow_rows(source_text: str) -> list[dict[str, object]]:
+    fact_text = source_fact_text(source_text)
+    flow_block = find_markdown_block(fact_text, ["6. Key Business Flows", "Key Business Flows", "Key Workflows", "Scenarios", "主流程"])
+    flows: list[dict[str, object]] = []
+    current_name = ""
+    current_steps: list[str] = []
+    for raw in flow_block.splitlines():
+        line = raw.strip()
+        heading = re.match(r"^#{3,5}\s+(.+)$", line)
+        if heading:
+            if current_name:
+                flows.append({"name": current_name, "steps": list(current_steps)})
+            current_name = heading.group(1).strip()
+            current_steps = []
+            continue
+        step = re.match(r"^\d+\.\s+(.+)$", line)
+        if step:
+            current_steps.append(step.group(1).strip())
+    if current_name:
+        flows.append({"name": current_name, "steps": list(current_steps)})
+    if flows:
+        return flows
+    main_flow = flatten_bullets(extract_main_flow_block(fact_text), 8)
+    if main_flow:
+        return [{"name": "Primary Flow", "steps": main_flow}]
+    return []
+
+
+def derive_navigation_surfaces(module_rows: list[dict[str, str]], objectives: list[str]) -> list[str]:
+    surfaces = [str(row.get("module", "")).strip() for row in module_rows if str(row.get("module", "")).strip()]
+    objective_text = " ".join(objectives).lower()
+    if "dashboard" in objective_text or "仪表盘" in objective_text:
+        surfaces.append("dashboard")
+    if "report" in objective_text or "运营数据" in objective_text:
+        surfaces.append("reports")
+    return unique_preserve_order(surfaces) or ["workflow-home", "operations", "reports"]
+
+
+def infer_first_slice_modules(module_rows: list[dict[str, str]], flow_rows: list[dict[str, object]]) -> list[str]:
+    modules = [str(row.get("module", "")).strip() for row in module_rows if str(row.get("module", "")).strip()]
+    if not modules:
+        return ["source-defined first step", "source-defined completion step"]
+    flow_text = " ".join(
+        step.lower()
+        for flow in flow_rows
+        for step in [str(item).strip() for item in flow.get("steps", []) if str(item).strip()]
+    )
+    ordered = [module for module in modules if module.lower() in flow_text]
+    if ordered:
+        return unique_preserve_order(ordered)
+    return modules
+
+
+VALUE_SIGNAL_PATTERNS = (
+    r"reduce|improve|increase|avoid|prevent|retain|grow|clarify|confidence|trust|quality|adoption|"
+    r"manual|fragment|blocked|review|result|follow-?up|treatment|closure|continuity|"
+    r"recommendation|finding|taskable|actionability|explainable|executable|"
+    r"降低|减少|提升|改善|避免|防止|留存|增长|清晰|信任|质量|采纳|人工|碎片|阻塞|复盘|结果|复诊|治疗|闭环|连续|"
+    r"建议|发现|可转任务|可执行|可解释"
+)
+
+COMMERCIAL_DECISION_PATTERNS = (
+    r"budget|pricing|package|pilot|pay|willingness|roi|quote|commercial|invest|investment|"
+    r"continue|revise|pause|business owner|decision owner|sponsor|"
+    r"预算|定价|试点|付费|意愿|报价|投入|继续|调整|暂停|业务负责人|决策负责人"
+)
+
+USER_EXPERIENCE_SIGNAL_PATTERNS = (
+    r"wait|waiting|handoff|confusion|manual|duplicate|reconstruct|friction|"
+    r"blocked|delay|follow-?up|taskable|actionability|"
+    r"等待|交接|混乱|人工|重复|补录|摩擦|阻塞|延迟|复诊|可转任务|可执行"
+)
+PRESSURE_SIGNAL_PATTERNS = (
+    r"lack|missing|cannot|unable|fragment|manual|waste|friction|delay|blocked|drop|lag|invisible|"
+    r"缺少|缺失|无法|不能|碎片|人工|浪费|摩擦|延迟|阻塞|遗漏|滞后|断层|不可见|失控"
+)
+
+SIGNAL_CONDITIONAL_PATTERN = re.compile(
+    r"\bif\b|\bwhen\b|\bbecause\b|^\s*(?:如果|若|当(?!前))|以便|才能|否则|就更容易",
+    flags=re.IGNORECASE,
+)
+SIGNAL_CONTRAST_PATTERN = re.compile(
+    r"rather than|instead of|not just|not another|而不是|而非|不愿意|不是",
+    flags=re.IGNORECASE,
+)
+SIGNAL_DECISION_PATTERN = re.compile(
+    r"budget|pricing|pay|willingness|quote|pilot|invest|investment|judge|decision|continue|revise|pause|"
+    r"预算|定价|付费|意愿|报价|试点|投入|判断|决策|继续|调整|暂停|买单",
+    flags=re.IGNORECASE,
+)
+SIGNAL_PAIN_PATTERN = re.compile(
+    r"lack|missing|cannot|unable|fragment|manual|waste|friction|delay|blocked|drop|lag|invisible|"
+    r"缺少|缺失|无法|不能|碎片|人工|浪费|摩擦|延迟|阻塞|遗漏|滞后|断层|不可见|失控",
+    flags=re.IGNORECASE,
+)
+SIGNAL_ACTIONABILITY_PATTERN = re.compile(
+    r"action|task|execute|workflow|evidence|explain|actionability|review|follow-?up|"
+    r"行动|任务|执行|工作流|证据|解释|可执行|可转任务|复盘|闭环|workflow-first",
+    flags=re.IGNORECASE,
+)
+SIGNAL_NOUNISH_PATTERN = re.compile(r"^[A-Za-z0-9\u4e00-\u9fff /&()（）,，._+-]{1,32}$")
+SIGNAL_LABEL_PREFIX_PATTERN = re.compile(
+    r"^(?:line|signal|evidence|clue|observation|finding|线索|证据|信号)\s*\d*\s*[:：-]\s*",
+    flags=re.IGNORECASE,
+)
+SIGNAL_SCAFFOLD_PREFIX_PATTERN = re.compile(
+    r"^(?:adoption signal|review simulation|clickable(?:\s*/\s*structured prototype)? review|"
+    r"structured prototype review|walkthrough|访谈/演练|点击原型 walkthrough \+ 访谈)\s*[:：-]\s*",
+    flags=re.IGNORECASE,
+)
+SIGNAL_OPERATIONAL_FRAGMENT_PATTERN = re.compile(
+    r"^(?:arrange|establish|register|execute|complete|create|build|trigger|configure|push|generate|"
+    r"查看|建立|完成|推动|生成|触发|配置|登记|安排|执行)\b",
+    flags=re.IGNORECASE,
+)
+SIGNAL_CONSEQUENCE_PATTERN = re.compile(
+    r"lead to|results? in|causes?|keeps?|so that|worth continued investment|continued investment|"
+    r"budget review|action loop|用户流失|运营判断滞后|持续投入|预算评审|动作闭环|"
+    r"看到了问题但没有动作|经营动作|继续投入|失控",
+    flags=re.IGNORECASE,
+)
+SIGNAL_OPPORTUNITY_PREFIX_PATTERN = re.compile(r"^(?:用|通过|借助|use|using)\b", flags=re.IGNORECASE)
+SIGNAL_NEGATIVE_CONDITIONAL_PATTERN = re.compile(
+    r"^\s*(?:if\b\s+(?:no|without)|when\b\s+(?:no|without)|如果没有|若没有|当没有)",
+    flags=re.IGNORECASE,
+)
+
+
+def compact_signal_line(value: str) -> str:
+    return normalize_source_handoff_phrases(re.sub(r"\s+", " ", str(value or "")).strip().strip("`"))
+
+
+def normalize_signal_candidate(value: str) -> str:
+    text = compact_signal_line(value)
+    previous = None
+    while text and text != previous:
+        previous = text
+        text = SIGNAL_LABEL_PREFIX_PATTERN.sub("", text).strip()
+        text = SIGNAL_SCAFFOLD_PREFIX_PATTERN.sub("", text).strip()
+    return text.strip(" -–—")
+
+
+def collect_source_signal_pool(
+    source_text: str,
+    *,
+    objectives: list[str],
+    flows: list[dict[str, object]],
+    modules: list[dict[str, str]],
+    constraints: list[str],
+) -> list[str]:
+    fact_text = source_fact_text(source_text)
+    pool: list[str] = []
+    pool.extend(flatten_bullets(find_markdown_block(fact_text, ["2.2 业务机会描述", "业务机会描述", "Business Opportunity"]), 8))
+    pool.extend(flatten_bullets(find_markdown_block(fact_text, ["2.4 至少 1 条可引用证据线索", "可引用证据线索", "Evidence"]), 8))
+    pool.extend(flatten_bullets(find_markdown_block(fact_text, ["3.2 结构化问题清单", "结构化问题清单", "Structured Problem List"]), 8))
+    pool.extend(flatten_bullets(find_markdown_block(fact_text, ["3.3 结构化机会清单", "结构化机会清单", "Structured Opportunity List"]), 8))
+    pool.extend(flatten_bullets(find_markdown_block(fact_text, ["3.4 至少 1 条用户叙事", "用户叙事", "User Narrative"]), 8))
+    pool.extend(flatten_bullets(find_markdown_block(fact_text, ["5.3 影响切片顺序的依赖假设", "依赖假设", "Dependency Assumption"]), 6))
+    pool.extend(objectives)
+    pool.extend(constraints[:6])
+    pool.extend(extract_priority_bucket(fact_text, "P0（MVP 必须有）")[:6])
+    pool.extend(
+        extract_priority_bucket(fact_text, "P1（MVP 后尽快补）")[:4]
+        + extract_priority_bucket(fact_text, "P2（后续阶段）")[:4]
+    )
+    pool.extend(str(flow.get("name", "")).strip() for flow in flows if str(flow.get("name", "")).strip())
+    pool.extend(
+        str(step).strip()
+        for flow in flows
+        for step in flow.get("steps", [])
+        if str(step).strip()
+    )
+    pool.extend(
+        str(row.get(key, "")).strip()
+        for row in modules
+        for key in ("module", "responsibility", "input", "output")
+        if str(row.get(key, "")).strip()
+    )
+    pool.extend(flatten_bullets(find_markdown_block(fact_text, ["6.2 每条验证的最小方法与判定信号", "6.1 验证对象"]), 8))
+    pool.extend(flatten_bullets(find_markdown_block(fact_text, ["第九部分：需要后续补实的 unknown / provisional 信息"]), 8))
+    return [item for item in pool if compact_signal_line(item)]
+
+
+def signal_intent_match(text: str, *, intent: str) -> bool:
+    if intent == "pressure":
+        if SIGNAL_CONDITIONAL_PATTERN.search(text) and not SIGNAL_NEGATIVE_CONDITIONAL_PATTERN.search(text):
+            return False
+        return bool(SIGNAL_PAIN_PATTERN.search(text))
+    if intent == "commercial":
+        return bool(SIGNAL_DECISION_PATTERN.search(text))
+    if intent == "experience":
+        return bool(
+            SIGNAL_PAIN_PATTERN.search(text)
+            or re.search(r"wait|waiting|handoff|manual reconstruction|人工遗漏|交接|补录|失控", text, flags=re.IGNORECASE)
+        )
+    return bool(
+        SIGNAL_ACTIONABILITY_PATTERN.search(text)
+        or SIGNAL_DECISION_PATTERN.search(text)
+        or SIGNAL_CONTRAST_PATTERN.search(text)
+    )
+
+
+def signal_priority_score(candidate: str, *, intent: str = "generic") -> int:
+    text = normalize_signal_candidate(candidate)
+    score = 0
+    if len(text) >= 18:
+        score += 1
+    if len(text) >= 36:
+        score += 1
+    if re.search(r"[，,；;：:!?？。]", text):
+        score += 1
+    if SIGNAL_CONDITIONAL_PATTERN.search(text):
+        score += 3
+    if SIGNAL_CONTRAST_PATTERN.search(text):
+        score += 3
+    if SIGNAL_DECISION_PATTERN.search(text):
+        score += 3
+    if SIGNAL_PAIN_PATTERN.search(text):
+        score += 2
+    if SIGNAL_ACTIONABILITY_PATTERN.search(text):
+        score += 2
+    if SIGNAL_NOUNISH_PATTERN.fullmatch(text):
+        score -= 2
+    if len(text) <= 12:
+        score -= 2
+    if intent == "pressure":
+        if SIGNAL_PAIN_PATTERN.search(text):
+            score += 4
+        if SIGNAL_CONSEQUENCE_PATTERN.search(text):
+            score += 3
+        if SIGNAL_PAIN_PATTERN.search(text) and SIGNAL_DECISION_PATTERN.search(text):
+            score += 3
+        if SIGNAL_CONDITIONAL_PATTERN.search(text) and not SIGNAL_PAIN_PATTERN.search(text):
+            score -= 4
+        if SIGNAL_OPERATIONAL_FRAGMENT_PATTERN.search(text) and not SIGNAL_PAIN_PATTERN.search(text):
+            score -= 4
+        if SIGNAL_OPPORTUNITY_PREFIX_PATTERN.search(text) and not SIGNAL_PAIN_PATTERN.search(text):
+            score -= 3
+    elif intent == "commercial":
+        if SIGNAL_DECISION_PATTERN.search(text):
+            score += 5
+        if SIGNAL_CONTRAST_PATTERN.search(text):
+            score += 2
+    elif intent == "experience":
+        if SIGNAL_PAIN_PATTERN.search(text):
+            score += 4
+        if re.search(r"wait|waiting|handoff|manual reconstruction|人工遗漏|交接|补录|失控", text, flags=re.IGNORECASE):
+            score += 3
+        if SIGNAL_CONDITIONAL_PATTERN.search(text) and not SIGNAL_PAIN_PATTERN.search(text):
+            score -= 2
+    else:
+        if SIGNAL_OPERATIONAL_FRAGMENT_PATTERN.search(text) and not (
+            SIGNAL_DECISION_PATTERN.search(text) or SIGNAL_CONTRAST_PATTERN.search(text)
+        ):
+            score -= 4
+        if SIGNAL_PAIN_PATTERN.search(text) and not SIGNAL_ACTIONABILITY_PATTERN.search(text):
+            score -= 2
+    return score
+
+
+def select_source_grounded_signals(
+    candidates: list[str],
+    *,
+    patterns: str,
+    limit: int = 4,
+    intent: str = "generic",
+) -> list[str]:
+    ranked: list[tuple[int, int, str]] = []
+    seen: set[str] = set()
+    for idx, raw in enumerate(candidates):
+        candidate = normalize_signal_candidate(raw)
+        if not candidate or len(candidate) > 220:
+            continue
+        if not re.search(patterns, candidate, flags=re.IGNORECASE):
+            continue
+        if not signal_intent_match(candidate, intent=intent):
+            continue
+        key = _normalized_label_key(candidate)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        ranked.append((-signal_priority_score(candidate, intent=intent), idx, candidate))
+    ranked.sort()
+    return [candidate for _, _, candidate in ranked[:limit]]
+
+
 def signal_phrase(values: list[str], fallback: str, *, limit: int = 2) -> str:
     picked = [compact_signal_line(value) for value in values if compact_signal_line(value)]
     if not picked:
         return fallback
     return "; ".join(picked[:limit])
+
+
+def extract_domain_context(source_text: str) -> dict[str, object]:
+    fact_text = source_fact_text(source_text)
+    roles = extract_target_user_rows(source_text)
+    objectives = extract_business_objectives(source_text)
+    module_rows = extract_module_rows(source_text)
+    object_rows = extract_object_rows(source_text)
+    flow_rows = extract_flow_rows(source_text)
+    nfrs = extract_non_functional_requirements(source_text)
+    constraints = extract_architectural_constraints(source_text)
+    out_of_scope = extract_out_of_scope_items(source_text)
+    p0 = extract_priority_bucket(source_text, "P0（MVP 必须有）")
+    p1 = extract_priority_bucket(source_text, "P1（MVP 后尽快补）")
+    p2 = extract_priority_bucket(source_text, "P2（后续阶段）")
+    navigation_surfaces = derive_navigation_surfaces(module_rows, objectives)
+    first_slice_modules = infer_first_slice_modules(module_rows, flow_rows)
+    validation_priority_signals = (
+        flatten_bullets(find_markdown_block(fact_text, ["6.2 每条验证的最小方法与判定信号"]), 8)
+        + flatten_bullets(find_markdown_block(fact_text, ["第九部分：需要后续补实的 unknown / provisional 信息"]), 8)
+    )
+    source_signal_pool = collect_source_signal_pool(
+        source_text,
+        objectives=objectives,
+        flows=flow_rows,
+        modules=module_rows,
+        constraints=constraints,
+    )
+    return {
+        "source_text": source_text,
+        "product_label": extract_product_label(source_text),
+        "roles": roles,
+        "segments": detect_source_segments(source_text),
+        "objectives": objectives,
+        "modules": module_rows,
+        "objects": object_rows,
+        "flows": flow_rows,
+        "nfrs": nfrs,
+        "constraints": constraints,
+        "out_of_scope": out_of_scope,
+        "p0": p0,
+        "p1": p1,
+        "p2": p2,
+        "navigation_surfaces": navigation_surfaces,
+        "first_slice_modules": first_slice_modules,
+        "business_value_signals": select_source_grounded_signals(
+            source_signal_pool,
+            patterns=VALUE_SIGNAL_PATTERNS,
+            limit=5,
+            intent="value",
+        ),
+        "pressure_signals": select_source_grounded_signals(
+            source_signal_pool,
+            patterns=PRESSURE_SIGNAL_PATTERNS,
+            limit=5,
+            intent="pressure",
+        ),
+        "commercial_decision_signals": select_source_grounded_signals(
+            validation_priority_signals + source_signal_pool,
+            patterns=COMMERCIAL_DECISION_PATTERNS,
+            limit=5,
+            intent="commercial",
+        ),
+        "user_experience_signals": select_source_grounded_signals(
+            source_signal_pool,
+            patterns=USER_EXPERIENCE_SIGNAL_PATTERNS,
+            limit=5,
+            intent="experience",
+        ),
+    }
 
 
 def build_business_world_model(
@@ -1673,11 +1829,17 @@ def build_business_world_model(
     ) or " -> ".join(
         str(row.get("name", "")).strip() for row in flow_rows if str(row.get("name", "")).strip()
     ) or "source-defined workflow"
-    domain_posture = infer_source_semantic_posture(context, text=source_text)
+    domain_posture = (
+        "growth-observation"
+        if detect_source_style(source_text) == "growth_observation"
+        else "operational-service"
+        if detect_source_style(source_text) == "pet_clinic"
+        else "generic-workflow"
+    )
     return compile_business_world_truth_spine(
         {
             "domain_posture": domain_posture,
-            "primary_segment": sequence_item_text(segments, 0, "primary operator"),
+            "primary_segment": segments[0] if segments else "primary operator",
             "alternative_segments": segments[1:],
             "roles": [str(row.get("Role", "")).strip() for row in context.get("roles", []) if str(row.get("Role", "")).strip()],
             "objectives": list(context.get("objectives", [])),
@@ -1697,11 +1859,12 @@ def build_business_world_model(
     )
 
 
-def _value_gain_audit(target: str, downstream_value: str, *, output_profile: str = "coverage_rich") -> dict[str, object]:
+
+
+def _value_gain_audit(target: str, downstream_value: str) -> dict[str, object]:
     return {
         "method": "Thinking Value-Gain",
         "mode": "full-use",
-        "output_profile": output_profile,
         "target_module": target,
         "value_axes": ["decision", "action", "evidence", "review", "handoff"],
         "downstream_value": downstream_value,
@@ -1723,119 +1886,19 @@ def _first_non_empty_text(*values: object, fallback: str = "source-defined truth
     return fallback
 
 
-def _tvg_profile_delivery_copy(output_profile: str) -> dict[str, str]:
-    if output_profile == "insight_dense":
-        return {
-            "boundary": "bounded insight sharpening, not length expansion",
-            "delivery_bias": "sharper judgment with less setup",
-            "proof_prefix": "Sharp proof",
-            "substitute_prefix": "Substitute failure",
-            "architecture_prefix": "P2 handoff",
-            "decision_gate": "Keep only additions that sharpen a real decision or implementation handoff.",
-            "exit_rule": "stop when the next line no longer sharpens a grounded decision",
-        }
-    if output_profile == "balanced":
-        return {
-            "boundary": "bounded value-strengthening with compact expression",
-            "delivery_bias": "core judgment plus necessary supporting structure",
-            "proof_prefix": "Decision-changing proof",
-            "substitute_prefix": "Substitute insufficiency",
-            "architecture_prefix": "P2 handoff boundary",
-            "decision_gate": "Keep additions that improve decision, action, evidence, review, or handoff value without adding synthetic machinery.",
-            "exit_rule": "stop when added detail no longer improves proof, handoff, or review value",
-        }
-    return {
+def apply_thinking_value_gain_full_use(business_world_model: dict[str, object]) -> dict[str, object]:
+    model = dict(business_world_model)
+    model["thinking_value_gain"] = {
+        "method": "Thinking Value-Gain",
+        "mode": "full-use",
+        "scope": "major Phase-1 artifact units",
         "boundary": "bounded value-strengthening, not length expansion",
-        "delivery_bias": "review and handoff structure with low-value expansion removed",
-        "proof_prefix": "Decision-changing proof",
-        "substitute_prefix": "Substitute pressure",
-        "architecture_prefix": "P2 architecture pressure",
-        "decision_gate": "Keep only additions that improve practical decision, action, evidence, review, or handoff value.",
         "exit_rule": "stop when another round no longer improves practical value",
     }
 
-
-def _tvg_profile_delivery_handoff_items(
-    output_profile: str,
-    *,
-    chosen_name: str,
-    primary_substitute: str,
-    primary_pain: str,
-    proof_target: str,
-    continuation_owner: str,
-    boundary: str,
-    reality_focus: str,
-) -> list[dict[str, str]]:
-    if output_profile == "insight_dense":
-        return [
-            {
-                "label": "核心判断",
-                "text": (
-                    f"{chosen_name} is worth carrying forward only if {proof_target} gives {continuation_owner} "
-                    f"a clearer continue / revise / pause judgment than {primary_substitute}."
-                ),
-            }
-        ]
-    if output_profile == "balanced":
-        return [
-            {
-                "label": "核心判断",
-                "text": f"{chosen_name} must beat {primary_substitute} by resolving {primary_pain}.",
-            },
-            {
-                "label": "交付边界",
-                "text": f"P2 should preserve {boundary} through {reality_focus} without adding synthetic process machinery.",
-            },
-            {
-                "label": "验收焦点",
-                "text": f"{proof_target} must be visible enough for {continuation_owner} to decide continue / revise / pause.",
-            },
-        ]
-    return [
-        {
-            "label": "决策问题",
-            "text": f"Can {continuation_owner} use {proof_target} to decide continue / revise / pause?",
-        },
-        {
-            "label": "判断标准",
-            "text": f"The product must make {proof_target} more decision-useful than {primary_substitute}.",
-        },
-        {
-            "label": "替代方案对照",
-            "text": f"{primary_substitute} remains insufficient when {primary_pain} still lacks a proof-bearing review path.",
-        },
-        {
-            "label": "采纳风险",
-            "text": f"If P2 reduces {boundary} to reporting convenience, it will preserve records but lose the value path.",
-        },
-        {
-            "label": "证据边界",
-            "text": f"{proof_target} is required for decision support; exact ROI can remain review-bound until stronger evidence exists.",
-        },
-        {
-            "label": "P2设计含义",
-            "text": f"Architecture should carry {reality_focus} through evidence, review, and handoff rather than generic CRUD structure.",
-        },
-    ]
-
-
-def build_thinking_value_gain_context(
-    business_world_model: dict[str, object],
-    *,
-    output_profile: str = "coverage_rich",
-) -> ThinkingValueGainContext:
-    profile_copy = _tvg_profile_delivery_copy(output_profile)
-    arena = (
-        dict(business_world_model.get("business_exploration_arena", {}))
-        if isinstance(business_world_model.get("business_exploration_arena"), dict)
-        else {}
-    )
+    arena = dict(model.get("business_exploration_arena", {})) if isinstance(model.get("business_exploration_arena"), dict) else {}
     buyer_map = arena.get("buyer_value_proof_map", {}) if isinstance(arena.get("buyer_value_proof_map"), dict) else {}
-    substitute_map = (
-        arena.get("substitute_and_current_state_map", {})
-        if isinstance(arena.get("substitute_and_current_state_map"), dict)
-        else {}
-    )
+    substitute_map = arena.get("substitute_and_current_state_map", {}) if isinstance(arena.get("substitute_and_current_state_map"), dict) else {}
     reality_map = arena.get("reality_density_map", {}) if isinstance(arena.get("reality_density_map"), dict) else {}
     candidates = [item for item in arena.get("business_thesis_candidates", []) if isinstance(item, dict)]
     chosen_candidate = candidates[0] if candidates else {}
@@ -1870,39 +1933,12 @@ def build_thinking_value_gain_context(
         chosen_candidate.get("thesis_name"),
         fallback="source-grounded product thesis",
     )
-    return ThinkingValueGainContext(
-        output_profile=output_profile,
-        profile_copy=profile_copy,
-        arena=arena,
-        chosen_name=chosen_name,
-        primary_substitute=primary_substitute,
-        primary_pain=primary_pain,
-        proof_target=proof_target,
-        continuation_owner=continuation_owner,
-        boundary=boundary,
-        reality_focus=reality_focus,
-        delivery_handoff_items=_tvg_profile_delivery_handoff_items(
-            output_profile,
-            chosen_name=chosen_name,
-            primary_substitute=primary_substitute,
-            primary_pain=primary_pain,
-            proof_target=proof_target,
-            continuation_owner=continuation_owner,
-            boundary=boundary,
-            reality_focus=reality_focus,
-        ),
-    )
-
-
-def build_thinking_value_gain_arena_patch(context: ThinkingValueGainContext) -> dict[str, object]:
-    arena = dict(context.arena)
     arena["generation_mode"] = "thinking-value-gain-full-use"
-    arena["output_profile"] = context.output_profile
     arena["selected_value_gain_axes"] = ["decision", "action", "evidence", "review", "handoff"]
     arena["value_gain_comparison"] = [
-        f"decision: strengthen `{context.chosen_name}` only where it changes {context.continuation_owner}'s continue / revise / pause choice",
-        f"evidence: require proof such as {context.proof_target} before claiming the business case is stronger",
-        f"handoff: carry {context.reality_focus} and {context.boundary} into P2 instead of adding ornamental analysis",
+        f"decision: strengthen `{chosen_name}` only where it changes {continuation_owner}'s continue / revise / pause choice",
+        f"evidence: require proof such as {proof_target} before claiming the business case is stronger",
+        f"handoff: carry {reality_focus} and {boundary} into P2 instead of adding ornamental analysis",
     ]
     arena["positive_value_exit"] = (
         "Stop TVG expansion when the next round no longer improves decision/action/evidence/review/handoff value "
@@ -1911,66 +1947,46 @@ def build_thinking_value_gain_arena_patch(context: ThinkingValueGainContext) -> 
     arena["value_gain_audit"] = _value_gain_audit(
         "Business Exploration Arena",
         "stronger thesis comparison, substitute pressure, buyer/operator value, and continuation proof before PRD freeze",
-        output_profile=context.output_profile,
     )
-    return arena
+    model["business_exploration_arena"] = arena
 
-
-def build_thinking_value_gain_commercial_argument_patch(
-    original_draft: object,
-    context: ThinkingValueGainContext,
-) -> dict[str, object]:
-    draft = dict(original_draft) if isinstance(original_draft, dict) else {}
-    profile_copy = context.profile_copy
+    draft = dict(model.get("commercial_argument_draft", {})) if isinstance(model.get("commercial_argument_draft"), dict) else {}
     draft["generation_mode"] = "thinking-value-gain-full-use"
-    draft["output_profile"] = context.output_profile
-    draft["delivery_bias"] = profile_copy["delivery_bias"]
-    draft["delivery_handoff_items"] = context.delivery_handoff_items
     draft["truth_state"] = "source-grounded-value-gain-strengthened"
     draft["quality_state"] = "source-grounded-value-gain-strengthened"
     draft["argument_narrative"] = (
-        f"{context.chosen_name} deserves P1 commitment because {context.primary_pain}. "
-        f"The current substitute pressure is {context.primary_substitute}; the product must beat it by making {context.proof_target} visible enough "
-        f"for {context.continuation_owner} to choose continue / revise / pause, not merely by producing a cleaner document or dashboard. "
-        f"The value-gain boundary is {context.boundary}: P2 should preserve the proof-bearing action, evidence, review, and handoff path "
-        f"that supports {context.reality_focus}, while rejecting extra structure that does not change a real decision or implementation handoff."
+        f"{chosen_name} deserves P1 commitment because {primary_pain}. "
+        f"The current substitute pressure is {primary_substitute}; the product must beat it by making {proof_target} visible enough "
+        f"for {continuation_owner} to choose continue / revise / pause, not merely by producing a cleaner document or dashboard. "
+        f"The value-gain boundary is {boundary}: P2 should preserve the proof-bearing action, evidence, review, and handoff path "
+        f"that supports {reality_focus}, while rejecting extra structure that does not change a real decision or implementation handoff."
     )
     draft["why_substitute_is_not_enough"] = (
-        f"{profile_copy['substitute_prefix']}: {context.primary_substitute} is not enough because it can leave the buyer/operator with signals or records but without the proof chain "
+        f"{primary_substitute} is not enough because it can leave the buyer/operator with signals or records but without the proof chain "
         f"needed to decide continue / revise / pause and to hand P2 a designable operating boundary."
     )
     draft["proof_that_changes_decision"] = (
-        f"{profile_copy['proof_prefix']}: {context.proof_target}; it must be explicit enough for {context.continuation_owner} to make a continue / revise / pause investment decision."
+        f"Decision-changing proof: {proof_target}; it must be explicit enough for {continuation_owner} to make a continue / revise / pause investment decision."
     )
     draft["directional_proof_when_exact_roi_missing"] = (
         "Before exact ROI exists, directional evidence is acceptable only when it changes a continue / revise / pause decision, "
         "exposes the weakest substitute assumption, and gives P2 a concrete architecture handoff."
     )
     draft["architecture_pressure"] = (
-        f"{profile_copy['architecture_prefix']}: P2 must preserve the source-grounded value path from {context.boundary} through evidence, review, and handoff; "
+        f"P2 must preserve the source-grounded value path from {boundary} through evidence, review, and handoff; "
         "do not collapse it into reporting convenience or generic CRUD structure."
     )
-    draft["value_gain_decision_gate"] = profile_copy["decision_gate"]
+    draft["value_gain_decision_gate"] = (
+        "Keep only additions that improve practical decision, action, evidence, review, or handoff value."
+    )
     draft["value_gain_audit"] = _value_gain_audit(
         "Commercial Argument Draft",
         "clearer why-now, why-this-not-substitutes, proof-that-changes-decision, and architecture pressure",
-        output_profile=context.output_profile,
     )
-    return draft
+    model["commercial_argument_draft"] = draft
 
-
-def build_thinking_value_gain_chosen_thesis_patch(
-    original_thesis: object,
-    *,
-    context: ThinkingValueGainContext,
-    arena: dict[str, object],
-    draft: dict[str, object],
-) -> dict[str, object]:
-    thesis = dict(original_thesis) if isinstance(original_thesis, dict) else {}
+    thesis = dict(model.get("chosen_business_thesis", {})) if isinstance(model.get("chosen_business_thesis"), dict) else {}
     thesis["generation_mode"] = "thinking-value-gain-full-use"
-    thesis["output_profile"] = context.output_profile
-    thesis["delivery_bias"] = context.profile_copy["delivery_bias"]
-    thesis["delivery_handoff_items"] = context.delivery_handoff_items
     thesis["truth_state"] = "source-grounded-value-gain-strengthened"
     thesis["business_argument"] = draft["argument_narrative"]
     thesis["proof_target"] = draft["proof_that_changes_decision"]
@@ -1983,58 +1999,13 @@ def build_thinking_value_gain_chosen_thesis_patch(
     thesis["value_gain_audit"] = _value_gain_audit(
         "Chosen Business Thesis",
         "P2 handoff receives explicit business value pressure, proof target, and anti-demo boundary",
-        output_profile=context.output_profile,
     )
-    return thesis
+    model["chosen_business_thesis"] = thesis
 
-
-def build_thinking_value_gain_release_truth_patch(
-    original_release_truth: object,
-    context: ThinkingValueGainContext,
-) -> dict[str, object]:
-    release_truth = dict(original_release_truth) if isinstance(original_release_truth, dict) else {}
+    release_truth = dict(model.get("business_release_truth_pack", {})) if isinstance(model.get("business_release_truth_pack"), dict) else {}
     release_truth["thinking_value_gain_mode"] = "full-use"
-    release_truth["thinking_value_gain_output_profile"] = context.output_profile
     release_truth["thinking_value_gain_exit"] = "positive value gain only; no ornamental expansion"
-    return release_truth
-
-
-def apply_thinking_value_gain_full_use(
-    business_world_model: dict[str, object],
-    *,
-    output_profile: str = "coverage_rich",
-) -> dict[str, object]:
-    context = build_thinking_value_gain_context(business_world_model, output_profile=output_profile)
-    model = dict(business_world_model)
-    model["thinking_value_gain"] = {
-        "method": "Thinking Value-Gain",
-        "mode": "full-use",
-        "output_profile": output_profile,
-        "scope": "major Phase-1 artifact units",
-        "boundary": context.profile_copy["boundary"],
-        "exit_rule": context.profile_copy["exit_rule"],
-    }
-
-    arena = build_thinking_value_gain_arena_patch(context)
-    model["business_exploration_arena"] = arena
-
-    draft = build_thinking_value_gain_commercial_argument_patch(
-        model.get("commercial_argument_draft", {}),
-        context,
-    )
-    model["commercial_argument_draft"] = draft
-
-    model["chosen_business_thesis"] = build_thinking_value_gain_chosen_thesis_patch(
-        model.get("chosen_business_thesis", {}),
-        context=context,
-        arena=arena,
-        draft=draft,
-    )
-
-    model["business_release_truth_pack"] = build_thinking_value_gain_release_truth_patch(
-        model.get("business_release_truth_pack", {}),
-        context,
-    )
+    model["business_release_truth_pack"] = release_truth
     return model
 
 def _render_markdown_value(value: object) -> str:
@@ -2099,8 +2070,6 @@ def render_chosen_business_thesis_markdown(thesis: dict[str, object]) -> str:
         "review_bound_truth",
         "product_boundary_implication",
         "reality_density_focus",
-        "delivery_bias",
-        "delivery_handoff_items",
         "value_gain_audit",
     ):
         if key in thesis:
@@ -2121,8 +2090,6 @@ def render_commercial_argument_draft_markdown(draft: dict[str, object]) -> str:
         "directional_proof_when_exact_roi_missing",
         "value_mechanism",
         "architecture_pressure",
-        "delivery_bias",
-        "delivery_handoff_items",
         "quality_state",
         "review_bound_truth",
         "source_grounding_notes",
@@ -2194,21 +2161,35 @@ def apply_commercial_argument_rewrite(
 
 
 def render_business_world_model_section(model: dict[str, object]) -> str:
-    alternative_set = dict_or_empty(model.get("primary_alternative_set"))
-    buyer_chain = dict_or_empty(model.get("buyer_budget_chain"))
-    protected_nouns = dict_or_empty(model.get("protected_business_nouns"))
+    def slot_value(slot: object) -> str:
+        if isinstance(slot, dict):
+            return str(slot.get("value", "")).strip()
+        return str(slot or "").strip()
+
+    def slot_lines(label: str, slot: object) -> list[str]:
+        if not isinstance(slot, dict):
+            return [f"### {label}", "- truth_state: `review-bound / missing evidence`", "- value: review-bound / missing evidence"]
+        lines = [
+            f"### {label}",
+            f"- truth_state: `{slot.get('truth_state', 'review-bound')}`",
+            f"- value: {slot.get('value', 'review-bound / missing evidence')}",
+        ]
+        source_signals = [
+            str(item).strip()
+            for item in slot.get("source_signals", [])
+            if str(item).strip()
+        ]
+        if source_signals:
+            lines.append("- source_signals:")
+            lines.extend(f"  - {item}" for item in source_signals)
+        return lines
+
+    alternative_set = model.get("primary_alternative_set", {})
+    buyer_chain = model.get("buyer_budget_chain", {})
+    protected_nouns = model.get("protected_business_nouns", {})
     buyer_spend = str(buyer_chain.get("spend_at_risk", "")).strip()
     buyer_proof = str(buyer_chain.get("proof_artifact_for_continue", "")).strip()
     buyer_trigger = str(buyer_chain.get("decision_trigger", "")).strip()
-    buyer_fields = (
-        "pain_holder",
-        "continuation_owner",
-        "spend_at_risk",
-        "proof_artifact_for_continue",
-        "decision_trigger",
-        "current_truth_state",
-        "missing_evidence_to_unlock",
-    )
     lines = [
         "## 8. Protected Business-World Truth Spine",
         f"- artifact_file: `{PHASE1_BUSINESS_WORLD_MODEL_FILENAME}`",
@@ -2216,50 +2197,53 @@ def render_business_world_model_section(model: dict[str, object]) -> str:
         f"- domain_posture: `{model.get('domain_posture', 'generic-workflow')}`",
         f"- status: `{model.get('status', 'provisional')}`",
         "",
-        *render_truth_slot_lines("Core Thesis", model.get("core_thesis")),
+        *slot_lines("Core Thesis", model.get("core_thesis")),
         "",
-        *render_truth_slot_lines("Why Now", model.get("why_now")),
+        *slot_lines("Why Now", model.get("why_now")),
         "",
         "### Primary Alternative Set",
         f"- truth_state: `{alternative_set.get('truth_state', 'review-bound')}`",
-        f"- chosen: {alternative_set.get('chosen', REVIEW_BOUND_MISSING)}",
-        *render_labeled_markdown_list_lines(
-            "options",
-            alternative_set.get("options", []),
-            fallback=REVIEW_BOUND_MISSING,
-        ),
+        f"- chosen: {alternative_set.get('chosen', 'review-bound / missing evidence')}",
+        "- options:",
     ]
+    options = [str(item).strip() for item in alternative_set.get("options", []) if str(item).strip()]
+    if options:
+        lines.extend(f"  - {item}" for item in options)
+    else:
+        lines.append("  - review-bound / missing evidence")
     lines.extend(
         [
             "",
-            *render_truth_slot_lines("Why This, Not That", model.get("why_this_not_that")),
+            *slot_lines("Why This, Not That", model.get("why_this_not_that")),
             "",
-            *render_truth_slot_lines("Value Mechanism", model.get("value_mechanism")),
+            *slot_lines("Value Mechanism", model.get("value_mechanism")),
             "",
             "### Buyer / Budget / Continuation Chain",
             f"- truth_state: `{buyer_chain.get('truth_state', 'review-bound')}`",
-            *(f"- {field}: {buyer_chain.get(field, REVIEW_BOUND_MISSING)}" for field in buyer_fields),
+            f"- pain_holder: {buyer_chain.get('pain_holder', 'review-bound / missing evidence')}",
+            f"- continuation_owner: {buyer_chain.get('continuation_owner', 'review-bound / missing evidence')}",
+            f"- spend_at_risk: {buyer_chain.get('spend_at_risk', 'review-bound / missing evidence')}",
+            f"- proof_artifact_for_continue: {buyer_chain.get('proof_artifact_for_continue', 'review-bound / missing evidence')}",
+            f"- decision_trigger: {buyer_chain.get('decision_trigger', 'review-bound / missing evidence')}",
+            f"- current_truth_state: {buyer_chain.get('current_truth_state', 'review-bound / missing evidence')}",
+            f"- missing_evidence_to_unlock: {buyer_chain.get('missing_evidence_to_unlock', 'review-bound / missing evidence')}",
             "",
             "### Protected Business Nouns",
             f"- truth_state: `{protected_nouns.get('truth_state', 'review-bound')}`",
             "- values:",
         ]
     )
-    for label, model_key, buyer_value in (
-        ("Spend At Risk", "spend_at_risk", buyer_spend),
-        ("Proof Artifact For Continue", "proof_artifact_for_continue", buyer_proof),
-        ("Decision Trigger", "decision_trigger", buyer_trigger),
-    ):
-        value = truth_slot_value(model.get(model_key))
-        if value and value != buyer_value:
-            lines.extend(["", *render_truth_slot_lines(label, model.get(model_key))])
-    lines.extend(
-        render_labeled_markdown_list_lines(
-            "values",
-            protected_nouns.get("values", []),
-            fallback=REVIEW_BOUND_MISSING,
-        )[1:]
-    )
+    if slot_value(model.get("spend_at_risk")) and slot_value(model.get("spend_at_risk")) != buyer_spend:
+        lines.extend(["", *slot_lines("Spend At Risk", model.get("spend_at_risk"))])
+    if slot_value(model.get("proof_artifact_for_continue")) and slot_value(model.get("proof_artifact_for_continue")) != buyer_proof:
+        lines.extend(["", *slot_lines("Proof Artifact For Continue", model.get("proof_artifact_for_continue"))])
+    if slot_value(model.get("decision_trigger")) and slot_value(model.get("decision_trigger")) != buyer_trigger:
+        lines.extend(["", *slot_lines("Decision Trigger", model.get("decision_trigger"))])
+    noun_values = [str(item).strip() for item in protected_nouns.get("values", []) if str(item).strip()]
+    if noun_values:
+        lines.extend(f"  - {item}" for item in noun_values)
+    else:
+        lines.append("  - review-bound / missing evidence")
     return "\n".join(lines)
 
 
@@ -2330,58 +2314,81 @@ def render_topology_profile_record(
     *,
     inherited: bool,
 ) -> str:
-    profile = dict_or_empty(model.get("topology_profile")) if isinstance(model, dict) else {}
-    prefix = "inherited_" if inherited else ""
-    field_specs = [
-        (f"{prefix}topology_archetype", [profile.get("topology_archetype", "hybrid")], "hybrid", True),
-        (
-            f"{prefix}topology_rationale",
-            [profile.get("topology_rationale", "source-grounded topology rationale pending")],
-            "source-grounded topology rationale pending",
-            False,
-        ),
-        (f"{prefix}primary_depth_axes", profile.get("primary_depth_axes", []), REVIEW_BOUND_MISSING, True),
-        (f"{prefix}secondary_depth_axes", profile.get("secondary_depth_axes", []), "none", True),
-        ("topology_source_artifact", [PHASE1_BUSINESS_WORLD_MODEL_FILENAME], PHASE1_BUSINESS_WORLD_MODEL_FILENAME, True),
-        (
-            "ordinary_real_world_baseline_definition",
-            [profile.get("ordinary_real_world_baseline_definition", "source-grounded baseline definition pending")],
-            "source-grounded baseline definition pending",
-            False,
-        ),
-        ("misfit_risk_if_wrong", [profile.get("misfit_risk_if_wrong", "misfit risk pending")], "misfit risk pending", False),
+    profile = model.get("topology_profile", {}) if isinstance(model, dict) else {}
+    if not isinstance(profile, dict):
+        profile = {}
+    archetype_label = "inherited_topology_archetype" if inherited else "topology_archetype"
+    rationale_label = "inherited_topology_rationale" if inherited else "topology_rationale"
+    primary_label = "inherited_primary_depth_axes" if inherited else "primary_depth_axes"
+    secondary_label = "inherited_secondary_depth_axes" if inherited else "secondary_depth_axes"
+    artifact_label = "topology_source_artifact" if inherited else "topology_source_artifact"
+    baseline_label = (
+        "ordinary_real_world_baseline_definition"
+        if not inherited
+        else "ordinary_real_world_baseline_definition"
+    )
+    misfit_label = "misfit_risk_if_wrong"
+    reclass_status_label = "reclassification_status" if inherited else "reclassification_trigger"
+    reclass_extra_label = "reclassification_rationale" if inherited else "reclassification_trigger_detail"
+    primary_axes = [
+        str(item).strip()
+        for item in profile.get("primary_depth_axes", [])
+        if str(item).strip()
     ]
-    field_specs.extend(
+    secondary_axes = [
+        str(item).strip()
+        for item in profile.get("secondary_depth_axes", [])
+        if str(item).strip()
+    ]
+    lines = [
+        "## 2.1 Inherited Topology Profile Record" if inherited else "## 2.1 Topology Profile Record",
+        f"- {archetype_label}:",
+        f"  - `{profile.get('topology_archetype', 'hybrid')}`",
+        f"- {rationale_label}:",
+        f"  - {profile.get('topology_rationale', 'source-grounded topology rationale pending')}",
+        f"- {primary_label}:",
+    ]
+    if primary_axes:
+        lines.extend(f"  - `{item}`" for item in primary_axes)
+    else:
+        lines.append("  - `review-bound / missing evidence`")
+    lines.extend(
         [
-            ("reclassification_status", ["unchanged"], "", True),
-            (
-                "reclassification_rationale",
-                [
-                    "Stage-02a inherits the Stage-01 topology profile and should only reroute if later structure pressure disproves the current depth model."
-                ],
-                "",
-                False,
-            ),
-        ]
-        if inherited
-        else [
-            (
-                "reclassification_trigger",
-                [profile.get("reclassification_trigger", "reroute before freeze if topology pressure flips")],
-                "reroute before freeze if topology pressure flips",
-                False,
-            ),
-            (
-                "reclassification_trigger_detail",
-                ["Re-route only when later rounds prove the current topology profile is no longer the dominant credibility risk."],
-                "",
-                False,
-            ),
+            f"- {secondary_label}:",
         ]
     )
-    lines = ["## 2.1 Inherited Topology Profile Record" if inherited else "## 2.1 Topology Profile Record"]
-    for label, values, fallback, code in field_specs:
-        lines.extend(render_labeled_markdown_list_lines(label, values, fallback=fallback, code=code))
+    if secondary_axes:
+        lines.extend(f"  - `{item}`" for item in secondary_axes)
+    else:
+        lines.append("  - `none`")
+    lines.extend(
+        [
+            f"- {artifact_label}:",
+            f"  - `{PHASE1_BUSINESS_WORLD_MODEL_FILENAME}`",
+            f"- {baseline_label}:",
+            f"  - {profile.get('ordinary_real_world_baseline_definition', 'source-grounded baseline definition pending')}",
+            f"- {misfit_label}:",
+            f"  - {profile.get('misfit_risk_if_wrong', 'misfit risk pending')}",
+        ]
+    )
+    if inherited:
+        lines.extend(
+            [
+                f"- {reclass_status_label}:",
+                "  - `unchanged`",
+                f"- {reclass_extra_label}:",
+                "  - Stage-02a inherits the Stage-01 topology profile and should only reroute if later structure pressure disproves the current depth model.",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"- {reclass_status_label}:",
+                f"  - {profile.get('reclassification_trigger', 'reroute before freeze if topology pressure flips')}",
+                f"- {reclass_extra_label}:",
+                "  - Re-route only when later rounds prove the current topology profile is no longer the dominant credibility risk.",
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -2403,13 +2410,13 @@ def render_module_matrix_rows(module_rows: list[dict[str, str]]) -> str:
 def render_object_workflow_rows(context: dict[str, object]) -> str:
     object_rows = context["objects"]
     module_rows = context["modules"]
-    profile = source_semantic_profile_from_context(context)
-    profile_objects = [str(item).strip() for item in profile.get("core_objects", []) if str(item).strip()]
-    last_output = dict_sequence_field_text(module_rows, -1, "output", "")
+    style = detect_source_style(str(context.get("source_text", "")))
     closing_object = (
-        profile_objects[-1]
-        if profile_objects
-        else title_case_token(unique_ascii_token(last_output, prefix="closure"))
+        "ReviewConclusion"
+        if style == "growth_observation"
+        else "ReviewSummary"
+        if style == "pet_clinic"
+        else "CompletionSummary"
     )
     lines = ["| workflow step | primary object | secondary object | downstream effect |", "|---|---|---|---|"]
     for idx, module_row in enumerate(module_rows):
@@ -2471,45 +2478,54 @@ def render_screen_navigation_rows(context: dict[str, object]) -> str:
 
 
 def payload_contract_heading_from_context(context: dict[str, object]) -> str:
-    profile = source_semantic_profile_from_context(context)
-    primary_object = sequence_item_text(
-        [str(item) for item in profile.get("core_objects", []) if str(item).strip()],
-        0,
-        "Module",
+    return (
+        "Recommendation Payload Contract"
+        if detect_source_style(str(context.get("source_text", ""))) == "growth_observation"
+        else "Module Interface Payload Contract"
     )
-    return f"{primary_object} Interface Payload Contract"
 
 
 def deferred_seam_heading_from_context(context: dict[str, object]) -> str:
-    return "Source-Defined Deferred Capability Seam"
+    return (
+        "Deferred Attribution and Conversion Seam"
+        if detect_source_style(str(context.get("source_text", ""))) == "growth_observation"
+        else "Deferred Capability Seam"
+    )
 
 
 def render_stage02b_domain_boundary_honesty_lines(context: dict[str, object]) -> str:
-    constraints = [str(item).strip() for item in context.get("constraints", []) if str(item).strip()]
-    nfrs = [str(item).strip() for item in context.get("nfrs", []) if str(item).strip()]
-    signals = constraints[:2] + nfrs[:2]
-    if not signals:
-        return ""
-    lines = ["- source boundary honesty:"]
-    lines.extend(f"  - {item}" for item in signals[:4])
-    lines.append("- value honesty:")
-    lines.append("  - do not overstate MVP proof beyond source evidence, review-bound signals, and first-wave scope.")
-    return "\n".join(lines)
+    style = detect_source_style(str(context.get("source_text", "")))
+    if style == "pet_clinic":
+        return (
+            "- clinic-private boundary:\n"
+            "  - visit, treatment, follow-up, and review records remain clinic-private inside the clinic account boundary by default.\n"
+            "- value honesty:\n"
+            "  - billing, estimate, and operational closure signals must not overstate exact financial proof in MVP."
+        )
+    return ""
 
 
 def render_interface_payload_rows(context: dict[str, object]) -> str:
     module_rows = context["modules"]
+    style = detect_source_style(str(context.get("source_text", "")))
+    if style == "growth_observation":
+        return "\n".join(
+            [
+                "| payload element | source capability detail preserved | first-wave representation | task/export implication | certainty / note |",
+                "|---|---|---|---|---|",
+                "| AI-friendly score and quality diagnosis | AI 友好度评分（0-100） / 内容质量诊断 | `ai_friendliness_score` + `quality_diagnosis_summary` + `score_explanation` | 影响 priority、是否进入 task bridge、review 预期 | score rubric 首版仍属 review-bound |",
+                "| Structured rewrite suggestion | 结构化改写建议 | `rewrite_goal` + `rewrite_outline` + `before_after_hint` | 形成可执行编辑动作，而不只是“建议优化” | 不直接自动改写发布 |",
+                "| Keyword / question focus | 关键词优化建议 + 问答焦点 | `target_question` + `keyword_focus` + `coverage_gap` | 决定任务目标问题、FAQ 切入点和资产优先级 | 必须绑定 Tracked Scope 与 Content Asset |",
+                "| Citation-likelihood hypothesis | 引用概率预测 | `citation_likelihood_band` + `citation_reason` + `confidence_state` | 影响 recommendation priority 与 review 预期，不可当作 guaranteed outcome | 首版仅做 hypothesis，不做承诺 |",
+                "| FAQ / Q&A suggestion | AI 回答模板生成 + 问答对自动生成 | `faq_question` + `faq_answer_outline` + `suggested_format` | 可导出为 FAQ/task 子类型，而不是消失在通用建议里 | FAQ auto-generation 仍非 fully automatic publish |",
+                "| Export-ready task payload | 保存草稿 / 创建任务 / 一键应用优化 的执行核 | `target_asset_id` + `priority` + `owner_hint` + `due_cycle` + `blocked_reason` | recommendation 才能一跳转成 task/export record | “一键应用”仅保留为人工确认后的 action |",
+            ]
+        )
+
     lines = [
         "| payload element | source capability detail preserved | first-wave representation | task/export implication | certainty / note |",
         "|---|---|---|---|---|",
     ]
-    token_hits = source_semantic_token_hits(context)
-    if token_hits:
-        for token in token_hits[:8]:
-            label = title_case_token(token)
-            lines.append(
-                f"| {label} payload | source explicitly mentions {label.lower().replace('_', ' ')} capability or signal | `{token}_value` + `{token}_evidence_ref` + `{token}_confidence_state` | keeps the capability traceable without claiming external proof | source-derived / review-bound until confirmed |"
-            )
     seen_tokens: set[str] = set()
     for idx, row in enumerate(module_rows):
         module = str(row.get("module", "module")).strip()
@@ -2537,17 +2553,25 @@ def render_interface_payload_rows(context: dict[str, object]) -> str:
 
 
 def render_deferred_seam_rows(context: dict[str, object]) -> str:
+    style = detect_source_style(str(context.get("source_text", "")))
+    if style == "growth_observation":
+        return "\n".join(
+            [
+                "| future concern | first-wave treatment now | future seam entity/interface | minimum reserved fields or hook | why deferred now |",
+                "|---|---|---|---|---|",
+                "| AI traffic source tagging | baseline/review 仅记录 platform / query cluster / source note | Attribution Signal | `source_tag` + `platform` + `query_cluster` + `landing_asset_ref` | 首版不做全链路埋点 |",
+                "| Funnel progression | report 仅保留方向性 outcome note | Funnel Stage Snapshot | `funnel_stage` + `stage_timestamp` + `related_scope_id` | 缺少稳定业务数据接入 |",
+                "| Conversion event linkage | 允许人工记录 conversion note | Conversion Event | `conversion_event_id` + `event_type` + `amount_band` + `evidence_source` | 精确财务归因证据不足 |",
+                "| Cross-device identity | 不做 identity stitching | Identity Resolution Link | `visitor_link_key` + `device_class` + `confidence_state` | MVP 不承担跨设备识别复杂度 |",
+                "| ROI rollup | review 仅保留 coarse attribution hypothesis | Attribution Rollup | `attributed_range` + `assumption_note` + `confidence_state` | 不能在 MVP 假装财务级证明已成立 |",
+            ]
+        )
+
     out_of_scope = list(context.get("out_of_scope", []))
     lines = [
         "| future concern | first-wave treatment now | future seam entity/interface | minimum reserved fields or hook | why deferred now |",
         "|---|---|---|---|---|",
     ]
-    for token in source_semantic_token_hits(context):
-        if token not in {"attribution", "conversion_event", "identity_resolution"}:
-            continue
-        lines.append(
-            f"| {title_case_token(token)} | keep as review-bound seam unless source and validation evidence prove completion | {title_case_token(token)} Seam | `{token}_status` + `{token}_owner` + `{token}_evidence_state` | source mentions the concern but MVP proof remains bounded |"
-        )
     if not out_of_scope:
         out_of_scope = ["future source-defined extension"]
     for item in out_of_scope:
@@ -2595,7 +2619,7 @@ def build_persona_chain_rows(
 ) -> str:
     rows = ["| role | goal | friction | first-wave responsibility |", "|---|---|---|---|"]
     module_count = max(1, len(modules))
-    objective = sequence_item_text(objectives, 0, "support the source-defined product goal")
+    objective = objectives[0] if objectives else "support the source-defined product goal"
     for idx, role in enumerate(roles[:4]):
         role_name = str(role.get("Role", "source-defined role")).strip()
         role_description = str(role.get("Description", "")).strip() or "负责 source 中定义的业务环节"
@@ -2686,70 +2710,34 @@ def infer_validation_method_bundle(assumption: str, flow_name: str, primary_segm
     }
 
 
-def build_stage_04_validation_plan(
-    stage_03_text: str,
-    *,
-    primary_flow_name: str,
-    primary_segment: str,
-    module_chain: str,
-) -> Stage04ValidationPlan:
-    stage03_assumptions = parse_stage03_assumptions(stage_03_text)
-    if not stage03_assumptions:
-        stage03_assumptions = [
-            {
-                "id": "target_1",
-                "assumption": f"`{primary_segment}` 愿意沿着 `{module_chain}` 使用统一流程",
-                "positive": "当前切片可直接进入设计深化",
-                "negative": "需要回退调整首个切片的入口与范围",
-            }
-        ]
-    validation_targets: list[dict[str, str]] = []
-    for item in stage03_assumptions:
-        bundle = infer_validation_method_bundle(item["assumption"], primary_flow_name, primary_segment)
-        validation_targets.append(
-            {
-                **item,
-                **bundle,
-                "dimension": infer_validation_dimension(item["assumption"]),
-            }
-        )
-    method_rows = [
-        "| clickable walkthrough + task interview | high | high-speed / medium-cost | medium | chosen for workflow comprehension and handoff assumptions |",
-        "| architecture walkthrough + constraint review | medium-high | medium-speed / medium-cost | medium | chosen for constraint-fit assumptions |",
-        "| role-comparison interview | medium | high-speed / low-cost | medium | chosen for primary-boundary assumptions |",
-    ]
-    return Stage04ValidationPlan(
-        stage03_assumptions=list(stage03_assumptions),
-        validation_targets=validation_targets,
-        method_rows=method_rows,
-    )
-
-
-def build_stage_01_source_bundle(
-    source_text: str,
-    *,
-    source_snapshot: Phase1SourceSnapshot | None = None,
-) -> Stage01SourceBundle:
-    snapshot = source_snapshot or build_phase1_source_snapshot(source_text)
-    sections = snapshot.sections
-    context = snapshot.context
-    product_label = snapshot.product_label
-    segments = snapshot.segments
-    primary_segment = snapshot.primary_segment
-    alternative_segments = snapshot.alternative_segments
+def build_stage_01(source_text: str, version: str, owner: str) -> str:
+    h21 = find_h2_block(source_text, r"2\.1\s+项目/产品背景")
+    h22 = find_h2_block(source_text, r"2\.2\s+业务机会描述")
+    h23 = find_h2_block(source_text, r"2\.3\s+研究对象/目标用户边界")
+    h24 = find_h2_block(source_text, r"2\.4\s+至少\s*1\s*条可引用证据线索")
+    h31 = find_h2_block(source_text, r"3\.1\s+产品/业务目标方向")
+    h32 = find_h2_block(source_text, r"3\.2\s+结构化问题清单")
+    h33 = find_h2_block(source_text, r"3\.3\s+结构化机会清单")
+    h34 = find_h2_block(source_text, r"3\.4\s+至少\s*1\s*条用户叙事")
+    first_part = find_h1_block(source_text, r"第一部分：原版\s*PRD\s*核心内容")
+    context = extract_domain_context(source_text)
+    product_label = context["product_label"]
+    segments = context["segments"]
+    primary_segment = segments[0]
+    alternative_segments = segments[1:] or ["secondary collaborator", "review stakeholder"]
     objectives = context["objectives"] or ["establish a source-defined operating loop"]
-    modules = snapshot.modules
-    roles = snapshot.roles
-    flows = snapshot.flows
+    modules = context["modules"]
+    roles = context["roles"]
+    flows = context["flows"]
     constraints = context["constraints"] or ["source-defined constraint"]
     nfrs = context["nfrs"] or ["source-defined non-functional requirement"]
     out_of_scope = context["out_of_scope"] or ["source-defined deferred item"]
-    flow_summary = snapshot.module_chain
-    business_world_model = snapshot.business_world_model
+    flow_summary = " -> ".join(str(row.get("module", "")).strip() for row in modules if str(row.get("module", "")).strip()) or "source-defined workflow"
+    business_world_model = build_business_world_model(source_text)
     problem_cluster_lines = "\n".join(
-        f"  - {item}" for item in (flatten_bullets(sections.h32, 6) or [f"{primary_segment} 缺少稳定的流程闭环"])
+        f"  - {item}" for item in (flatten_bullets(h32, 6) or [f"{primary_segment} 缺少稳定的流程闭环"])
     )
-    opportunity_cluster_lines = "\n".join(f"  - {item}" for item in (flatten_bullets(sections.h33, 6) or objectives[:4]))
+    opportunity_cluster_lines = "\n".join(f"  - {item}" for item in (flatten_bullets(h33, 6) or objectives[:4]))
     deferred_lines = "\n".join(f"  - {item}" for item in out_of_scope[:4])
     open_truth_lines = "\n".join(
         f"- {item}"
@@ -2763,91 +2751,110 @@ def build_stage_01_source_bundle(
         )
     ) or "- source-defined workflow adoption readiness"
     persona_chain_rows = build_persona_chain_rows(roles, modules, objectives)
-    return Stage01SourceBundle(
-        h21=sections.h21,
-        h22=sections.h22,
-        h23=sections.h23,
-        h24=sections.h24,
-        h31=sections.h31,
-        h32=sections.h32,
-        h33=sections.h33,
-        h34=sections.h34,
-        first_part=sections.first_part,
-        context=context,
-        business_world_model=business_world_model,
-        product_label=product_label,
-        segments=segments,
-        primary_segment=primary_segment,
-        alternative_segments=alternative_segments,
-        objectives=objectives,
-        modules=modules,
-        roles=roles,
-        flows=flows,
-        constraints=constraints,
-        nfrs=nfrs,
-        out_of_scope=out_of_scope,
-        flow_summary=flow_summary,
-        problem_cluster_lines=problem_cluster_lines,
-        opportunity_cluster_lines=opportunity_cluster_lines,
-        deferred_lines=deferred_lines,
-        open_truth_lines=open_truth_lines,
-        persona_chain_rows=persona_chain_rows,
-    )
+    skill_assets = load_stage_skill_assets("stage_01")
+    reasoning_units = [
+        {
+            "title": "Primary Boundary Lock",
+            "artifact_unit": "chosen user boundary",
+            "loop_round_state": "structured -> reviewed -> freeze",
+            "weakness_trigger": "first-wave boundary was still too broad",
+            "method_family": "segment comparison + first-loop prioritization",
+            "method_assets": [
+                "direct user research posture",
+                "fast user-group segmentation",
+                "explicit alternative comparison for first-wave user choice",
+            ],
+            "reasoning_operator": "compare source-defined roles by workflow ownership, continuity visibility, and first-wave validation leverage",
+            "material_grounding": material_grounding_lines(skill_assets),
+            "alternatives_compared": [primary_segment, *alternative_segments[:2]],
+            "tradeoff_or_tension": "boundary breadth vs first-wave clarity",
+            "decision_effect": f"locked `{primary_segment}` as the primary boundary for downstream structure analysis",
+            "evidence_classification": [
+                f"observed fact: source explicitly lists roles `{', '.join(segments[:3])}`",
+                f"interpreted pattern: `{primary_segment}` sits closest to the start of `{flow_summary}`",
+                "decision: keep one primary boundary and treat the rest as supporting roles",
+            ],
+            "evidence_state": "provisional",
+            "remaining_unknown": "real interview evidence for role preference is still pending",
+            "downstream_handoff": f"Stage-02a must organize the panorama around `{primary_segment}` and the `{flow_summary}` chain",
+            "freeze_rationale": "boundary is specific enough to constrain downstream design without pretending validation is complete",
+        },
+        {
+            "title": "Problem Mechanism Reframe",
+            "artifact_unit": "final problem statement",
+            "loop_round_state": "structured -> refined -> freeze",
+            "weakness_trigger": "initial framing risked collapsing into feature inventory",
+            "method_family": "problem framing before solutioning",
+            "method_assets": [
+                "opportunity framing before solutioning",
+                "problem-mechanism framing, not just symptom listing",
+            ],
+            "reasoning_operator": "separate workflow breakdown, handoff friction, and audit gap before discussing modules",
+            "material_grounding": material_grounding_lines(skill_assets),
+            "alternatives_compared": ["feature-gap framing", "workflow-breakdown framing"],
+            "tradeoff_or_tension": "shorter feature language vs accurate workflow diagnosis",
+            "decision_effect": f"reframed the problem around the missing `{flow_summary}` operating loop",
+            "evidence_classification": [
+                f"observed fact: source objectives stress `{objectives[0]}`",
+                f"interpreted pattern: disconnected `{flow_summary}` steps create manual coordination overhead",
+                "decision: treat auditability and handoff continuity as the core mechanism",
+            ],
+            "evidence_state": "provisional",
+            "remaining_unknown": "the hardest real-world handoff still needs user verification",
+            "downstream_handoff": "Stage-02a should prioritize workflow structure over isolated screens",
+            "freeze_rationale": "problem mechanism is now specific enough to guide structural analysis",
+        },
+        {
+            "title": "Open Truth Discipline",
+            "artifact_unit": "key open truths",
+            "loop_round_state": "structured -> reviewed -> freeze",
+            "weakness_trigger": "constraints and deferred scope could be silently promoted into assumed facts",
+            "method_family": "evidence layering + explicit uncertainty retention",
+            "method_assets": [
+                "research execution and insight synthesis",
+                "evidence layering: observed fact vs interpretation vs inference",
+            ],
+            "reasoning_operator": "keep NFRs, constraints, and deferred scope visible as review-bound truths",
+            "material_grounding": material_grounding_lines(skill_assets),
+            "alternatives_compared": ["hide uncertainties in narrative", "preserve open truths explicitly"],
+            "tradeoff_or_tension": "clean narrative vs honest uncertainty",
+            "decision_effect": "preserved operational constraints and out-of-scope items as explicit open truths",
+            "evidence_classification": [
+                f"observed fact: source states constraints such as `{constraints[0]}`",
+                f"observed fact: source excludes `{out_of_scope[0]}` from MVP",
+                "decision: downstream stages must not silently upgrade these unknowns into commitments",
+            ],
+            "evidence_state": "review-bound",
+            "remaining_unknown": "which open truth becomes the first blocking risk in validation is still unknown",
+            "downstream_handoff": "later stages must preserve these truths in scope and validation sections",
+            "freeze_rationale": "uncertainty is bounded and explicitly recorded",
+        },
+    ]
 
+    return f"""# Stage-01 Output — requirements-user-research (deep-compiled)
 
-def build_stage_01_reasoning_units(
-    *,
-    primary_segment: str,
-    alternative_segments: list[str],
-    segments: list[str],
-    flow_summary: str,
-    objectives: list[str],
-    constraints: list[str],
-    out_of_scope: list[str],
-    skill_assets: dict[str, object],
-) -> list[dict[str, object]]:
-    return build_material_grounded_reasoning_units(
-        [
-            build_reasoning_unit(
-                "Primary Boundary Lock", "chosen user boundary", "structured -> reviewed -> freeze",
-                "first-wave boundary was still too broad",
-                ("segment comparison + first-loop prioritization", ["direct user research posture", "fast user-group segmentation", "explicit alternative comparison for first-wave user choice"], "compare source-defined roles by workflow ownership, continuity visibility, and first-wave validation leverage"),
-                ([primary_segment, *alternative_segments[:2]], "boundary breadth vs first-wave clarity", f"locked `{primary_segment}` as the primary boundary for downstream structure analysis"),
-                (f"source explicitly lists roles `{', '.join(segments[:3])}`", f"`{primary_segment}` sits closest to the start of `{flow_summary}`", "keep one primary boundary and treat the rest as supporting roles"),
-                ("provisional", "real interview evidence for role preference is still pending", f"Stage-02a must organize the panorama around `{primary_segment}` and the `{flow_summary}` chain", "boundary is specific enough to constrain downstream design without pretending validation is complete"),
-            ),
-            build_reasoning_unit(
-                "Problem Mechanism Reframe", "final problem statement", "structured -> refined -> freeze",
-                "initial framing risked collapsing into feature inventory",
-                ("problem framing before solutioning", ["opportunity framing before solutioning", "problem-mechanism framing, not just symptom listing"], "separate workflow breakdown, handoff friction, and audit gap before discussing modules"),
-                (["feature-gap framing", "workflow-breakdown framing"], "shorter feature language vs accurate workflow diagnosis", f"reframed the problem around the missing `{flow_summary}` operating loop"),
-                (f"source objectives stress `{objectives[0]}`", f"disconnected `{flow_summary}` steps create manual coordination overhead", "treat auditability and handoff continuity as the core mechanism"),
-                ("provisional", "the hardest real-world handoff still needs user verification", "Stage-02a should prioritize workflow structure over isolated screens", "problem mechanism is now specific enough to guide structural analysis"),
-            ),
-            build_reasoning_unit(
-                "Open Truth Discipline", "key open truths", "structured -> reviewed -> freeze",
-                "constraints and deferred scope could be silently promoted into assumed facts",
-                ("evidence layering + explicit uncertainty retention", ["research execution and insight synthesis", "evidence layering: observed fact vs interpretation vs inference"], "keep NFRs, constraints, and deferred scope visible as review-bound truths"),
-                (["hide uncertainties in narrative", "preserve open truths explicitly"], "clean narrative vs honest uncertainty", "preserved operational constraints and out-of-scope items as explicit open truths"),
-                (f"source states constraints such as `{constraints[0]}`", f"source excludes `{out_of_scope[0]}` from MVP", "downstream stages must not silently upgrade these unknowns into commitments"),
-                ("review-bound", "which open truth becomes the first blocking risk in validation is still unknown", "later stages must preserve these truths in scope and validation sections", "uncertainty is bounded and explicitly recorded"),
-            ),
-        ],
-        skill_assets,
-    )
+## 1. Document Metadata
+- document_name: `{product_label} Phase-1 Trial Stage-01 User Research {version}`
+- stage: `requirements-user-research`
+- version: `{version}`
+- status: `provisional`
+- owner: `{owner}`
+- source_status: `mixed`
 
+{render_traceability_block("stage_01")}
 
-def render_stage_01_boundary_problem_sections(source_bundle: Stage01SourceBundle) -> str:
-    return f"""## 2. Chosen User Boundary
-- chosen_segment: `{source_bundle.primary_segment}`
+{render_topology_profile_record(business_world_model, inherited=False)}
+
+## 2. Chosen User Boundary
+- chosen_segment: `{primary_segment}`
 - alternatives_considered:
-{chr(10).join(f"  - {item}" for item in source_bundle.alternative_segments)}
+{chr(10).join(f"  - {item}" for item in alternative_segments)}
 - why_this_not_that:
   - 当前 source 对该边界给出了最完整的角色职责、流程动作和结果责任，适合作为首波分析主边界。
 
 ## 3. Problem Statement
 - final_problem_statement:
-  - 当前团队缺少一条可重复的 `{source_bundle.flow_summary}` 业务闭环，导致关键业务步骤仍依赖人工衔接和经验判断。
+  - 当前团队缺少一条可重复的 `{flow_summary}` 业务闭环，导致关键业务步骤仍依赖人工衔接和经验判断。
 - problem_mechanism:
   - 问题不只是单个页面或模块缺失，而是登记、流转、执行和结算等动作没有被组织成同一条可审计链路。
 
@@ -2858,50 +2865,26 @@ def render_stage_01_boundary_problem_sections(source_bundle: Stage01SourceBundle
   - role-segment sprawl before first-loop validation
 
 ## 5. Persona Boundary and Interaction Chain
-{source_bundle.persona_chain_rows}
+{persona_chain_rows}
 
 ## 6. Structured Problem/Opportunity Recompilation
 - top_problem_clusters:
-{source_bundle.problem_cluster_lines}
+{problem_cluster_lines}
 - top_opportunity_clusters:
-{source_bundle.opportunity_cluster_lines}
+{opportunity_cluster_lines}
 
 ## 7. Key Open Truths
-{source_bundle.open_truth_lines}
+{open_truth_lines}
 - deferred scope boundaries:
-{source_bundle.deferred_lines}"""
+{deferred_lines}
 
+{render_business_world_model_section(business_world_model)}
 
-def render_stage_01_document(
-    *,
-    source_bundle: Stage01SourceBundle,
-    reasoning_units: list[dict[str, object]],
-    skill_assets: dict[str, object],
-    version: str,
-    owner: str,
-) -> str:
-    return f"""{render_stage_document_opening(
-    stage_display="Stage-01",
-    stage_slug="requirements-user-research",
-    document_suffix="User Research",
-    product_label=source_bundle.product_label,
-    version=version,
-    owner=owner,
-)}
+{render_reasoning_unit_ledger("## 9. Minimal Reasoning Unit Ledger", reasoning_units, context=context)}
 
-{render_traceability_block("stage_01")}
+{render_method_activation_evidence("## 10. Method Activation Evidence", reasoning_units, context=context)}
 
-{render_topology_profile_record(source_bundle.business_world_model, inherited=False)}
-
-{render_stage_01_boundary_problem_sections(source_bundle)}
-
-{render_business_world_model_section(source_bundle.business_world_model)}
-
-{render_reasoning_unit_ledger("## 9. Minimal Reasoning Unit Ledger", reasoning_units, context=source_bundle.context)}
-
-{render_method_activation_evidence("## 10. Method Activation Evidence", reasoning_units, context=source_bundle.context)}
-
-{render_material_grounding_bridge("## 11. Material Grounding Bridge", skill_assets, source_bundle.context)}
+{render_material_grounding_bridge("## 11. Material Grounding Bridge", skill_assets, context)}
 
 {render_skill_asset_snapshot(
     "## 12. Skill Asset Ingestion Snapshot",
@@ -2912,273 +2895,84 @@ def render_stage_01_document(
         "one problem-framing method asset was materially activated",
         "chosen user boundary, final problem statement, and need framing retain visible method trace",
     ],
-    source_bundle.context,
+    context,
 )}
 
-{render_source_evidence_pack(
-    "## 13. Source Evidence Pack",
-    source_bundle.h21,
-    source_bundle.h22,
-    source_bundle.h23,
-    source_bundle.h24,
-    source_bundle.h31,
-    source_bundle.h32,
-    source_bundle.h33,
-    source_bundle.h34,
-    source_bundle.first_part,
-)}
+## 13. Source Evidence Pack
+{demote_headings(h21)}
+
+{demote_headings(h22)}
+
+{demote_headings(h23)}
+
+{demote_headings(h24)}
+
+{demote_headings(h31)}
+
+{demote_headings(h32)}
+
+{demote_headings(h33)}
+
+{demote_headings(h34)}
+
+{demote_headings(first_part)}
 """
 
 
-def build_stage_01(
-    source_text: str,
-    version: str,
-    owner: str,
-    *,
-    source_snapshot: Phase1SourceSnapshot | None = None,
-) -> str:
-    source_bundle = build_stage_01_source_bundle(source_text, source_snapshot=source_snapshot)
-    skill_assets = load_stage_skill_assets("stage_01")
-    return render_stage_01_document(
-        source_bundle=source_bundle,
-        reasoning_units=build_stage_01_reasoning_units(
-            primary_segment=source_bundle.primary_segment,
-            alternative_segments=source_bundle.alternative_segments,
-            segments=source_bundle.segments,
-            flow_summary=source_bundle.flow_summary,
-            objectives=source_bundle.objectives,
-            constraints=source_bundle.constraints,
-            out_of_scope=source_bundle.out_of_scope,
-            skill_assets=skill_assets,
-        ),
-        skill_assets=skill_assets,
-        version=version,
-        owner=owner,
-    )
-
-
-def build_stage_02a_source_bundle(
-    source_text: str,
-    *,
-    source_snapshot: Phase1SourceSnapshot | None = None,
-) -> Stage02aSourceBundle:
-    snapshot = source_snapshot or build_phase1_source_snapshot(source_text)
-    sections = snapshot.sections
-    context = snapshot.context
-    business_world_model = snapshot.business_world_model
-    product_label = snapshot.product_label
-    segments = snapshot.segments
-    primary_segment = snapshot.primary_segment
-    modules = snapshot.modules
+def build_stage_02a(source_text: str, version: str, owner: str) -> str:
+    h23 = find_h2_block(source_text, r"2\.3\s+研究对象/目标用户边界")
+    h31 = find_h2_block(source_text, r"3\.1\s+产品/业务目标方向")
+    h32 = find_h2_block(source_text, r"3\.2\s+结构化问题清单")
+    h33 = find_h2_block(source_text, r"3\.3\s+结构化机会清单")
+    h34 = find_h2_block(source_text, r"3\.4\s+至少\s*1\s*条用户叙事")
+    h41 = find_h2_block(source_text, r"4\.1\s+关键约束")
+    h43 = find_h2_block(source_text, r"4\.3\s+范围边界与非目标")
+    h7p0 = find_h2_block(source_text, r"P0（MVP 必须有）")
+    h7p1 = find_h2_block(source_text, r"P1（MVP 后尽快补）")
+    h7p2 = find_h2_block(source_text, r"P2（后续阶段）")
+    h8 = extract_main_flow_block(source_text)
+    h51 = find_h2_block(source_text, r"5\.1\s+MVP 分期")
+    h52 = find_h2_block(source_text, r"5\.2\s+最小可用体验闭环")
+    h53 = find_h2_block(source_text, r"5\.3\s+影响切片顺序的依赖假设")
+    h61 = find_h2_block(source_text, r"6\.1\s+验证对象")
+    h62 = find_h2_block(source_text, r"6\.2\s+每条验证的最小方法与判定信号")
+    context = extract_domain_context(source_text)
+    business_world_model = build_business_world_model(source_text)
+    product_label = context["product_label"]
+    segments = context["segments"]
+    primary_segment = segments[0]
+    modules = context["modules"]
     objectives = context["objectives"] or ["preserve the shortest source-defined workflow"]
-    flows = snapshot.flows
-    module_names = snapshot.module_names
-    workflow_chain = snapshot.module_chain
-    roles = snapshot.roles
+    flows = context["flows"]
+    module_names = [str(row.get("module", "")).strip() for row in modules if str(row.get("module", "")).strip()]
+    workflow_chain = " -> ".join(module_names) or "source-defined workflow"
+    roles = context["roles"]
     constraints = context["constraints"] or ["source-defined architectural constraint"]
     out_of_scope = context["out_of_scope"] or ["source-defined future item"]
     p0_items = context["p0"] or module_names[:5]
     p1_items = context["p1"] or out_of_scope[:3]
     p2_items = context["p2"] or out_of_scope[:3]
-    return Stage02aSourceBundle(
-        h23=sections.h23,
-        h31=sections.h31,
-        h32=sections.h32,
-        h33=sections.h33,
-        h34=sections.h34,
-        h41=sections.h41,
-        h43=sections.h43,
-        h7p0=sections.h7p0,
-        h7p1=sections.h7p1,
-        h7p2=sections.h7p2,
-        h8=sections.h8,
-        h51=sections.h51,
-        h52=sections.h52,
-        h53=sections.h53,
-        h61=sections.h61,
-        h62=sections.h62,
-        context=context,
-        business_world_model=business_world_model,
-        product_label=str(product_label),
-        segments=list(segments),
-        primary_segment=str(primary_segment),
-        modules=list(modules),
-        objectives=list(objectives),
-        flows=list(flows),
-        module_names=module_names,
-        workflow_chain=workflow_chain,
-        roles=list(roles),
-        constraints=list(constraints),
-        out_of_scope=list(out_of_scope),
-        p0_items=list(p0_items),
-        p1_items=list(p1_items),
-        p2_items=list(p2_items),
-    )
-
-
-def build_stage_02a_structural_mapping_context(source_bundle: Stage02aSourceBundle) -> Stage02aStructuralMappingContext:
-    segments = source_bundle.segments
-    primary_segment = source_bundle.primary_segment
-    modules = source_bundle.modules
-    objectives = source_bundle.objectives
-    flows = source_bundle.flows
-    module_names = source_bundle.module_names
-    workflow_chain = source_bundle.workflow_chain
     supporting_role_lines = "\n".join(f"  - {item}" for item in (segments[1:4] or ["secondary collaborator"]))
     problem_cluster_lines = "\n".join(
-        f"  - {item}" for item in (flatten_bullets(source_bundle.h32, 4) or [f"{primary_segment} 需要稳定完成 {workflow_chain}"])
+        f"  - {item}" for item in (flatten_bullets(h32, 4) or [f"{primary_segment} 需要稳定完成 {workflow_chain}"])
     )
-    opportunity_cluster_lines = "\n".join(f"  - {item}" for item in (flatten_bullets(source_bundle.h33, 4) or objectives[:3]))
+    opportunity_cluster_lines = "\n".join(f"  - {item}" for item in (flatten_bullets(h33, 4) or objectives[:3]))
     backbone_lines = "\n".join(f"{idx}. {name}" for idx, name in enumerate(module_names[:8], start=1))
     process_rows = "\n".join(
         f"| main flow | {row.get('module', 'source step')} | {row.get('primary_actor', primary_segment) or primary_segment} | {row.get('input', 'source-defined trigger')} | {row.get('output', 'source output')} | {row.get('responsibility', 'supports workflow continuity')} |"
         for row in modules[:8]
     )
-    first_flow = dict_or_empty(flows[0]) if flows else {}
-    first_flow_steps = [str(step).strip() for step in first_flow.get("steps", []) if str(step).strip()]
+    first_flow_steps = [str(step).strip() for step in (flows[0].get("steps", []) if flows else []) if str(step).strip()]
     primary_step_lines = "\n".join(f"  - {step}" for step in first_flow_steps) or "  - source-defined workflow step"
     actor_system_lines = "\n".join(
         f"  - {row.get('module', 'module')} actor=`{row.get('primary_actor', primary_segment) or primary_segment}` / system=`{row.get('responsibility', 'source-defined system behavior')}`"
         for row in modules[:5]
     )
-    return Stage02aStructuralMappingContext(
-        supporting_role_lines=supporting_role_lines,
-        problem_cluster_lines=problem_cluster_lines,
-        opportunity_cluster_lines=opportunity_cluster_lines,
-        backbone_lines=backbone_lines,
-        process_rows=process_rows,
-        first_flow_steps=first_flow_steps,
-        primary_step_lines=primary_step_lines,
-        actor_system_lines=actor_system_lines,
-    )
-
-
-def build_stage_02a_nfr_identification_block(
-    *,
-    primary_segment: str,
-    workflow_chain: str,
-    module_names: list[str],
-    roles: list[dict[str, str]],
-    constraints: list[str],
-) -> str:
-    first_module = sequence_item_text(module_names, 0, "source module")
-    next_module = sequence_item_text(module_names, 1, "next module")
-    last_module = sequence_item_text(module_names, -1, "source completion")
-    secondary_role = dict_sequence_field_text(roles, 1, "Role", "secondary collaborator")
-    first_constraint = sequence_item_text(constraints, 0, "source-defined constraint")
-    last_constraint = sequence_item_text(constraints, -1, "source-defined constraint")
-    return f"""- nfr_initial_identification:
-  - nfr_dimensions_scan:
-    - dimension_1:
-      - name: reliability
-      - relevance: `relevant`
-      - information_state: `identified`
-      - basis: 主流程 `{workflow_chain}` 必须稳定可复现，否则 {primary_segment} 无法据此持续运营。
-      - known_signals: 关键步骤 `{first_module}` 到 `{last_module}` 不能出现隐式状态跳变。
-    - dimension_2:
-      - name: usability
-      - relevance: `relevant`
-      - information_state: `identified`
-      - basis: 角色 `{primary_segment}` 与 `{secondary_role}` 必须都能读懂模块输入输出并顺畅交接。
-      - known_signals: `{first_module}` -> `{next_module}` 的 handoff 不能依赖口头补充。
-    - dimension_3:
-      - name: security/data-control
-      - relevance: `relevant`
-      - information_state: `identified`
-      - basis: source 已明确提出约束 `{first_constraint}`，说明权限、审计或边界控制不能后补。
-      - known_signals: 关键约束必须在主流程前段显式生效，而不是在最后才暴露。
-    - dimension_4:
-      - name: maintainability
-      - relevance: `suspected-relevant`
-      - information_state: `suspected`
-      - basis: 模块 `{first_module}` 到 `{last_module}` 的对象链必须保留 seam，后续才能安全扩展。
-      - known_signals: Stage-02b 需要在对象链、模块契约和延后项之间保持一致。
-    - dimension_5:
-      - name: performance
-      - relevance: `suspected-relevant`
-      - information_state: `unknown`
-      - basis: source 没有给出完整容量曲线，但当前约束 `{last_constraint}` 说明响应和并发仍需后续确认。
-      - known_signals: 仍需确认实际使用峰值、角色并发与页面响应预算。
-  - nfr_scan_completeness:
-    - dimensions_considered: `5`
-    - dimensions_relevant: `3`
-    - dimensions_unknown: `1`
-    - scan_confidence: `medium`
-    - scan_confidence_note: 当前判断基于 source 的模块、流程和约束，后续仍需在 Stage-02b 深化。
-  - stage_02b_dependency_note:
-    - stage_02b_planned: `yes`
-    - if_skipped_impact: Phase-2 将缺质量场景矩阵、domain model、IA direction 与 payload contract，架构边界会被迫重建。
-    - minimum_viable_for_phase2: `yes`
-    - minimum_viable_note: 当前 scan 足以提醒 Phase-2 哪些 NFR 维度相关，但不足以替代 Stage-02b 的 specification-grade 深化。"""
-
-
-def build_stage_02a_design_requirements_block(
-    *,
-    modules: list[dict[str, str]],
-    roles: list[dict[str, str]],
-    primary_segment: str,
-) -> str:
-    rows = []
-    for idx, module_row in enumerate(modules[:6], start=1):
-        role = str(module_row.get("primary_actor", "")).strip() or (roles[(idx - 1) % len(roles)]["Role"] if roles else primary_segment)
-        rows.append(
-            "| DR-{idx:02d} | {role} | 进入 `{module}` | 在同一界面中完成 `{responsibility}`，并看到 `{output}` | 让 `{input_value}` 与 `{output}` 脱节或只能靠人工补齐 |".format(
-                idx=idx,
-                role=role,
-                module=module_row.get("module", "source-defined module"),
-                responsibility=module_row.get("responsibility", "source-defined responsibility"),
-                output=module_row.get("output", "source-defined output"),
-                input_value=module_row.get("input", "source-defined input"),
-            )
-        )
-    return "\n".join(
-        ["| id | persona / role | trigger | required outcome | anti-pattern to avoid |", "|---|---|---|---|---|", *rows]
-    )
-
-
-def build_stage_02a_persona_context_block(
-    *,
-    primary_segment: str,
-    objectives: list[str],
-    first_flow_steps: list[str],
-    workflow_chain: str,
-    modules: list[dict[str, str]],
-) -> str:
-    day_in_life = sequence_item_text(objectives, 0, f"{primary_segment} 需要稳定推动 {workflow_chain}")
-    desired_experience = " -> ".join(first_flow_steps[:4]) if first_flow_steps else workflow_chain
-    key_path_blocks: list[str] = []
-    for idx, module_row in enumerate(modules[:3], start=1):
-        key_path_blocks.extend(
-            [
-                f"### Key-path Scenario {idx}",
-                "- actor_goal:",
-                f"  - 在 `{module_row.get('module', 'source-defined module')}` 环节完成 `{module_row.get('responsibility', 'source-defined responsibility')}`。",
-                "- implied_design_requirement:",
-                f"  - 界面必须把 `{module_row.get('input', 'source input')}` 和 `{module_row.get('output', 'source output')}` 放在同一条可见链路中。",
-                "",
-            ]
-        )
-    return f"""### Primary Persona Context Scenario
-- archetype:
-  - `{primary_segment}`
-- day-in-the-life snapshot:
-  - {day_in_life}
-- desired experience:
-  - 希望能沿着 `{desired_experience}` 直接完成主流程，而不是在多个孤立页面之间手工对齐上下文。
-
-{chr(10).join(key_path_blocks).rstrip()}"""
-
-
-def build_stage_02a_scenario_decomposition_block(
-    *,
-    flows: list[dict[str, object]],
-    primary_segment: str,
-) -> str:
     scenario_blocks: list[str] = []
     for idx, flow in enumerate(flows[:3], start=1):
         steps = [str(step).strip() for step in flow.get("steps", []) if str(step).strip()]
-        first_step = sequence_item_text(steps, 0, "source-defined trigger step")
-        last_step = sequence_item_text(steps, -1, "source-defined completion step")
+        first_step = steps[0] if steps else "source-defined trigger step"
+        last_step = steps[-1] if steps else "source-defined completion step"
         scenario_blocks.extend(
             [
                 f"### Scenario {idx}: {flow.get('name', f'Flow {idx}')}",
@@ -3191,29 +2985,20 @@ def build_stage_02a_scenario_decomposition_block(
                 "",
             ]
         )
-    return "\n".join(scenario_blocks).rstrip() or """### Scenario 1: Source-defined Primary Flow
+    scenario_decomposition_block = "\n".join(scenario_blocks).rstrip() or """### Scenario 1: Source-defined Primary Flow
 - trigger:
   - source-defined trigger
 - challenge:
   - 若上下文断裂，主流程将退化为人工拼接。
 - structure implication:
   - 设计必须围绕源文档的主流程连续性展开。"""
-
-
-def build_stage_02a_key_scenario_deep_analysis_block(
-    *,
-    flows: list[dict[str, object]],
-    roles: list[dict[str, str]],
-    primary_segment: str,
-    constraints: list[str],
-) -> str:
     deep_dive_blocks: list[str] = []
     deep_dive_labels = ["A", "B", "C"]
     deep_dive_roles = [row.get("Role", primary_segment) for row in roles[:3]] or [primary_segment]
     for idx, flow in enumerate(flows[:3], start=0):
         steps = [str(step).strip() for step in flow.get("steps", []) if str(step).strip()]
         role = deep_dive_roles[idx % len(deep_dive_roles)]
-        first_step = sequence_item_text(steps, 0, "source-defined first action")
+        first_step = steps[0] if steps else "source-defined first action"
         main_path = " -> ".join(steps[:5]) if steps else "source-defined flow progression"
         deep_dive_blocks.extend(
             [
@@ -3232,82 +3017,93 @@ def build_stage_02a_key_scenario_deep_analysis_block(
                 "",
             ]
         )
-    return "\n".join(deep_dive_blocks).rstrip()
+    key_scenario_deep_analysis_block = "\n".join(deep_dive_blocks).rstrip()
+    day_in_life = objectives[0] if objectives else f"{primary_segment} 需要稳定推动 {workflow_chain}"
+    desired_experience = " -> ".join(first_flow_steps[:4]) if first_flow_steps else workflow_chain
+    key_path_blocks: list[str] = []
+    for idx, module_row in enumerate(modules[:3], start=1):
+        key_path_blocks.extend(
+            [
+                f"### Key-path Scenario {idx}",
+                "- actor_goal:",
+                f"  - 在 `{module_row.get('module', 'source-defined module')}` 环节完成 `{module_row.get('responsibility', 'source-defined responsibility')}`。",
+                "- implied_design_requirement:",
+                f"  - 界面必须把 `{module_row.get('input', 'source input')}` 和 `{module_row.get('output', 'source output')}` 放在同一条可见链路中。",
+                "",
+            ]
+        )
+    persona_context_block = f"""### Primary Persona Context Scenario
+- archetype:
+  - `{primary_segment}`
+- day-in-the-life snapshot:
+  - {day_in_life}
+- desired experience:
+  - 希望能沿着 `{desired_experience}` 直接完成主流程，而不是在多个孤立页面之间手工对齐上下文。
 
-
-def build_stage_02a_stakeholder_value_lines(
-    *,
-    primary_segment: str,
-    supporting_role: str,
-    review_role: str,
-    workflow_chain: str,
-    experience_pressure: str,
-    value_pressure: str,
-    commercial_pressure: str,
-    stress_technical: str,
-    stress_compliance: str,
-    stress_resource: str,
-    first_module: str,
-    last_module: str,
-    flows: list[dict[str, object]],
-) -> Stage02aStakeholderValueLines:
-    rows = [
-        ("primary_boundary", primary_segment, f"complete `{workflow_chain}` without losing {experience_pressure}", "high"),
-        ("supporting_role", supporting_role, f"receive clear upstream state and object handoff while preserving {value_pressure}", "medium"),
-        ("supporting_role", review_role, f"see auditable results, stable scope boundary, and `{commercial_pressure}`", "medium"),
-    ]
-    profile_rows = "\n".join(
-        f"| {name} | {goal} | keep `{workflow_chain}` traversable | loses continuity if state and object links break | {influence} |"
-        for _, name, goal, influence in rows
+{chr(10).join(key_path_blocks).rstrip()}"""
+    design_requirement_rows = []
+    for idx, module_row in enumerate(modules[:6], start=1):
+        role = str(module_row.get("primary_actor", "")).strip() or (roles[(idx - 1) % len(roles)]["Role"] if roles else primary_segment)
+        design_requirement_rows.append(
+            "| DR-{idx:02d} | {role} | 进入 `{module}` | 在同一界面中完成 `{responsibility}`，并看到 `{output}` | 让 `{input_value}` 与 `{output}` 脱节或只能靠人工补齐 |".format(
+                idx=idx,
+                role=role,
+                module=module_row.get("module", "source-defined module"),
+                responsibility=module_row.get("responsibility", "source-defined responsibility"),
+                output=module_row.get("output", "source-defined output"),
+                input_value=module_row.get("input", "source-defined input"),
+            )
+        )
+    design_requirements_block = "\n".join(
+        ["| id | persona / role | trigger | required outcome | anti-pattern to avoid |", "|---|---|---|---|---|", *design_requirement_rows]
     )
-    adoption_chain_lines = "\n".join(
-        f"{idx}. {name} can enter the flow with clear context, preserve {experience_pressure}, and complete the handoff without diluting {value_pressure}"
-        for idx, (_, name, _, _) in enumerate(rows, start=1)
-    )
-    conflict_map_lines = "\n".join(
-        [
-            f"- `{primary_segment}` wants fast flow execution and less {experience_pressure}, while constraints require `{stress_technical}` to stay explicit",
-            f"- supporting roles want shorter paths, while `{stress_compliance}` forces auditable transitions and keeps `{commercial_pressure}` review-bound",
-            f"- scope pressure to include `{stress_resource}` conflicts with keeping P0 focused on `{workflow_chain}`",
-        ]
-    )
-    value_loop_lines = "\n".join(
-        [
-            f"  - actor enters `{first_module}` with the minimum required input and the source-grounded value pressure `{value_pressure}` still visible",
-            f"  - workflow advances through `{workflow_chain}` with explicit state and object transitions instead of reintroducing {experience_pressure}",
-            f"  - downstream artifacts must preserve `{last_module}` as an explainable closure point for `{commercial_pressure}`",
-        ]
-    )
-    return Stage02aStakeholderValueLines(
-        profile_rows=profile_rows,
-        adoption_chain_lines=adoption_chain_lines,
-        conflict_map_lines=conflict_map_lines,
-        value_loop_lines=value_loop_lines,
-        chain_line=" -> ".join(name for _, name, _, _ in rows),
-        scenario_set_lines="\n".join(f"  - {flow.get('name', 'Primary Flow')}" for flow in flows[:3]) or "  - source-defined primary flow",
-    )
-
-
-def build_stage_02a_stakeholder_value_context(
-    *,
-    context: dict[str, object],
-    objectives: list[str],
-    constraints: list[str],
-    out_of_scope: list[str],
-    primary_segment: str,
-    workflow_chain: str,
-    roles: list[dict[str, str]],
-    module_names: list[str],
-    flows: list[dict[str, object]],
-) -> Stage02aStakeholderValueContext:
-    stress_business = sequence_item_text(objectives, 0, "source-defined business objective")
-    stress_technical = sequence_item_text(constraints, 0, "source-defined architectural constraint")
-    stress_compliance = sequence_item_text(constraints, -1, "source-defined audit constraint")
-    stress_resource = sequence_item_text(out_of_scope, 0, "source-defined deferred scope")
-    supporting_role = dict_sequence_field_text(roles, 1, "Role", "secondary collaborator")
-    review_role = dict_sequence_field_text(roles, 2, "Role", "review stakeholder")
-    first_module = sequence_item_text(module_names, 0, "source start")
-    last_module = sequence_item_text(module_names, -1, "source completion")
+    nfr_identification_block = f"""- nfr_initial_identification:
+  - nfr_dimensions_scan:
+    - dimension_1:
+      - name: reliability
+      - relevance: `relevant`
+      - information_state: `identified`
+      - basis: 主流程 `{workflow_chain}` 必须稳定可复现，否则 {primary_segment} 无法据此持续运营。
+      - known_signals: 关键步骤 `{module_names[0] if module_names else 'source module'}` 到 `{module_names[-1] if module_names else 'source completion'}` 不能出现隐式状态跳变。
+    - dimension_2:
+      - name: usability
+      - relevance: `relevant`
+      - information_state: `identified`
+      - basis: 角色 `{primary_segment}` 与 `{roles[1]['Role'] if len(roles) > 1 else 'secondary collaborator'}` 必须都能读懂模块输入输出并顺畅交接。
+      - known_signals: `{module_names[0] if module_names else 'source module'}` -> `{module_names[1] if len(module_names) > 1 else 'next module'}` 的 handoff 不能依赖口头补充。
+    - dimension_3:
+      - name: security/data-control
+      - relevance: `relevant`
+      - information_state: `identified`
+      - basis: source 已明确提出约束 `{constraints[0]}`，说明权限、审计或边界控制不能后补。
+      - known_signals: 关键约束必须在主流程前段显式生效，而不是在最后才暴露。
+    - dimension_4:
+      - name: maintainability
+      - relevance: `suspected-relevant`
+      - information_state: `suspected`
+      - basis: 模块 `{module_names[0] if module_names else 'source module'}` 到 `{module_names[-1] if module_names else 'source completion'}` 的对象链必须保留 seam，后续才能安全扩展。
+      - known_signals: Stage-02b 需要在对象链、模块契约和延后项之间保持一致。
+    - dimension_5:
+      - name: performance
+      - relevance: `suspected-relevant`
+      - information_state: `unknown`
+      - basis: source 没有给出完整容量曲线，但当前约束 `{constraints[-1]}` 说明响应和并发仍需后续确认。
+      - known_signals: 仍需确认实际使用峰值、角色并发与页面响应预算。
+  - nfr_scan_completeness:
+    - dimensions_considered: `5`
+    - dimensions_relevant: `3`
+    - dimensions_unknown: `1`
+    - scan_confidence: `medium`
+    - scan_confidence_note: 当前判断基于 source 的模块、流程和约束，后续仍需在 Stage-02b 深化。
+  - stage_02b_dependency_note:
+    - stage_02b_planned: `yes`
+    - if_skipped_impact: Phase-2 将缺质量场景矩阵、domain model、IA direction 与 payload contract，架构边界会被迫重建。
+    - minimum_viable_for_phase2: `yes`
+    - minimum_viable_note: 当前 scan 足以提醒 Phase-2 哪些 NFR 维度相关，但不足以替代 Stage-02b 的 specification-grade 深化。"""
+    stress_business = objectives[0] if objectives else "source-defined business objective"
+    stress_technical = constraints[0] if constraints else "source-defined architectural constraint"
+    stress_compliance = constraints[-1] if constraints else "source-defined audit constraint"
+    stress_resource = out_of_scope[0] if out_of_scope else "source-defined deferred scope"
     value_pressure = signal_phrase(
         list(context.get("business_value_signals", [])),
         stress_business,
@@ -3323,81 +3119,155 @@ def build_stage_02a_stakeholder_value_context(
         "manual reconstruction and handoff friction",
         limit=2,
     )
-    stakeholder_lines = build_stage_02a_stakeholder_value_lines(
-        primary_segment=primary_segment,
-        supporting_role=supporting_role,
-        review_role=review_role,
-        workflow_chain=workflow_chain,
-        experience_pressure=experience_pressure,
-        value_pressure=value_pressure,
-        commercial_pressure=commercial_pressure,
-        stress_technical=stress_technical,
-        stress_compliance=stress_compliance,
-        stress_resource=stress_resource,
-        first_module=first_module,
-        last_module=last_module,
-        flows=flows,
+    stakeholder_rows = [
+        ("primary_boundary", primary_segment, f"complete `{workflow_chain}` without losing {experience_pressure}", "high"),
+        ("supporting_role", roles[1]["Role"] if len(roles) > 1 else "secondary collaborator", f"receive clear upstream state and object handoff while preserving {value_pressure}", "medium"),
+        ("supporting_role", roles[2]["Role"] if len(roles) > 2 else "review stakeholder", f"see auditable results, stable scope boundary, and `{commercial_pressure}`", "medium"),
+    ]
+    stakeholder_profile_rows = "\n".join(
+        f"| {name} | {goal} | keep `{workflow_chain}` traversable | loses continuity if state and object links break | {influence} |"
+        for _, name, goal, influence in stakeholder_rows
     )
-    return Stage02aStakeholderValueContext(
-        stress_business=stress_business,
-        stress_technical=stress_technical,
-        stress_compliance=stress_compliance,
-        stress_resource=stress_resource,
-        value_pressure=value_pressure,
-        commercial_pressure=commercial_pressure,
-        experience_pressure=experience_pressure,
-        stakeholder_profile_rows=stakeholder_lines.profile_rows,
-        adoption_chain_lines=stakeholder_lines.adoption_chain_lines,
-        conflict_map_lines=stakeholder_lines.conflict_map_lines,
-        value_loop_lines=stakeholder_lines.value_loop_lines,
-        stakeholder_chain_line=stakeholder_lines.chain_line,
-        scenario_set_lines=stakeholder_lines.scenario_set_lines,
+    adoption_chain_lines = "\n".join(
+        f"{idx}. {name} can enter the flow with clear context, preserve {experience_pressure}, and complete the handoff without diluting {value_pressure}"
+        for idx, (_, name, _, _) in enumerate(stakeholder_rows, start=1)
     )
+    conflict_map_lines = "\n".join(
+        [
+            f"- `{primary_segment}` wants fast flow execution and less {experience_pressure}, while constraints require `{stress_technical}` to stay explicit",
+            f"- supporting roles want shorter paths, while `{stress_compliance}` forces auditable transitions and keeps `{commercial_pressure}` review-bound",
+            f"- scope pressure to include `{stress_resource}` conflicts with keeping P0 focused on `{workflow_chain}`",
+        ]
+    )
+    value_loop_lines = "\n".join(
+        [
+            f"  - actor enters `{module_names[0] if module_names else 'source start'}` with the minimum required input and the source-grounded value pressure `{value_pressure}` still visible",
+            f"  - workflow advances through `{workflow_chain}` with explicit state and object transitions instead of reintroducing {experience_pressure}",
+            f"  - downstream artifacts must preserve `{module_names[-1] if module_names else 'source completion'}` as an explainable closure point for `{commercial_pressure}`",
+        ]
+    )
+    stakeholder_chain_line = " -> ".join(name for _, name, _, _ in stakeholder_rows)
+    scenario_set_lines = "\n".join(f"  - {flow.get('name', 'Primary Flow')}" for flow in flows[:3]) or "  - source-defined primary flow"
+    reasoning_units = [
+        {
+            "title": "Structure Choice",
+            "artifact_unit": "chosen panorama structure",
+            "loop_round_state": "structured -> compared -> freeze",
+            "weakness_trigger": "screen-first or role-first framing could hide the real workflow chain",
+            "method_family": "structure comparison + workflow panorama selection",
+            "method_assets": [
+                "whole-picture requirements structure",
+                "story-map construction",
+            ],
+            "reasoning_operator": "compare screen-first, role-first, and workflow-first views against source-defined business flow",
+            "material_grounding": material_grounding_lines(load_stage_skill_assets("stage_02a")),
+            "alternatives_compared": ["screen-first", "role-first", "workflow-first"],
+            "tradeoff_or_tension": f"fast cataloging vs preserving the real business chain and source-grounded value pressure `{value_pressure}`",
+            "decision_effect": f"selected `workflow-first` around `{workflow_chain}` so the product can preserve `{value_pressure}` instead of collapsing into detached surfaces",
+            "evidence_classification": [
+                f"observed fact: source module matrix forms `{workflow_chain}`",
+                "interpreted pattern: actor and object continuity matter more than standalone pages",
+                "decision: Stage-02a keeps workflow as the backbone",
+            ],
+            "evidence_state": "provisional",
+            "remaining_unknown": "some state transitions still need deeper spec work in Stage-02b",
+            "downstream_handoff": "Stage-02b and Stage-03 must preserve the same backbone ordering",
+            "freeze_rationale": "workflow shape is now specific enough to constrain deeper design",
+        },
+        {
+            "title": "Scenario and Backbone Decomposition",
+            "artifact_unit": "backbone activities and scenarios",
+            "loop_round_state": "structured -> decomposed -> freeze",
+            "weakness_trigger": "high-level flow narrative was not enough to drive design requirements",
+            "method_family": "backbone decomposition + scenario analysis",
+            "method_assets": [
+                "structured analysis note building",
+            ],
+            "reasoning_operator": "split the primary workflow into backbone steps, scenarios, and handoff-sensitive paths",
+            "material_grounding": material_grounding_lines(load_stage_skill_assets("stage_02a")),
+            "alternatives_compared": [flow.get("name", "Primary Flow") for flow in flows[:3]] or ["source-defined primary flow"],
+            "tradeoff_or_tension": "compact narrative vs explicit handoff detail",
+            "decision_effect": "expanded the source flows into scenarios, key paths, and design requirements",
+            "evidence_classification": [
+                f"observed fact: source defines `{len(flows)}` primary business flows",
+                "interpreted pattern: each flow requires explicit trigger, completion condition, and exception handling",
+                "decision: Stage-02a preserves scenario-level structure instead of only listing modules",
+            ],
+            "evidence_state": "provisional",
+            "remaining_unknown": "edge-case exceptions still need Stage-02b payload and state modeling",
+            "downstream_handoff": "Stage-02b should deepen the contracts exposed here",
+            "freeze_rationale": "scenario decomposition is sufficient for structural analysis and slicing input",
+        },
+        {
+            "title": "Constraint and Priority Discipline",
+            "artifact_unit": "constraint stress-test and priority split",
+            "loop_round_state": "structured -> stress-tested -> freeze",
+            "weakness_trigger": "scope could drift beyond the first viable workflow loop",
+            "method_family": "constraint-first analysis + priority discipline",
+            "method_assets": [
+                "evidence-aware requirement framing",
+                "value / adaptation constraint discipline",
+            ],
+            "reasoning_operator": "test business, technical, and scope pressure against the chosen workflow backbone and P0 focus",
+            "material_grounding": material_grounding_lines(load_stage_skill_assets("stage_02a")),
+            "alternatives_compared": ["keep strict P0/P1/P2 split", "expand P0 with deferred scope"],
+            "tradeoff_or_tension": "broader scope vs first-loop integrity",
+            "decision_effect": "kept P0 focused on the shortest viable loop and preserved out-of-scope items explicitly",
+            "evidence_classification": [
+                f"observed fact: source constraints include `{stress_technical}`",
+                f"observed fact: source out-of-scope includes `{stress_resource}`",
+                "decision: preserve explicit exclusion logic and avoid silent scope creep",
+            ],
+            "evidence_state": "review-bound",
+            "remaining_unknown": "real implementation cost may still force further reprioritization",
+            "downstream_handoff": "Stage-03 must inherit the same cutline and honesty rules",
+            "freeze_rationale": "priority logic is explicit enough for downstream slicing",
+        },
+        {
+            "title": "Persona and NFR Carryover Alignment",
+            "artifact_unit": "persona paths and NFR initial identification",
+            "loop_round_state": "structured -> aligned -> freeze",
+            "weakness_trigger": "persona paths and NFR signals could stay detached from the chosen backbone",
+            "method_family": "persona path alignment + NFR carryover check",
+            "method_assets": [
+                "whole-picture requirements structure",
+                "structured analysis note building",
+            ],
+            "reasoning_operator": "bind role paths, implicit design requirements, and NFR scan signals back to the chosen workflow backbone",
+            "material_grounding": material_grounding_lines(load_stage_skill_assets("stage_02a")),
+            "alternatives_compared": ["persona detail as side note", "persona/NFR alignment as structural input"],
+            "tradeoff_or_tension": "lighter structural draft vs explicit downstream design pressure",
+            "decision_effect": "kept persona paths and NFR scan as first-class structural consequences of the backbone",
+            "evidence_classification": [
+                f"observed fact: source roles must traverse `{workflow_chain}`",
+                "interpreted pattern: detached persona or NFR notes create false structural completeness",
+                "decision: Stage-02a keeps actor path and NFR alignment visible before deeper specification",
+            ],
+            "evidence_state": "review-bound",
+            "remaining_unknown": "some role-specific exception paths still need Stage-02b detail",
+            "downstream_handoff": "Stage-02b should preserve both persona path pressure and NFR scan consequences",
+            "freeze_rationale": "persona/NFR alignment is explicit enough for downstream use",
+        },
+    ]
+    skill_assets = load_stage_skill_assets("stage_02a")
 
+    return f"""# Stage-02a Output — requirements-structural-analysis (deep-compiled)
 
-def render_stage_02a_stakeholder_value_sections(
-    *,
-    stakeholder_profile_rows: str,
-    adoption_chain_lines: str,
-    conflict_map_lines: str,
-    value_loop_lines: str,
-    workflow_chain: str,
-) -> str:
-    return f"""## 17. Stakeholder Profiles, Adoption Chain, and Conflict Map
-### Key Stakeholder Profiles
-| stakeholder | interest / concern | success criteria | resistance pattern | influence | engagement approach |
-|---|---|---|---|---|---|
-{stakeholder_profile_rows}
+## 1. Document Metadata
+- document_name: `{product_label} Phase-1 Trial Stage-02a Structural Analysis {version}`
+- stage: `requirements-structural-analysis`
+- version: `{version}`
+- status: `provisional`
+- owner: `{owner}`
+- source_status: `mixed`
 
-### Adoption Chain
-{adoption_chain_lines}
+{render_traceability_block("stage_02a")}
 
-### Stakeholder Conflict Map
-{conflict_map_lines}
+{render_semantic_authoring_spine_section(business_world_model)}
 
-## 18. Value Loop and Downstream Preservation Notes
-- value_loop:
-{value_loop_lines}
-- design_should_preserve:
-  - 主流程优先于功能目录
-  - 对象与状态必须沿 `{workflow_chain}` 连续传递
-  - 终点模块必须能给出可解释的完成状态
-- architecture_should_preserve:
-  - `{workflow_chain}` 的对象链
-  - 权限与审计边界不能依赖页面层临时拼接
-  - 延后项必须通过 seam 保留，而不是回写进 P0"""
+{render_topology_profile_record(business_world_model, inherited=True)}
 
-
-def render_stage_02a_structure_choice_sections(
-    *,
-    primary_segment: str,
-    supporting_role_lines: str,
-    objectives: list[str],
-    problem_cluster_lines: str,
-    opportunity_cluster_lines: str,
-    workflow_chain: str,
-) -> str:
-    return f"""## 2. Structure Choice
+## 2. Structure Choice
 - chosen_panorama_structure: `workflow story-map`
 - why_this_structure_not_that:
   - 产品价值来自 source 中定义的主业务链路，不是孤立功能堆叠。
@@ -3442,30 +3312,7 @@ def render_stage_02a_structure_choice_sections(
   - `effective-requirements-analysis`: problem-to-structure 重编译
   - `product-demand-fit`: 证据强弱与边界诚实
   - `user-story-mapping`: 主流程与骨干活动拆解
-  - `lean-product-development`: 首版价值环与延后项纪律"""
-
-
-def render_stage_02a_structure_panorama_sections(
-    *,
-    primary_segment: str,
-    supporting_role_lines: str,
-    objectives: list[str],
-    problem_cluster_lines: str,
-    opportunity_cluster_lines: str,
-    workflow_chain: str,
-    backbone_lines: str,
-    process_rows: str,
-    primary_step_lines: str,
-    actor_system_lines: str,
-) -> str:
-    return f"""{render_stage_02a_structure_choice_sections(
-    primary_segment=primary_segment,
-    supporting_role_lines=supporting_role_lines,
-    objectives=objectives,
-    problem_cluster_lines=problem_cluster_lines,
-    opportunity_cluster_lines=opportunity_cluster_lines,
-    workflow_chain=workflow_chain,
-)}
+  - `lean-product-development`: 首版价值环与延后项纪律
 
 ## 7. Backbone Activities (Business Process Decomposition Precursor)
 {backbone_lines}
@@ -3479,18 +3326,9 @@ def render_stage_02a_structure_panorama_sections(
 - primary workflow steps:
 {primary_step_lines}
 - actor/system decomposition:
-{actor_system_lines}"""
+{actor_system_lines}
 
-
-def render_stage_02a_analysis_core_sections(
-    *,
-    scenario_decomposition_block: str,
-    key_scenario_deep_analysis_block: str,
-    persona_context_block: str,
-    design_requirements_block: str,
-    nfr_identification_block: str,
-) -> str:
-    return f"""## 10. Scenario Decomposition
+## 10. Scenario Decomposition
 {scenario_decomposition_block}
 
 ## 11. Key Scenario Deep Analysis
@@ -3503,21 +3341,9 @@ def render_stage_02a_analysis_core_sections(
 {design_requirements_block}
 
 ## 14. NFR Initial Identification
-{nfr_identification_block}"""
+{nfr_identification_block}
 
-
-def render_stage_02a_constraint_priority_sections(
-    *,
-    stress_business: str,
-    stress_technical: str,
-    stress_compliance: str,
-    stress_resource: str,
-    workflow_chain: str,
-    p0_items: list[str],
-    p1_items: list[str],
-    p2_items: list[str],
-) -> str:
-    return f"""## 15. Constraint Stress-Test
+## 15. Constraint Stress-Test
 - business constraints:
   - {stress_business}
 - technical constraints:
@@ -3539,11 +3365,33 @@ def render_stage_02a_constraint_priority_sections(
 - P2:
 {chr(10).join(f"  - {item}" for item in p2_items)}
 - exclusion logic:
-  - 任何不直接服务 `{workflow_chain}` 的能力默认不进 P0"""
+  - 任何不直接服务 `{workflow_chain}` 的能力默认不进 P0
 
+## 17. Stakeholder Profiles, Adoption Chain, and Conflict Map
+### Key Stakeholder Profiles
+| stakeholder | interest / concern | success criteria | resistance pattern | influence | engagement approach |
+|---|---|---|---|---|---|
+{stakeholder_profile_rows}
 
-def render_stage_02a_structure_stress_test_section(*, workflow_chain: str, stress_resource: str) -> str:
-    return f"""## 19. Structure Stress-Test and Deepening Loop Log
+### Adoption Chain
+{adoption_chain_lines}
+
+### Stakeholder Conflict Map
+{conflict_map_lines}
+
+## 18. Value Loop and Downstream Preservation Notes
+- value_loop:
+{value_loop_lines}
+- design_should_preserve:
+  - 主流程优先于功能目录
+  - 对象与状态必须沿 `{workflow_chain}` 连续传递
+  - 终点模块必须能给出可解释的完成状态
+- architecture_should_preserve:
+  - `{workflow_chain}` 的对象链
+  - 权限与审计边界不能依赖页面层临时拼接
+  - 延后项必须通过 seam 保留，而不是回写进 P0
+
+## 19. Structure Stress-Test and Deepening Loop Log
 ### Structure Stress-Test
 - if_stage_03_only_received_feature_list:
   - 会丢失 `{workflow_chain}` 的骨干关系，MVP 会被错误切成零散模块集合。
@@ -3571,25 +3419,17 @@ def render_stage_02a_structure_stress_test_section(*, workflow_chain: str, stres
   - round_3:
     - refined: `design requirements + constraint stress-test`
     - tradeoff_clarified: `coverage vs focus / speed vs scope honesty`
-    - outcome: `freeze`"""
+    - outcome: `freeze`
 
+{render_reasoning_unit_ledger("## 20. Minimal Reasoning Unit Ledger", reasoning_units, context=context)}
 
-def render_stage_02a_evidence_summary_sections(
-    *,
-    reasoning_units: list[dict[str, str | list[str]]],
-    context: dict[str, object],
-    stakeholder_chain_line: str,
-    scenario_set_lines: str,
-    primary_segment: str,
-    skill_assets: dict[str, object],
-    source_evidence_blocks: list[str],
-) -> str:
-    stakeholder_section = f"""## 21. Stakeholder and Scenario Set
+## 21. Stakeholder and Scenario Set
 - stakeholder chain:
   - {stakeholder_chain_line}
 - scenario set:
-{scenario_set_lines}"""
-    delta_section = f"""## 22. Requirement Analysis Delta Summary
+{scenario_set_lines}
+
+## 22. Requirement Analysis Delta Summary
 - delta_1:
   - source 给出多个角色; analysis 先锁定 `{primary_segment}` 作为主边界
 - delta_2:
@@ -3597,93 +3437,81 @@ def render_stage_02a_evidence_summary_sections(
 - delta_3:
   - source 给出 P0/P1/P2; analysis 明确 exclusion logic 与闭环优先级
 - delta_4:
-  - source 给出用户流程; analysis 补上 actor/system/state 关系"""
-    return render_evidence_chain_sections(
-        ledger_heading="## 20. Minimal Reasoning Unit Ledger",
-        material_heading="## 23. Material Grounding Bridge",
-        snapshot_heading="## 25. Skill Asset Ingestion Snapshot",
-        method_heading="## 24. Method Activation Evidence",
-        source_heading="## 26. Source Evidence Pack",
-        reasoning_units=reasoning_units,
-        context=context,
-        skill_assets=skill_assets,
-        snapshot_runtime_use_rules=[
-            "the value loop was articulated before selecting the panorama structure",
-            "at least two structure candidates were compared before freeze",
-            "stakeholder, scenario, and persona assets materially shaped the structural panorama",
-            "constraint stress-test and priority split remained analytical rather than cosmetic",
-        ],
-        source_evidence_blocks=source_evidence_blocks,
-        extra_sections_after_ledger=[stakeholder_section, delta_section],
-        snapshot_before_method=False,
-    )
+  - source 给出用户流程; analysis 补上 actor/system/state 关系
+
+{render_material_grounding_bridge("## 23. Material Grounding Bridge", skill_assets, context)}
+
+{render_method_activation_evidence("## 24. Method Activation Evidence", reasoning_units, context=context)}
+
+{render_skill_asset_snapshot(
+    "## 25. Skill Asset Ingestion Snapshot",
+    skill_assets,
+    [
+        "the value loop was articulated before selecting the panorama structure",
+        "at least two structure candidates were compared before freeze",
+        "stakeholder, scenario, and persona assets materially shaped the structural panorama",
+        "constraint stress-test and priority split remained analytical rather than cosmetic",
+    ],
+    context,
+)}
+
+## 26. Source Evidence Pack
+{demote_headings(h23)}
+
+{demote_headings(h31)}
+
+{demote_headings(h32)}
+
+{demote_headings(h33)}
+
+{demote_headings(h34)}
+
+{demote_headings(h41)}
+
+{demote_headings(h43)}
+
+{demote_headings(h7p0)}
+
+{demote_headings(h7p1)}
+
+{demote_headings(h7p2)}
+
+{demote_headings(h8)}
+
+{demote_headings(h51)}
+
+{demote_headings(h52)}
+
+{demote_headings(h53)}
+
+{demote_headings(h61)}
+
+{demote_headings(h62)}
+"""
 
 
-def build_stage_02a_reasoning_units(
-    *,
-    workflow_chain: str,
-    flows: list[dict[str, object]],
-    stress_technical: str,
-    stress_resource: str,
-    value_pressure: str,
-    skill_assets: dict[str, object] | None = None,
-) -> list[dict[str, object]]:
-    stage_skill_assets = skill_assets if skill_assets is not None else load_stage_skill_assets("stage_02a")
-    return build_material_grounded_reasoning_units(
-        [
-            build_reasoning_unit(
-                "Structure Choice", "chosen panorama structure", "structured -> compared -> freeze",
-                "screen-first or role-first framing could hide the real workflow chain",
-                ("structure comparison + workflow panorama selection", ["whole-picture requirements structure", "story-map construction"], "compare screen-first, role-first, and workflow-first views against source-defined business flow"),
-                (["screen-first", "role-first", "workflow-first"], f"fast cataloging vs preserving the real business chain and source-grounded value pressure `{value_pressure}`", f"selected `workflow-first` around `{workflow_chain}` so the product can preserve `{value_pressure}` instead of collapsing into detached surfaces"),
-                (f"source module matrix forms `{workflow_chain}`", "actor and object continuity matter more than standalone pages", "Stage-02a keeps workflow as the backbone"),
-                ("provisional", "some state transitions still need deeper spec work in Stage-02b", "Stage-02b and Stage-03 must preserve the same backbone ordering", "workflow shape is now specific enough to constrain deeper design"),
-            ),
-            build_reasoning_unit(
-                "Scenario and Backbone Decomposition", "backbone activities and scenarios", "structured -> decomposed -> freeze",
-                "high-level flow narrative was not enough to drive design requirements",
-                ("backbone decomposition + scenario analysis", ["structured analysis note building"], "split the primary workflow into backbone steps, scenarios, and handoff-sensitive paths"),
-                ([flow.get("name", "Primary Flow") for flow in flows[:3]] or ["source-defined primary flow"], "compact narrative vs explicit handoff detail", "expanded the source flows into scenarios, key paths, and design requirements"),
-                (f"source defines `{len(flows)}` primary business flows", "each flow requires explicit trigger, completion condition, and exception handling", "Stage-02a preserves scenario-level structure instead of only listing modules"),
-                ("provisional", "edge-case exceptions still need Stage-02b payload and state modeling", "Stage-02b should deepen the contracts exposed here", "scenario decomposition is sufficient for structural analysis and slicing input"),
-            ),
-            build_reasoning_unit(
-                "Constraint and Priority Discipline", "constraint stress-test and priority split", "structured -> stress-tested -> freeze",
-                "scope could drift beyond the first viable workflow loop",
-                ("constraint-first analysis + priority discipline", ["evidence-aware requirement framing", "value / adaptation constraint discipline"], "test business, technical, and scope pressure against the chosen workflow backbone and P0 focus"),
-                (["keep strict P0/P1/P2 split", "expand P0 with deferred scope"], "broader scope vs first-loop integrity", "kept P0 focused on the shortest viable loop and preserved out-of-scope items explicitly"),
-                (f"source constraints include `{stress_technical}`", f"source out-of-scope includes `{stress_resource}`", "preserve explicit exclusion logic and avoid silent scope creep"),
-                ("review-bound", "real implementation cost may still force further reprioritization", "Stage-03 must inherit the same cutline and honesty rules", "priority logic is explicit enough for downstream slicing"),
-            ),
-            build_reasoning_unit(
-                "Persona and NFR Carryover Alignment", "persona paths and NFR initial identification", "structured -> aligned -> freeze",
-                "persona paths and NFR signals could stay detached from the chosen backbone",
-                ("persona path alignment + NFR carryover check", ["whole-picture requirements structure", "structured analysis note building"], "bind role paths, implicit design requirements, and NFR scan signals back to the chosen workflow backbone"),
-                (["persona detail as side note", "persona/NFR alignment as structural input"], "lighter structural draft vs explicit downstream design pressure", "kept persona paths and NFR scan as first-class structural consequences of the backbone"),
-                (f"source roles must traverse `{workflow_chain}`", "detached persona or NFR notes create false structural completeness", "Stage-02a keeps actor path and NFR alignment visible before deeper specification"),
-                ("review-bound", "some role-specific exception paths still need Stage-02b detail", "Stage-02b should preserve both persona path pressure and NFR scan consequences", "persona/NFR alignment is explicit enough for downstream use"),
-            ),
-        ],
-        stage_skill_assets,
-    )
-
-
-def build_stage_02b_specification_context(
-    *,
-    source_context: dict[str, object],
-    h42: str,
-    objectives: list[str],
-    nfrs: list[str],
-    modules: list[dict[str, str]],
-    objects: list[dict[str, str]],
-    flows: list[dict[str, object]],
-    navigation_surfaces: list[str],
-    module_chain: str,
-) -> Stage02bSpecificationContext:
+def build_stage_02b(source_text: str, version: str, owner: str) -> str:
+    h23 = find_h2_block(source_text, r"2\.3\s+研究对象/目标用户边界")
+    h42 = find_h2_block(source_text, r"4\.2\s+指标口径最小定义")
+    h_features = find_h2_block(source_text, r"🛠️\s*产品必须实现的核心功能")
+    h_ui = find_h2_block(source_text, r"📱\s*详细产品功能设计")
+    h_adv = find_h2_block(source_text, r"🚀\s*产品优势")
+    context = extract_domain_context(source_text)
+    business_world_model = build_business_world_model(source_text)
+    product_label = context["product_label"]
+    roles = context["roles"]
+    modules = context["modules"]
+    objects = context["objects"]
+    flows = context["flows"]
+    objectives = context["objectives"] or ["preserve the source-defined workflow chain"]
+    nfrs = context["nfrs"] or ["source-defined reliability requirement", "source-defined usability requirement"]
+    out_of_scope = context["out_of_scope"] or ["source-defined deferred capability"]
+    navigation_surfaces = context["navigation_surfaces"]
+    primary_actor = roles[0]["Role"] if roles else "primary operator"
+    module_chain = " -> ".join(str(row.get("module", "")).strip() for row in modules if str(row.get("module", "")).strip()) or "source-defined workflow"
     nfr_lines = "\n".join(f"- source_nfr: {item}" for item in nfrs[:6])
-    primary_flow_name = dict_sequence_field_text(flows, 0, "name", "Primary Flow")
     nfr_reasoning_rows = "\n".join(
-        f"| {preserved_display_label(item, fallback='Quality Attribute')} | {item} | weakens source workflow continuity | {primary_flow_name} | must stay visible in first-wave specification |"
+        f"| {preserved_display_label(item, fallback='Quality Attribute')} | {item} | weakens source workflow continuity | {flows[0]['name'] if flows else 'Primary Flow'} | must stay visible in first-wave specification |"
         for item in nfrs[:5]
     )
     metric_seed = flatten_bullets(h42, 6) or objectives[:4] or ["source-defined metric or outcome signal"]
@@ -3699,110 +3527,144 @@ def build_stage_02b_specification_context(
         f"  - {modules[idx].get('module', 'module')} -> {modules[idx + 1].get('module', 'next module')}:\n    - why: source workflow requires continuity\n    - what: {modules[idx].get('output', 'source output')}\n    - constraints: {modules[idx].get('architectural note', modules[idx].get('architectural_note', 'preserve source-defined boundary'))}"
         for idx in range(max(0, min(len(modules) - 1, 5)))
     )
-    screen_precursor_lines = "\n".join(
-        f"  - {surface}: preserve source-defined object continuity" for surface in navigation_surfaces
-    )
+    screen_precursor_lines = "\n".join(f"  - {surface}: preserve source-defined object continuity" for surface in navigation_surfaces)
     screen_object_lines = "\n".join(
         f"  - {surface} -> {objects[idx % len(objects)]['Object'] if objects else 'Business Object'}"
         for idx, surface in enumerate(navigation_surfaces)
     )
+    payload_heading = payload_contract_heading_from_context(context)
+    deferred_heading = deferred_seam_heading_from_context(context)
     module_token_seen: set[str] = set()
     object_token_seen: set[str] = set()
     er_rows = "\n".join(
         f"    M_{unique_ascii_token(str(objects[idx]['Owner Module']), fallback_values=[str(objects[idx]['Object'])], prefix='module', index=idx, existing=module_token_seen).upper()} ||--o{{ O_{unique_ascii_token(str(objects[idx]['Object']), fallback_values=[str(objects[idx]['Owner Module'])], prefix='object', index=idx, existing=object_token_seen).upper()} : owns"
         for idx in range(min(len(objects), 6))
     )
-    return Stage02bSpecificationContext(
-        nfr_lines=nfr_lines,
-        nfr_reasoning_rows=nfr_reasoning_rows,
-        metric_rows=metric_rows,
-        subsystem_lines=subsystem_lines,
-        subsystem_interface_lines=subsystem_interface_lines,
-        screen_precursor_lines=screen_precursor_lines,
-        screen_object_lines=screen_object_lines,
-        payload_heading=payload_contract_heading_from_context(source_context),
-        deferred_heading=deferred_seam_heading_from_context(source_context),
-        er_rows=er_rows,
-    )
+    skill_assets = load_stage_skill_assets("stage_02b")
+    reasoning_units = [
+        {
+            "title": "Quality Attribute Prioritization",
+            "artifact_unit": "NFR prioritization reasoning",
+            "loop_round_state": "structured -> prioritized -> freeze",
+            "weakness_trigger": "quality attributes could remain generic and disconnected from the workflow",
+            "method_family": "NFR prioritization + reverse-risk mapping",
+            "method_assets": [
+                "quality-scenario framing",
+                "reverse-risk thinking for NFR prioritization",
+            ],
+            "reasoning_operator": "prioritize attributes by workflow breakage risk rather than by abstract completeness",
+            "material_grounding": material_grounding_lines(skill_assets),
+            "alternatives_compared": [preserved_display_label(item, fallback="Quality Attribute") for item in nfrs[:4]],
+            "tradeoff_or_tension": "broad quality coverage vs first-wave specification focus",
+            "decision_effect": f"kept quality reasoning anchored to `{module_chain}` and `{flows[0]['name'] if flows else 'Primary Flow'}`",
+            "evidence_classification": [
+                f"observed fact: source declares NFRs `{'; '.join(nfrs[:3])}`",
+                "interpreted pattern: weak quality attributes break workflow continuity before they break edge-case scale",
+                "decision: Stage-02b prioritizes reverse-risk on the main loop",
+            ],
+            "evidence_state": "provisional",
+            "remaining_unknown": "deeper quantitative thresholds still need later hardening",
+            "downstream_handoff": "Stage-03 and Stage-04 should reuse the same critical attributes and wording",
+            "freeze_rationale": "quality priorities are explicit enough for specification deepening",
+        },
+        {
+            "title": "Domain and Subsystem Boundaries",
+            "artifact_unit": "domain model + subsystem boundaries",
+            "loop_round_state": "structured -> modeled -> freeze",
+            "weakness_trigger": "modules and objects could remain separate lists without boundary semantics",
+            "method_family": "domain modeling + subsystem boundary analysis",
+            "method_assets": [
+                "conceptual domain modeling",
+                "business subsystem boundary identification",
+            ],
+            "reasoning_operator": "bind objects, modules, and outputs into explicit subsystem seams",
+            "material_grounding": material_grounding_lines(skill_assets),
+            "alternatives_compared": [str(row.get("module", "module")) for row in modules[:4]],
+            "tradeoff_or_tension": "simple lists vs durable object and subsystem seams",
+            "decision_effect": "modeled object ownership and handoff boundaries directly from the source module chain",
+            "evidence_classification": [
+                f"observed fact: source module matrix names `{module_chain}`",
+                "interpreted pattern: explicit seams prevent later re-invention of ownership and payload contracts",
+                "decision: keep subsystem boundaries visible in Stage-02b",
+            ],
+            "evidence_state": "provisional",
+            "remaining_unknown": "field-level lifecycle rules still need architecture-level deepening",
+            "downstream_handoff": "payload contract 与 IA 必须保留同一套子系统边界逻辑",
+            "freeze_rationale": "boundary model is sufficient for first-wave specification work",
+        },
+        {
+            "title": "IA and Deferred Seam Discipline",
+            "artifact_unit": "IA direction + deferred capability seam",
+            "loop_round_state": "structured -> stress-tested -> freeze",
+            "weakness_trigger": "IA could drift away from workflow, and deferred scope could disappear from the spec",
+            "method_family": "IA decision comparison + deferred seam preservation",
+            "method_assets": [
+                "information-architecture direction setting",
+                "deferred seam design for attribution / conversion",
+            ],
+            "reasoning_operator": "compare organizing axes, then keep out-of-scope capabilities visible as explicit seams",
+            "material_grounding": material_grounding_lines(skill_assets),
+            "alternatives_compared": ["entity-first", "role-first", "workflow-first"],
+            "tradeoff_or_tension": "cleaner navigation vs preserving workflow and future extension honesty",
+            "decision_effect": "selected workflow-first IA and preserved future capabilities as deferred seams",
+            "evidence_classification": [
+                f"observed fact: source out-of-scope includes `{out_of_scope[0]}`",
+                "interpreted pattern: hiding deferred items creates false completeness for downstream teams",
+                "decision: IA and seam decisions stay coupled to the workflow backbone",
+            ],
+            "evidence_state": "review-bound",
+            "remaining_unknown": "some later capabilities may need richer interface reservation",
+            "downstream_handoff": "Stage-03 can slice safely without silently dropping future seams",
+            "freeze_rationale": "IA and seam logic are explicit enough for re-audit",
+        },
+        {
+            "title": "Payload and Workflow Mapping Integrity",
+            "artifact_unit": "workflow mapping + interface payload preservation",
+            "loop_round_state": "structured -> cross-checked -> freeze",
+            "weakness_trigger": "workflow mapping, payloads, and screen surfaces could drift apart under recompile pressure",
+            "method_family": "contract integrity cross-check",
+            "method_assets": [
+                "source-capability-to-payload recompilation",
+                "specification stress-test against Stage-03 slicing",
+            ],
+            "reasoning_operator": "cross-check module outputs, object-to-workflow mapping, and IA precursor surfaces against the same first-wave chain",
+            "material_grounding": material_grounding_lines(skill_assets),
+            "alternatives_compared": ["independent tables", "shared contract spine across tables"],
+            "tradeoff_or_tension": "faster isolated sections vs one consistent contract spine",
+            "decision_effect": "kept payload, mapping, and IA evidence tied to the same module chain",
+            "evidence_classification": [
+                f"observed fact: source outputs must traverse `{module_chain}`",
+                "interpreted pattern: inconsistent mapping tables cause downstream architecture drift",
+                "decision: Stage-02b preserves one shared contract spine across deep-spec sections",
+            ],
+            "evidence_state": "review-bound",
+            "remaining_unknown": "field-level validation and export rules still need implementation-facing hardening",
+            "downstream_handoff": "Stage-03 and PRD assembly should preserve the same payload and mapping spine",
+            "freeze_rationale": "cross-table integrity is explicit enough for downstream use",
+        },
+    ]
 
+    return f"""# Stage-02b Output — requirements-specification-deepening (deep-compiled)
 
-def render_stage_02b_core_specification_sections(
-    *,
-    specification_context: Stage02bSpecificationContext,
-    domain_context: dict[str, object],
-    primary_actor: str,
-    module_chain: str,
-    objects: list[dict[str, str]],
-    navigation_surfaces: list[str],
-    modules: list[dict[str, str]],
-    skip_stub_context: Stage02bSkipStubContext | None = None,
-) -> str:
-    return "\n\n".join(
-        [
-            render_stage_02b_quality_specification_sections(
-                specification_context=specification_context,
-                primary_actor=primary_actor,
-                module_chain=module_chain,
-                skip_stub_context=skip_stub_context,
-            ),
-            render_stage_02b_domain_model_sections(
-                specification_context=specification_context,
-                domain_context=domain_context,
-                module_chain=module_chain,
-                objects=objects,
-                skip_stub_context=skip_stub_context,
-            ),
-            render_stage_02b_ia_interface_sections(
-                specification_context=specification_context,
-                domain_context=domain_context,
-                module_chain=module_chain,
-                navigation_surfaces=navigation_surfaces,
-                modules=modules,
-                skip_stub_context=skip_stub_context,
-            ),
-        ]
-    )
+## 1. Document Metadata
+- document_name: `{product_label} Phase-1 Trial Stage-02b Specification Deepening {version}`
+- stage: `requirements-specification-deepening`
+- version: `{version}`
+- status: `provisional`
+- owner: `{owner}`
+- source_status: `mixed`
 
+{render_traceability_block("stage_02b")}
 
-def render_stage_02b_execution_state_section() -> str:
-    return """## 1.2 Stage Execution State
-- execution_state: `skipped`
-- execution_mode:
-  - `minimum-viable skip stub`
-- skip_rationale:
-  - Full Stage-02b deepening was intentionally skipped in this run to validate Admission Matrix `02b-skip` handling; this artifact preserves the minimum viable NFR / domain / IA / payload truth needed so Phase-2 is not forced to invent critical structure from scratch.
-- safe_use_boundary:
-  - Use this artifact as a constrained handoff bridge for Phase-2 safe start and Stage-03/04 continuity, not as proof that Stage-02b deepening has been fully completed.
-- non_equivalence_to_full_stage:
-  - Full quality-scenario deepening, stronger metric interpretation contracts, deeper object lifecycle hardening, and IA contract freeze remain review-bound and must be re-checked in Phase-2."""
+{render_semantic_authoring_spine_section(business_world_model)}
 
-
-def render_stage_02b_quality_specification_sections(
-    *,
-    specification_context: Stage02bSpecificationContext,
-    primary_actor: str,
-    module_chain: str,
-    skip_stub_context: Stage02bSkipStubContext | None = None,
-) -> str:
-    skip_note = (
-        """- fallback_origin:
-  - `compiled from Stage-02a nfr_initial_identification + source metric / workflow evidence`
-- minimum_viable_intent:
-  - Preserve just enough NFR truth that Stage-03 slicing and Phase-2 architecture do not start blind.
-- honesty_note:
-  - This section is a skip-derived fallback, not a claim that Stage-02b quality deepening has been fully executed.
-"""
-        if skip_stub_context
-        else ""
-    )
-    quality_intro = f"{skip_note}\n" if skip_note else ""
-    return f"""## 2. NFR / Quality Requirements
-{quality_intro}{specification_context.nfr_lines}
+## 2. NFR / Quality Requirements
+{nfr_lines}
 
 ## 3. NFR Prioritization Reasoning
 | attribute | why prioritized now | reverse risk if weak | affected scenario | MVP consequence |
 |---|---|---|---|---|
-{specification_context.nfr_reasoning_rows}
+{nfr_reasoning_rows}
 - deprioritized_attributes:
   - low-frequency enhancement work
   - cross-context expansion not required by current source
@@ -3818,29 +3680,10 @@ def render_stage_02b_quality_specification_sections(
 ## 5. Metric Definition and Interpretation Register
 | metric | meaning | first-wave use | interpretation risk | mitigation |
 |---|---|---|---|---|
-{specification_context.metric_rows}"""
+{metric_rows}
 
-
-def render_stage_02b_domain_model_sections(
-    *,
-    specification_context: Stage02bSpecificationContext,
-    domain_context: dict[str, object],
-    module_chain: str,
-    objects: list[dict[str, str]],
-    skip_stub_context: Stage02bSkipStubContext | None = None,
-) -> str:
-    skip_note = (
-        """- domain_model_state:
-  - `partial-from-02a-and-source`
-- safe_interpretation_rule:
-  - The object chain below is preserved so downstream design/architecture can start from explicit entities and relationships, but field-level contracts and lifecycle edge cases remain review-bound.
-"""
-        if skip_stub_context
-        else ""
-    )
-    domain_intro = f"{skip_note}\n" if skip_note else ""
-    return f"""## 6. Domain Model Direction
-{domain_intro}- core entities:
+## 6. Domain Model Direction
+- core entities:
 {chr(10).join(f"  - {row['Object']}" for row in objects[:10])}
 - relationship direction:
   - {module_chain}
@@ -3852,7 +3695,7 @@ def render_stage_02b_domain_model_sections(
 ## 7. Conceptual ER Diagram
 ```mermaid
 erDiagram
-{specification_context.er_rows}
+{er_rows}
 ```
 
 ## 8. Key Relationships and Data Characteristics
@@ -3868,44 +3711,16 @@ erDiagram
 - applicable:
   - `yes`
 - subsystems:
-{specification_context.subsystem_lines}
+{subsystem_lines}
 - subsystem_interfaces:
-{specification_context.subsystem_interface_lines}
-{render_stage02b_domain_boundary_honesty_lines(domain_context)}
+{subsystem_interface_lines}
+{render_stage02b_domain_boundary_honesty_lines(context)}
 
 ## 10. Object-to-Workflow Mapping
-{render_object_workflow_rows(domain_context)}"""
+{render_object_workflow_rows(context)}
 
-
-def render_stage_02b_ia_interface_sections(
-    *,
-    specification_context: Stage02bSpecificationContext,
-    domain_context: dict[str, object],
-    module_chain: str,
-    navigation_surfaces: list[str],
-    modules: list[dict[str, str]],
-    skip_stub_context: Stage02bSkipStubContext | None = None,
-) -> str:
-    ia_note = (
-        """- ia_direction_state:
-  - `partial-from-02a-and-source`
-- safe_interpretation_rule:
-  - Workflow-first IA remains the current safe direction, but page-level detail and state completeness should still be treated as constrained and prototype-validated rather than frozen.
-"""
-        if skip_stub_context
-        else ""
-    )
-    ia_intro = f"{ia_note}\n" if ia_note else ""
-    payload_note = (
-        """- skip_mode_preservation_rule:
-  - Even when Stage-02b is skipped, module interface payload structure cannot disappear; otherwise workflow handoff semantics collapse and Phase-2 would be forced to re-invent core execution semantics.
-"""
-        if skip_stub_context
-        else ""
-    )
-    payload_intro = f"{payload_note}\n" if payload_note else ""
-    return f"""## 11. Information Architecture Direction
-{ia_intro}- organization:
+## 11. Information Architecture Direction
+- organization:
   - workflow-first + object-traceable
 - navigation:
   - {' / '.join(navigation_surfaces)}
@@ -3914,9 +3729,9 @@ def render_stage_02b_ia_interface_sections(
 - IA impact:
   - 页面与模块边界必须围绕 `{module_chain}` 的可执行链路。
 - screen spec precursor:
-{specification_context.screen_precursor_lines}
+{screen_precursor_lines}
 - screen/object matrix:
-{specification_context.screen_object_lines}
+{screen_object_lines}
 
 ## 12. IA Decision Alternatives Comparison
 | alternative | organizing axis | strength | failure risk | verdict |
@@ -3926,116 +3741,25 @@ def render_stage_02b_ia_interface_sections(
 | workflow-first | 按 {' -> '.join(navigation_surfaces[:6])} | 最贴近首版闭环认知 | 需要更强对象映射约束 | chosen |
 
 ## 13. IA Spec Precursor Matrix
-{render_screen_navigation_rows(domain_context)}
+{render_screen_navigation_rows(context)}
 
 ## 14. Module Responsibility Matrix
 {render_module_matrix_rows(modules)}
 
-## 15. {specification_context.payload_heading}
-{payload_intro}- contract_rule:
+## 15. {payload_heading}
+- contract_rule:
   - 每个模块都必须把 source 中定义的输入和输出保留为结构化 payload，避免下游模块依赖人工重建上下文。
-{render_interface_payload_rows(domain_context)}
+{render_interface_payload_rows(context)}
 
-## 16. {specification_context.deferred_heading}
+## 16. {deferred_heading}
 - seam_rule:
   - source 已明确声明的未来阶段能力不能写成空白，必须保留 seam 说明，避免后续为了扩展而重写对象链。
-{render_deferred_seam_rows(domain_context)}
+{render_deferred_seam_rows(context)}
 - downstream_rule:
-  - architecture 可以先声明 seam entity/interface，但不得把未来能力写入 MVP acceptance promise。"""
+  - architecture 可以先声明 seam entity/interface，但不得把未来能力写入 MVP acceptance promise。
 
-
-def build_stage_02b_quality_and_domain_reasoning_units(
-    *,
-    nfrs: list[str],
-    module_chain: str,
-    primary_flow_name: str,
-    module_names: list[str],
-) -> list[dict[str, object]]:
-    return [
-        build_reasoning_unit(
-            "Quality Attribute Prioritization", "NFR prioritization reasoning", "structured -> prioritized -> freeze",
-            "quality attributes could remain generic and disconnected from the workflow",
-            ("NFR prioritization + reverse-risk mapping", ["quality-scenario framing", "reverse-risk thinking for NFR prioritization"], "prioritize attributes by workflow breakage risk rather than by abstract completeness"),
-            ([preserved_display_label(item, fallback="Quality Attribute") for item in nfrs[:4]], "broad quality coverage vs first-wave specification focus", f"kept quality reasoning anchored to `{module_chain}` and `{primary_flow_name}`"),
-            (f"source declares NFRs `{'; '.join(nfrs[:3])}`", "weak quality attributes break workflow continuity before they break edge-case scale", "Stage-02b prioritizes reverse-risk on the main loop"),
-            ("provisional", "deeper quantitative thresholds still need later hardening", "Stage-03 and Stage-04 should reuse the same critical attributes and wording", "quality priorities are explicit enough for specification deepening"),
-        ),
-        build_reasoning_unit(
-            "Domain and Subsystem Boundaries", "domain model + subsystem boundaries", "structured -> modeled -> freeze",
-            "modules and objects could remain separate lists without boundary semantics",
-            ("domain modeling + subsystem boundary analysis", ["conceptual domain modeling", "business subsystem boundary identification"], "bind objects, modules, and outputs into explicit subsystem seams"),
-            (module_names, "simple lists vs durable object and subsystem seams", "modeled object ownership and handoff boundaries directly from the source module chain"),
-            (f"source module matrix names `{module_chain}`", "explicit seams prevent later re-invention of ownership and payload contracts", "keep subsystem boundaries visible in Stage-02b"),
-            ("provisional", "field-level lifecycle rules still need architecture-level deepening", "payload contract 与 IA 必须保留同一套子系统边界逻辑", "boundary model is sufficient for first-wave specification work"),
-        ),
-    ]
-
-
-def build_stage_02b_ia_and_payload_reasoning_units(
-    *,
-    module_chain: str,
-    deferred_scope: str,
-) -> list[dict[str, object]]:
-    return [
-        build_reasoning_unit(
-            "IA and Deferred Seam Discipline", "IA direction + deferred capability seam", "structured -> stress-tested -> freeze",
-            "IA could drift away from workflow, and deferred scope could disappear from the spec",
-            ("IA decision comparison + deferred seam preservation", ["information-architecture direction setting", "deferred seam design for attribution / conversion"], "compare organizing axes, then keep out-of-scope capabilities visible as explicit seams"),
-            (["entity-first", "role-first", "workflow-first"], "cleaner navigation vs preserving workflow and future extension honesty", "selected workflow-first IA and preserved future capabilities as deferred seams"),
-            (f"source out-of-scope includes `{deferred_scope}`", "hiding deferred items creates false completeness for downstream teams", "IA and seam decisions stay coupled to the workflow backbone"),
-            ("review-bound", "some later capabilities may need richer interface reservation", "Stage-03 can slice safely without silently dropping future seams", "IA and seam logic are explicit enough for re-audit"),
-        ),
-        build_reasoning_unit(
-            "Payload and Workflow Mapping Integrity", "workflow mapping + interface payload preservation", "structured -> cross-checked -> freeze",
-            "workflow mapping, payloads, and screen surfaces could drift apart under recompile pressure",
-            ("contract integrity cross-check", ["source-capability-to-payload recompilation", "specification stress-test against Stage-03 slicing"], "cross-check module outputs, object-to-workflow mapping, and IA precursor surfaces against the same first-wave chain"),
-            (["independent tables", "shared contract spine across tables"], "faster isolated sections vs one consistent contract spine", "kept payload, mapping, and IA evidence tied to the same module chain"),
-            (f"source outputs must traverse `{module_chain}`", "inconsistent mapping tables cause downstream architecture drift", "Stage-02b preserves one shared contract spine across deep-spec sections"),
-            ("review-bound", "field-level validation and export rules still need implementation-facing hardening", "Stage-03 and PRD assembly should preserve the same payload and mapping spine", "cross-table integrity is explicit enough for downstream use"),
-        ),
-    ]
-
-
-def build_stage_02b_reasoning_units(
-    *,
-    nfrs: list[str],
-    module_chain: str,
-    flows: list[dict[str, object]],
-    modules: list[dict[str, str]],
-    out_of_scope: list[str],
-    skill_assets: dict[str, object] | None = None,
-) -> list[dict[str, object]]:
-    stage_skill_assets = skill_assets if skill_assets is not None else load_stage_skill_assets("stage_02b")
-    primary_flow_name = dict_sequence_field_text(flows, 0, "name", "Primary Flow")
-    deferred_scope = sequence_item_text(out_of_scope, 0, "source-defined deferred capability")
-    module_names = [str(row.get("module", "module")) for row in modules[:4]]
-    return build_material_grounded_reasoning_units(
-        [
-            *build_stage_02b_quality_and_domain_reasoning_units(
-                nfrs=nfrs,
-                module_chain=module_chain,
-                primary_flow_name=primary_flow_name,
-                module_names=module_names,
-            ),
-            *build_stage_02b_ia_and_payload_reasoning_units(
-                module_chain=module_chain,
-                deferred_scope=deferred_scope,
-            ),
-        ],
-        stage_skill_assets,
-    )
-
-
-def render_stage_02b_specification_stress_test(skip_stub_context: Stage02bSkipStubContext | None = None) -> str:
-    skip_warning = (
-        """- skip_specific_warning:
-  - Because this run used a skip stub, the stress-test below must be read as a bounded guardrail set, not as proof that all specification tensions were fully exhausted.
-"""
-        if skip_stub_context
-        else ""
-    )
-    return f"""## 17. Specification Stress-Test
-{skip_warning}- blind spot 1:
+## 17. Specification Stress-Test
+- blind spot 1:
   - 若缺乏 domain relationship，Stage-03 容易退化为 feature-list 切片。
 - blind spot 2:
   - 若缺乏 metric definition，Stage-04 的判定信号会失真。
@@ -4044,11 +3768,9 @@ def render_stage_02b_specification_stress_test(skip_stub_context: Stage02bSkipSt
 - blind spot 4:
   - 若模块输入输出没有单独契约，后续扩展与审计都会困难。
 - verdict:
-  - `passed with review-bound constraints`"""
+  - `passed with review-bound constraints`
 
-
-def render_stage_02b_deepening_loop_log() -> str:
-    return """## 18. Deepening Loop Log
+## 18. Deepening Loop Log
 - loop_state:
   - `S-review-bound-freeze`
 - rounds_executed:
@@ -4065,11 +3787,11 @@ def render_stage_02b_deepening_loop_log() -> str:
   - round_3:
     - refined: `IA direction + screen/object dependency`
     - alternatives_compared: `workflow-first vs entity-first`
-    - outcome: `freeze`"""
+    - outcome: `freeze`
 
+{render_reasoning_unit_ledger("## 19. Minimal Reasoning Unit Ledger", reasoning_units, context=context)}
 
-def render_stage_02b_requirement_analysis_delta_summary() -> str:
-    return """## 20. Requirement Analysis Delta Summary
+## 20. Requirement Analysis Delta Summary
 - delta_1:
   - source列出核心功能; analysis提炼出对象链与模块责任
 - delta_2:
@@ -4079,420 +3801,37 @@ def render_stage_02b_requirement_analysis_delta_summary() -> str:
 - delta_4:
   - source给出模块输入输出; analysis把它们编译成 interface payload contract
 - delta_5:
-  - source给出 future/deferred 能力; analysis把它们保留为 deferred capability seam，而不是直接丢失或假装首版可实现"""
+  - source给出 future/deferred 能力; analysis把它们保留为 deferred capability seam，而不是直接丢失或假装首版可实现
 
+{render_material_grounding_bridge("## 21. Material Grounding Bridge", skill_assets, context)}
 
-def stage_02b_evidence_summary_headings(
-    skip_stub_context: Stage02bSkipStubContext | None,
-) -> tuple[str, str | None, list[str] | None]:
-    if not skip_stub_context:
-        return "## 24. Source Evidence Pack", None, None
-    return (
-        "## 25. Source Evidence Pack",
-        "## 24. Stage-02a Carryover Evidence",
-        [skip_stub_context.stage_02a_nfr, skip_stub_context.stage_02a_value_loop],
-    )
+{render_method_activation_evidence("## 22. Method Activation Evidence", reasoning_units, context=context)}
 
-
-def render_stage_02b_evidence_summary_sections(
-    *,
-    reasoning_units: list[dict[str, str | list[str]]],
-    context: dict[str, object],
-    skill_assets: dict[str, object],
-    source_evidence_blocks: list[str],
-    skip_stub_context: Stage02bSkipStubContext | None = None,
-) -> str:
-    source_heading, upstream_heading, upstream_evidence_blocks = stage_02b_evidence_summary_headings(skip_stub_context)
-    evidence_chain = render_evidence_chain_sections(
-        ledger_heading="## 19. Minimal Reasoning Unit Ledger",
-        material_heading="## 21. Material Grounding Bridge",
-        snapshot_heading="## 23. Skill Asset Ingestion Snapshot",
-        method_heading="## 22. Method Activation Evidence",
-        source_heading=source_heading,
-        reasoning_units=reasoning_units,
-        context=context,
-        skill_assets=skill_assets,
-        snapshot_runtime_use_rules=[
-            "at least three material quality attributes were prioritized with reverse-risk reasoning",
-            "conceptual domain modeling and subsystem thinking were derived from Stage-02a scenarios",
-            "IA direction decisions were treated as architecture-constraining choices rather than page sketches",
-            "module input/output details were recompiled into a structured payload contract instead of generic advice",
-            "deferred capabilities were preserved as extension seams instead of being silently dropped",
-            "the specification stress-test made Stage-03 slicing consequences explicit",
-        ],
-        source_evidence_blocks=source_evidence_blocks,
-        upstream_heading=upstream_heading,
-        upstream_evidence_blocks=upstream_evidence_blocks,
-        extra_sections_after_ledger=[render_stage_02b_requirement_analysis_delta_summary()],
-        snapshot_before_method=False,
-    )
-    return "\n\n".join(
-        [
-            render_stage_02b_specification_stress_test(skip_stub_context),
-            render_stage_02b_deepening_loop_log(),
-            evidence_chain,
-        ]
-    )
-
-
-def build_stage_02a_analysis_blocks(
-    source_bundle: Stage02aSourceBundle,
-    structural_mapping_context: Stage02aStructuralMappingContext,
-) -> Stage02aAnalysisBlocks:
-    return Stage02aAnalysisBlocks(
-        scenario_decomposition=build_stage_02a_scenario_decomposition_block(
-            flows=source_bundle.flows,
-            primary_segment=source_bundle.primary_segment,
-        ),
-        key_scenario_deep_analysis=build_stage_02a_key_scenario_deep_analysis_block(
-            flows=source_bundle.flows,
-            roles=source_bundle.roles,
-            primary_segment=source_bundle.primary_segment,
-            constraints=source_bundle.constraints,
-        ),
-        persona_context=build_stage_02a_persona_context_block(
-            primary_segment=source_bundle.primary_segment,
-            objectives=source_bundle.objectives,
-            first_flow_steps=structural_mapping_context.first_flow_steps,
-            workflow_chain=source_bundle.workflow_chain,
-            modules=source_bundle.modules,
-        ),
-        design_requirements=build_stage_02a_design_requirements_block(
-            modules=source_bundle.modules,
-            roles=source_bundle.roles,
-            primary_segment=source_bundle.primary_segment,
-        ),
-        nfr_identification=build_stage_02a_nfr_identification_block(
-            primary_segment=source_bundle.primary_segment,
-            workflow_chain=source_bundle.workflow_chain,
-            module_names=source_bundle.module_names,
-            roles=source_bundle.roles,
-            constraints=source_bundle.constraints,
-        ),
-    )
-
-
-def build_stage_02a_render_context(
-    source_text: str,
-    *,
-    source_snapshot: Phase1SourceSnapshot | None = None,
-) -> Stage02aRenderContext:
-    source_bundle = build_stage_02a_source_bundle(source_text, source_snapshot=source_snapshot)
-    structural_mapping_context = build_stage_02a_structural_mapping_context(source_bundle)
-    analysis_blocks = build_stage_02a_analysis_blocks(source_bundle, structural_mapping_context)
-    stakeholder_value_context = build_stage_02a_stakeholder_value_context(
-        context=source_bundle.context,
-        objectives=source_bundle.objectives,
-        constraints=source_bundle.constraints,
-        out_of_scope=source_bundle.out_of_scope,
-        primary_segment=source_bundle.primary_segment,
-        workflow_chain=source_bundle.workflow_chain,
-        roles=source_bundle.roles,
-        module_names=source_bundle.module_names,
-        flows=source_bundle.flows,
-    )
-    skill_assets = load_stage_skill_assets("stage_02a")
-    reasoning_units = build_stage_02a_reasoning_units(
-        workflow_chain=source_bundle.workflow_chain,
-        flows=source_bundle.flows,
-        stress_technical=stakeholder_value_context.stress_technical,
-        stress_resource=stakeholder_value_context.stress_resource,
-        value_pressure=stakeholder_value_context.value_pressure,
-        skill_assets=skill_assets,
-    )
-    return Stage02aRenderContext(
-        source_bundle=source_bundle,
-        structural_mapping_context=structural_mapping_context,
-        analysis_blocks=analysis_blocks,
-        stakeholder_value_context=stakeholder_value_context,
-        skill_assets=skill_assets,
-        reasoning_units=reasoning_units,
-    )
-
-
-def render_stage_02a_opening_and_structure_sections(
-    render_context: Stage02aRenderContext,
-    *,
-    version: str,
-    owner: str,
-) -> str:
-    source_bundle = render_context.source_bundle
-    business_world_model = source_bundle.business_world_model
-    product_label = source_bundle.product_label
-    primary_segment = source_bundle.primary_segment
-    objectives = source_bundle.objectives
-    workflow_chain = source_bundle.workflow_chain
-    structural_mapping_context = render_context.structural_mapping_context
-    supporting_role_lines = structural_mapping_context.supporting_role_lines
-    problem_cluster_lines = structural_mapping_context.problem_cluster_lines
-    opportunity_cluster_lines = structural_mapping_context.opportunity_cluster_lines
-    backbone_lines = structural_mapping_context.backbone_lines
-    process_rows = structural_mapping_context.process_rows
-    primary_step_lines = structural_mapping_context.primary_step_lines
-    actor_system_lines = structural_mapping_context.actor_system_lines
-
-    return f"""{render_stage_document_opening(
-    stage_display="Stage-02a",
-    stage_slug="requirements-structural-analysis",
-    document_suffix="Structural Analysis",
-    product_label=product_label,
-    version=version,
-    owner=owner,
-)}
-
-{render_traceability_block("stage_02a")}
-
-{render_semantic_authoring_spine_section(business_world_model)}
-
-{render_topology_profile_record(business_world_model, inherited=True)}
-
-{render_stage_02a_structure_panorama_sections(
-    primary_segment=primary_segment,
-    supporting_role_lines=supporting_role_lines,
-    objectives=objectives,
-    problem_cluster_lines=problem_cluster_lines,
-    opportunity_cluster_lines=opportunity_cluster_lines,
-    workflow_chain=workflow_chain,
-    backbone_lines=backbone_lines,
-    process_rows=process_rows,
-    primary_step_lines=primary_step_lines,
-    actor_system_lines=actor_system_lines,
-)}
-"""
-
-
-def render_stage_02a_analysis_and_constraint_sections(render_context: Stage02aRenderContext) -> str:
-    source_bundle = render_context.source_bundle
-    analysis_blocks = render_context.analysis_blocks
-    stakeholder_value_context = render_context.stakeholder_value_context
-    return f"""{render_stage_02a_analysis_core_sections(
-    scenario_decomposition_block=analysis_blocks.scenario_decomposition,
-    key_scenario_deep_analysis_block=analysis_blocks.key_scenario_deep_analysis,
-    persona_context_block=analysis_blocks.persona_context,
-    design_requirements_block=analysis_blocks.design_requirements,
-    nfr_identification_block=analysis_blocks.nfr_identification,
-)}
-
-{render_stage_02a_constraint_priority_sections(
-    stress_business=stakeholder_value_context.stress_business,
-    stress_technical=stakeholder_value_context.stress_technical,
-    stress_compliance=stakeholder_value_context.stress_compliance,
-    stress_resource=stakeholder_value_context.stress_resource,
-    workflow_chain=source_bundle.workflow_chain,
-    p0_items=source_bundle.p0_items,
-    p1_items=source_bundle.p1_items,
-    p2_items=source_bundle.p2_items,
-)}
-"""
-
-
-def render_stage_02a_stakeholder_and_evidence_sections(render_context: Stage02aRenderContext) -> str:
-    source_bundle = render_context.source_bundle
-    stakeholder_value_context = render_context.stakeholder_value_context
-    return f"""{render_stage_02a_stakeholder_value_sections(
-    stakeholder_profile_rows=stakeholder_value_context.stakeholder_profile_rows,
-    adoption_chain_lines=stakeholder_value_context.adoption_chain_lines,
-    conflict_map_lines=stakeholder_value_context.conflict_map_lines,
-    value_loop_lines=stakeholder_value_context.value_loop_lines,
-    workflow_chain=source_bundle.workflow_chain,
-)}
-
-{render_stage_02a_structure_stress_test_section(
-    workflow_chain=source_bundle.workflow_chain,
-    stress_resource=stakeholder_value_context.stress_resource,
-)}
-
-{render_stage_02a_evidence_summary_sections(
-    reasoning_units=render_context.reasoning_units,
-    context=source_bundle.context,
-    stakeholder_chain_line=stakeholder_value_context.stakeholder_chain_line,
-    scenario_set_lines=stakeholder_value_context.scenario_set_lines,
-    primary_segment=source_bundle.primary_segment,
-    skill_assets=render_context.skill_assets,
-    source_evidence_blocks=[
-        source_bundle.h23,
-        source_bundle.h31,
-        source_bundle.h32,
-        source_bundle.h33,
-        source_bundle.h34,
-        source_bundle.h41,
-        source_bundle.h43,
-        source_bundle.h7p0,
-        source_bundle.h7p1,
-        source_bundle.h7p2,
-        source_bundle.h8,
-        source_bundle.h51,
-        source_bundle.h52,
-        source_bundle.h53,
-        source_bundle.h61,
-        source_bundle.h62,
+{render_skill_asset_snapshot(
+    "## 23. Skill Asset Ingestion Snapshot",
+    skill_assets,
+    [
+        "at least three material quality attributes were prioritized with reverse-risk reasoning",
+        "conceptual domain modeling and subsystem thinking were derived from Stage-02a scenarios",
+        "IA direction decisions were treated as architecture-constraining choices rather than page sketches",
+        "module input/output details were recompiled into a structured payload contract instead of generic advice",
+        "deferred capabilities were preserved as extension seams instead of being silently dropped",
+        "the specification stress-test made Stage-03 slicing consequences explicit",
     ],
+    context,
 )}
+
+## 24. Source Evidence Pack
+{demote_headings(h23)}
+
+{demote_headings(h42)}
+
+{demote_headings(h_features)}
+
+{demote_headings(h_ui)}
+
+{demote_headings(h_adv)}
 """
-
-
-def render_stage_02a_document(
-    render_context: Stage02aRenderContext,
-    *,
-    version: str,
-    owner: str,
-) -> str:
-    return "\n\n".join(
-        [
-            render_stage_02a_opening_and_structure_sections(render_context, version=version, owner=owner),
-            render_stage_02a_analysis_and_constraint_sections(render_context),
-            render_stage_02a_stakeholder_and_evidence_sections(render_context),
-        ]
-    )
-
-
-def build_stage_02a(
-    source_text: str,
-    version: str,
-    owner: str,
-    *,
-    source_snapshot: Phase1SourceSnapshot | None = None,
-) -> str:
-    return render_stage_02a_document(
-        build_stage_02a_render_context(source_text, source_snapshot=source_snapshot),
-        version=version,
-        owner=owner,
-    )
-
-
-def build_stage_02b_render_context(
-    source_text: str,
-    *,
-    source_snapshot: Phase1SourceSnapshot | None = None,
-) -> Stage02bRenderContext:
-    snapshot = source_snapshot or build_phase1_source_snapshot(source_text)
-    sections = snapshot.sections
-    context = snapshot.context
-    business_world_model = snapshot.business_world_model
-    product_label = snapshot.product_label
-    roles = snapshot.roles
-    modules = snapshot.modules
-    objects = context["objects"]
-    flows = snapshot.flows
-    objectives = context["objectives"] or ["preserve the source-defined workflow chain"]
-    nfrs = context["nfrs"] or ["source-defined reliability requirement", "source-defined usability requirement"]
-    out_of_scope = context["out_of_scope"] or ["source-defined deferred capability"]
-    navigation_surfaces = context["navigation_surfaces"]
-    primary_actor = dict_sequence_field_text(roles, 0, "Role", "primary operator")
-    module_chain = snapshot.module_chain
-    specification_context = build_stage_02b_specification_context(
-        source_context=context,
-        h42=sections.h42,
-        objectives=objectives,
-        nfrs=nfrs,
-        modules=modules,
-        objects=objects,
-        flows=flows,
-        navigation_surfaces=navigation_surfaces,
-        module_chain=module_chain,
-    )
-    skill_assets = load_stage_skill_assets("stage_02b")
-    reasoning_units = build_stage_02b_reasoning_units(
-        nfrs=nfrs,
-        module_chain=module_chain,
-        flows=flows,
-        modules=modules,
-        out_of_scope=out_of_scope,
-        skill_assets=skill_assets,
-    )
-    return Stage02bRenderContext(
-        product_label=product_label,
-        domain_context=context,
-        business_world_model=business_world_model,
-        specification_context=specification_context,
-        primary_actor=primary_actor,
-        module_chain=module_chain,
-        objects=objects,
-        navigation_surfaces=navigation_surfaces,
-        modules=modules,
-        reasoning_units=reasoning_units,
-        skill_assets=skill_assets,
-        source_evidence_blocks=[
-            sections.h23,
-            sections.h42,
-            sections.h_features,
-            sections.h_ui,
-            sections.h_adv,
-        ],
-    )
-
-
-def render_stage_02b_document(
-    render_context: Stage02bRenderContext,
-    *,
-    version: str,
-    owner: str,
-    skip_stub_context: Stage02bSkipStubContext | None = None,
-) -> str:
-    is_skip_stub = skip_stub_context is not None
-    execution_state_section = f"\n\n{render_stage_02b_execution_state_section()}" if is_skip_stub else ""
-    return f"""{render_stage_document_opening(
-    stage_display="Stage-02b",
-    stage_slug="requirements-specification-deepening",
-    document_suffix="Skip-Stub Specification Fallback" if is_skip_stub else "Specification Deepening",
-    product_label=render_context.product_label,
-    version=version,
-    owner=owner,
-    title_state="skip-stub / minimum-viable" if is_skip_stub else "deep-compiled",
-    status="skip-stub" if is_skip_stub else "provisional",
-    source_status="stage_02a-derived-minimum-viable" if is_skip_stub else "mixed",
-)}
-
-{render_traceability_block("stage_02b")}{execution_state_section}
-
-{render_semantic_authoring_spine_section(render_context.business_world_model)}
-
-{render_stage_02b_core_specification_sections(
-    specification_context=render_context.specification_context,
-    domain_context=render_context.domain_context,
-    primary_actor=render_context.primary_actor,
-    module_chain=render_context.module_chain,
-    objects=render_context.objects,
-    navigation_surfaces=render_context.navigation_surfaces,
-    modules=render_context.modules,
-    skip_stub_context=skip_stub_context,
-)}
-
-{render_stage_02b_evidence_summary_sections(
-    reasoning_units=render_context.reasoning_units,
-    context=render_context.domain_context,
-    skill_assets=render_context.skill_assets,
-    source_evidence_blocks=render_context.source_evidence_blocks,
-    skip_stub_context=skip_stub_context,
-)}
-"""
-
-
-def build_stage_02b(
-    source_text: str,
-    version: str,
-    owner: str,
-    *,
-    source_snapshot: Phase1SourceSnapshot | None = None,
-) -> str:
-    return render_stage_02b_document(
-        build_stage_02b_render_context(source_text, source_snapshot=source_snapshot),
-        version=version,
-        owner=owner,
-    )
-
-
-def build_stage_02b_skip_stub_context(
-    source_text: str,
-    stage_02a_text: str,
-    *,
-    source_snapshot: Phase1SourceSnapshot | None = None,
-) -> Stage02bSkipStubContext:
-    del source_text, source_snapshot
-    return Stage02bSkipStubContext(
-        stage_02a_nfr=find_named_h2_block(stage_02a_text, ["NFR Initial Identification"]),
-        stage_02a_value_loop=find_named_h2_block(stage_02a_text, ["Value Loop and Downstream Preservation Notes"]),
-    )
 
 
 def build_stage_02b_skip_stub(
@@ -4500,92 +3839,137 @@ def build_stage_02b_skip_stub(
     stage_02a_text: str,
     version: str,
     owner: str,
-    *,
-    source_snapshot: Phase1SourceSnapshot | None = None,
 ) -> str:
-    snapshot = source_snapshot or build_phase1_source_snapshot(source_text)
-    return render_stage_02b_document(
-        build_stage_02b_render_context(source_text, source_snapshot=snapshot),
-        version=version,
-        owner=owner,
-        skip_stub_context=build_stage_02b_skip_stub_context(
-            source_text,
-            stage_02a_text,
-            source_snapshot=snapshot,
-        ),
+    stage_02a_nfr = find_named_h2_block(stage_02a_text, ["NFR Initial Identification"])
+    stage_02a_value_loop = find_named_h2_block(stage_02a_text, ["Value Loop and Downstream Preservation Notes"])
+    product_label = extract_product_label(source_text)
+    context = extract_domain_context(source_text)
+    payload_heading = payload_contract_heading_from_context(context)
+    base = build_stage_02b(source_text, version, owner)
+    base = base.replace(
+        "# Stage-02b Output — requirements-specification-deepening (deep-compiled)",
+        "# Stage-02b Output — requirements-specification-deepening (skip-stub / minimum-viable)",
+        1,
     )
+    base = base.replace(
+        f"- document_name: `{product_label} Phase-1 Trial Stage-02b Specification Deepening {version}`",
+        f"- document_name: `{product_label} Phase-1 Trial Stage-02b Skip-Stub Specification Fallback {version}`",
+        1,
+    )
+    base = base.replace("- status: `provisional`", "- status: `skip-stub`", 1)
+    base = base.replace("- source_status: `mixed`", "- source_status: `stage_02a-derived-minimum-viable`", 1)
+    base = base.replace(
+        "## 2. NFR / Quality Requirements",
+        """## 1.2 Stage Execution State
+- execution_state: `skipped`
+- execution_mode:
+  - `minimum-viable skip stub`
+- skip_rationale:
+  - Full Stage-02b deepening was intentionally skipped in this run to validate Admission Matrix `02b-skip` handling; this artifact preserves the minimum viable NFR / domain / IA / payload truth needed so Phase-2 is not forced to invent critical structure from scratch.
+- safe_use_boundary:
+  - Use this artifact as a constrained handoff bridge for Phase-2 safe start and Stage-03/04 continuity, not as proof that Stage-02b deepening has been fully completed.
+- non_equivalence_to_full_stage:
+  - Full quality-scenario deepening, stronger metric interpretation contracts, deeper object lifecycle hardening, and IA contract freeze remain review-bound and must be re-checked in Phase-2.
+
+## 2. NFR / Quality Requirements""",
+        1,
+    )
+    base = base.replace(
+        "## 2. NFR / Quality Requirements\n",
+        """## 2. NFR / Quality Requirements
+- fallback_origin:
+  - `compiled from Stage-02a nfr_initial_identification + source metric / workflow evidence`
+- minimum_viable_intent:
+  - Preserve just enough NFR truth that Stage-03 slicing and Phase-2 architecture do not start blind.
+- honesty_note:
+  - This section is a skip-derived fallback, not a claim that Stage-02b quality deepening has been fully executed.
+""",
+        1,
+    )
+    base = base.replace(
+        "## 6. Domain Model Direction\n",
+        """## 6. Domain Model Direction
+- domain_model_state:
+  - `partial-from-02a-and-source`
+- safe_interpretation_rule:
+  - The object chain below is preserved so downstream design/architecture can start from explicit entities and relationships, but field-level contracts and lifecycle edge cases remain review-bound.
+""",
+        1,
+    )
+    base = base.replace(
+        "## 11. Information Architecture Direction\n",
+        """## 11. Information Architecture Direction
+- ia_direction_state:
+  - `partial-from-02a-and-source`
+- safe_interpretation_rule:
+  - Workflow-first IA remains the current safe direction, but page-level detail and state completeness should still be treated as constrained and prototype-validated rather than frozen.
+""",
+        1,
+    )
+    base = base.replace(
+        f"## 15. {payload_heading}\n",
+        f"""## 15. {payload_heading}
+- skip_mode_preservation_rule:
+  - Even when Stage-02b is skipped, module interface payload structure cannot disappear; otherwise workflow handoff semantics collapse and Phase-2 would be forced to re-invent core execution semantics.
+""",
+        1,
+    )
+    base = base.replace(
+        "## 17. Specification Stress-Test\n",
+        """## 17. Specification Stress-Test
+- skip_specific_warning:
+  - Because this run used a skip stub, the stress-test below must be read as a bounded guardrail set, not as proof that all specification tensions were fully exhausted.
+""",
+        1,
+    )
+    base = base.replace(
+        "## 24. Source Evidence Pack",
+        f"""## 24. Stage-02a Carryover Evidence
+{demote_headings(stage_02a_nfr)}
+
+{demote_headings(stage_02a_value_loop)}
+
+## 25. Source Evidence Pack""",
+        1,
+    )
+    return base
 
 
-def build_stage_03_source_bundle(
+def build_stage_03(
     source_text: str,
+    stage_02a_text: str,
+    stage_02b_text: str,
     *,
-    source_snapshot: Phase1SourceSnapshot | None = None,
-) -> Stage03SourceBundle:
-    snapshot = source_snapshot or build_phase1_source_snapshot(source_text)
-    sections = snapshot.sections
-    context = snapshot.context
-    business_world_model = snapshot.business_world_model
-    product_label = snapshot.product_label
-    segments = snapshot.segments
-    primary_segment = snapshot.primary_segment
-    roles = snapshot.roles
-    modules = snapshot.modules
-    flows = snapshot.flows
+    stage_02b_executed: bool,
+    version: str,
+    owner: str,
+) -> str:
+    h51 = find_h2_block(source_text, r"5\.1\s+MVP 分期")
+    h52 = find_h2_block(source_text, r"5\.2\s+最小可用体验闭环")
+    h53 = find_h2_block(source_text, r"5\.3\s+影响切片顺序的依赖假设")
+    h7p0 = find_h2_block(source_text, r"P0（MVP 必须有）")
+    h7p1 = find_h2_block(source_text, r"P1（MVP 后尽快补）")
+    h7p2 = find_h2_block(source_text, r"P2（后续阶段）")
+    h8 = extract_main_flow_block(source_text)
+    context = extract_domain_context(source_text)
+    business_world_model = build_business_world_model(source_text)
+    product_label = context["product_label"]
+    segments = context["segments"]
+    primary_segment = segments[0]
+    roles = context["roles"]
+    modules = context["modules"]
+    flows = context["flows"]
     nfrs = context["nfrs"] or ["source-defined non-functional requirement"]
     constraints = context["constraints"] or ["source-defined architectural constraint"]
     out_of_scope = context["out_of_scope"] or ["source-defined deferred item"]
-    first_slice_modules = snapshot.first_slice_modules
-    p0_items = context["p0"] or first_slice_modules or [str(row.get("module", "source-defined module")).strip() for row in modules[:3]]
+    p0_items = context["p0"] or context["first_slice_modules"] or [str(row.get("module", "source-defined module")).strip() for row in modules[:3]]
     p1_items = context["p1"] or [str(row.get("module", "source-defined later slice")).strip() for row in modules[3:5]]
     p2_items = context["p2"] or out_of_scope
-    full_loop = " -> ".join(snapshot.module_names) or "source-defined workflow loop"
-    first_slice_loop = " -> ".join(first_slice_modules) if first_slice_modules else "source-defined first slice"
-    minimum_loop_items = first_slice_modules or p0_items
-    minimum_loop = " -> ".join(minimum_loop_items[: max(2, min(len(minimum_loop_items), 5))]) if minimum_loop_items else "source-defined minimum loop"
-    primary_flow_name = snapshot.primary_flow_name
-    main_roles = snapshot.main_roles
-    return Stage03SourceBundle(
-        h51=sections.h51,
-        h52=sections.h52,
-        h53=sections.h53,
-        h7p0=sections.h7p0,
-        h7p1=sections.h7p1,
-        h7p2=sections.h7p2,
-        h8=sections.h8,
-        context=context,
-        business_world_model=business_world_model,
-        product_label=str(product_label),
-        segments=list(segments),
-        primary_segment=str(primary_segment),
-        roles=list(roles),
-        modules=list(modules),
-        flows=list(flows),
-        nfrs=list(nfrs),
-        constraints=list(constraints),
-        out_of_scope=list(out_of_scope),
-        p0_items=list(p0_items),
-        p1_items=list(p1_items),
-        p2_items=list(p2_items),
-        full_loop=full_loop,
-        first_slice_loop=first_slice_loop,
-        minimum_loop=minimum_loop,
-        primary_flow_name=primary_flow_name,
-        main_roles=main_roles,
-    )
-
-
-def build_stage_03_slice_planning_lines(
-    *,
-    first_slice_modules: list[str],
-    p0_items: list[str],
-    p1_items: list[str],
-    nfrs: list[str],
-    out_of_scope: list[str],
-    full_loop: str,
-    first_slice_loop: str,
-    primary_flow_name: str,
-    main_roles: list[str],
-) -> Stage03SlicePlanningLines:
+    full_loop = " -> ".join(str(row.get("module", "")).strip() for row in modules if str(row.get("module", "")).strip()) or "source-defined workflow loop"
+    first_slice_loop = " -> ".join(context["first_slice_modules"]) if context["first_slice_modules"] else "source-defined first slice"
+    minimum_loop = " -> ".join((context["first_slice_modules"] or p0_items)[: max(2, min(len(context["first_slice_modules"] or p0_items), 5))]) if (context["first_slice_modules"] or p0_items) else "source-defined minimum loop"
+    primary_flow_name = str(flows[0].get("name", "Primary Flow")) if flows else "Primary Flow"
+    main_roles = [str(role.get("Role", "")).strip() for role in roles if str(role.get("Role", "")).strip()] or [primary_segment]
     comparison_rows = [
         "| candidate | what_is_in_first_slice | user_value_speed | evidence_confidence | dependency_complexity | validation_leverage | risk_of_overreach | verdict |",
         "|---|---|---|---|---|---|---|---|",
@@ -4593,57 +3977,24 @@ def build_stage_03_slice_planning_lines(
         f"| role-workbench-first | {' + '.join(main_roles[:2])} workspace | medium | medium | medium | low | high | rejected |",
         f"| workflow-loop-first | {first_slice_loop} | high | high | medium | high | low-medium | chosen |",
     ]
+    nfr_force_lines = "\n".join(f"  - {item}" for item in nfrs[:3]) or "  - source-defined NFR must enter first slice"
+    nfr_relaxed_lines = "\n".join(f"  - {item}" for item in nfrs[3:5]) or "  - 非首要 NFR 留在后续深化"
+    dependency_impact_lines = "\n".join(
+        [
+            f"  - {full_loop}",
+            f"  - `{primary_flow_name}` 的对象交接如果被拆散，首个切片就无法验证真实业务闭环。",
+            f"  - 角色 `{', '.join(main_roles[:3])}` 之间的 handoff 必须跟着模块链一起进入 MVP，而不是后补。",
+        ]
+    )
     value_frequency_candidates = unique_preserve_order(p0_items[:3] + p1_items[:3])
-    return Stage03SlicePlanningLines(
-        comparison_rows=comparison_rows,
-        nfr_force_lines="\n".join(f"  - {item}" for item in nfrs[:3]) or "  - source-defined NFR must enter first slice",
-        nfr_relaxed_lines="\n".join(f"  - {item}" for item in nfrs[3:5]) or "  - 非首要 NFR 留在后续深化",
-        dependency_impact_lines="\n".join(
-            [
-                f"  - {full_loop}",
-                f"  - `{primary_flow_name}` 的对象交接如果被拆散，首个切片就无法验证真实业务闭环。",
-                f"  - 角色 `{', '.join(main_roles[:3])}` 之间的 handoff 必须跟着模块链一起进入 MVP，而不是后补。",
-            ]
-        ),
-        value_frequency_rows="\n".join(
-            f"| {item} | {'high' if item in p0_items else 'medium'} | {'high' if item in first_slice_modules else 'medium'} | {'keep in first slice' if item in p0_items or item in first_slice_modules else 'move to later slice'} | source-defined capability classification |"
-            for item in value_frequency_candidates
-        ) or "| source-defined capability | medium | medium | keep in first slice | source-defined capability classification |",
-        deferred_honesty_rows="\n".join(
-            f"| {item} | source 明确把它放在 MVP 外，当前不应前置承诺 | 把它包装成首版完整能力会掩盖真实 cutline | 接受延后，但需在 seam / backlog 中显式保留 |"
-            for item in out_of_scope[:4]
-        ) or "| source-defined deferred item | 当前不进 MVP | 冒充已覆盖会造成假完整感 | 需要显式延后 |",
-    )
-
-
-def build_stage_03_slice_planning_context(
-    *,
-    domain_context: dict[str, object],
-    p0_items: list[str],
-    p1_items: list[str],
-    p2_items: list[str],
-    nfrs: list[str],
-    out_of_scope: list[str],
-    full_loop: str,
-    first_slice_loop: str,
-    minimum_loop: str,
-    primary_flow_name: str,
-    primary_segment: str,
-    main_roles: list[str],
-    constraints: list[str],
-) -> Stage03SlicePlanningContext:
-    first_slice_modules = list(domain_context.get("first_slice_modules", []))
-    planning_lines = build_stage_03_slice_planning_lines(
-        first_slice_modules=first_slice_modules,
-        p0_items=p0_items,
-        p1_items=p1_items,
-        nfrs=nfrs,
-        out_of_scope=out_of_scope,
-        full_loop=full_loop,
-        first_slice_loop=first_slice_loop,
-        primary_flow_name=primary_flow_name,
-        main_roles=main_roles,
-    )
+    value_frequency_rows = "\n".join(
+        f"| {item} | {'high' if item in p0_items else 'medium'} | {'high' if item in context['first_slice_modules'] else 'medium'} | {'keep in first slice' if item in p0_items or item in context['first_slice_modules'] else 'move to later slice'} | source-defined capability classification |"
+        for item in value_frequency_candidates
+    ) or "| source-defined capability | medium | medium | keep in first slice | source-defined capability classification |"
+    deferred_honesty_rows = "\n".join(
+        f"| {item} | source 明确把它放在 MVP 外，当前不应前置承诺 | 把它包装成首版完整能力会掩盖真实 cutline | 接受延后，但需在 seam / backlog 中显式保留 |"
+        for item in out_of_scope[:4]
+    ) or "| source-defined deferred item | 当前不进 MVP | 冒充已覆盖会造成假完整感 | 需要显式延后 |"
     key_assumption_lines = "\n".join(
         [
             "- assumption_1:",
@@ -4660,7 +4011,7 @@ def build_stage_03_slice_planning_context(
             "  - what_changes_if_negative: 需要把相关接口或对象提前纳入首版",
         ]
     )
-    flow_nodes = [item for item in (first_slice_modules or p0_items)[:3] if item]
+    flow_nodes = [item for item in (context["first_slice_modules"] or p0_items)[:3] if item]
     if not flow_nodes:
         flow_nodes = ["source-defined slice A", "source-defined slice B", "source-defined slice C"]
     while len(flow_nodes) < 3:
@@ -4671,118 +4022,132 @@ flowchart LR
     B --> C[{flow_nodes[2]}]
     D[Deferred<br/>{preserved_display_label(p2_items[0], fallback='Deferred Seam') if p2_items else 'Deferred Seam'}] -.depends on.-> C
 ```"""
-    return Stage03SlicePlanningContext(
-        comparison_rows=planning_lines.comparison_rows,
-        nfr_force_lines=planning_lines.nfr_force_lines,
-        nfr_relaxed_lines=planning_lines.nfr_relaxed_lines,
-        dependency_impact_lines=planning_lines.dependency_impact_lines,
-        value_frequency_rows=planning_lines.value_frequency_rows,
-        deferred_honesty_rows=planning_lines.deferred_honesty_rows,
-        key_assumption_lines=key_assumption_lines,
-        flow_nodes=flow_nodes,
-        slice_map=slice_map,
-    )
-
-
-def build_stage_03_loop_reasoning_units(
-    *,
-    first_slice_loop: str,
-    full_loop: str,
-    minimum_loop: str,
-    primary_flow_name: str,
-) -> list[dict[str, object]]:
-    return [
-        build_reasoning_unit(
-            "Workflow-Loop Slice Selection", "chosen slice strategy", "structured -> compared -> freeze",
-            "first slice could drift into partial capability delivery",
-            ("slice comparison + loop-first prioritization", ["MVP slicing by story-map", "value-frequency comparison for contested first-slice items"], "compare module-first, role-workbench-first, and workflow-loop-first against the source dependency chain"),
-            (["module-first", "role-workbench-first", "workflow-loop-first"], "smaller isolated scope vs complete first-loop validation", f"selected `{first_slice_loop}` as the first slice backbone"),
-            (f"source workflow chain is `{full_loop}`", "partial slices hide real handoff risk", "preserve a complete loop rather than a smaller feature bucket"),
-            ("provisional", "whether the current minimum loop is still too wide for implementation", "design and validation must use the same slice boundary", "slice comparison is specific enough to constrain downstream PRD assembly"),
-        ),
-        build_reasoning_unit(
-            "Minimum Loop Guard", "minimum viable experience loop", "structured -> tested -> freeze",
-            "removing one key module could break loop closure while still looking deliverable",
-            ("dependency-first slicing", ["early-value delivery thinking", "dependency-first slicing logic"], "remove steps mentally and reject any cutline that loses object continuity or explainable completion"),
-            ([full_loop, minimum_loop], "narrower scope vs intact business closure", f"kept `{minimum_loop}` as the minimum viable loop"),
-            (f"`{primary_flow_name}` depends on ordered module handoff", "removing a core handoff step collapses validation value", "treat the selected loop as indivisible for MVP integrity"),
-            ("provisional", "some upstream/downstream modules may still need different seam treatment", "Stage-04 validation should test loop viability, not isolated screens", "loop boundary is explicit and testable"),
-        ),
+    skill_assets = load_stage_skill_assets("stage_03")
+    s2a_value_loop = find_named_h2_block(stage_02a_text, ["Value Loop and Downstream Preservation Notes"])
+    s2a_constraints = find_named_h2_block(stage_02a_text, ["Constraint Stress-Test"])
+    s2a_priority = find_named_h2_block(stage_02a_text, ["Priority Split"])
+    s2a_stress = find_named_h2_block(stage_02a_text, ["Structure Stress-Test and Deepening Loop Log"])
+    s2b_nfr_reasoning = find_named_h2_block(stage_02b_text, ["NFR Prioritization Reasoning"])
+    s2b_object_workflow = find_named_h2_block(stage_02b_text, ["Object-to-Workflow Mapping"])
+    s2b_ia = find_named_h2_block(stage_02b_text, ["Information Architecture Direction"])
+    s2b_payload = find_named_h2_block(stage_02b_text, ["Module Interface Payload Contract"])
+    s2b_attribution = find_named_h2_block(stage_02b_text, ["Deferred Capability Seam"])
+    reasoning_units = [
+        {
+            "title": "Workflow-Loop Slice Selection",
+            "artifact_unit": "chosen slice strategy",
+            "loop_round_state": "structured -> compared -> freeze",
+            "weakness_trigger": "first slice could drift into partial capability delivery",
+            "method_family": "slice comparison + loop-first prioritization",
+            "method_assets": [
+                "MVP slicing by story-map",
+                "value-frequency comparison for contested first-slice items",
+            ],
+            "reasoning_operator": "compare module-first, role-workbench-first, and workflow-loop-first against the source dependency chain",
+            "material_grounding": material_grounding_lines(skill_assets),
+            "alternatives_compared": ["module-first", "role-workbench-first", "workflow-loop-first"],
+            "tradeoff_or_tension": "smaller isolated scope vs complete first-loop validation",
+            "decision_effect": f"selected `{first_slice_loop}` as the first slice backbone",
+            "evidence_classification": [
+                f"observed fact: source workflow chain is `{full_loop}`",
+                "interpreted pattern: partial slices hide real handoff risk",
+                "decision: preserve a complete loop rather than a smaller feature bucket",
+            ],
+            "evidence_state": "provisional",
+            "remaining_unknown": "whether the current minimum loop is still too wide for implementation",
+            "downstream_handoff": "design and validation must use the same slice boundary",
+            "freeze_rationale": "slice comparison is specific enough to constrain downstream PRD assembly",
+        },
+        {
+            "title": "Minimum Loop Guard",
+            "artifact_unit": "minimum viable experience loop",
+            "loop_round_state": "structured -> tested -> freeze",
+            "weakness_trigger": "removing one key module could break loop closure while still looking deliverable",
+            "method_family": "dependency-first slicing",
+            "method_assets": [
+                "early-value delivery thinking",
+                "dependency-first slicing logic",
+            ],
+            "reasoning_operator": "remove steps mentally and reject any cutline that loses object continuity or explainable completion",
+            "material_grounding": material_grounding_lines(skill_assets),
+            "alternatives_compared": [full_loop, minimum_loop],
+            "tradeoff_or_tension": "narrower scope vs intact business closure",
+            "decision_effect": f"kept `{minimum_loop}` as the minimum viable loop",
+            "evidence_classification": [
+                f"observed fact: `{primary_flow_name}` depends on ordered module handoff",
+                "interpreted pattern: removing a core handoff step collapses validation value",
+                "decision: treat the selected loop as indivisible for MVP integrity",
+            ],
+            "evidence_state": "provisional",
+            "remaining_unknown": "some upstream/downstream modules may still need different seam treatment",
+            "downstream_handoff": "Stage-04 validation should test loop viability, not isolated screens",
+            "freeze_rationale": "loop boundary is explicit and testable",
+        },
+        {
+            "title": "Deferred Scope Honesty",
+            "artifact_unit": "deferred items and carryover ledger",
+            "loop_round_state": "structured -> audited -> freeze",
+            "weakness_trigger": "out-of-scope items could disappear or quietly re-enter MVP",
+            "method_family": "deferred seam discipline + scope honesty",
+            "method_assets": [
+                "deferral honesty and anti-false-completeness discipline",
+                "source-feature carryover classification",
+            ],
+            "reasoning_operator": "classify each deferred item explicitly and keep it visible in seam/backlog language",
+            "material_grounding": material_grounding_lines(skill_assets),
+            "alternatives_compared": ["silently drop deferred items", "preserve explicit deferred ledger"],
+            "tradeoff_or_tension": "cleaner MVP story vs honest carryover record",
+            "decision_effect": "kept source out-of-scope items explicit in slicing and seam sections",
+            "evidence_classification": [
+                f"observed fact: source excludes `{out_of_scope[0]}` from MVP",
+                "interpreted pattern: silent omission causes false completeness in later review",
+                "decision: every deferred item stays visible with a reason",
+            ],
+            "evidence_state": "review-bound",
+            "remaining_unknown": "some deferred items may need earlier interface reservation than currently assumed",
+            "downstream_handoff": "architecture may reserve seams, but PRD must not promote them into MVP promise",
+            "freeze_rationale": "scope honesty is explicit enough for review and re-audit",
+        },
+        {
+            "title": "NFR-Aware Dependency Ordering",
+            "artifact_unit": "dependency-first ordering and NFR-aware slice impact",
+            "loop_round_state": "structured -> stress-tested -> freeze",
+            "weakness_trigger": "slice order could look clean while still violating quality or dependency pressure",
+            "method_family": "dependency ordering + NFR impact alignment",
+            "method_assets": [
+                "structured decomposition discipline",
+                "dependency-first slicing logic",
+            ],
+            "reasoning_operator": "re-check the chosen slice against dependency-first ordering and the quality constraints inherited from Stage-02a/02b",
+            "material_grounding": material_grounding_lines(skill_assets),
+            "alternatives_compared": ["business-only cutline", "dependency-first and NFR-aware cutline"],
+            "tradeoff_or_tension": "simpler slice story vs implementation-safe ordering",
+            "decision_effect": "kept dependency-first ordering and NFR impact visible as part of the chosen slice rationale",
+            "evidence_classification": [
+                f"observed fact: `{first_slice_loop}` depends on ordered handoff across `{full_loop}`",
+                "interpreted pattern: ignoring NFR and dependency pressure creates a fragile MVP story",
+                "decision: Stage-03 keeps dependency and NFR impact explicit in the slice package",
+            ],
+            "evidence_state": "review-bound",
+            "remaining_unknown": "real build cost may still rebalance some sequence edges",
+            "downstream_handoff": "Stage-04 must validate the same dependency-first assumptions",
+            "freeze_rationale": "ordering pressure is explicit enough for validation planning",
+        },
     ]
-
-
-def build_stage_03_scope_and_dependency_reasoning_units(
-    *,
-    first_slice_loop: str,
-    full_loop: str,
-    deferred_scope: str,
-) -> list[dict[str, object]]:
-    return [
-        build_reasoning_unit(
-            "Deferred Scope Honesty", "deferred items and carryover ledger", "structured -> audited -> freeze",
-            "out-of-scope items could disappear or quietly re-enter MVP",
-            ("deferred seam discipline + scope honesty", ["deferral honesty and anti-false-completeness discipline", "source-feature carryover classification"], "classify each deferred item explicitly and keep it visible in seam/backlog language"),
-            (["silently drop deferred items", "preserve explicit deferred ledger"], "cleaner MVP story vs honest carryover record", "kept source out-of-scope items explicit in slicing and seam sections"),
-            (f"source excludes `{deferred_scope}` from MVP", "silent omission causes false completeness in later review", "every deferred item stays visible with a reason"),
-            ("review-bound", "some deferred items may need earlier interface reservation than currently assumed", "architecture may reserve seams, but PRD must not promote them into MVP promise", "scope honesty is explicit enough for review and re-audit"),
-        ),
-        build_reasoning_unit(
-            "NFR-Aware Dependency Ordering", "dependency-first ordering and NFR-aware slice impact", "structured -> stress-tested -> freeze",
-            "slice order could look clean while still violating quality or dependency pressure",
-            ("dependency ordering + NFR impact alignment", ["structured decomposition discipline", "dependency-first slicing logic"], "re-check the chosen slice against dependency-first ordering and the quality constraints inherited from Stage-02a/02b"),
-            (["business-only cutline", "dependency-first and NFR-aware cutline"], "simpler slice story vs implementation-safe ordering", "kept dependency-first ordering and NFR impact visible as part of the chosen slice rationale"),
-            (f"`{first_slice_loop}` depends on ordered handoff across `{full_loop}`", "ignoring NFR and dependency pressure creates a fragile MVP story", "Stage-03 keeps dependency and NFR impact explicit in the slice package"),
-            ("review-bound", "real build cost may still rebalance some sequence edges", "Stage-04 must validate the same dependency-first assumptions", "ordering pressure is explicit enough for validation planning"),
-        ),
-    ]
-
-
-def build_stage_03_reasoning_units(
-    *,
-    first_slice_loop: str,
-    full_loop: str,
-    minimum_loop: str,
-    primary_flow_name: str,
-    out_of_scope: list[str],
-    skill_assets: dict[str, object] | None = None,
-) -> list[dict[str, object]]:
-    stage_skill_assets = skill_assets if skill_assets is not None else load_stage_skill_assets("stage_03")
-    deferred_scope = sequence_item_text(out_of_scope, 0, "source-defined deferred scope")
-    return build_material_grounded_reasoning_units(
-        [
-            *build_stage_03_loop_reasoning_units(
-                first_slice_loop=first_slice_loop,
-                full_loop=full_loop,
-                minimum_loop=minimum_loop,
-                primary_flow_name=primary_flow_name,
-            ),
-            *build_stage_03_scope_and_dependency_reasoning_units(
-                first_slice_loop=first_slice_loop,
-                full_loop=full_loop,
-                deferred_scope=deferred_scope,
-            ),
-        ],
-        stage_skill_assets,
-    )
-
-
-def build_stage_03_stage_02b_carryover_context(*, stage_02b_executed: bool) -> Stage03Stage02bCarryoverContext:
     if stage_02b_executed:
-        return Stage03Stage02bCarryoverContext(
-            upstream_lines="\n".join(
-                [
-                    "  - Stage-02b `NFR Prioritization Reasoning`",
-                    "  - Stage-02b `Object-to-Workflow Mapping`",
-                    "  - Stage-02b `Information Architecture Direction`",
-                    "  - Stage-02b `Module Interface Payload Contract`",
-                    "  - Stage-02b `Deferred Capability Seam`",
-                ]
-            ),
-            availability="yes",
-            skip_effect="",
+        stage_02b_upstream_lines = "\n".join(
+            [
+                "  - Stage-02b `NFR Prioritization Reasoning`",
+                "  - Stage-02b `Object-to-Workflow Mapping`",
+                "  - Stage-02b `Information Architecture Direction`",
+                "  - Stage-02b `Module Interface Payload Contract`",
+                "  - Stage-02b `Deferred Capability Seam`",
+            ]
         )
-    return Stage03Stage02bCarryoverContext(
-        upstream_lines="\n".join(
+        stage_02b_availability = "yes"
+        stage_02b_skip_effect = ""
+    else:
+        stage_02b_upstream_lines = "\n".join(
             [
                 "  - Stage-02b skip-stub `NFR Prioritization Reasoning`",
                 "  - Stage-02b skip-stub `Object-to-Workflow Mapping`",
@@ -4790,24 +4155,41 @@ def build_stage_03_stage_02b_carryover_context(*, stage_02b_executed: bool) -> S
                 "  - Stage-02b skip-stub `Module Interface Payload Contract`",
                 "  - Stage-02b skip-stub `Deferred Capability Seam`",
             ]
-        ),
-        availability="no",
-        skip_effect="""- stage_02b_skip_effect_on_slicing:
+        )
+        stage_02b_availability = "no"
+        stage_02b_skip_effect = """
+- stage_02b_skip_effect_on_slicing:
   - This slice can still be chosen safely because the skip stub preserves minimum viable NFR / object / IA signals, but downstream must not assume Stage-02b-level specification freeze has already happened.
-""",
-    )
+"""
 
+    return f"""# Stage-03 Output — requirements-decomposition-and-mvp-slicing (deep-compiled)
 
-def render_stage_03_slice_scope_sections(
-    *,
-    primary_flow_name: str,
-    comparison_rows: list[str],
-    p0_items: list[str],
-    out_of_scope: list[str],
-    full_loop: str,
-    minimum_loop: str,
-) -> str:
-    return f"""## 3. Chosen Slice
+## 1. Document Metadata
+- document_name: `{product_label} Phase-1 Trial Stage-03 MVP Slicing {version}`
+- stage: `requirements-decomposition-and-mvp-slicing`
+- version: `{version}`
+- status: `provisional`
+- owner: `{owner}`
+- source_status: `mixed`
+
+{render_traceability_block("stage_03")}
+
+{render_semantic_authoring_spine_section(business_world_model)}
+
+## 2. Context and Objective
+- current_product_goal:
+  - 把 `{full_loop}` 切成一个既能验证业务闭环、又不会因过早承诺而失真的 first slice。
+- why_slicing_is_needed:
+  - Stage-02 已把产品结构组织成 workflow-first，但仍需把 `{primary_flow_name}` 所在链路切成可验证、可解释、可 handoff 的 MVP。
+- upstream_artifacts_materially_used:
+  - Stage-02a `Value Loop and Downstream Preservation Notes`
+  - Stage-02a `Constraint Stress-Test`
+  - Stage-02a `Priority Split`
+{stage_02b_upstream_lines}
+- stage_02b_available:
+  - `{stage_02b_availability}`
+
+## 3. Chosen Slice
 - chosen_slice_strategy:
   - `workflow-loop-first`
 - why_this_slice_not_that:
@@ -4831,102 +4213,9 @@ def render_stage_03_slice_scope_sections(
 - complete_experience_loop:
   - {full_loop}
 - minimum_viable_experience_loop:
-  - {minimum_loop}"""
+  - {minimum_loop}
 
-
-def render_stage_03_slice_validation_sections(
-    *,
-    domain_context: dict[str, object],
-    p0_items: list[str],
-    p1_items: list[str],
-    p2_items: list[str],
-    out_of_scope: list[str],
-    nfr_force_lines: str,
-    nfr_relaxed_lines: str,
-    dependency_impact_lines: str,
-    first_slice_loop: str,
-    stage_02b_skip_effect: str,
-    upstream_value_loop_block: str,
-    value_frequency_rows: str,
-    minimum_loop: str,
-    deferred_honesty_rows: str,
-    key_assumption_lines: str,
-    slice_map: str,
-    flow_nodes: list[str],
-) -> str:
-    validation_items = build_stage_03_slice_validation_items(
-        domain_context,
-        p0_items=p0_items,
-        p1_items=p1_items,
-        p2_items=p2_items,
-    )
-    return "\n\n".join(
-        [
-            render_stage_03_nfr_and_value_validation_sections(
-                nfr_force_lines=nfr_force_lines,
-                nfr_relaxed_lines=nfr_relaxed_lines,
-                dependency_impact_lines=dependency_impact_lines,
-                first_slice_loop=first_slice_loop,
-                stage_02b_skip_effect=stage_02b_skip_effect,
-                upstream_value_loop_block=upstream_value_loop_block,
-                value_frequency_rows=value_frequency_rows,
-            ),
-            render_stage_03_scope_carryover_and_viability_sections(
-                domain_context=domain_context,
-                validation_items=validation_items,
-                out_of_scope=out_of_scope,
-                minimum_loop=minimum_loop,
-            ),
-            render_stage_03_deferred_assumption_and_map_sections(
-                deferred_honesty_rows=deferred_honesty_rows,
-                key_assumption_lines=key_assumption_lines,
-                slice_map=slice_map,
-                flow_nodes=flow_nodes,
-            ),
-        ]
-    )
-
-
-def build_stage_03_slice_validation_items(
-    domain_context: dict[str, object],
-    *,
-    p0_items: list[str],
-    p1_items: list[str],
-    p2_items: list[str],
-) -> Stage03SliceValidationItems:
-    first_slice_modules = domain_context.get("first_slice_modules", [])
-    first_slice_items = list(first_slice_modules) if isinstance(first_slice_modules, list) else []
-    first_slice_items = first_slice_items or p0_items or ["source-defined first slice"]
-    later_slice_items = p1_items or ["source-defined later slice"]
-    deferred_items = p2_items or ["source-defined deferred item"]
-    first_break_item = first_slice_items[0]
-    second_break_item = (
-        first_slice_items[1]
-        if len(first_slice_items) > 1
-        else p0_items[0]
-        if p0_items
-        else "source-defined key step"
-    )
-    return Stage03SliceValidationItems(
-        first_slice_items=first_slice_items,
-        later_slice_items=later_slice_items,
-        deferred_items=deferred_items,
-        first_break_item=first_break_item,
-        second_break_item=second_break_item,
-    )
-
-
-def render_stage_03_nfr_and_value_validation_sections(
-    *,
-    nfr_force_lines: str,
-    nfr_relaxed_lines: str,
-    dependency_impact_lines: str,
-    first_slice_loop: str,
-    stage_02b_skip_effect: str,
-    upstream_value_loop_block: str,
-    value_frequency_rows: str,
-) -> str:
-    return f"""## 7. NFR-Aware Slice Impact and Dependency-First Logic
+## 7. NFR-Aware Slice Impact and Dependency-First Logic
 - nfr_forcing_into_first_slice:
 {nfr_force_lines}
 - nfr_relaxed_for_mvp:
@@ -4937,28 +4226,20 @@ def render_stage_03_nfr_and_value_validation_sections(
   - {first_slice_loop}
 {stage_02b_skip_effect}
 - upstream_value_loop_carryover:
-{demote_headings(upstream_value_loop_block, 1)}
+{demote_headings(s2a_value_loop, 1)}
 
 ## 8. Value-Frequency Assessment
 | contested capability | value | expected frequency | first-slice decision | reason |
 |---|---|---|---|---|
-{value_frequency_rows}"""
+{value_frequency_rows}
 
-
-def render_stage_03_scope_carryover_and_viability_sections(
-    *,
-    domain_context: dict[str, object],
-    validation_items: Stage03SliceValidationItems,
-    out_of_scope: list[str],
-    minimum_loop: str,
-) -> str:
-    return f"""## 9. First Slice, Later Slices, and Deferred Items
+## 9. First Slice, Later Slices, and Deferred Items
 - first_slice:
-{chr(10).join(f"  - {item}" for item in validation_items.first_slice_items)}
+{chr(10).join(f"  - {item}" for item in (context['first_slice_modules'] or p0_items or ['source-defined first slice']))}
 - later_slices:
-{chr(10).join(f"  - {item}" for item in validation_items.later_slice_items)}
+{chr(10).join(f"  - {item}" for item in (p1_items or ['source-defined later slice']))}
 - deferred_items:
-{chr(10).join(f"  - {item}" for item in validation_items.deferred_items)}
+{chr(10).join(f"  - {item}" for item in (p2_items or ['source-defined deferred item']))}
 - explicit_exclusion_rule:
   - 任何无法直接服务 source-defined shortest loop 的能力，不得因“看起来高级”而提前进入 first slice。
 
@@ -4971,7 +4252,7 @@ def render_stage_03_scope_carryover_and_viability_sections(
   - `explicit out-of-scope` 表示本波次明确不承诺，防止假完整感。
 | source feature detail | classification | preserved form in first-wave PRD | why this classification | downstream note |
 |---|---|---|---|---|
-{chr(10).join(render_source_feature_rows(domain_context).splitlines()[2:])}
+{chr(10).join(render_source_feature_rows(context).splitlines()[2:])}
 
 ## 11. MVP Loop Viability Test
 - is_the_mvp_a_complete_loop:
@@ -4981,19 +4262,11 @@ def render_stage_03_scope_carryover_and_viability_sections(
 - what_makes_it_minimum:
   - 移除了 `{', '.join(out_of_scope[:3])}` 等延后项，但保留了让业务闭环成立的最小链路。
 - what_would_break_viability:
-  - 移除 `{validation_items.first_break_item}`：首个切片失去起点。
-  - 移除 `{validation_items.second_break_item}`：对象交接会断裂。
-  - 移除末端状态确认：团队无法判断是否继续投入。"""
+  - 移除 `{(context['first_slice_modules'] or p0_items)[0]}`：首个切片失去起点。
+  - 移除 `{(context['first_slice_modules'] or p0_items)[1] if len((context['first_slice_modules'] or p0_items)) > 1 else (p0_items[0] if p0_items else 'source-defined key step')}`：对象交接会断裂。
+  - 移除末端状态确认：团队无法判断是否继续投入。
 
-
-def render_stage_03_deferred_assumption_and_map_sections(
-    *,
-    deferred_honesty_rows: str,
-    key_assumption_lines: str,
-    slice_map: str,
-    flow_nodes: list[str],
-) -> str:
-    return f"""## 12. Deferred Items Honesty Check
+## 12. Deferred Items Honesty Check
 | item | why_not_in_mvp | what_would_falsely_make_mvp_look_complete | impact_of_deferral |
 |---|---|---|---|
 {deferred_honesty_rows}
@@ -5028,347 +4301,221 @@ def render_stage_03_deferred_assumption_and_map_sections(
     - trigger: `deferred items still looked cosmetic`
     - artifact_unit_improved: `deferred honesty + assumption carryover`
     - what_was_refined: `false-completeness risk of source-defined out-of-scope items`
-    - outcome: `freeze`"""
+    - outcome: `freeze`
 
+{render_reasoning_unit_ledger("## 16. Minimal Reasoning Unit Ledger", reasoning_units, context=context)}
 
-def render_stage_03_evidence_summary_sections(
-    *,
-    reasoning_units: list[dict[str, str | list[str]]],
-    context: dict[str, object],
-    skill_assets: dict[str, object],
-    upstream_evidence_blocks: list[str],
-    source_evidence_blocks: list[str],
-) -> str:
-    return render_evidence_chain_sections(
-        ledger_heading="## 16. Minimal Reasoning Unit Ledger",
-        material_heading="## 17. Material Grounding Bridge",
-        snapshot_heading="## 18. Skill Asset Ingestion Snapshot",
-        method_heading="## 19. Method Activation Evidence",
-        upstream_heading="## 20. Upstream Stage Carryover Evidence",
-        source_heading="## 21. Source Evidence Pack",
-        reasoning_units=reasoning_units,
-        context=context,
-        skill_assets=skill_assets,
-        snapshot_runtime_use_rules=[
-            "at least two slice candidates were compared before freeze",
-            "deferred honesty remained explicit instead of collapsing into roadmap placeholders",
-            "dependency-first and NFR-aware logic materially changed the cutline",
-            "source feature details were explicitly classified instead of silently disappearing from the MVP story",
-            "upstream structure and specification artifacts were carried into the slicing decision",
-        ],
-        upstream_evidence_blocks=upstream_evidence_blocks,
-        source_evidence_blocks=source_evidence_blocks,
-    )
+{render_material_grounding_bridge("## 17. Material Grounding Bridge", skill_assets, context)}
 
-
-def build_stage_03_evidence_context(
-    source_bundle: Stage03SourceBundle,
-    stage_02a_text: str,
-    stage_02b_text: str,
-) -> Stage03EvidenceContext:
-    return Stage03EvidenceContext(
-        upstream_value_loop_block=find_named_h2_block(stage_02a_text, ["Value Loop and Downstream Preservation Notes"]),
-        upstream_evidence_blocks=[
-            find_named_h2_block(stage_02a_text, ["Constraint Stress-Test"]),
-            find_named_h2_block(stage_02a_text, ["Priority Split"]),
-            find_named_h2_block(stage_02a_text, ["Structure Stress-Test and Deepening Loop Log"]),
-            find_named_h2_block(stage_02b_text, ["NFR Prioritization Reasoning"]),
-            find_named_h2_block(stage_02b_text, ["Object-to-Workflow Mapping"]),
-            find_named_h2_block(stage_02b_text, ["Information Architecture Direction"]),
-            find_named_h2_block(stage_02b_text, ["Module Interface Payload Contract"]),
-            find_named_h2_block(stage_02b_text, ["Deferred Capability Seam"]),
-        ],
-        source_evidence_blocks=[
-            source_bundle.h51,
-            source_bundle.h52,
-            source_bundle.h53,
-            source_bundle.h7p0,
-            source_bundle.h7p1,
-            source_bundle.h7p2,
-            source_bundle.h8,
-        ],
-    )
-
-
-def build_stage_03_render_context(
-    source_text: str,
-    stage_02a_text: str,
-    stage_02b_text: str,
-    *,
-    stage_02b_executed: bool,
-    source_snapshot: Phase1SourceSnapshot | None = None,
-) -> Stage03RenderContext:
-    source_bundle = build_stage_03_source_bundle(source_text, source_snapshot=source_snapshot)
-    slice_planning_context = build_stage_03_slice_planning_context(
-        domain_context=source_bundle.context,
-        p0_items=source_bundle.p0_items,
-        p1_items=source_bundle.p1_items,
-        p2_items=source_bundle.p2_items,
-        nfrs=source_bundle.nfrs,
-        out_of_scope=source_bundle.out_of_scope,
-        full_loop=source_bundle.full_loop,
-        first_slice_loop=source_bundle.first_slice_loop,
-        minimum_loop=source_bundle.minimum_loop,
-        primary_flow_name=source_bundle.primary_flow_name,
-        primary_segment=source_bundle.primary_segment,
-        main_roles=source_bundle.main_roles,
-        constraints=source_bundle.constraints,
-    )
-    skill_assets = load_stage_skill_assets("stage_03")
-    reasoning_units = build_stage_03_reasoning_units(
-        first_slice_loop=source_bundle.first_slice_loop,
-        full_loop=source_bundle.full_loop,
-        minimum_loop=source_bundle.minimum_loop,
-        primary_flow_name=source_bundle.primary_flow_name,
-        out_of_scope=source_bundle.out_of_scope,
-        skill_assets=skill_assets,
-    )
-    stage_02b_carryover_context = build_stage_03_stage_02b_carryover_context(stage_02b_executed=stage_02b_executed)
-    return Stage03RenderContext(
-        source_bundle=source_bundle,
-        slice_planning_context=slice_planning_context,
-        stage_02b_carryover_context=stage_02b_carryover_context,
-        evidence_context=build_stage_03_evidence_context(source_bundle, stage_02a_text, stage_02b_text),
-        skill_assets=skill_assets,
-        reasoning_units=reasoning_units,
-    )
-
-
-def render_stage_03_opening_and_scope_sections(
-    render_context: Stage03RenderContext,
-    *,
-    version: str,
-    owner: str,
-) -> str:
-    source_bundle = render_context.source_bundle
-    business_world_model = source_bundle.business_world_model
-    product_label = source_bundle.product_label
-    out_of_scope = source_bundle.out_of_scope
-    p0_items = source_bundle.p0_items
-    full_loop = source_bundle.full_loop
-    minimum_loop = source_bundle.minimum_loop
-    primary_flow_name = source_bundle.primary_flow_name
-    slice_planning_context = render_context.slice_planning_context
-    comparison_rows = slice_planning_context.comparison_rows
-    stage_02b_carryover_context = render_context.stage_02b_carryover_context
-    stage_02b_upstream_lines = stage_02b_carryover_context.upstream_lines
-    stage_02b_availability = stage_02b_carryover_context.availability
-
-    return f"""{render_stage_document_opening(
-    stage_display="Stage-03",
-    stage_slug="requirements-decomposition-and-mvp-slicing",
-    document_suffix="MVP Slicing",
-    product_label=product_label,
-    version=version,
-    owner=owner,
+{render_skill_asset_snapshot(
+    "## 18. Skill Asset Ingestion Snapshot",
+    skill_assets,
+    [
+        "at least two slice candidates were compared before freeze",
+        "deferred honesty remained explicit instead of collapsing into roadmap placeholders",
+        "dependency-first and NFR-aware logic materially changed the cutline",
+        "source feature details were explicitly classified instead of silently disappearing from the MVP story",
+        "upstream structure and specification artifacts were carried into the slicing decision",
+    ],
+    context,
 )}
 
-{render_traceability_block("stage_03")}
+{render_method_activation_evidence("## 19. Method Activation Evidence", reasoning_units, context=context)}
 
-{render_semantic_authoring_spine_section(business_world_model)}
+## 20. Upstream Stage Carryover Evidence
+{demote_headings(s2a_constraints)}
 
-## 2. Context and Objective
-- current_product_goal:
-  - 把 `{full_loop}` 切成一个既能验证业务闭环、又不会因过早承诺而失真的 first slice。
-- why_slicing_is_needed:
-  - Stage-02 已把产品结构组织成 workflow-first，但仍需把 `{primary_flow_name}` 所在链路切成可验证、可解释、可 handoff 的 MVP。
-- upstream_artifacts_materially_used:
-  - Stage-02a `Value Loop and Downstream Preservation Notes`
-  - Stage-02a `Constraint Stress-Test`
-  - Stage-02a `Priority Split`
-{stage_02b_upstream_lines}
-- stage_02b_available:
-  - `{stage_02b_availability}`
+{demote_headings(s2a_priority)}
 
-{render_stage_03_slice_scope_sections(
-    primary_flow_name=primary_flow_name,
-    comparison_rows=comparison_rows,
-    p0_items=p0_items,
-    out_of_scope=out_of_scope,
-    full_loop=full_loop,
-    minimum_loop=minimum_loop,
-)}
+{demote_headings(s2a_stress)}
+
+{demote_headings(s2b_nfr_reasoning)}
+
+{demote_headings(s2b_object_workflow)}
+
+{demote_headings(s2b_ia)}
+
+{demote_headings(s2b_payload)}
+
+{demote_headings(s2b_attribution)}
+
+## 21. Source Evidence Pack
+{demote_headings(h51)}
+
+{demote_headings(h52)}
+
+{demote_headings(h53)}
+
+{demote_headings(h7p0)}
+
+{demote_headings(h7p1)}
+
+{demote_headings(h7p2)}
+
+{demote_headings(h8)}
 """
 
 
-def render_stage_03_validation_sections(render_context: Stage03RenderContext) -> str:
-    source_bundle = render_context.source_bundle
-    slice_planning_context = render_context.slice_planning_context
-    return render_stage_03_slice_validation_sections(
-        domain_context=source_bundle.context,
-        p0_items=source_bundle.p0_items,
-        p1_items=source_bundle.p1_items,
-        p2_items=source_bundle.p2_items,
-        out_of_scope=source_bundle.out_of_scope,
-        nfr_force_lines=slice_planning_context.nfr_force_lines,
-        nfr_relaxed_lines=slice_planning_context.nfr_relaxed_lines,
-        dependency_impact_lines=slice_planning_context.dependency_impact_lines,
-        first_slice_loop=source_bundle.first_slice_loop,
-        stage_02b_skip_effect=render_context.stage_02b_carryover_context.skip_effect,
-        upstream_value_loop_block=render_context.evidence_context.upstream_value_loop_block,
-        value_frequency_rows=slice_planning_context.value_frequency_rows,
-        minimum_loop=source_bundle.minimum_loop,
-        deferred_honesty_rows=slice_planning_context.deferred_honesty_rows,
-        key_assumption_lines=slice_planning_context.key_assumption_lines,
-        slice_map=slice_planning_context.slice_map,
-        flow_nodes=slice_planning_context.flow_nodes,
-    )
-
-
-def render_stage_03_evidence_tail_sections(render_context: Stage03RenderContext) -> str:
-    return render_stage_03_evidence_summary_sections(
-        reasoning_units=render_context.reasoning_units,
-        context=render_context.source_bundle.context,
-        skill_assets=render_context.skill_assets,
-        upstream_evidence_blocks=render_context.evidence_context.upstream_evidence_blocks,
-        source_evidence_blocks=render_context.evidence_context.source_evidence_blocks,
-    )
-
-
-def render_stage_03_document(
-    render_context: Stage03RenderContext,
-    *,
-    version: str,
-    owner: str,
-) -> str:
-    return "\n\n".join(
-        [
-            render_stage_03_opening_and_scope_sections(render_context, version=version, owner=owner),
-            render_stage_03_validation_sections(render_context),
-            render_stage_03_evidence_tail_sections(render_context),
-        ]
-    )
-
-
-def build_stage_03(
+def build_stage_04(
     source_text: str,
     stage_02a_text: str,
-    stage_02b_text: str,
+    stage_03_text: str,
     *,
     stage_02b_executed: bool,
     version: str,
     owner: str,
-    source_snapshot: Phase1SourceSnapshot | None = None,
 ) -> str:
-    return render_stage_03_document(
-        build_stage_03_render_context(
-            source_text,
-            stage_02a_text,
-            stage_02b_text,
-            stage_02b_executed=stage_02b_executed,
-            source_snapshot=source_snapshot,
-        ),
-        version=version,
-        owner=owner,
-    )
-
-
-def build_stage_04_source_bundle(
-    source_text: str,
-    stage_03_text: str,
-    *,
-    source_snapshot: Phase1SourceSnapshot | None = None,
-) -> Stage04SourceBundle:
-    snapshot = source_snapshot or build_phase1_source_snapshot(source_text)
-    sections = snapshot.sections
-    context = snapshot.context
-    product_label = snapshot.product_label
-    segments = snapshot.segments
-    primary_segment = snapshot.primary_segment
-    roles = snapshot.roles
-    modules = snapshot.modules
-    flows = snapshot.flows
+    h61 = find_h2_block(source_text, r"6\.1\s+验证对象")
+    h62 = find_h2_block(source_text, r"6\.2\s+每条验证的最小方法与判定信号")
+    h9 = find_h1_block(source_text, r"第九部分：需要后续补实的 unknown / provisional 信息")
+    h10 = find_h1_block(source_text, r"第十部分：统一 provenance / provisional 标记表")
+    h12 = find_h1_block(source_text, r"第十二部分：结论（供 Phase-1 验收使用）")
+    context = extract_domain_context(source_text)
+    product_label = context["product_label"]
+    segments = context["segments"]
+    primary_segment = segments[0]
+    roles = context["roles"]
+    modules = context["modules"]
+    flows = context["flows"]
     objectives = context["objectives"] or ["validate the source-defined first-wave workflow"]
     constraints = context["constraints"] or ["source-defined architectural constraint"]
     out_of_scope = context["out_of_scope"] or ["source-defined deferred item"]
-    module_chain = snapshot.module_chain
-    primary_flow_name = snapshot.primary_flow_name
-    validation_plan = build_stage_04_validation_plan(
-        stage_03_text,
-        primary_flow_name=primary_flow_name,
-        primary_segment=str(primary_segment),
-        module_chain=module_chain,
-    )
-    return Stage04SourceBundle(
-        h61=sections.h61,
-        h62=sections.h62,
-        h9=sections.h9,
-        h10=sections.h10,
-        h12=sections.h12,
-        context=context,
-        product_label=str(product_label),
-        segments=list(segments),
-        primary_segment=str(primary_segment),
-        roles=list(roles),
-        modules=list(modules),
-        flows=list(flows),
-        objectives=list(objectives),
-        constraints=list(constraints),
-        out_of_scope=list(out_of_scope),
-        module_chain=module_chain,
-        primary_flow_name=primary_flow_name,
-        stage03_assumptions=validation_plan.stage03_assumptions,
-        validation_targets=validation_plan.validation_targets,
-        method_rows=validation_plan.method_rows,
-    )
-
-
-def build_stage_04_reasoning_units(
-    *,
-    validation_targets: list[dict[str, str]],
-    objectives: list[str],
-    skill_assets: dict[str, object] | None = None,
-) -> list[dict[str, object]]:
-    stage_skill_assets = skill_assets if skill_assets is not None else load_stage_skill_assets("stage_04")
-    target_ids = [target["id"] for target in validation_targets[:4] if target.get("id")] or ["target_1"]
-    primary_objective = sequence_item_text(objectives, 0, "source-defined validation objective")
-    return build_material_grounded_reasoning_units(
-        [
-            build_reasoning_unit(
-                "Exact-Assumption Validation Targeting", "validation targets", "structured -> clarified -> freeze",
-                "validation scope could remain generic instead of tied to explicit assumptions",
-                ("assumption-first validation targeting", ["validated learning loop", "exact-assumption-first validation targeting"], "derive validation targets directly from Stage-03 assumptions and preserve their positive/negative consequence"),
-                (target_ids, "shorter plan vs exact learning target clarity", "validation targets now inherit Stage-03 assumption structure directly"),
-                ("Stage-03 already names the assumptions most likely to change the slice decision", "validation is only useful when each target has a concrete downstream consequence", "Stage-04 keeps assumption-first structure instead of inventing new target themes"),
-                ("provisional", "real evidence collection has not happened yet", "prototype and interview preparation should follow the same target ids", "validation targets are specific enough to execute without more rewriting"),
-            ),
-            build_reasoning_unit(
-                "Method and Fidelity Fit", "method-fit comparison", "structured -> compared -> freeze",
-                "method choice could drift into habit instead of target fit",
-                ("method-fit comparison + fidelity choice", ["prototype/validation linkage", "method-fit comparison"], "map each assumption to the lightest method that still exposes pass/fail evidence"),
-                (["clickable walkthrough", "architecture review", "role-comparison interview"], "stronger evidence vs lower cost and faster setup", "selected a mixed validation plan driven by assumption type rather than one fixed method for all targets"),
-                ("assumptions span workflow comprehension, constraint fit, and role boundary fit", "one validation method cannot answer all target types equally well", "use method bundles matched to the assumption category"),
-                ("provisional", "some targets may still need a richer prototype if early signals are ambiguous", "research preparation should keep artifacts aligned with target type", "method-fit is explicit enough for the next execution round"),
-            ),
-            build_reasoning_unit(
-                "Evidence Honesty and Revision Consequence", "decision state and forbidden assumptions", "structured -> bounded -> freeze",
-                "downstream teams could misread validation planning as validated truth",
-                ("evidence honesty + revision consequence mapping", ["build-measure-learn loop", "evidence-honesty before decision declaration"], "separate source-grounded structure from real validation evidence and attach failure consequences per target"),
-                (["treat the pack as validated", "keep revise-state honesty visible"], "cleaner readiness story vs audit-safe honesty", "kept Stage-04 in revise-state while still allowing downstream-safe exploration"),
-                (f"source provides validation input through section 6 and `{primary_objective}`", "design and architecture may start before validation finishes, but must not assume proof already exists", "keep forbidden assumptions explicit in the output"),
-                ("review-bound", "actual user evidence may still overturn the current slice or boundary choice", "PRD convergence may proceed, but implementation commitment remains blocked", "decision and revision logic are explicit enough for review"),
-            ),
-            build_reasoning_unit(
-                "Convergence Admission and Stage Coupling", "convergence readiness and Stage-02b execution coupling", "structured -> admitted -> freeze",
-                "downstream teams could start convergence without checking whether Stage-02b and validation pack stay coupled",
-                ("convergence admission + dependency coupling review", ["exact-assumption-first validation targeting", "evidence-honesty before decision declaration"], "check whether validation targets, Stage-02b execution state, and convergence readiness remain mutually consistent"),
-                (["treat convergence as automatic", "gate convergence on explicit stage coupling"], "faster PRD convergence vs audit-safe dependency honesty", "allowed ready-to-converge output while preserving explicit Stage-02b coupling and blocked assumptions"),
-                ("Stage-04 must declare whether Stage-02b was executed and what that means downstream", "convergence without coupling declarations creates false delivery confidence", "keep convergence admission tied to stage coupling and validation state"),
-                ("review-bound", "later evidence may still tighten convergence rules", "PRD assembly and execution report should preserve the same convergence admission language", "stage coupling is explicit enough for downstream convergence"),
-            ),
-        ],
-        stage_skill_assets,
-    )
-
-
-def build_stage_04_maturity_rows(
-    *,
-    module_chain: str,
-    primary_segment: str,
-    constraints: list[str],
-) -> list[dict[str, str]]:
-    primary_constraint = sequence_item_text(constraints, 0, "source-defined constraint")
-    return [
+    module_chain = " -> ".join(str(row.get("module", "")).strip() for row in modules if str(row.get("module", "")).strip()) or "source-defined workflow"
+    primary_flow_name = str(flows[0].get("name", "Primary Flow")) if flows else "Primary Flow"
+    stage03_assumptions = parse_stage03_assumptions(stage_03_text)
+    if not stage03_assumptions:
+        stage03_assumptions = [
+            {
+                "id": "target_1",
+                "assumption": f"`{primary_segment}` 愿意沿着 `{module_chain}` 使用统一流程",
+                "positive": "当前切片可直接进入设计深化",
+                "negative": "需要回退调整首个切片的入口与范围",
+            }
+        ]
+    validation_targets: list[dict[str, str]] = []
+    for item in stage03_assumptions:
+        bundle = infer_validation_method_bundle(item["assumption"], primary_flow_name, primary_segment)
+        validation_targets.append(
+            {
+                **item,
+                **bundle,
+                "dimension": infer_validation_dimension(item["assumption"]),
+            }
+        )
+    method_rows = [
+        "| clickable walkthrough + task interview | high | high-speed / medium-cost | medium | chosen for workflow comprehension and handoff assumptions |",
+        "| architecture walkthrough + constraint review | medium-high | medium-speed / medium-cost | medium | chosen for constraint-fit assumptions |",
+        "| role-comparison interview | medium | high-speed / low-cost | medium | chosen for primary-boundary assumptions |",
+    ]
+    skill_assets = load_stage_skill_assets("stage_04")
+    s3_slice = find_named_h2_block(stage_03_text, ["Chosen Slice"])
+    s3_nfr_impact = find_named_h2_block(stage_03_text, ["NFR-Aware Slice Impact and Dependency-First Logic"])
+    s3_assumptions = find_named_h2_block(stage_03_text, ["Key Assumptions to Validate"])
+    s3_honesty = find_named_h2_block(stage_03_text, ["Deferred Items Honesty Check"])
+    s2a_nfr = find_named_h2_block(stage_02a_text, ["NFR Initial Identification"])
+    reasoning_units = [
+        {
+            "title": "Exact-Assumption Validation Targeting",
+            "artifact_unit": "validation targets",
+            "loop_round_state": "structured -> clarified -> freeze",
+            "weakness_trigger": "validation scope could remain generic instead of tied to explicit assumptions",
+            "method_family": "assumption-first validation targeting",
+            "method_assets": [
+                "validated learning loop",
+                "exact-assumption-first validation targeting",
+            ],
+            "reasoning_operator": "derive validation targets directly from Stage-03 assumptions and preserve their positive/negative consequence",
+            "material_grounding": material_grounding_lines(skill_assets),
+            "alternatives_compared": [target["id"] for target in validation_targets[:4]],
+            "tradeoff_or_tension": "shorter plan vs exact learning target clarity",
+            "decision_effect": "validation targets now inherit Stage-03 assumption structure directly",
+            "evidence_classification": [
+                "observed fact: Stage-03 already names the assumptions most likely to change the slice decision",
+                "interpreted pattern: validation is only useful when each target has a concrete downstream consequence",
+                "decision: Stage-04 keeps assumption-first structure instead of inventing new target themes",
+            ],
+            "evidence_state": "provisional",
+            "remaining_unknown": "real evidence collection has not happened yet",
+            "downstream_handoff": "prototype and interview preparation should follow the same target ids",
+            "freeze_rationale": "validation targets are specific enough to execute without more rewriting",
+        },
+        {
+            "title": "Method and Fidelity Fit",
+            "artifact_unit": "method-fit comparison",
+            "loop_round_state": "structured -> compared -> freeze",
+            "weakness_trigger": "method choice could drift into habit instead of target fit",
+            "method_family": "method-fit comparison + fidelity choice",
+            "method_assets": [
+                "prototype/validation linkage",
+                "method-fit comparison",
+            ],
+            "reasoning_operator": "map each assumption to the lightest method that still exposes pass/fail evidence",
+            "material_grounding": material_grounding_lines(skill_assets),
+            "alternatives_compared": ["clickable walkthrough", "architecture review", "role-comparison interview"],
+            "tradeoff_or_tension": "stronger evidence vs lower cost and faster setup",
+            "decision_effect": "selected a mixed validation plan driven by assumption type rather than one fixed method for all targets",
+            "evidence_classification": [
+                "observed fact: assumptions span workflow comprehension, constraint fit, and role boundary fit",
+                "interpreted pattern: one validation method cannot answer all target types equally well",
+                "decision: use method bundles matched to the assumption category",
+            ],
+            "evidence_state": "provisional",
+            "remaining_unknown": "some targets may still need a richer prototype if early signals are ambiguous",
+            "downstream_handoff": "research preparation should keep artifacts aligned with target type",
+            "freeze_rationale": "method-fit is explicit enough for the next execution round",
+        },
+        {
+            "title": "Evidence Honesty and Revision Consequence",
+            "artifact_unit": "decision state and forbidden assumptions",
+            "loop_round_state": "structured -> bounded -> freeze",
+            "weakness_trigger": "downstream teams could misread validation planning as validated truth",
+            "method_family": "evidence honesty + revision consequence mapping",
+            "method_assets": [
+                "build-measure-learn loop",
+                "evidence-honesty before decision declaration",
+            ],
+            "reasoning_operator": "separate source-grounded structure from real validation evidence and attach failure consequences per target",
+            "material_grounding": material_grounding_lines(skill_assets),
+            "alternatives_compared": ["treat the pack as validated", "keep revise-state honesty visible"],
+            "tradeoff_or_tension": "cleaner readiness story vs audit-safe honesty",
+            "decision_effect": "kept Stage-04 in revise-state while still allowing downstream-safe exploration",
+            "evidence_classification": [
+                f"observed fact: source provides validation input through section 6 and `{objectives[0]}`",
+                "interpreted pattern: design and architecture may start before validation finishes, but must not assume proof already exists",
+                "decision: keep forbidden assumptions explicit in the output",
+            ],
+            "evidence_state": "review-bound",
+            "remaining_unknown": "actual user evidence may still overturn the current slice or boundary choice",
+            "downstream_handoff": "PRD convergence may proceed, but implementation commitment remains blocked",
+            "freeze_rationale": "decision and revision logic are explicit enough for review",
+        },
+        {
+            "title": "Convergence Admission and Stage Coupling",
+            "artifact_unit": "convergence readiness and Stage-02b execution coupling",
+            "loop_round_state": "structured -> admitted -> freeze",
+            "weakness_trigger": "downstream teams could start convergence without checking whether Stage-02b and validation pack stay coupled",
+            "method_family": "convergence admission + dependency coupling review",
+            "method_assets": [
+                "exact-assumption-first validation targeting",
+                "evidence-honesty before decision declaration",
+            ],
+            "reasoning_operator": "check whether validation targets, Stage-02b execution state, and convergence readiness remain mutually consistent",
+            "material_grounding": material_grounding_lines(skill_assets),
+            "alternatives_compared": ["treat convergence as automatic", "gate convergence on explicit stage coupling"],
+            "tradeoff_or_tension": "faster PRD convergence vs audit-safe dependency honesty",
+            "decision_effect": "allowed ready-to-converge output while preserving explicit Stage-02b coupling and blocked assumptions",
+            "evidence_classification": [
+                "observed fact: Stage-04 must declare whether Stage-02b was executed and what that means downstream",
+                "interpreted pattern: convergence without coupling declarations creates false delivery confidence",
+                "decision: keep convergence admission tied to stage coupling and validation state",
+            ],
+            "evidence_state": "review-bound",
+            "remaining_unknown": "later evidence may still tighten convergence rules",
+            "downstream_handoff": "PRD assembly and execution report should preserve the same convergence admission language",
+            "freeze_rationale": "stage coupling is explicit enough for downstream convergence",
+        },
+    ]
+    maturity_rows = [
         {
             "subject": f"workflow backbone `{module_chain}`",
             "delivery_readiness_state": "downstream-start-safe",
@@ -5393,7 +4540,7 @@ def build_stage_04_maturity_rows(
             "subject": "constraint-fit and auditability",
             "delivery_readiness_state": "downstream-start-safe",
             "evidence_confidence_state": "source-grounded-but-unvalidated",
-            "current_basis": f"source 已明确给出 `{primary_constraint}` 等约束，Stage-04 已把它们转成显式 validation target。",
+            "current_basis": f"source 已明确给出 `{constraints[0]}` 等约束，Stage-04 已把它们转成显式 validation target。",
             "blocker_to_next_delivery_state": "还缺 architecture review 与 implementation-facing constraint mapping",
             "blocker_to_next_evidence_state": "还缺真实技术评审或 spike evidence",
             "safe_downstream_action": "架构可先做约束映射和审计事件边界设计",
@@ -5410,30 +4557,25 @@ def build_stage_04_maturity_rows(
             "forbidden_assumptions": "deferred scope can silently enter MVP",
         },
     ]
-
-
-def build_stage_04_stage_02b_execution_context(*, stage_02b_executed: bool) -> Stage04Stage02bExecutionContext:
     if stage_02b_executed:
-        return Stage04Stage02bExecutionContext(
-            upstream_lines="\n".join(
-                [
-                    "  - Stage-03 `Chosen Slice`",
-                    "  - Stage-03 `NFR-Aware Slice Impact and Dependency-First Logic`",
-                    "  - Stage-03 `Key Assumptions to Validate`",
-                    "  - Stage-03 `Deferred Items Honesty Check`",
-                ]
-            ),
-            state_block="""- stage_02b_execution_state:
+        upstream_stage_lines = "\n".join(
+            [
+                "  - Stage-03 `Chosen Slice`",
+                "  - Stage-03 `NFR-Aware Slice Impact and Dependency-First Logic`",
+                "  - Stage-03 `Key Assumptions to Validate`",
+                "  - Stage-03 `Deferred Items Honesty Check`",
+            ]
+        )
+        stage_02b_state_block = """- stage_02b_execution_state:
   - `executed`
 - handoff_nfr_state:
   - `present`
 - handoff_nfr_notes:
   - Stage-02b 已提供 quality scenario matrix、metric register、module responsibility 与 payload contract。
 - stage_02b_skip_declaration:
-  - not required because Stage-02b was executed in full for this run""",
-        )
-    return Stage04Stage02bExecutionContext(
-        upstream_lines="\n".join(
+  - not required because Stage-02b was executed in full for this run"""
+    else:
+        upstream_stage_lines = "\n".join(
             [
                 "  - Stage-02a `NFR Initial Identification`",
                 "  - Stage-03 `Chosen Slice`",
@@ -5441,8 +4583,8 @@ def build_stage_04_stage_02b_execution_context(*, stage_02b_executed: bool) -> S
                 "  - Stage-03 `Key Assumptions to Validate`",
                 "  - Stage-03 `Deferred Items Honesty Check`",
             ]
-        ),
-        state_block="""- stage_02b_execution_state:
+        )
+        stage_02b_state_block = """- stage_02b_execution_state:
   - `skipped`
 - handoff_nfr_state:
   - `stage-02a-initial-identification-only`
@@ -5454,48 +4596,40 @@ def build_stage_04_stage_02b_execution_context(*, stage_02b_executed: bool) -> S
   - ia_direction_state: `partial-from-02a`
   - impact_on_phase2: `Phase-2 可以在当前对象链和 workflow-first IA 上安全启动，但必须把 full quality scenario matrix、metric contract hardening、IA state coverage hardening 纳入自己的首波架构发现任务。`
   - minimum_viable_for_phase2: `yes`
-  - mitigation_note: `Phase-2 不得假定 Stage-02b 已冻结；它必须把 NFR / domain / IA deepening 作为显式 architecture discovery workstream，而不是隐式补锅。`""",
-    )
+  - mitigation_note: `Phase-2 不得假定 Stage-02b 已冻结；它必须把 NFR / domain / IA deepening 作为显式 architecture discovery workstream，而不是隐式补锅。`"""
 
+    return f"""# Stage-04 Output — requirements-validation-and-concept-proof (deep-compiled)
 
-def render_stage_04_validation_plan_sections(
-    *,
-    validation_targets: list[dict[str, str]],
-    method_rows: list[str],
-    primary_flow_name: str,
-    module_chain: str,
-) -> str:
-    validation_target_lines = "\n".join(
-        f"- {item['id']}:\n  - Target {idx}: {item['assumption']}"
-        for idx, item in enumerate(validation_targets, start=1)
-    )
-    validation_clarity_rows = "\n".join(
-        f"| {item['id']} | {item['assumption']} | {item.get('positive', 'preserve current direction')} | "
-        f"{item.get('negative', 'revise the current slice or boundary')} | {item['dimension']} |"
-        for item in validation_targets
-    )
-    method_rows_text = "\n".join(method_rows)
-    signal_threshold_lines = "\n".join(
-        f"  - {item['id']}: {item['threshold']}" for item in validation_targets[:5]
-    )
-    validation_plan_rows = "\n".join(
-        f"| {item['id']} | {item['method']} | {item['artifact']} | {item['threshold']} | "
-        f"{item.get('positive', 'preserve current direction')} | {item.get('negative', 'revise current direction')} |"
-        for item in validation_targets
-    )
-    unknown_lines = "\n".join(f"  - {item['assumption']}" for item in validation_targets[:5])
-    return f"""## 3. Validation Targets
-{validation_target_lines}
+## 1. Document Metadata
+- document_name: `{product_label} Phase-1 Trial Stage-04 Validation {version}`
+- stage: `requirements-validation-and-concept-proof`
+- version: `{version}`
+- status: `provisional`
+- owner: `{owner}`
+- source_status: `mixed`
+
+{render_traceability_block("stage_04")}
+
+## 2. Context and Objective
+- current_validation_target:
+  - 验证 Stage-03 选择的 `{module_chain}` 首个切片是否值得继续作为设计/架构主线。
+- validation_objective:
+  - 把 Stage-03 的关键假设转成可判定的验证链，而不是继续停留在结构性推断。
+- upstream_stage_materially_used:
+{upstream_stage_lines}
+
+## 3. Validation Targets
+{chr(10).join([f"- {item['id']}:\n  - Target {idx}: {item['assumption']}" for idx, item in enumerate(validation_targets, start=1)])}
 
 ## 4. Validation Target Clarity
 | target | exact_assumption_tested | what_changes_if_positive | what_changes_if_negative | primary dimension |
 |---|---|---|---|---|
-{validation_clarity_rows}
+{chr(10).join(f"| {item['id']} | {item['assumption']} | {item.get('positive', 'preserve current direction')} | {item.get('negative', 'revise the current slice or boundary')} | {item['dimension']} |" for item in validation_targets)}
 
 ## 5. Method-Fit Comparison
 | candidate method | fit_to_target | cost_and_speed | evidence_quality | why_not_chosen_or_chosen |
 |---|---|---|---|---|
-{method_rows_text}
+{chr(10).join(method_rows)}
 - chosen_method:
   - mixed method bundle driven by assumption type
 - why_this_method_not_that:
@@ -5513,12 +4647,12 @@ def render_stage_04_validation_plan_sections(
 - method:
   - mixed method bundle
 - signal thresholds:
-{signal_threshold_lines}
+{chr(10).join(f"  - {item['id']}: {item['threshold']}" for item in validation_targets[:5])}
 
 ## 8. Validation Plan and Signal Chain
 | target | method | artifact | threshold | learning_if_pass | learning_if_fail |
 |---|---|---|---|---|---|
-{validation_plan_rows}
+{chr(10).join(f"| {item['id']} | {item['method']} | {item['artifact']} | {item['threshold']} | {item.get('positive', 'preserve current direction')} | {item.get('negative', 'revise current direction')} |" for item in validation_targets)}
 
 ## 9. Validation Dimensions Covered
 - value_dimension:
@@ -5540,29 +4674,35 @@ def render_stage_04_validation_plan_sections(
 - what_is_real_evidence:
   - source 已明确给出目标用户、模块链路、关键流程、约束和 section 6 的验证输入。
 - what_remains_unknown:
-{unknown_lines}"""
+{chr(10).join(f"  - {item['assumption']}" for item in validation_targets[:5])}
 
+{render_maturity_confidence_section(
+    "## 11. Delivery Readiness and Evidence Confidence",
+    document_delivery_state="downstream-start-safe",
+    evidence_confidence_state="source-grounded-but-unvalidated",
+    safe_start_scope=[
+        f"设计可以启动 `{primary_flow_name}` 的 workflow prototype 与关键页面表达",
+        f"架构可以启动 `{module_chain}` 的 object chain / audit boundary 设计",
+        "产品可以继续准备 interviews、constraint review 和 comparison artifacts",
+    ],
+    blocked_commitments=[
+        "不得把当前文档当作 implementation-commit-ready 需求冻结包",
+        "不得承诺 Stage-03 assumptions 已经被真实证据证明",
+        "不得承诺客群、约束适配或流程可理解性已全部验证完成",
+    ],
+    rows=maturity_rows,
+)}
 
-def render_stage_04_decision_handoff_sections(
-    *,
-    validation_targets: list[dict[str, str]],
-    stage_02b_state_block: str,
-) -> str:
-    revision_consequence_lines = "\n".join(
-        f"  - 若 `{item['id']}` 失败：{item.get('negative', 'revise current direction')}"
-        for item in validation_targets[:5]
-    )
-    carryover_truth_lines = "\n".join(f"  - {item['assumption']}" for item in validation_targets[:3])
-    return f"""## 12. Decision State and Revision Consequences
+## 12. Decision State and Revision Consequences
 - decision: `Revise`
 - reasoning:
   - 结构和主文档已足够支持设计/架构探索，但 validation chain 仍缺真实 evidence，因此不能给 Go。
 - revision_consequences:
-{revision_consequence_lines}
+{chr(10).join(f"  - 若 `{item['id']}` 失败：{item.get('negative', 'revise current direction')}" for item in validation_targets[:5])}
 - what_downstream_must_not_assume:
-  - 需求已验证
-  - 主流程已真实跑通
-  - 关键约束已被实现验证
+  - 首发客群已被验证
+  - 主流程已被真实用户验证通过
+  - 约束适配已被证明无风险
   - 延后项可以安全提前进入 MVP
 
 ## 13. Review-Bound Carryover and Forbidden Assumptions
@@ -5571,7 +4711,7 @@ def render_stage_04_decision_handoff_sections(
   - 主流程已真实跑通
   - 关键约束已被实现验证
 - carryover_truths:
-{carryover_truth_lines}
+{chr(10).join(f"  - {item['assumption']}" for item in validation_targets[:3])}
 
 ## 14. Stage-02b Execution State Declaration
 {stage_02b_state_block}
@@ -5607,259 +4747,54 @@ flowchart LR
   - round_2:
     - trigger: `method choice had no real comparison`
     - artifact_unit_improved: `method-fit comparison + prototype fidelity`
-    - what_was_refined: `compare method options and chosen signal chain`
+    - what_was_refined: `fit methods to assumption type instead of forcing one default`
     - outcome: `continue`
   - round_3:
-    - trigger: `decision consequences were implicit`
-    - artifact_unit_improved: `revision consequences + downstream forbidden assumptions`
-    - what_was_refined: `explicit pass/fail meaning for downstream planning`
-    - outcome: `freeze with review-bound honesty`
-"""
+    - trigger: `decision state lacked downstream consequence`
+    - artifact_unit_improved: `triad verdict + revision consequence`
+    - what_was_refined: `keep revise-state honesty and target-linked consequences visible`
+    - outcome: `freeze`
 
+{render_reasoning_unit_ledger("## 18. Minimal Reasoning Unit Ledger", reasoning_units, context=context)}
 
-def render_stage_04_evidence_summary_sections(
-    *,
-    reasoning_units: list[dict[str, str | list[str]]],
-    context: dict[str, object],
-    skill_assets: dict[str, object],
-    upstream_evidence_blocks: list[str],
-    source_evidence_blocks: list[str],
-) -> str:
-    return render_evidence_chain_sections(
-        ledger_heading="## 18. Minimal Reasoning Unit Ledger",
-        material_heading="## 19. Material Grounding Bridge",
-        snapshot_heading="## 20. Skill Asset Ingestion Snapshot",
-        method_heading="## 21. Method Activation Evidence",
-        upstream_heading="## 22. Upstream Stage Carryover Evidence",
-        source_heading="## 23. Source Evidence Pack",
-        reasoning_units=reasoning_units,
-        context=context,
-        skill_assets=skill_assets,
-        snapshot_runtime_use_rules=[
-            "exact assumptions were defined before method selection",
-            "method choices were compared rather than assumed",
-            "evidence honesty and decision consequence both remained explicit",
-            "Stage-03 assumptions and deferred honesty were carried into validation design",
-        ],
-        upstream_evidence_blocks=upstream_evidence_blocks,
-        source_evidence_blocks=source_evidence_blocks,
-    )
+{render_material_grounding_bridge("## 19. Material Grounding Bridge", skill_assets, context)}
 
-
-def build_stage_04_render_context(
-    source_text: str,
-    stage_02a_text: str,
-    stage_03_text: str,
-    *,
-    stage_02b_executed: bool,
-    source_snapshot: Phase1SourceSnapshot | None = None,
-) -> Stage04RenderContext:
-    source_bundle = build_stage_04_source_bundle(source_text, stage_03_text, source_snapshot=source_snapshot)
-    skill_assets = load_stage_skill_assets("stage_04")
-    reasoning_units = build_stage_04_reasoning_units(
-        validation_targets=source_bundle.validation_targets,
-        objectives=source_bundle.objectives,
-        skill_assets=skill_assets,
-    )
-    maturity_rows = build_stage_04_maturity_rows(
-        module_chain=source_bundle.module_chain,
-        primary_segment=source_bundle.primary_segment,
-        constraints=source_bundle.constraints,
-    )
-    stage_02b_execution_context = build_stage_04_stage_02b_execution_context(stage_02b_executed=stage_02b_executed)
-    upstream_evidence_blocks = [
-        find_named_h2_block(stage_02a_text, ["NFR Initial Identification"]),
-        find_named_h2_block(stage_03_text, ["Chosen Slice"]),
-        find_named_h2_block(stage_03_text, ["NFR-Aware Slice Impact and Dependency-First Logic"]),
-        find_named_h2_block(stage_03_text, ["Key Assumptions to Validate"]),
-        find_named_h2_block(stage_03_text, ["Deferred Items Honesty Check"]),
-    ]
-    source_evidence_blocks = [
-        source_bundle.h61,
-        source_bundle.h62,
-        source_bundle.h9,
-        source_bundle.h10,
-        source_bundle.h12,
-    ]
-    return Stage04RenderContext(
-        source_bundle=source_bundle,
-        stage_02b_execution_context=stage_02b_execution_context,
-        upstream_evidence_blocks=upstream_evidence_blocks,
-        source_evidence_blocks=source_evidence_blocks,
-        skill_assets=skill_assets,
-        reasoning_units=reasoning_units,
-        maturity_rows=maturity_rows,
-    )
-
-
-def render_stage_04_document(
-    render_context: Stage04RenderContext,
-    *,
-    version: str,
-    owner: str,
-) -> str:
-    source_bundle = render_context.source_bundle
-
-    return f"""{render_stage_document_opening(
-    stage_display="Stage-04",
-    stage_slug="requirements-validation-and-concept-proof",
-    document_suffix="Validation",
-    product_label=source_bundle.product_label,
-    version=version,
-    owner=owner,
-)}
-
-{render_traceability_block("stage_04")}
-
-## 2. Context and Objective
-- current_validation_target:
-  - 验证 Stage-03 选择的 `{source_bundle.module_chain}` 首个切片是否值得继续作为设计/架构主线。
-- validation_objective:
-  - 把 Stage-03 的关键假设转成可判定的验证链，而不是继续停留在结构性推断。
-- upstream_stage_materially_used:
-{render_context.stage_02b_execution_context.upstream_lines}
-
-{render_stage_04_validation_plan_sections(
-    validation_targets=source_bundle.validation_targets,
-    method_rows=source_bundle.method_rows,
-    primary_flow_name=source_bundle.primary_flow_name,
-    module_chain=source_bundle.module_chain,
-)}
-
-{render_maturity_confidence_section(
-    "## 11. Delivery Readiness and Evidence Confidence",
-    document_delivery_state="downstream-start-safe",
-    evidence_confidence_state="source-grounded-but-unvalidated",
-    safe_start_scope=[
-        f"设计可以启动 `{source_bundle.primary_flow_name}` 的 workflow prototype 与关键页面表达",
-        f"架构可以启动 `{source_bundle.module_chain}` 的 object chain / audit boundary 设计",
-        "产品可以继续准备 interviews、constraint review 和 comparison artifacts",
+{render_skill_asset_snapshot(
+    "## 20. Skill Asset Ingestion Snapshot",
+    skill_assets,
+    [
+        "exact assumptions were defined before method selection",
+        "method choices were compared rather than assumed",
+        "evidence honesty and decision consequence both remained explicit",
+        "Stage-03 assumptions and deferred honesty were carried into validation design",
     ],
-    blocked_commitments=[
-        "不得把当前文档当作 implementation-commit-ready 需求冻结包",
-        "不得承诺 Stage-03 assumptions 已经被真实证据证明",
-        "不得承诺客群、约束适配或流程可理解性已全部验证完成",
-    ],
-    rows=render_context.maturity_rows,
+    context,
 )}
 
-{render_stage_04_decision_handoff_sections(
-    validation_targets=source_bundle.validation_targets,
-    stage_02b_state_block=render_context.stage_02b_execution_context.state_block,
-)}
+{render_method_activation_evidence("## 21. Method Activation Evidence", reasoning_units, context=context)}
 
-{render_stage_04_evidence_summary_sections(
-    reasoning_units=render_context.reasoning_units,
-    context=source_bundle.context,
-    skill_assets=render_context.skill_assets,
-    upstream_evidence_blocks=render_context.upstream_evidence_blocks,
-    source_evidence_blocks=render_context.source_evidence_blocks,
-)}
+## 22. Upstream Stage Carryover Evidence
+{demote_headings(s2a_nfr)}
+
+{demote_headings(s3_slice)}
+
+{demote_headings(s3_nfr_impact)}
+
+{demote_headings(s3_assumptions)}
+
+{demote_headings(s3_honesty)}
+
+## 23. Source Evidence Pack
+{demote_headings(h61)}
+
+{demote_headings(h62)}
+
+{demote_headings(h9)}
+
+{demote_headings(h10)}
+
+{demote_headings(h12)}
 """
-
-
-def build_stage_04(
-    source_text: str,
-    stage_02a_text: str,
-    stage_03_text: str,
-    *,
-    stage_02b_executed: bool,
-    version: str,
-    owner: str,
-    source_snapshot: Phase1SourceSnapshot | None = None,
-) -> str:
-    return render_stage_04_document(
-        build_stage_04_render_context(
-            source_text,
-            stage_02a_text,
-            stage_03_text,
-            stage_02b_executed=stage_02b_executed,
-            source_snapshot=source_snapshot,
-        ),
-        version=version,
-        owner=owner,
-    )
-
-
-def build_phase1_deep_stage_texts(
-    source_text: str,
-    *,
-    version: str,
-    owner: str,
-    skip_stage_02b: bool,
-) -> Phase1DeepStageTexts:
-    source_snapshot = build_phase1_source_snapshot(source_text)
-    stage_01_text = build_stage_01(source_text, version, owner, source_snapshot=source_snapshot)
-    stage_02a_text = build_stage_02a(source_text, version, owner, source_snapshot=source_snapshot)
-    stage_02b_text = (
-        build_stage_02b_skip_stub(source_text, stage_02a_text, version, owner, source_snapshot=source_snapshot)
-        if skip_stage_02b
-        else build_stage_02b(source_text, version, owner, source_snapshot=source_snapshot)
-    )
-    stage_03_text = build_stage_03(
-        source_text,
-        stage_02a_text,
-        stage_02b_text,
-        stage_02b_executed=not skip_stage_02b,
-        version=version,
-        owner=owner,
-        source_snapshot=source_snapshot,
-    )
-    stage_04_text = build_stage_04(
-        source_text,
-        stage_02a_text,
-        stage_03_text,
-        stage_02b_executed=not skip_stage_02b,
-        version=version,
-        owner=owner,
-        source_snapshot=source_snapshot,
-    )
-    return Phase1DeepStageTexts(
-        stage_01_text=stage_01_text,
-        stage_02a_text=stage_02a_text,
-        stage_02b_text=stage_02b_text,
-        stage_03_text=stage_03_text,
-        stage_04_text=stage_04_text,
-    )
-
-
-def write_business_world_model_artifacts(
-    output_dir: Path,
-    business_world_model: dict[str, object],
-) -> BusinessWorldModelArtifactPaths:
-    paths = BusinessWorldModelArtifactPaths(
-        business_world_model=output_dir / PHASE1_BUSINESS_WORLD_MODEL_FILENAME,
-        semantic_authoring_spine=output_dir / ".phase1-evidence" / "p1-semantic-authoring-spine.json",
-        operating_baseline_model=output_dir / PHASE1_OPERATING_BASELINE_MODEL_FILENAME,
-        product_world_decision=output_dir / PHASE1_PRODUCT_WORLD_DECISION_FILENAME,
-        business_release_truth_pack=output_dir / PHASE1_BUSINESS_RELEASE_TRUTH_PACK_FILENAME,
-        planning_control_truth_pack=output_dir / PHASE1_PLANNING_CONTROL_TRUTH_PACK_FILENAME,
-        business_exploration_arena_json=output_dir / "business-exploration-arena.json",
-        business_exploration_arena_md=output_dir / "business-exploration-arena.md",
-        commercial_argument_draft_json=output_dir / "commercial-argument-draft.json",
-        commercial_argument_draft_md=output_dir / "commercial-argument-draft.md",
-        chosen_business_thesis_json=output_dir / "chosen-business-thesis.json",
-        chosen_business_thesis_md=output_dir / "chosen-business-thesis.md",
-    )
-    for path, payload in {
-        paths.business_world_model: business_world_model,
-        paths.semantic_authoring_spine: semantic_authoring_spine_from_model(business_world_model),
-        paths.operating_baseline_model: business_world_model.get("operating_baseline_model", {}),
-        paths.product_world_decision: business_world_model.get("product_world_decision", {}),
-        paths.business_release_truth_pack: business_world_model.get("business_release_truth_pack", {}),
-        paths.planning_control_truth_pack: business_world_model.get("planning_control_truth_pack", {}),
-    }.items():
-        write_json_artifact(path, payload)
-
-    for json_path, markdown_path, model_key, renderer in [
-        (paths.business_exploration_arena_json, paths.business_exploration_arena_md, "business_exploration_arena", render_business_exploration_arena_markdown),
-        (paths.commercial_argument_draft_json, paths.commercial_argument_draft_md, "commercial_argument_draft", render_commercial_argument_draft_markdown),
-        (paths.chosen_business_thesis_json, paths.chosen_business_thesis_md, "chosen_business_thesis", render_chosen_business_thesis_markdown),
-    ]:
-        payload = business_world_model.get(model_key, {})
-        write_json_artifact(json_path, payload)
-        markdown_path.write_text(renderer(payload if isinstance(payload, dict) else {}), encoding="utf-8")
-    return paths
 
 
 def main() -> int:
@@ -5876,12 +4811,6 @@ def main() -> int:
         help="experimental bounded Thinking Value-Gain strategy for major P1 artifact units",
     )
     parser.add_argument(
-        "--thinking-value-gain-output-profile",
-        choices=THINKING_VALUE_GAIN_OUTPUT_PROFILES,
-        default="coverage_rich",
-        help="Mindthus TVG exit-side output profile when --thinking-value-gain-mode=full-use",
-    )
-    parser.add_argument(
         "--skip-stage-02b",
         action="store_true",
         help="emit a rich Stage-02b skip-stub instead of the full deepening artifact",
@@ -5895,52 +4824,129 @@ def main() -> int:
         (output_dir / "thinking-value-gain-strategy.md").write_text(
             "# Thinking Value-Gain Strategy\n\n"
             "- mode: `full-use`\n"
-            f"- output_profile: `{args.thinking_value_gain_output_profile}`\n"
             "- scope: `major Phase-1 artifact units`\n"
             "- boundary: `bounded value-strengthening, not length expansion`\n"
             "- exit: `stop when another round no longer improves practical decision/action/evidence/review/handoff value`\n",
             encoding="utf-8",
         )
 
-    stage_paths = [
-        output_dir / "stage-01-user-research.md",
-        output_dir / "stage-02a-requirements-structural-analysis.md",
-        output_dir / "stage-02b-requirements-specification-deepening.md",
-        output_dir / "stage-03-requirements-decomposition-and-mvp-slicing.md",
-        output_dir / "stage-04-requirements-validation-and-concept-proof.md",
-    ]
+    stage_01 = output_dir / "stage-01-user-research.md"
+    stage_02a = output_dir / "stage-02a-requirements-structural-analysis.md"
+    stage_02b = output_dir / "stage-02b-requirements-specification-deepening.md"
+    stage_03 = output_dir / "stage-03-requirements-decomposition-and-mvp-slicing.md"
+    stage_04 = output_dir / "stage-04-requirements-validation-and-concept-proof.md"
+    business_world_model_path = output_dir / PHASE1_BUSINESS_WORLD_MODEL_FILENAME
+    operating_baseline_model_path = output_dir / PHASE1_OPERATING_BASELINE_MODEL_FILENAME
+    product_world_decision_path = output_dir / PHASE1_PRODUCT_WORLD_DECISION_FILENAME
+    business_release_truth_pack_path = output_dir / PHASE1_BUSINESS_RELEASE_TRUTH_PACK_FILENAME
+    planning_control_truth_pack_path = output_dir / PHASE1_PLANNING_CONTROL_TRUTH_PACK_FILENAME
+    business_exploration_arena_json_path = output_dir / "business-exploration-arena.json"
+    business_exploration_arena_md_path = output_dir / "business-exploration-arena.md"
+    commercial_argument_draft_json_path = output_dir / "commercial-argument-draft.json"
+    commercial_argument_draft_md_path = output_dir / "commercial-argument-draft.md"
+    chosen_business_thesis_json_path = output_dir / "chosen-business-thesis.json"
+    chosen_business_thesis_md_path = output_dir / "chosen-business-thesis.md"
+    semantic_authoring_spine_path = output_dir / ".phase1-evidence" / "p1-semantic-authoring-spine.json"
 
-    stage_texts = build_phase1_deep_stage_texts(
+    stage_01_text = build_stage_01(source_text, args.version, args.owner)
+    stage_02a_text = build_stage_02a(source_text, args.version, args.owner)
+    stage_02b_text = (
+        build_stage_02b_skip_stub(source_text, stage_02a_text, args.version, args.owner)
+        if args.skip_stage_02b
+        else build_stage_02b(source_text, args.version, args.owner)
+    )
+    stage_03_text = build_stage_03(
         source_text,
+        stage_02a_text,
+        stage_02b_text,
+        stage_02b_executed=not args.skip_stage_02b,
         version=args.version,
         owner=args.owner,
-        skip_stage_02b=args.skip_stage_02b,
+    )
+    stage_04_text = build_stage_04(
+        source_text,
+        stage_02a_text,
+        stage_03_text,
+        stage_02b_executed=not args.skip_stage_02b,
+        version=args.version,
+        owner=args.owner,
     )
 
-    for path, text in zip(stage_paths, stage_texts.ordered_texts()):
-        write(path, text, args.output_locale)
+    write(stage_01, stage_01_text, args.output_locale)
+    write(stage_02a, stage_02a_text, args.output_locale)
+    write(stage_02b, stage_02b_text, args.output_locale)
+    write(stage_03, stage_03_text, args.output_locale)
+    write(stage_04, stage_04_text, args.output_locale)
     business_world_model = apply_commercial_argument_rewrite(
         build_business_world_model(source_text),
         load_commercial_argument_rewrite(output_dir),
     )
     if args.thinking_value_gain_mode == "full-use":
-        business_world_model = apply_thinking_value_gain_full_use(
-            business_world_model,
-            output_profile=str(args.thinking_value_gain_output_profile),
-        )
-    business_model_artifact_paths = write_business_world_model_artifacts(output_dir, business_world_model)
+        business_world_model = apply_thinking_value_gain_full_use(business_world_model)
+    business_world_model_path.write_text(
+        json.dumps(business_world_model, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    semantic_authoring_spine_path.parent.mkdir(parents=True, exist_ok=True)
+    semantic_authoring_spine_path.write_text(
+        json.dumps(semantic_authoring_spine_from_model(business_world_model), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    operating_baseline_model_path.write_text(
+        json.dumps(business_world_model.get("operating_baseline_model", {}), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    product_world_decision_path.write_text(
+        json.dumps(business_world_model.get("product_world_decision", {}), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    business_release_truth_pack_path.write_text(
+        json.dumps(business_world_model.get("business_release_truth_pack", {}), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    planning_control_truth_pack_path.write_text(
+        json.dumps(business_world_model.get("planning_control_truth_pack", {}), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    business_exploration_arena = business_world_model.get("business_exploration_arena", {})
+    commercial_argument_draft = business_world_model.get("commercial_argument_draft", {})
+    chosen_business_thesis = business_world_model.get("chosen_business_thesis", {})
+    business_exploration_arena_json_path.write_text(
+        json.dumps(business_exploration_arena, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    business_exploration_arena_md_path.write_text(
+        render_business_exploration_arena_markdown(business_exploration_arena if isinstance(business_exploration_arena, dict) else {}),
+        encoding="utf-8",
+    )
+    commercial_argument_draft_json_path.write_text(
+        json.dumps(commercial_argument_draft, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    commercial_argument_draft_md_path.write_text(
+        render_commercial_argument_draft_markdown(commercial_argument_draft if isinstance(commercial_argument_draft, dict) else {}),
+        encoding="utf-8",
+    )
+    chosen_business_thesis_json_path.write_text(
+        json.dumps(chosen_business_thesis, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    chosen_business_thesis_md_path.write_text(
+        render_chosen_business_thesis_markdown(chosen_business_thesis if isinstance(chosen_business_thesis, dict) else {}),
+        encoding="utf-8",
+    )
 
-    generated_paths = [
-        *stage_paths,
-        business_model_artifact_paths.business_world_model,
-        business_model_artifact_paths.semantic_authoring_spine,
-        business_model_artifact_paths.operating_baseline_model,
-        business_model_artifact_paths.product_world_decision,
-        business_model_artifact_paths.business_release_truth_pack,
-        business_model_artifact_paths.planning_control_truth_pack,
-    ]
-    for path in generated_paths:
-        print(f"generated: {path}")
+    print(f"generated: {stage_01}")
+    print(f"generated: {stage_02a}")
+    print(f"generated: {stage_02b}")
+    print(f"generated: {stage_03}")
+    print(f"generated: {stage_04}")
+    print(f"generated: {business_world_model_path}")
+    print(f"generated: {semantic_authoring_spine_path}")
+    print(f"generated: {operating_baseline_model_path}")
+    print(f"generated: {product_world_decision_path}")
+    print(f"generated: {business_release_truth_pack_path}")
+    print(f"generated: {planning_control_truth_pack_path}")
     return 0
 
 

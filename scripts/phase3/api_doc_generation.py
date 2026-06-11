@@ -16,18 +16,13 @@ if str(SCRIPTS_ROOT) not in sys.path:
 import argparse
 import json
 from html import escape
-from string import Template
 from pathlib import Path
 from typing import Any
 
 from phase3.openapi_diff_checker import compare_openapi_docs
 from common.output_language import localize_phase3_api_doc_consistency_report, resolve_output_locale
-from common.script_data_assets import load_script_text_asset
 from phase3.contract_tools import load_openapi_document
 from phase3.surface_policy import write_phase3_profiled_surface
-
-WFF_SCRIPT_DATA_ASSETS = ("scripts/phase3/data/api-doc-index.html.template",)
-API_DOC_INDEX_TEMPLATE = Template(load_script_text_asset(__file__, "api-doc-index.html.template"))
 
 
 def write_text(path: Path, content: str) -> None:
@@ -262,25 +257,99 @@ def build_doc_index_html(
     else:
         evidence_section.append(f"      <p>{escape(evidence_empty)}</p>")
     evidence_section.append("    </section>")
-    operations_rows = "\n".join(f"          {row}" for row in rows)
-    if operations_rows:
-        operations_rows += "\n"
-    evidence_section_text = "\n".join(evidence_section)
-    return API_DOC_INDEX_TEMPLATE.substitute(
-        lang=escape(lang),
-        title=escape(title),
-        verdict_label=escape(verdict_label),
-        operations_label=escape(operations_label),
-        interactive_label=escape(interactive_label),
-        raw_spec_label=escape(raw_spec_label),
-        redoc_label=escape(redoc_label),
-        summary_label=escape(summary_label),
-        summary_value=escape(summary_value),
-        diff_status=escape(diff_status),
-        diff_status_class=escape(str(diff_report.get("verdict", "unknown")).lower()),
-        operations_count=str(len(rows)),
-        operations_rows=operations_rows,
-        evidence_section=evidence_section_text,
+    return "\n".join(
+        [
+            "<!doctype html>",
+            f"<html lang=\"{lang}\">",
+            "<head>",
+            "  <meta charset=\"utf-8\">",
+            "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
+            f"  <title>{escape(title)}</title>",
+            '  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">',
+            "  <style>",
+            "    :root { color-scheme: light; }",
+            "    body { margin: 0; color: #17212b; background: #f3f6fb; font-family: ui-sans-serif, system-ui, sans-serif; }",
+            "    .shell { max-width: 1360px; margin: 0 auto; padding: 28px 20px 40px; display: grid; gap: 20px; }",
+            "    .hero { border: 1px solid #d8e0e8; border-radius: 18px; padding: 24px; background: linear-gradient(135deg, #ffffff 0%, #eef5ff 100%); display: grid; gap: 14px; }",
+            "    .hero h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); line-height: 1.05; }",
+            "    .hero-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }",
+            "    .hero-card { border: 1px solid #d8e0e8; border-radius: 14px; padding: 16px; background: rgba(255,255,255,0.88); display: grid; gap: 8px; }",
+            "    .hero-card strong { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #516071; }",
+            "    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; }",
+            "    .hero-actions a { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 0 14px; border-radius: 999px; text-decoration: none; border: 1px solid #0f5bd8; background: #0f5bd8; color: #fff; font-weight: 600; }",
+            "    .hero-actions a.secondary { background: #fff; color: #17212b; border-color: #c9d6ea; }",
+            "    .hero-note { margin: 0; color: #516071; }",
+            "    h2 { margin: 0 0 12px; }",
+            "    .panel { border: 1px solid #d8e0e8; border-radius: 18px; padding: 20px; background: #fff; }",
+            "    .panel + .panel { margin-top: 0; }",
+            "    table { border-collapse: collapse; width: 100%; margin-top: 16px; }",
+            "    th, td { border: 1px solid #d8e0e8; padding: 10px; text-align: left; vertical-align: top; }",
+            "    th { background: #f4f7fa; }",
+            "    .status-pass { color: #146c2e; font-weight: 700; }",
+            "    .status-fail { color: #b42318; font-weight: 700; }",
+            "    code { white-space: nowrap; }",
+            "    #swagger-ui { margin-top: 12px; }",
+            "    .swagger-ui .topbar { display: none; }",
+            "    @media (max-width: 720px) { .shell { padding-inline: 12px; } .panel, .hero { padding: 16px; } }",
+            "  </style>",
+            "</head>",
+            "<body>",
+            '  <div class="shell">',
+            '    <section class="hero">',
+            f"      <h1>{escape(title)}</h1>",
+            '      <div class="hero-grid">',
+            '        <article class="hero-card">',
+            f"          <strong>{escape(verdict_label)}</strong>",
+            f"          <div class=\"status-{escape(str(diff_report.get('verdict', 'unknown')).lower())}\">{escape(diff_status)}</div>",
+            "        </article>",
+            '        <article class="hero-card">',
+            f"          <strong>{escape(operations_label)}</strong>",
+            f"          <div>{len(rows)}</div>",
+            "        </article>",
+            '        <article class="hero-card">',
+            f"          <strong>{escape(summary_label)}</strong>",
+            f"          <div>{escape(summary_value)}</div>",
+            "        </article>",
+            "      </div>",
+            f"      <p class=\"hero-note\">{escape(interactive_label)}</p>",
+            '      <div class="hero-actions">',
+            f'        <a href="./redoc.html" class="secondary">{escape(redoc_label)}</a>',
+            f'        <a href="./openapi.json" class="secondary">{escape(raw_spec_label)}</a>',
+            "      </div>",
+            "    </section>",
+            '    <section class="panel">',
+            f"      <h2>{escape(operations_label)}</h2>",
+            "      <table>",
+            "        <thead><tr><th>Method</th><th>Path</th><th>Operation ID</th><th>Responses</th></tr></thead>",
+            "        <tbody>",
+            *[f"          {row}" for row in rows],
+            "        </tbody>",
+            "      </table>",
+            "    </section>",
+            *evidence_section,
+            '    <section class="panel">',
+            f"      <h2>{escape(interactive_label)}</h2>",
+            '      <div id="swagger-ui"></div>',
+            "    </section>",
+            "  </div>",
+            '  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>',
+            '  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>',
+            "  <script>",
+            "    window.ui = SwaggerUIBundle({",
+            '      url: "./openapi.json",',
+            '      dom_id: "#swagger-ui",',
+            "      deepLinking: true,",
+            "      displayRequestDuration: true,",
+            "      tryItOutEnabled: true,",
+            "      persistAuthorization: true,",
+            "      presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],",
+            '      layout: "BaseLayout",',
+            "    });",
+            "  </script>",
+            "</body>",
+            "</html>",
+            "",
+        ]
     )
 
 

@@ -1,17 +1,23 @@
 from __future__ import annotations
 
-import importlib
 import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from common.human_review_surface import emit_human_review_surface
+from phase3.phase3_delivery_gate import (
+    collect_phase3_coverage,
+    generate_phase3_api_docs,
+    generate_phase3_delivery_handoff,
+    run_phase3_code_review,
+    run_phase3_security_audit,
+)
+from phase3.phase3_runtime_smoke import run_phase3_runtime_smoke
 from phase3.delivery_closure import finalize_phase3_delivery_closure
 from phase3.timing_report import record_timing_segment, set_timing_segment, start_timer
-from phase3.trace_registry import finalize_trace_registry, project_phase3_trace_registry_to_trace_db
-from phase3.review_support import load_json, load_json_if_exists
+from phase3.trace_registry import finalize_trace_registry
+from phase3.worker_packet_runner import load_json, load_json_if_exists
 
 
 def write_text(path: Path, content: str) -> None:
@@ -30,52 +36,6 @@ def first_existing_path(*paths: Path) -> Path | None:
     return None
 
 
-def optional_phase3_sidecar(module_name: str):
-    try:
-        return importlib.import_module(module_name)
-    except ModuleNotFoundError as exc:
-        if exc.name == module_name:
-            return None
-        raise
-
-
-def sidecar_unavailable_summary(sidecar_id: str) -> dict[str, Any]:
-    return {
-        "status": "unavailable",
-        "sidecar_id": sidecar_id,
-        "reason": f"{sidecar_id}_sidecar_not_packaged",
-        "summary": {"critical_findings": 0, "high_findings": 0},
-        "claim_ceiling": "support sidecar was not installed in this profile",
-    }
-
-
-def preserve_trace_identity_source(
-    trace_registry_final: dict[str, Any],
-    *,
-    previous_trace_registry_final: dict[str, Any] | None,
-    output_dir: Path,
-) -> dict[str, Any]:
-    updated = dict(trace_registry_final)
-    previous = previous_trace_registry_final if isinstance(previous_trace_registry_final, dict) else {}
-    previous_identity = previous.get("trace_identity_source", {})
-    previous_identity = previous_identity if isinstance(previous_identity, dict) else {}
-    trace_db_path = output_dir / ".trace" / "trace.db"
-    trace_db_present = bool(
-        previous.get("trace_db_present")
-        or previous_identity.get("trace_db_present")
-        or trace_db_path.exists()
-    )
-    updated["trace_db_present"] = trace_db_present
-    if previous_identity:
-        updated["trace_identity_source"] = previous_identity
-    elif trace_db_present:
-        updated["trace_identity_source"] = {
-            "trace_db_present": True,
-            "trace_db_path": str(trace_db_path),
-        }
-    return updated
-
-
 def sync_json_report_if_provided(source_path: Path | None, destination_path: Path) -> Path | None:
     if source_path is None:
         return destination_path if destination_path.exists() else None
@@ -84,10 +44,6 @@ def sync_json_report_if_provided(source_path: Path | None, destination_path: Pat
     payload = load_json(source_path.resolve())
     write_text(destination_path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     return destination_path
-
-
-def runtime_smoke_tools():
-    return importlib.import_module("phase3.phase3_runtime_smoke")
 
 
 def resolve_runtime_smoke_service_url(explicit_service_url: str | None = None) -> str:
@@ -151,7 +107,7 @@ def refresh_phase3_post_execution(
     strict_runtime_closure: bool = False,
     run_runtime_smoke: bool = False,
     runtime_smoke_service_url: str | None = None,
-    runtime_smoke_fn=None,
+    runtime_smoke_fn=run_phase3_runtime_smoke,
     skip_coverage_collection: bool = False,
     coverage_collection_skip_reason: str = "",
     toolchain_bootstrap_report_path: Path | None = None,
@@ -180,16 +136,6 @@ def refresh_phase3_post_execution(
             test_trace_matrix=trace_matrix,
             implementation_bindings=implementation_bindings,
         )
-        trace_registry_final = preserve_trace_identity_source(
-            trace_registry_final,
-            previous_trace_registry_final=load_json_if_exists(trace_registry_final_path),
-            output_dir=output_dir,
-        )
-        trace_registry_final["trace_db_projection"] = project_phase3_trace_registry_to_trace_db(
-            trace_db_path=output_dir / ".trace" / "trace.db",
-            trace_registry_final=trace_registry_final,
-            source_path=trace_registry_final_path,
-        )
         write_text(
             trace_registry_final_path,
             json.dumps(trace_registry_final, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -204,69 +150,36 @@ def refresh_phase3_post_execution(
     tech_stack_text = tech_stack_decision_path.read_text(encoding="utf-8") if tech_stack_decision_path.exists() else ""
 
     canonical_coverage_gate_report_path = output_dir / "phase3-coverage-gate.json"
-    provided_coverage_gate_report_path = (
-        coverage_gate_report_path.resolve()
-        if coverage_gate_report_path is not None and coverage_gate_report_path.exists()
-        else None
-    )
     coverage_started = start_timer()
     if skip_coverage_collection:
-        if provided_coverage_gate_report_path is not None:
-            record_timing_segment(timing_segments, "coverage_collection", coverage_started, status="reused")
-        else:
-            write_text(
-                canonical_coverage_gate_report_path,
-                json.dumps(
-                    {
-                        "collected": False,
-                        "collection_status": coverage_collection_skip_reason or "skipped",
-                        "collection_command": "",
-                        "command_exit_code": 0,
-                        "coverage_summary_path": "",
-                        "stdout_log_path": "",
-                        "stderr_log_path": "",
-                        "overall_quality_gate": "fail",
-                        "checks": {},
-                        "failures": ["coverage_collection_skipped"],
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                    sort_keys=True,
-                )
-                + "\n",
+        write_text(
+            canonical_coverage_gate_report_path,
+            json.dumps(
+                {
+                    "collected": False,
+                    "collection_status": coverage_collection_skip_reason or "skipped",
+                    "collection_command": "",
+                    "command_exit_code": 0,
+                    "coverage_summary_path": "",
+                    "stdout_log_path": "",
+                    "stderr_log_path": "",
+                    "overall_quality_gate": "fail",
+                    "checks": {},
+                    "failures": ["coverage_collection_skipped"],
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
             )
-            record_timing_segment(timing_segments, "coverage_collection", coverage_started, status="skipped")
+            + "\n",
+        )
+        record_timing_segment(timing_segments, "coverage_collection", coverage_started, status="skipped")
     else:
-        coverage_module = optional_phase3_sidecar("phase3.coverage_collection")
-        if coverage_module is None:
-            write_text(
-                canonical_coverage_gate_report_path,
-                json.dumps(
-                    {
-                        "collected": False,
-                        "collection_status": "sidecar_not_packaged",
-                        "collection_command": "",
-                        "command_exit_code": 0,
-                        "coverage_summary_path": "",
-                        "stdout_log_path": "",
-                        "stderr_log_path": "",
-                        "overall_quality_gate": "fail",
-                        "checks": {},
-                        "failures": ["coverage_collection_sidecar_not_packaged"],
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                    sort_keys=True,
-                )
-                + "\n",
-            )
-            record_timing_segment(timing_segments, "coverage_collection", coverage_started, status="unavailable")
-        else:
-            coverage_module.collect_phase3_coverage(
-                workspace_root=output_dir,
-                output_path=canonical_coverage_gate_report_path,
-            )
-            record_timing_segment(timing_segments, "coverage_collection", coverage_started)
+        collect_phase3_coverage(
+            workspace_root=output_dir,
+            output_path=canonical_coverage_gate_report_path,
+        )
+        record_timing_segment(timing_segments, "coverage_collection", coverage_started)
     resolved_coverage_gate_report_path = sync_json_report_if_provided(
         coverage_gate_report_path,
         canonical_coverage_gate_report_path,
@@ -288,17 +201,15 @@ def refresh_phase3_post_execution(
     wp_gate_report = load_json_if_exists(resolved_wp_gate_report_path)
     verification_ledger_report = load_json_if_exists(resolved_verification_ledger_report_path)
 
-    api_docs_module = optional_phase3_sidecar("phase3.api_doc_generation")
-    if baseline_openapi_path.exists() and not retained_proof_mode and api_docs_module is not None:
-        api_docs_module.generate_phase3_api_docs(
+    if baseline_openapi_path.exists() and not retained_proof_mode:
+        generate_phase3_api_docs(
             baseline_openapi=load_json(baseline_openapi_path),
             output_dir=output_dir,
-            title=(case_name or "Phase-3") + " API Documentation",
+            title=f"{case_name or 'Phase-3'} API Documentation",
         )
 
-    delivery_handoff_module = optional_phase3_sidecar("phase3.delivery_handoff")
-    if case_name and not retained_proof_mode and delivery_handoff_module is not None:
-        delivery_handoff_module.generate_phase3_delivery_handoff(
+    if case_name and not retained_proof_mode:
+        generate_phase3_delivery_handoff(
             output_dir=output_dir,
             case_name=case_name,
             version=version,
@@ -309,29 +220,20 @@ def refresh_phase3_post_execution(
         )
 
     openapi_diff_report_path = first_existing_path(output_dir / "openapi-diff.json", output_dir / "openapi-diff-report.json")
-    code_review_module = optional_phase3_sidecar("phase3.code_review")
-    if code_review_module is None:
-        code_review_summary = sidecar_unavailable_summary("code_review")
-    else:
-        code_review_summary = code_review_module.run_phase3_code_review(
-            output_dir=output_dir,
-            implementation_bindings=implementation_bindings,
-            trace_registry_final=trace_registry_final,
-            openapi_diff_report=load_json_if_exists(openapi_diff_report_path),
-        )
-    security_audit_module = optional_phase3_sidecar("phase3.security_audit")
-    if security_audit_module is None:
-        security_audit_summary = sidecar_unavailable_summary("security_audit")
-    else:
-        security_audit_summary = security_audit_module.run_phase3_security_audit(
-            output_dir=output_dir,
-            tech_stack_text=tech_stack_text,
-        )
+    code_review_summary = run_phase3_code_review(
+        output_dir=output_dir,
+        implementation_bindings=implementation_bindings,
+        trace_registry_final=trace_registry_final,
+        openapi_diff_report=load_json_if_exists(openapi_diff_report_path),
+    )
+    security_audit_summary = run_phase3_security_audit(
+        output_dir=output_dir,
+        tech_stack_text=tech_stack_text,
+    )
     code_review_metrics_path = output_dir / "code-review-metrics.json"
     security_audit_report_path = output_dir / "security-audit-checklist.json"
     mock_dependency_manifest_path = output_dir / "mock-dependency-manifest.json"
-    code_review_metrics = load_json_if_exists(code_review_metrics_path)
-    code_review_metrics_for_manifest = code_review_metrics or {}
+    code_review_metrics = load_json_if_exists(code_review_metrics_path) or {}
     write_text(
         mock_dependency_manifest_path,
         json.dumps(
@@ -339,14 +241,14 @@ def refresh_phase3_post_execution(
                 "generated_at": utc_now_iso(),
                 "summary": {
                     "mock_runtime_dependency_count": int(
-                        (code_review_metrics_for_manifest.get("summary", {}) if isinstance(code_review_metrics_for_manifest, dict) else {}).get(
+                        (code_review_metrics.get("summary", {}) if isinstance(code_review_metrics, dict) else {}).get(
                             "mock_runtime_dependency_count",
                             0,
                         )
                     ),
                 },
-                "items": list(code_review_metrics_for_manifest.get("mock_runtime_dependencies", []))
-                if isinstance(code_review_metrics_for_manifest, dict)
+                "items": list(code_review_metrics.get("mock_runtime_dependencies", []))
+                if isinstance(code_review_metrics, dict)
                 else [],
             },
             ensure_ascii=False,
@@ -387,8 +289,7 @@ def refresh_phase3_post_execution(
     runtime_smoke_summary = {}
     if run_runtime_smoke and first_existing_path(output_dir / "Dockerfile") and first_existing_path(output_dir / "docker-compose.prod.yml"):
         runtime_smoke_started = start_timer()
-        runtime_smoke_runner = runtime_smoke_fn or runtime_smoke_tools().run_phase3_runtime_smoke
-        runtime_smoke_summary = runtime_smoke_runner(
+        runtime_smoke_summary = runtime_smoke_fn(
             workspace_root=output_dir,
             output_path=resolved_runtime_smoke_report_path,
             service_url=resolved_runtime_smoke_service_url,
@@ -461,9 +362,6 @@ def refresh_phase3_post_execution(
         metadata_path=metadata_path,
     )
     record_timing_segment(timing_segments, "delivery_gate", delivery_gate_started)
-    human_review_started = start_timer()
-    emit_human_review_surface(output_dir, "phase3")
-    record_timing_segment(timing_segments, "human_review_surface", human_review_started)
 
     return {
         "trace_registry_final_path": str(trace_registry_final_path) if trace_registry_final_path.exists() else "",

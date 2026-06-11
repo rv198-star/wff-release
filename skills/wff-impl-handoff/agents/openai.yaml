@@ -1,4 +1,0 @@
-interface:
-  display_name: "Phase-3 Delivery Handoff"
-  short_description: "Finalize deploy, acceptance, trace, and handoff for Phase-3"
-  default_prompt: "Use $wff-impl-handoff to finalize a Phase-3 implementation into a deployable handoff package, preserve traceability and acceptance evidence, and verify that the delivery gate reaches delivery-ready."

@@ -1,4 +1,0 @@
-interface:
-  display_name: "Phase-3 Implementation Action Cards"
-  short_description: "Generate P3 action cards and review packets from P2 component obligations"
-  default_prompt: "Use $wff-impl-action-cards to generate Phase-3 implementation action cards from the Phase-2 obligation matrices, then report validation gaps without inventing missing source truth."

@@ -5,6 +5,8 @@ description: Use when a docs-first project needs managed artifact identity, proj
 
 # Traceability Management
 
+Version: v0.1
+
 ## Overview
 
 This skill provides a **document registry management mechanism** for docs-first traceability.
@@ -19,15 +21,6 @@ It does not replace documents as the source of truth. Instead, it manages:
 - trace reports
 
 **Core rule:** Documents own meaning. This skill owns identity, bindings, and link integrity.
-
-For claim-controlled artifacts, use the stricter evidence boundary:
-
-> Claim index is the semantic entry.
-> Registry is the evidence ledger.
-
-The registry may record artifact id, block/view id, rendered claim refs, source
-claim refs, audit status, proposed claim links, artifact hash/version, and claim
-surface version/hash. It must not derive accepted claims from rendered Markdown, Mermaid diagrams, tables, or prose. It must not auto-correct claims, choose one rendered view as truth, or accept proposed claims without an explicit review/gate decision.
 
 ## Default Output Language
 
@@ -64,8 +57,6 @@ Do not use when:
 - bind IDs to file/anchor locations
 - link artifacts with `depends_on` / `feeds`
 - validate integrity
-- record evidence-ledger refs for claim-controlled rendered artifacts without
-  creating canonical claims
 
 ### SQLite stays derived and project-bound
 - each business project gets its own registry file
@@ -119,7 +110,7 @@ Expected inputs:
 ### `allocate-id`
 Allocate a canonical artifact ID within the current project scope.
 
-Supported Phase-1 / Phase-2 artifact types include:
+Supported Phase-1 / Phase-2 pilot types now include:
 - `REQ`
 - `ARCH`
 - `BOUNDARY`
@@ -164,28 +155,6 @@ Create a relationship:
 - `depends_on`
 - `feeds`
 
-### `register-claim-evidence`
-Register evidence-ledger rows for claim-controlled rendered artifacts.
-
-Allowed registry fields:
-- artifact id
-- block/view id
-- rendered claim refs
-- source claim refs
-- proposed claim refs
-- audit status
-- artifact version/hash
-- claim surface version/hash
-
-Forbidden registry fields:
-- claim text
-- accepted claims
-- corrected claims
-- derived accepted claims
-- nested claim index data
-
-This command records evidence only. It never creates or accepts canonical claims.
-
 ### `move` / `rename`
 Update bindings when a file moves or is renamed.
 
@@ -195,8 +164,6 @@ Run integrity checks for:
 - broken bindings
 - missing canonical mirror links
 - broken `depends_on` / `feeds`
-- orphan claim evidence rows whose artifact is not registered
-- malformed claim evidence ref JSON
 - cross-project contamination
 
 ### `report`
@@ -213,14 +180,12 @@ Generate:
   - `schema_version`
   - `artifact_count`
   - `link_count`
-  - `claim_evidence_ref_count`
-  - `claim_evidence_refs`
 
 ## Project Isolation Rule
 
 Each business project must have its own registry.
 
-Recommended layout:
+Recommended v0.1 layout:
 - `<project-root>/.trace/trace.db`
 
 Also keep `project_scope` in registry tables as a second isolation guard.
@@ -234,13 +199,13 @@ Instead:
 - Chinese audit artifact = its own registry record
 - `canonical_of` links the Chinese mirror back to the English canonical artifact
 
-## Current Scope
+## v0.1 Pilot Scope
 
 Start with coarse-grained Phase-1 / Phase-2 stage outputs first.
 
 Do not begin with full lifecycle coverage or paragraph-level decomposition.
 
-Core goals:
+Pilot goals:
 - initialize registry
 - allocate IDs
 - bind Phase-1 output artifacts
@@ -269,7 +234,6 @@ When Phase-1 fine-grained trace units are present, Phase-2 should additionally:
 | Create canonical ID | `allocate-id` |
 | Attach ID to doc location | `bind` |
 | Record upstream/downstream relation | `link` |
-| Record claim evidence refs | `register-claim-evidence` |
 | Update after file move | `move` / `rename` |
 | Check integrity | `validate` |
 | Trace/report | `report` |
@@ -287,9 +251,7 @@ Minimum required JSON fields:
 - `schema_version`
 - `artifacts`
 - `links`
-- `claim_evidence_refs`
 - `artifact_count`
 - `link_count`
-- `claim_evidence_ref_count`
 
 If these fields are absent, downstream execution reports should treat the trace runtime as incomplete rather than silently rendering empty placeholders.

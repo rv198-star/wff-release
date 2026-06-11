@@ -19,19 +19,25 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from phase3.review_support import (
-    load_json,
-    load_json_if_exists,
-    support_gate_exit_code,
-    write_json_report,
-    write_text_file,
-)
-from phase3.runtime_verification_support import (
-    build_execution_env,
-    ensure_backend_runtime_preflight,
-    shell_executable,
-    teardown_backend_runtime_preflight,
-)
+from phase3.worker_packet_runner import build_execution_env, ensure_backend_runtime_preflight, teardown_backend_runtime_preflight
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"expected JSON object at {path}")
+    return payload
+
+
+def load_json_if_exists(path: Path | None) -> dict[str, Any] | None:
+    if path is None or not path.exists():
+        return None
+    return load_json(path)
+
+
+def write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
 
 
 def first_existing_path(*paths: Path) -> Path | None:
@@ -56,13 +62,11 @@ def package_script(workspace_root: Path, script_name: str) -> str:
     return str(scripts.get(script_name, "")).strip()
 
 
-def preferred_coverage_script(workspace_root: Path, *, runtime_preflight_packet: dict[str, Any] | None = None) -> tuple[str, bool]:
-    if runtime_preflight_packet is not None and package_script(workspace_root, "test:coverage"):
-        return "test:coverage", True
+def preferred_coverage_script(workspace_root: Path) -> tuple[str, bool]:
     if package_script(workspace_root, "test:coverage:unit"):
         return "test:coverage:unit", False
     if package_script(workspace_root, "test:coverage"):
-        return "test:coverage", runtime_preflight_packet is not None
+        return "test:coverage", True
     return "", False
 
 
@@ -138,30 +142,11 @@ def analyze_phase3_coverage(
             for name, metric in metrics.items()
         }
 
-    def is_api_runtime_path(normalized_path: str) -> bool:
-        return "/apps/api/" in normalized_path or normalized_path.startswith("apps/api/")
-
-    def is_api_business_runtime_path(normalized_path: str) -> bool:
-        if "/apps/api/src/common/" in normalized_path or normalized_path.startswith("apps/api/src/common/"):
-            return True
-        in_api_module = "/apps/api/src/modules/" in normalized_path or normalized_path.startswith(
-            "apps/api/src/modules/"
-        )
-        if not in_api_module:
-            return False
-        return not normalized_path.endswith(".repository.ts")
-
-    api_runtime_scope = aggregate_scope(is_api_runtime_path)
-    api_business_runtime_scope = aggregate_scope(is_api_business_runtime_path)
-    if api_business_runtime_scope is not None:
-        totals = api_business_runtime_scope
-        coverage_scope_basis = "api-business-runtime-files"
-    elif api_runtime_scope is not None:
-        totals = api_runtime_scope
-        coverage_scope_basis = "api-runtime-files"
-    else:
-        totals = workspace_totals
-        coverage_scope_basis = "workspace-total"
+    api_runtime_scope = aggregate_scope(
+        lambda normalized_path: "/apps/api/" in normalized_path or normalized_path.startswith("apps/api/")
+    )
+    totals = api_runtime_scope or workspace_totals
+    coverage_scope_basis = "api-runtime-files" if api_runtime_scope is not None else "workspace-total"
 
     def pct(name: str) -> float:
         metric = totals.get(name, {})
@@ -209,7 +194,6 @@ def analyze_phase3_coverage(
             "coverage_scope_basis": coverage_scope_basis,
             "workspace_total": summary_from(workspace_totals),
             "api_runtime_scope": summary_from(api_runtime_scope),
-            "api_business_runtime_scope": summary_from(api_business_runtime_scope),
         },
         "failures": failures,
     }
@@ -230,18 +214,14 @@ def collect_phase3_coverage(
     stderr_log_path = ""
 
     if coverage_summary_path is None:
-        runtime_preflight_packet = coverage_runtime_preflight_packet(workspace_root)
-        script_name, runtime_coupled_coverage = preferred_coverage_script(
-            workspace_root,
-            runtime_preflight_packet=runtime_preflight_packet,
-        )
+        script_name, runtime_coupled_coverage = preferred_coverage_script(workspace_root)
         node_modules_ready = (workspace_root / "node_modules").exists()
         if script_name and node_modules_ready:
             reports_root = workspace_root / ".phase3-reports" / "coverage"
             execution_env = build_execution_env(workspace_root=workspace_root, run_dir=reports_root)
             stdout_path = reports_root / "coverage.stdout.log"
             stderr_path = reports_root / "coverage.stderr.log"
-            runtime_preflight_packet = runtime_preflight_packet if runtime_coupled_coverage else None
+            runtime_preflight_packet = coverage_runtime_preflight_packet(workspace_root) if runtime_coupled_coverage else None
             runtime_preflight = {"required": False, "ready": True, "started": False}
             if runtime_preflight_packet is not None:
                 runtime_preflight = ensure_backend_runtime_preflight(
@@ -262,7 +242,7 @@ def collect_phase3_coverage(
                         f"pnpm {script_name}",
                         cwd=workspace_root,
                         shell=True,
-                        executable=shell_executable(),
+                        executable="/bin/zsh",
                         text=True,
                         capture_output=True,
                         env=execution_env,
@@ -274,8 +254,8 @@ def collect_phase3_coverage(
                 command_exit_code = int(completed.returncode)
                 stdout_log_path = str(stdout_path)
                 stderr_log_path = str(stderr_path)
-                write_text_file(stdout_path, completed.stdout)
-                write_text_file(stderr_path, completed.stderr)
+                write_text(stdout_path, completed.stdout)
+                write_text(stderr_path, completed.stderr)
                 coverage_summary_path = first_existing_path(*coverage_summary_candidates(workspace_root))
                 if completed.returncode == 0 and coverage_summary_path is not None:
                     collection_status = "collected"
@@ -299,7 +279,7 @@ def collect_phase3_coverage(
             "stderr_log_path": stderr_log_path,
         }
         if output_path is not None:
-            write_json_report(output_path.resolve(), report)
+            write_text(output_path.resolve(), json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
         return report
 
     coverage_report = load_json(coverage_summary_path)
@@ -315,7 +295,7 @@ def collect_phase3_coverage(
         "stderr_log_path": stderr_log_path,
     }
     if output_path is not None:
-        write_json_report(output_path.resolve(), report)
+        write_text(output_path.resolve(), json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     return report
 
 
@@ -344,9 +324,9 @@ def main() -> int:
             min_branches_pct=args.min_branches_pct,
         )
         if output_path is not None:
-            write_json_report(output_path, report)
+            write_text(output_path, json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
         print(json.dumps(report, ensure_ascii=False))
-        return support_gate_exit_code("coverage-collection", report)
+        return 0 if report.get("overall_quality_gate") == "pass" else 1
 
     if not args.workspace_root:
         raise SystemExit("either --workspace-root or --coverage-json is required")
@@ -357,7 +337,7 @@ def main() -> int:
         replay_report=replay_report,
     )
     print(json.dumps(report, ensure_ascii=False))
-    return support_gate_exit_code("coverage-collection", report)
+    return 0 if report.get("collected") else 1
 
 
 if __name__ == "__main__":

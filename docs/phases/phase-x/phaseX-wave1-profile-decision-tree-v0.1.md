@@ -35,7 +35,7 @@ Is the intended change primarily technical refactoring, testability improvement,
 
 Is there a bounded local change request that must preserve existing compatibility constraints?
 
-- if `yes`: use `target-driver`
+- if `yes`: use `partial-change`
 - if `no`: continue
 
 ### Step 5
@@ -50,9 +50,9 @@ If none of the Wave-1 profiles fit cleanly:
 
 | Profile | Skills | Typical Exit | Use When |
 |---|---|---|---|
-| `assessment-only` | `wff-x-scan-code-baseline -> wff-x-scan-tech-health` | human decision / continue later | baseline and health first |
-| `technical-refactor` | `wff-x-scan-code-baseline -> wff-x-scan-tech-health -> wff-x-plan-test-protection` | Phase-3 | brownfield technical work needs protection |
-| `target-driver` | `wff-x-scan-code-baseline -> wff-x-intake-target-driver` | Phase-1 or Phase-3 | bounded local change on existing system |
+| `assessment-only` | `PX-SK-01 -> PX-SK-04` | human decision / continue later | baseline and health first |
+| `technical-refactor` | `PX-SK-01 -> PX-SK-04 -> PX-SK-07` | Phase-3 | brownfield technical work needs protection |
+| `partial-change` | `PX-SK-01 -> PX-SK-06 partial` | Phase-1 or Phase-3 | bounded local change on existing system |
 
 ## Decision Notes
 
@@ -66,7 +66,7 @@ If none of the Wave-1 profiles fit cleanly:
 - the next risk is “we cannot change this safely”
 - the business is not asking for major product redesign first
 
-### Prefer `target-driver` when:
+### Prefer `partial-change` when:
 - there is already a specific change point
 - only a local slice needs to re-enter the lifecycle
 - compatibility rules are likely more important than full-system redesign

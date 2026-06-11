@@ -19,9 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from common.contamination_boundary import build_contamination_report
 from common.cross_phase_surface_policy import resolve_cross_phase_surface_path
-from common.human_review_surface import emit_human_review_surface
 from common.output_language import resolve_output_locale
 from phase4.phase4_common import (
     build_phase4_metadata_payload,
@@ -32,7 +30,6 @@ from phase4.phase4_common import (
     write_json,
     write_phase4_mainline_assessment_artifacts,
 )
-from phase4.phase4_claim_control import emit_phase4_claim_control_report
 from phase4.phase4_stage1_planning import build_phase4_stage1_planning
 from phase4.phase4_stage2_execution import build_phase4_stage2_execution
 from phase4.phase4_stage3_closure import build_phase4_stage3_closure
@@ -88,10 +85,6 @@ def validate_phase4_runner_args(args: argparse.Namespace) -> None:
         raise ValueError("--external-evidence-dir requires --external-evidence-manifest")
 
 
-class Phase4ContaminationBoundaryError(RuntimeError):
-    """Raised when the P3-to-P4 handoff contains configured contamination residue."""
-
-
 def build_phase4_runner_context(args: argparse.Namespace) -> Phase4RunnerContext:
     phase3_root = Path(args.phase3_root).resolve()
     output_dir = Path(args.output_dir).resolve()
@@ -112,26 +105,6 @@ def build_phase4_runner_context(args: argparse.Namespace) -> Phase4RunnerContext
 
 
 def run_phase4_mainline(context: Phase4RunnerContext) -> Phase4RunnerResult:
-    phase3_text_parts: list[str] = []
-    for name in ("phase-3-acceptance-report.md", "phase-3-execution-report.md", "phase3-delivery-gate.json"):
-        path = context.phase3_root / name
-        if path.exists():
-            phase3_text_parts.append(path.read_text(encoding="utf-8"))
-    contamination_report = build_contamination_report(
-        "\n\n".join(phase3_text_parts),
-        source_label=str(context.phase3_root),
-        boundary="p3-to-p4",
-        output_path=resolve_cross_phase_surface_path(
-            context.output_dir,
-            "phase4",
-            "p3-to-p4-contamination-report.json",
-        ),
-    )
-    if contamination_report["overall_status"] == "blocked":
-        raise Phase4ContaminationBoundaryError(
-            "p3-to-p4 contamination boundary failed: "
-            f"{resolve_cross_phase_surface_path(context.output_dir, 'phase4', 'p3-to-p4-contamination-report.json')}"
-        )
     stage1_summary = build_phase4_stage1_planning(
         phase3_root=context.phase3_root,
         output_dir=context.output_dir,
@@ -213,28 +186,9 @@ def build_phase4_runner_quality_check(result: Phase4RunnerResult) -> dict[str, A
     )
 
 
-def update_phase4_runner_metadata_with_claim_control(context: Phase4RunnerContext) -> dict[str, Any]:
-    claim_control = emit_phase4_claim_control_report(
-        phase3_root=context.phase3_root,
-        output_dir=context.output_dir,
-    )
-    metadata = json.loads(context.metadata_path.read_text(encoding="utf-8"))
-    metadata.update(
-        {
-            "phase4_claim_control_report_path": claim_control["report_path"],
-            "phase4_claim_control_report_md": claim_control["markdown_path"],
-            "phase4_claim_control_status": claim_control["report"]["overall_status"],
-            "phase4_claim_control_ceiling": claim_control["report"]["claim_ceiling"],
-        }
-    )
-    write_json(context.metadata_path, metadata)
-    return claim_control
-
-
 def write_phase4_runner_support_artifacts(context: Phase4RunnerContext, result: Phase4RunnerResult) -> dict[str, Any]:
     write_json(context.metadata_path, build_phase4_runner_metadata(context, result))
     write_json(context.quality_path, build_phase4_runner_quality_check(result))
-    update_phase4_runner_metadata_with_claim_control(context)
     contract_report = validate_phase4_output_contract(context.output_dir)
     write_report(
         contract_report,
@@ -315,11 +269,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     context = build_phase4_runner_context(args)
-    try:
-        result = run_phase4_mainline(context)
-    except Phase4ContaminationBoundaryError as exc:
-        print(f"[BLOCKED] {exc}")
-        return 2
+    result = run_phase4_mainline(context)
     contract_report = write_phase4_runner_support_artifacts(context, result)
     stage4_summary: dict[str, Any] | None = None
     if context.enable_stage4:
@@ -333,8 +283,6 @@ def main(argv: list[str] | None = None) -> int:
             output_locale=context.output_locale,
         )
         update_phase4_runner_metadata_with_stage4(context, stage4_summary)
-        update_phase4_runner_metadata_with_claim_control(context)
-    emit_human_review_surface(context.output_dir, "phase4")
     return emit_phase4_runner_summary(build_phase4_runner_summary(context, result, contract_report, stage4_summary))
 
 

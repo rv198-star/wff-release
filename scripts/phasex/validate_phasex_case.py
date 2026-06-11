@@ -19,7 +19,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-from common.script_data_assets import load_script_json_asset
 from phasex.scaffold_phasex_case import PROFILE_METHOD_BACKBONES, PROFILE_OUTPUTS
 
 
@@ -27,26 +26,86 @@ MANIFEST_NAME = "phasex-wave1-manifest.md"
 SCAFFOLD_MARKERS = ("state: `fresh-target`", "scaffolded_target:")
 PROFILE_RE = re.compile(r"selected_profile:\s*`([^`]+)`")
 
-WFF_SCRIPT_DATA_ASSETS = ("scripts/phasex/data/validation-snippet-rules.json",)
-_VALIDATION_SNIPPET_RULES = load_script_json_asset(__file__, "validation-snippet-rules.json")
 
+BASE_REQUIRED_SNIPPETS = {
+    "px-sk-01-codebase-baseline-extraction.md": (
+        "entrypoint_inventory",
+        "third_party_dependency_scan",
+        "runnability_precheck",
+        "uncertainty_register",
+        "codebase_truth_packet",
+        "observed_code_evidence",
+        "inferred_brownfield_semantics",
+        "runnability_evidence",
+        "explicit_unknowns",
+        "downstream_truth_implications",
+    ),
+    "px-sk-04-technical-health-assessment.md": (
+        "health_scorecard",
+        "risk_matrix",
+        "decision_recommendation",
+        "brownfield_health_judgment",
+        "risk_to_action_map",
+        "evidence_backed_score_rationale",
+        "refactor_readiness_judgment",
+        "change_mode",
+        "behavior_preservation_boundary",
+        "two_hats_risk",
+    ),
+    "px-sk-07-safety-net-test-construction.md": (
+        "safety_net_candidate_list",
+        "critical_path_protection_plan",
+        "effectiveness_criteria",
+        "refactoring_discipline_guardrails",
+        "self_testing_feedback_loop",
+        "behavior_preservation_boundary",
+        "safety_net_strategy",
+        "go_no_go_protection_decision",
+        "fastest_repeatable_feedback",
+        "implementation_gate",
+    ),
+    "px-sk-06-gap-analysis-and-change-decomposition-partial.md": (
+        "phase1_constrained_reentry_summary",
+        "affected_module_register",
+        "impacted_surfaces",
+        "acceptance_criteria",
+        "compatibility_constraints",
+        "brownfield_invariants",
+        "brownfield_non_goals",
+        "brownfield_handoff_packet",
+        "phase1_consumption_notes",
+        "phase3_consumption_notes",
+        "compatibility_claim_ceiling",
+        "route_decision_rationale",
+        "downstream_route_recommendation",
+        "recommended_route",
+        "third-party-dependency-manifest",
+    ),
+}
 
-def _snippet_rule_map_from_payload(payload: Any) -> dict[str, tuple[str, ...]]:
-    if not isinstance(payload, dict):
-        return {}
-    return {
-        str(path): tuple(str(snippet) for snippet in snippets)
-        for path, snippets in payload.items()
-        if isinstance(snippets, list)
-    }
-
-
-BASE_REQUIRED_SNIPPETS = _snippet_rule_map_from_payload(_VALIDATION_SNIPPET_RULES.get("base_required_snippets", {}))
 
 PROFILE_SPECIFIC_SNIPPETS = {
-    str(profile): _snippet_rule_map_from_payload(files)
-    for profile, files in _VALIDATION_SNIPPET_RULES.get("profile_specific_snippets", {}).items()
-    if isinstance(files, dict)
+    "technical-refactor": {
+        "px-sk-01-codebase-baseline-extraction.md": (
+            "refactor_signal_register",
+        ),
+        "px-sk-04-technical-health-assessment.md": (
+            "refactor_candidate_register",
+            "branch_by_abstraction_needed",
+            "behavior-preserving-refactor",
+            "recommended_next_move",
+        ),
+        "px-sk-07-safety-net-test-construction.md": (
+            "branch_by_abstraction_trigger",
+            "small_step_execution_rule",
+        ),
+    },
+    "partial-change": {
+        "px-sk-06-gap-analysis-and-change-decomposition-partial.md": (
+            "return-to-phase-1",
+            "direct-to-phase-3",
+        ),
+    },
 }
 
 
@@ -120,11 +179,11 @@ def inspect_case(output_dir: Path) -> dict[str, Any]:
                     f"{filename} missing required authored content: {', '.join(missing_snippets)}"
                 )
             if (
-                filename == "wff-x-intake-target-driver.md"
+                filename == "px-sk-06-gap-analysis-and-change-decomposition-partial.md"
                 and "related_third_party_dependencies" in text
             ):
                 content_issues.append(
-                    "wff-x-intake-target-driver.md uses deprecated field name: related_third_party_dependencies"
+                    "px-sk-06-gap-analysis-and-change-decomposition-partial.md uses deprecated field name: related_third_party_dependencies"
                 )
         file_rows.append(
             {
@@ -137,19 +196,12 @@ def inspect_case(output_dir: Path) -> dict[str, Any]:
 
     extra_wave1_files = sorted(
         path.name
-        for path in output_dir.glob("wff-x-*.md")
+        for path in output_dir.glob("px-sk-*.md")
         if path.name not in required_filenames
     )
     if extra_wave1_files:
         warnings.append(
             "extra Wave-1 files outside selected profile: " + ", ".join(extra_wave1_files)
-        )
-
-    legacy_wave1_files = sorted(path.name for path in output_dir.glob("px-sk-*.md"))
-    if legacy_wave1_files:
-        issues.append(
-            "legacy PhaseX PX-SK files are no longer accepted: "
-            + ", ".join(legacy_wave1_files)
         )
 
     if missing_files:
@@ -162,7 +214,7 @@ def inspect_case(output_dir: Path) -> dict[str, Any]:
         status = "invalid-root"
     elif scaffold_files:
         status = "scaffold-only"
-    elif content_issues or manifest_backbone_missing or legacy_wave1_files:
+    elif content_issues or manifest_backbone_missing:
         status = "authored-invalid"
     else:
         status = "authored-valid"

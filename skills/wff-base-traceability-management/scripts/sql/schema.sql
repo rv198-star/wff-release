@@ -41,26 +41,6 @@ CREATE TABLE IF NOT EXISTS links (
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS claim_evidence_refs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  project_scope TEXT NOT NULL,
-  artifact_id TEXT NOT NULL,
-  block_id TEXT NOT NULL,
-  view_id TEXT,
-  rendered_claim_refs_json TEXT NOT NULL,
-  source_claim_refs_json TEXT NOT NULL,
-  proposed_claim_refs_json TEXT NOT NULL,
-  audit_status TEXT NOT NULL,
-  artifact_version TEXT,
-  artifact_hash TEXT,
-  claim_surface_version TEXT,
-  claim_surface_hash TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  UNIQUE (project_scope, artifact_id, block_id, view_id)
-);
-
 CREATE INDEX IF NOT EXISTS idx_artifacts_source_path ON artifacts (project_scope, source_path);
 CREATE INDEX IF NOT EXISTS idx_links_from ON links (project_scope, from_artifact_id);
 CREATE INDEX IF NOT EXISTS idx_links_to ON links (project_scope, to_artifact_id);
-CREATE INDEX IF NOT EXISTS idx_claim_evidence_artifact ON claim_evidence_refs (project_scope, artifact_id);

@@ -9,12 +9,12 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 
+import json
 import re
 from pathlib import Path
 from typing import Any
 
 from phase3.phase3_behavior_card_validator import validate_behavior_card
-from phase3.review_support import emit_gate_cli_result
 
 
 def read_text(path: Path) -> str:
@@ -471,7 +471,12 @@ def main() -> int:
     parser.add_argument("--output")
     args = parser.parse_args()
     report = analyze_test_assertion_quality(Path(args.workspace_root))
-    return emit_gate_cli_result(report, output_path=Path(args.output) if args.output else None)
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(json.dumps(report, ensure_ascii=False))
+    return 0 if report["overall_quality_gate"] == "pass" else 1
 
 
 if __name__ == "__main__":

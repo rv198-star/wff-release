@@ -21,7 +21,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from common.output_language import localize_phase1_execution_report, resolve_output_locale
-from common.script_data_assets import load_script_json_asset
 from phase1.phase1_named_state import extract_named_state
 from phase1.phase1_emit_depth_runtime_artifacts import (
     DEPTH_RUNTIME_SUMMARY_FILENAME,
@@ -30,7 +29,7 @@ from phase1.phase1_emit_depth_runtime_artifacts import (
 )
 from phase1.phase1_localize_prd_zh import render_primary_locale_lines
 from phase1.phase1_reasoning_runtime import sanitize_domain_default_truth
-from phase1.phase1_runtime_metadata import THINKING_VALUE_GAIN_OUTPUT_PROFILES, build_runtime_metadata_lines
+from phase1.phase1_runtime_metadata import build_runtime_metadata_lines
 from phase1.phase1_version_contract import normalize_version_identifier
 
 
@@ -63,42 +62,222 @@ class MatrixRule:
     next_action_blocked: str = "return to the owning stage and regenerate the missing artifact"
 
 
-WFF_SCRIPT_DATA_ASSETS = (
-    "scripts/phase1/data/phase1-execution-report-matrix-rules.json",
+RULES: tuple[MatrixRule, ...] = (
+    MatrixRule(
+        label="target user boundary",
+        sources=("stage_01", "prd"),
+        required_patterns=(r"Chosen User Boundary|chosen_segment|chosen segment",),
+        pass_why="primary user boundary is explicit in Stage-01 and retained in the PRD",
+    ),
+    MatrixRule(
+        label="user groups",
+        sources=("stage_01", "prd"),
+        required_patterns=(r"Persona Boundary and Interaction Chain|Secondary / Supporting Roles|alternatives_considered",),
+        pass_why="user groups and role chain remain explicit",
+    ),
+    MatrixRule(
+        label="user story / user case",
+        sources=("prd",),
+        required_patterns=(r"User Stories, Use Cases, and Requirements|Primary User Story|Use Case",),
+        pass_why="user story and use-case translation are present in the final PRD",
+    ),
+    MatrixRule(
+        label="problem list",
+        sources=("stage_01", "prd"),
+        required_patterns=(r"Structured Problem/Opportunity Recompilation|Problem Statement",),
+        pass_why="problem framing is preserved and recompiled into the PRD problem narrative",
+    ),
+    MatrixRule(
+        label="opportunity list",
+        sources=("stage_01", "prd"),
+        required_patterns=(r"机会|opportunity|Strategic Context",),
+        pass_why="opportunity framing is retained through Stage-01 and the PRD context sections",
+    ),
+    MatrixRule(
+        label="requirements panorama",
+        sources=("stage_02a", "prd"),
+        required_patterns=(r"User/Goal/Problem Panorama|requirements panorama|Requirements Structure",),
+        pass_why="whole-picture panorama is explicit and downstream-consumable",
+    ),
+    MatrixRule(
+        label="main flow / backbone activities",
+        sources=("stage_02a", "prd"),
+        required_patterns=(r"Backbone Activities|Business Process Decomposition|main flow",),
+        pass_why="main flow and backbone activities are explicit",
+    ),
+    MatrixRule(
+        label="requirements structure / story map",
+        sources=("stage_02a", "prd"),
+        required_patterns=(r"story-map|requirements-structure|Requirements Structure",),
+        pass_why="structured requirements evidence exists",
+    ),
+    MatrixRule(
+        label="key constraints",
+        sources=("stage_02a", "prd"),
+        required_patterns=(r"Constraint Stress-Test|key_constraints|Key constraints",),
+        pass_why="constraints are explicit and stress-tested",
+    ),
+    MatrixRule(
+        label="initial priority split",
+        sources=("stage_02a", "prd"),
+        required_patterns=(r"Priority Split|\bP0\b",),
+        pass_why="priority split is preserved with explicit cutline logic",
+    ),
+    MatrixRule(
+        label="complete experience loop",
+        sources=("stage_03", "prd"),
+        required_patterns=(r"complete_experience_loop|Complete and Minimum Viable Experience Loop|complete experience loop",),
+        pass_why="full experience loop is explicit",
+    ),
+    MatrixRule(
+        label="minimum viable experience loop",
+        sources=("stage_03", "prd"),
+        required_patterns=(r"minimum_viable_experience_loop|minimum viable experience loop",),
+        pass_why="minimum viable loop is explicit",
+    ),
+    MatrixRule(
+        label="MVP definition",
+        sources=("stage_03", "prd"),
+        required_patterns=(r"MVP Scope|MVP Definition & Scope|first_slice",),
+        pass_why="MVP definition exists with scope boundary",
+    ),
+    MatrixRule(
+        label="first slice",
+        sources=("stage_03", "prd"),
+        required_patterns=(r"first_slice|first slice",),
+        pass_why="first slice is explicit",
+    ),
+    MatrixRule(
+        label="later slices",
+        sources=("stage_03", "prd"),
+        required_patterns=(r"later_slices|later slices",),
+        pass_why="later slices are explicit",
+    ),
+    MatrixRule(
+        label="deferred items",
+        sources=("stage_03", "prd"),
+        required_patterns=(r"deferred_items|Deferred Items",),
+        pass_why="deferred items and honesty logic are explicit",
+    ),
+    MatrixRule(
+        label="key assumptions to validate",
+        sources=("stage_03", "stage_04", "prd"),
+        required_patterns=(r"assumptions_to_validate|Key Assumptions to Validate",),
+        pass_why="assumptions to validate are preserved across slicing and validation",
+    ),
+    MatrixRule(
+        label="validation target",
+        sources=("stage_04", "prd"),
+        required_patterns=(r"Validation Targets|target_1|validation target",),
+        pass_why="validation targets are explicit",
+    ),
+    MatrixRule(
+        label="validation method",
+        sources=("stage_04", "prd"),
+        required_patterns=(r"chosen_method|Method and Signal Definition|validation method",),
+        pass_why="validation method selection is explicit",
+    ),
+    MatrixRule(
+        label="prototype/equivalent artifact",
+        sources=("stage_04", "prd"),
+        required_patterns=(r"prototype_or_equivalent_artifact|Prototype Fidelity Record|clickable",),
+        pass_why="prototype or equivalent artifact is specified",
+    ),
+    MatrixRule(
+        label="feedback / signal / result",
+        sources=("stage_04", "prd"),
+        required_patterns=(r"signal thresholds|threshold|feedback|result|Evidence State",),
+        warning_patterns=(
+            r"not-tested|still a dry-run|真实用户信号仍待收集|更多是结构性推断|not actual user evidence|design-time inference",
+        ),
+        pass_why="feedback and signal chain are explicit",
+        warning_why="signal chain is explicit, but real external evidence is still weak or absent",
+    ),
+    MatrixRule(
+        label="validation conclusion",
+        sources=("stage_04", "prd"),
+        required_patterns=(r"decision:\s*`?(Go|No-Go|Revise)|validation conclusion|Decision State",),
+        pass_why="validation conclusion is explicit",
+    ),
+    MatrixRule(
+        label="decision state",
+        sources=("stage_04", "prd"),
+        required_patterns=(r"Decision State|decision:\s*`?(Go|No-Go|Revise)",),
+        pass_why="decision state is explicit",
+    ),
+    MatrixRule(
+        label="revision recommendations",
+        sources=("stage_04", "prd"),
+        required_patterns=(r"revision recommendation|revision_consequences|修订建议",),
+        pass_why="revision consequence/recommendation is explicit",
+    ),
+    MatrixRule(
+        label="design/architecture handoff package",
+        sources=("stage_04", "prd"),
+        required_patterns=(r"Handoff to Design / Architecture|handoff package|Design Can Start|Architecture Can Start",),
+        pass_why="handoff package is explicit for design and architecture",
+    ),
+    MatrixRule(
+        label="maturity / confidence split",
+        sources=("stage_04", "prd"),
+        required_patterns=(r"document_delivery_state", r"evidence_confidence_state", r"safe_start_scope|safe downstream action"),
+        pass_why="delivery readiness and evidence confidence are explicitly separated",
+    ),
+    MatrixRule(
+        label="PRD convergence evidence state",
+        sources=("evidence",),
+        required_patterns=(r"Analysis Delta Ledger|Extracted Runtime Trace Blocks",),
+        pass_why="convergence evidence memo preserves externalized delta/runtime traces",
+    ),
+    MatrixRule(
+        label="stakeholder analysis",
+        sources=("stage_02a", "prd"),
+        required_patterns=(r"Stakeholder Profiles|Stakeholder Analysis|Adoption Chain",),
+        pass_why="stakeholder analysis is explicit",
+    ),
+    MatrixRule(
+        label="business scenarios (at least 3)",
+        sources=("stage_02a", "prd"),
+        required_patterns=(r"Scenario Decomposition|Business Scenarios|Scenario A|Scenario B|Scenario C",),
+        pass_why="business scenarios are explicit",
+    ),
+    MatrixRule(
+        label="persona / scenario set",
+        sources=("stage_02a", "prd"),
+        required_patterns=(r"Persona / JTBD Matrix|Persona Context Scenario and Key Paths|Persona Profiles",),
+        pass_why="persona and scenario set are explicit",
+    ),
+    MatrixRule(
+        label="NFR / quality requirements analysis",
+        sources=("stage_02b", "prd"),
+        required_patterns=(r"NFR / Quality Requirements|Quality Scenario Matrix",),
+        pass_why="NFR and quality requirements are explicit",
+    ),
+    MatrixRule(
+        label="domain model direction",
+        sources=("stage_02b", "prd"),
+        required_patterns=(r"Domain Model Direction|Conceptual ER Diagram|Domain Model",),
+        pass_why="domain model direction is explicit",
+    ),
+    MatrixRule(
+        label="IA direction decisions",
+        sources=("stage_02b", "prd"),
+        required_patterns=(r"Information Architecture Direction|IA Decision Alternatives Comparison|IA Spec Matrix",),
+        pass_why="IA direction is explicit",
+    ),
+    MatrixRule(
+        label="specification stress-test",
+        sources=("stage_02b",),
+        required_patterns=(r"Specification Stress-Test",),
+        pass_why="specification stress-test exists in Stage-02b",
+    ),
+    MatrixRule(
+        label="key decision rationale summary (PRD §17)",
+        sources=("prd",),
+        required_patterns=(r"##\s+17\.\s+Key Decision Rationale Summary|##\s+Key Decision Rationale Summary",),
+        pass_why="key decision rationale summary is present in the PRD",
+    ),
 )
-
-
-def _coerce_matrix_rule(item: object) -> MatrixRule | None:
-    if not isinstance(item, dict):
-        return None
-    return MatrixRule(
-        label=str(item.get("label", "")),
-        sources=tuple(str(value) for value in item.get("sources", []) if str(value)),
-        required_patterns=tuple(str(value) for value in item.get("required_patterns", []) if str(value)),
-        warning_patterns=tuple(str(value) for value in item.get("warning_patterns", []) if str(value)),
-        pass_why=str(item.get("pass_why", "")),
-        warning_why=str(item.get("warning_why", "")),
-        next_action_pass=str(item.get("next_action_pass", "keep current handoff package")),
-        next_action_warning=str(
-            item.get("next_action_warning", "preserve review-bound carryover and validate in next phase")
-        ),
-        next_action_blocked=str(
-            item.get("next_action_blocked", "return to the owning stage and regenerate the missing artifact")
-        ),
-    )
-
-
-def _load_matrix_rules() -> tuple[MatrixRule, ...]:
-    loaded = load_script_json_asset(__file__, "phase1-execution-report-matrix-rules.json")
-    if not isinstance(loaded, dict):
-        return ()
-    rules = [_coerce_matrix_rule(item) for item in loaded.get("matrix_rules", [])]
-    return tuple(rule for rule in rules if rule is not None)
-
-
-RULES = _load_matrix_rules()
-
-
 
 
 def read_text(path: Path | None) -> str:
@@ -434,7 +613,6 @@ def render_report(
     profile: str,
     depth_mode: str,
     thinking_value_gain_mode: str = "off",
-    thinking_value_gain_output_profile: str = "coverage_rich",
     run_owner: str,
     gate_payload: dict[str, object] | None,
 ) -> str:
@@ -503,11 +681,7 @@ def render_report(
         f"- report_version: `{version}`",
         "- delivery_profile:",
         f"  - `{profile}`",
-        *build_runtime_metadata_lines(
-            depth_mode,
-            thinking_value_gain_mode=thinking_value_gain_mode,
-            thinking_value_gain_output_profile=thinking_value_gain_output_profile,
-        ),
+        *build_runtime_metadata_lines(depth_mode, thinking_value_gain_mode=thinking_value_gain_mode),
         "- current_overall_status:",
         f"  - `{current_status}`",
         "- document_delivery_state:",
@@ -801,11 +975,6 @@ def main() -> int:
     parser.add_argument("--profile", required=True)
     parser.add_argument("--depth-mode", choices=("baseline", "creative"), default="baseline")
     parser.add_argument("--thinking-value-gain-mode", choices=("off", "full-use"), default="off")
-    parser.add_argument(
-        "--thinking-value-gain-output-profile",
-        choices=THINKING_VALUE_GAIN_OUTPUT_PROFILES,
-        default="coverage_rich",
-    )
     parser.add_argument("--run-owner", default="Codex Phase-1 full runner")
     parser.add_argument("--gate-json")
     parser.add_argument("--output", required=True)
@@ -845,7 +1014,6 @@ def main() -> int:
         profile=args.profile,
         depth_mode=args.depth_mode,
         thinking_value_gain_mode=args.thinking_value_gain_mode,
-        thinking_value_gain_output_profile=args.thinking_value_gain_output_profile,
         run_owner=args.run_owner,
         gate_payload=gate_payload,
     )

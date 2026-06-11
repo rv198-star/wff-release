@@ -4,11 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from phase3.delivery_report_rendering import build_acceptance_report, build_execution_report
-from phase3.phase3_delivery_gate import (
-    analyze_phase3_delivery,
-    build_phase3_mainline_assessment_summary,
-    write_phase3_mainline_assessment_artifacts,
+from phase3.phase3_delivery_gate import analyze_phase3_delivery, build_acceptance_report, build_execution_report
+from phase3.mainline_assessment import (
+    emit_phase3_mainline_assessment,
+    update_phase3_run_metadata_with_assessment,
 )
 
 
@@ -19,60 +18,6 @@ def write_text(path: Path, content: str) -> None:
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     write_text(path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
-
-
-def emit_phase3_mainline_assessment(
-    *,
-    output_dir: Path,
-    assessment: dict[str, Any],
-    case_name: str = "",
-    version: str = "",
-    output_locale: str = "zh-CN",
-    human_review: dict[str, Any] | None = None,
-) -> tuple[dict[str, str], dict[str, Any]]:
-    assessment_artifacts = write_phase3_mainline_assessment_artifacts(
-        output_dir=output_dir,
-        assessment=assessment,
-        case_name=case_name,
-        version=version,
-        output_locale=output_locale,
-        human_review=human_review,
-    )
-    assessment_summary = build_phase3_mainline_assessment_summary(
-        assessment=assessment,
-        artifact_paths=assessment_artifacts,
-    )
-    return assessment_artifacts, assessment_summary
-
-
-def update_phase3_run_metadata_with_assessment(
-    *,
-    metadata_path: Path,
-    assessment_artifacts: dict[str, str],
-    assessment_summary: dict[str, Any],
-) -> dict[str, Any]:
-    try:
-        from phase3.mainline_assessment import update_phase3_run_metadata_with_assessment as update_metadata
-    except ModuleNotFoundError as exc:
-        if exc.name != "phase3.mainline_assessment":
-            raise
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
-        if not isinstance(metadata, dict):
-            metadata = {}
-        metadata["mainline_assessment_artifacts"] = assessment_artifacts
-        metadata["mainline_assessment_summary"] = assessment_summary
-        metadata["phase_verdict_path"] = assessment_summary.get("phase_verdict_path", "")
-        metadata["phase_verdict"] = assessment_summary.get("phase_verdict", "")
-        metadata["phase_total_score"] = assessment_summary.get("phase_total_score")
-        metadata["phase_review_bound_items_count"] = assessment_summary.get("review_bound_items_count", 0)
-        metadata["phase_blockers_count"] = assessment_summary.get("blockers_count", 0)
-        write_json(metadata_path, metadata)
-        return metadata
-    return update_metadata(
-        metadata_path=metadata_path,
-        assessment_artifacts=assessment_artifacts,
-        assessment_summary=assessment_summary,
-    )
 
 
 def write_phase3_case_reports(

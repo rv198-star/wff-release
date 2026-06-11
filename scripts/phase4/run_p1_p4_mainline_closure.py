@@ -25,13 +25,6 @@ from typing import Any
 
 from common.output_language import localize_p1_p4_mainline_closure_summary
 from phase4.phase4_common import load_phase3_mainline_summary
-from common.claim_ceiling_surface import (
-    claim_ceiling_allows_phase4_validation_entry,
-    claim_ceiling_allows_review_bound_completion,
-    claim_ceiling_blocks_ready,
-    read_claim_ceiling_report,
-)
-from common.human_review_surface import read_red_team_findings_status
 
 
 @dataclass(frozen=True)
@@ -169,33 +162,6 @@ def load_phase_mainline_assessment(
     }
 
 
-def red_team_review_check_fields(red_team_status: dict[str, Any]) -> dict[str, Any]:
-    present = bool(red_team_status.get("exists"))
-    usable = bool(red_team_status.get("usable_as_review_evidence", red_team_status.get("usable_as_human_review_evidence")))
-    status = str(red_team_status.get("review_red_team_status") or red_team_status.get("status") or "missing")
-    claim_ceiling_after_review = str(
-        red_team_status.get("claim_ceiling_after_review_state")
-        or red_team_status.get("claim_ceiling_after_review")
-        or ""
-    ).strip()
-    return_or_followup_required = bool(red_team_status.get("return_or_followup_required"))
-    blocks_ready = bool(red_team_status.get("review_blocks_ready", red_team_status.get("human_review_blocks_ready")))
-    return {
-        "review_red_team_present": present,
-        "review_red_team_usable": usable,
-        "review_red_team_status": status,
-        "review_claim_ceiling_after_review": claim_ceiling_after_review,
-        "review_return_or_followup_required": return_or_followup_required,
-        "review_blocks_ready": blocks_ready,
-        "human_review_red_team_present": present,
-        "human_review_red_team_usable": usable,
-        "human_review_red_team_status": status,
-        "human_review_claim_ceiling_after_review": claim_ceiling_after_review,
-        "human_review_return_or_followup_required": return_or_followup_required,
-        "human_review_blocks_ready": blocks_ready,
-    }
-
-
 def phase3_surface_contract_summary(gate: dict[str, Any]) -> dict[str, Any]:
     checks = gate.get("checks", {}) if isinstance(gate, dict) else {}
     surface_contract_checks = checks.get("surface_contract_checks", {})
@@ -309,9 +275,6 @@ def phase2_summary(root: Path, phase1_prd: Path | None) -> dict[str, Any]:
 def phase3_summary(root: Path, phase2_root: Path, *, closure_mode: str = "runtime-closure") -> dict[str, Any]:
     metadata = load_json(first_existing(root, "phase3-run-metadata.json"))
     gate = load_json(first_existing(root, "phase3-delivery-gate.json"))
-    claim_ceiling_report = read_claim_ceiling_report(root)
-    human_review_status = read_red_team_findings_status(root)
-    review_check_fields = red_team_review_check_fields(human_review_status)
     retained_proof_mode = resolve_retained_proof_mode(gate, closure_mode)
     runtime_delivery_artifacts_required = not retained_proof_mode
     mainline_summary = load_phase3_mainline_summary(root)
@@ -376,15 +339,6 @@ def phase3_summary(root: Path, phase2_root: Path, *, closure_mode: str = "runtim
             "role_surface_alignment_gate": bool(surface_contract["role_surface_alignment"].get("all_core_surfaces_aligned"))
             if surface_contract["present"]
             else False,
-            "claim_ceiling_present": bool(claim_ceiling_report.get("present")),
-            "claim_ceiling_blocks_ready": claim_ceiling_blocks_ready(claim_ceiling_report),
-            "claim_ceiling_allows_phase4_validation_entry": claim_ceiling_allows_phase4_validation_entry(
-                claim_ceiling_report
-            ),
-            "claim_ceiling_resolved_formal_state": str(
-                claim_ceiling_report.get("resolved_formal_state") or "unknown"
-            ),
-            **review_check_fields,
         },
         "required_artifact_checks": {
             "delivery_gate_present": bool(gate),
@@ -403,9 +357,7 @@ def phase3_summary(root: Path, phase2_root: Path, *, closure_mode: str = "runtim
             "phase_verdict_path": str(mainline_summary.get("phase_verdict_path") or ""),
             "phase_scorecard_path": str(mainline_summary.get("phase_scorecard_path") or ""),
             "phase_acceptance_matrix_path": str(mainline_summary.get("phase_acceptance_matrix_path") or ""),
-            "claim_ceiling_report": claim_ceiling_report,
         },
-        "human_review_red_team_status": human_review_status,
         "surface_contract": surface_contract,
         "warnings": warnings,
     }
@@ -415,9 +367,6 @@ def phase4_summary(root: Path, phase3_root: Path, *, closure_mode: str = "runtim
     metadata = load_json(first_existing(root, "phase4-run-metadata.json"))
     quality = load_json(first_existing(root, "phase4-quality-check.json"))
     gate = load_json(first_existing(root, "phase4-delivery-gate.json"))
-    claim_ceiling_report = read_claim_ceiling_report(root)
-    human_review_status = read_red_team_findings_status(root)
-    review_check_fields = red_team_review_check_fields(human_review_status)
     retained_proof_mode = closure_mode == "retained-proof"
     stage3_summary = first_existing(root, "stage-03-validation-closure-and-delivery-readiness-judgment/stage-03-summary.json")
     metadata_phase3_root = str(metadata.get("phase3_root", "")).strip()
@@ -445,15 +394,6 @@ def phase4_summary(root: Path, phase3_root: Path, *, closure_mode: str = "runtim
             "phase3_root_matches": phase3_root_matches,
             "phase3_root_linkage_satisfied": phase3_root_matches or retained_proof_mode,
             "phase_verdict_present": bool(mainline_assessment.get("present")),
-            "claim_ceiling_present": bool(claim_ceiling_report.get("present")),
-            "claim_ceiling_blocks_ready": claim_ceiling_blocks_ready(claim_ceiling_report),
-            "claim_ceiling_allows_review_bound_completion": claim_ceiling_allows_review_bound_completion(
-                claim_ceiling_report
-            ),
-            "claim_ceiling_resolved_formal_state": str(
-                claim_ceiling_report.get("resolved_formal_state") or "unknown"
-            ),
-            **review_check_fields,
         },
         "required_artifact_checks": {
             "quality_check_present": bool(quality),
@@ -461,45 +401,12 @@ def phase4_summary(root: Path, phase3_root: Path, *, closure_mode: str = "runtim
             "stage3_summary_present": bool(stage3_summary),
         },
         "mainline_assessment": mainline_assessment,
-        "claim_ceiling_report": claim_ceiling_report,
-        "human_review_red_team_status": human_review_status,
         "warnings": warnings,
     }
 
 
 def bool_icon(value: bool) -> str:
     return "yes" if value else "no"
-
-
-def markdown_check_value(value: Any) -> str:
-    if isinstance(value, bool):
-        return bool_icon(value)
-    if value is None:
-        return ""
-    return str(value)
-
-
-def review_check_value(checks: dict[str, Any], key: str, legacy_key: str | None = None) -> Any:
-    if key in checks:
-        return checks.get(key)
-    if legacy_key:
-        return checks.get(legacy_key)
-    return None
-
-
-def review_status_text(checks: dict[str, Any]) -> str:
-    return str(review_check_value(checks, "review_red_team_status", "human_review_red_team_status") or "missing")
-
-
-def review_claim_ceiling_text(checks: dict[str, Any]) -> str:
-    return str(
-        review_check_value(
-            checks,
-            "review_claim_ceiling_after_review",
-            "human_review_claim_ceiling_after_review",
-        )
-        or "review-bound"
-    )
 
 
 def classify_mainline_verdict(
@@ -547,47 +454,10 @@ def classify_mainline_verdict(
     elif phase2["status"] in {"pass-with-review-bound-items", "unknown"}:
         warnings.append(f"phase2 status is `{phase2['status']}`")
 
-    phase3_allows_validation = bool(phase3["checks"].get("claim_ceiling_allows_phase4_validation_entry"))
     if phase3["status"] == "blocked":
         failures.append("phase3 remains blocked")
     elif phase3["status"] != "delivery-ready":
-        if phase3_allows_validation:
-            warnings.append(f"phase3 status is `{phase3['status']}`")
-        else:
-            failures.append(f"phase3 status is `{phase3['status']}`")
-    if phase3["checks"].get("claim_ceiling_blocks_ready"):
-        if phase3_allows_validation:
-            warnings.append(
-                "phase3 claim ceiling caps release-ready state: "
-                f"`{phase3['checks'].get('claim_ceiling_resolved_formal_state')}`"
-            )
-        else:
-            failures.append(
-                "phase3 claim ceiling blocks release-ready state: "
-                f"`{phase3['checks'].get('claim_ceiling_resolved_formal_state')}`"
-            )
-    phase3_checks = phase3["checks"]
-    phase3_review_present = bool(
-        review_check_value(phase3_checks, "review_red_team_present", "human_review_red_team_present")
-    )
-    phase3_review_usable = bool(
-        review_check_value(phase3_checks, "review_red_team_usable", "human_review_red_team_usable")
-    )
-    phase3_review_blocks_ready = bool(
-        review_check_value(phase3_checks, "review_blocks_ready", "human_review_blocks_ready")
-    )
-    if phase3_review_present and not phase3_review_usable:
-        warnings.append(
-            "phase3 review red-team record is "
-            f"`{review_status_text(phase3_checks)}`"
-        )
-    elif phase3_review_present and phase3_review_blocks_ready:
-        failures.append(
-            "phase3 review blocks release-ready state: "
-            f"`{review_claim_ceiling_text(phase3_checks)}`"
-        )
-    elif not phase3_review_present:
-        warnings.append("phase3 review red-team record is missing")
+        warnings.append(f"phase3 status is `{phase3['status']}`")
     phase3_mainline_verdict = str(phase3.get("mainline_assessment", {}).get("phase_verdict") or "").strip()
     if phase3_mainline_verdict in {"BLOCKED", "RETURN-REMEDIATE"}:
         failures.append(f"phase3 mainline verdict is `{phase3_mainline_verdict}`")
@@ -606,43 +476,8 @@ def classify_mainline_verdict(
         failures.append(f"phase4 mainline verdict is `{phase4_mainline_verdict}`")
     elif phase4["closure_decision"] in {"return", "testing-validation-return-required"}:
         failures.append("phase4 closure requires return")
-    elif phase4["closure_decision"] in {"pass-with-review-bound-items", "pass-with-mock-dependency"}:
+    elif phase4["closure_decision"] in {"pass-with-review-bound-items", "pass-with-mock-dependency", "unknown"}:
         warnings.append(f"phase4 closure is `{phase4['closure_decision']}`")
-    elif phase4["closure_decision"] == "unknown":
-        failures.append(f"phase4 closure is `{phase4['closure_decision']}`")
-    if phase4["checks"].get("claim_ceiling_blocks_ready"):
-        if phase4["checks"].get("claim_ceiling_allows_review_bound_completion"):
-            warnings.append(
-                "phase4 claim ceiling caps release-ready state: "
-                f"`{phase4['checks'].get('claim_ceiling_resolved_formal_state')}`"
-            )
-        else:
-            failures.append(
-                "phase4 claim ceiling blocks release-ready state: "
-                f"`{phase4['checks'].get('claim_ceiling_resolved_formal_state')}`"
-            )
-    phase4_checks = phase4["checks"]
-    phase4_review_present = bool(
-        review_check_value(phase4_checks, "review_red_team_present", "human_review_red_team_present")
-    )
-    phase4_review_usable = bool(
-        review_check_value(phase4_checks, "review_red_team_usable", "human_review_red_team_usable")
-    )
-    phase4_review_blocks_ready = bool(
-        review_check_value(phase4_checks, "review_blocks_ready", "human_review_blocks_ready")
-    )
-    if phase4_review_present and not phase4_review_usable:
-        warnings.append(
-            "phase4 review red-team record is "
-            f"`{review_status_text(phase4_checks)}`"
-        )
-    elif phase4_review_present and phase4_review_blocks_ready:
-        failures.append(
-            "phase4 review blocks release-ready state: "
-            f"`{review_claim_ceiling_text(phase4_checks)}`"
-        )
-    elif not phase4_review_present:
-        warnings.append("phase4 review red-team record is missing")
 
     cross_phase_checks = {
         "phase2_references_phase1_prd": bool(phase2["checks"].get("phase1_prd_reference_visible")),
@@ -661,12 +496,6 @@ def classify_mainline_verdict(
 
     if failures:
         return "blocked", failures, warnings
-    if any(
-        "review red-team record is `review-bound`" in item
-        or "human review red-team record is `review-bound`" in item
-        for item in warnings
-    ):
-        return "pass-with-review-pending", failures, warnings
     if warnings:
         return "pass-with-known-gaps", failures, warnings
     return "pass", failures, warnings
@@ -703,7 +532,7 @@ def build_markdown(
             lines.append(f"- phase_review_bound_items_count: `{mainline_assessment.get('review_bound_items_count', 0)}`")
         lines.append("- checks:")
         for key, value in phase.get("checks", {}).items():
-            lines.append(f"  - {key}: `{markdown_check_value(value)}`")
+            lines.append(f"  - {key}: `{bool_icon(bool(value))}`")
         surface_contract = phase.get("surface_contract")
         if isinstance(surface_contract, dict) and surface_contract.get("present"):
             lines.append("- surface_contract:")

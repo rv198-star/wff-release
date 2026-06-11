@@ -19,19 +19,6 @@ import re
 from pathlib import Path
 
 from phase3.phase3_behavior_card_consumption import render_behavior_step_test_mapping
-from phase3.test_scaffolder_common import (
-    WRITE_HTTP_METHODS,
-    dedupe_preserve_order,
-    endpoint_index,
-    failure_condition_signal_lines,
-    failure_has_runtime_signal,
-    normalize_field_token,
-    operation_supports_persistence_roundtrip,
-    persistence_roundtrip_assertion_lines,
-    remap_operation_ids_to_runtime_contract,
-    render_harness_import,
-    resolve_response_field,
-)
 try:
     from phase3.behavior_contract import (
         behavior_evidence_key_map,
@@ -56,6 +43,54 @@ from phase3.contract_tools import (
     scenario_identifier,
     scenario_test_filename,
 )
+
+
+PERSISTENCE_ROUNDTRIP_OPERATION_PREFIXES = ("Create", "List", "Update", "Start", "Complete", "Generate", "Launch", "Export", "Record", "Refresh")
+WRITE_HTTP_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def operation_supports_persistence_roundtrip(operation_id: str, endpoint_rows: list[dict[str, object]]) -> bool:
+    endpoint_row = next(
+        (row for row in endpoint_rows if str(row.get("endpoint_name", "")).strip() == operation_id),
+        {},
+    )
+    response_example = endpoint_row.get("response_body_example", {}) if isinstance(endpoint_row, dict) else {}
+    data = response_example.get("data", {}) if isinstance(response_example, dict) else {}
+    has_roundtrip_record = (isinstance(data, list) and bool(data)) or (isinstance(data, dict) and bool(data))
+    if not has_roundtrip_record:
+        return False
+    method = str((endpoint_row or {}).get("method", "")).strip().upper()
+    return method in WRITE_HTTP_METHODS or operation_id.startswith(PERSISTENCE_ROUNDTRIP_OPERATION_PREFIXES)
+
+
+
+def persistence_roundtrip_assertion_lines(operation_id_expr: str, result_expr: str) -> list[str]:
+    return [
+        f"    const persistenceEvidence = await collectPersistenceRoundTripEvidence(runtime, {operation_id_expr}, {result_expr});",
+        f"    if (await requiresPersistenceRoundTripEvidence(runtime, {operation_id_expr})) {{",
+        "      expect(persistenceEvidence.length).toBeGreaterThan(0);",
+        "      const fullyMatchedEvidence = persistenceEvidence.filter((entry) => entry.mismatchedFieldNames.length === 0);",
+        "      expect(fullyMatchedEvidence.length).toBeGreaterThan(0);",
+        "      const evidenceWithValueFields = persistenceEvidence.filter((entry) => entry.checkedValueFieldNames.length > 0);",
+        "      if (evidenceWithValueFields.length > 0) {",
+        "        expect(fullyMatchedEvidence.some((entry) => entry.checkedValueFieldNames.length > 0)).toBe(true);",
+        "      } else {",
+        "        expect(fullyMatchedEvidence.some((entry) => entry.checkedFieldNames.length > 0)).toBe(true);",
+        "      }",
+        "    }",
+    ]
+
+
+def dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
+
 
 def explicit_operation_ids(raw: str, endpoint_names: set[str]) -> list[str]:
     cleaned = raw.strip()
@@ -151,55 +186,16 @@ def infer_operation_ids(row: dict[str, object], endpoint_rows: list[dict[str, ob
     scored.sort(key=lambda item: (-item[0], item[1]))
     return [name for _, name in scored[:3]]
 
+
+def endpoint_index(endpoint_rows: list[dict[str, object]]) -> dict[str, dict[str, object]]:
+    return {str(row["endpoint_name"]).strip(): row for row in endpoint_rows}
+
+
 def collect_failure_codes(endpoint_rows: list[dict[str, object]], operation_ids: list[str]) -> list[str]:
     by_name = endpoint_index(endpoint_rows)
     failure_codes: list[str] = []
     for operation_id in operation_ids:
-        row = by_name.get(operation_id, {})
-        for failure in row.get("failure_codes", []):
-            code = str(failure.get("error_code", "")).strip()
-            if code:
-                failure_codes.append(code)
-    return list(dict.fromkeys(failure_codes))
-
-
-def failure_has_runtime_signal_for_endpoint(
-    row: dict[str, object],
-    failure: dict[str, object],
-    *,
-    behavior_card_models: dict[str, dict[str, object]] | None = None,
-) -> bool:
-    code = str(failure.get("error_code", "")).strip()
-    if not code:
-        return False
-    operation_id = str(row.get("endpoint_name", "")).strip()
-    return failure_has_runtime_signal(
-        code,
-        status=str(failure.get("status", "")).strip(),
-        method=str(row.get("method", "")).strip(),
-        path=str(row.get("path", "")).strip(),
-        operation_id=operation_id,
-        behavior_card_model=(behavior_card_models or {}).get(operation_id),
-    )
-
-
-def collect_runtime_failure_codes(
-    endpoint_rows: list[dict[str, object]],
-    operation_ids: list[str],
-    *,
-    behavior_card_models: dict[str, dict[str, object]] | None = None,
-) -> list[str]:
-    by_name = endpoint_index(endpoint_rows)
-    failure_codes: list[str] = []
-    for operation_id in operation_ids:
-        row = by_name.get(operation_id, {})
-        for failure in row.get("failure_codes", []):
-            if not isinstance(failure, dict) or not failure_has_runtime_signal_for_endpoint(
-                row,
-                failure,
-                behavior_card_models=behavior_card_models,
-            ):
-                continue
+        for failure in by_name.get(operation_id, {}).get("failure_codes", []):
             code = str(failure.get("error_code", "")).strip()
             if code:
                 failure_codes.append(code)
@@ -214,13 +210,7 @@ def first_matching_failure_code(failure_codes: list[str], pattern: str) -> str:
     return ""
 
 
-def preferred_failure_code(
-    row: dict[str, object],
-    endpoint_rows: list[dict[str, object]],
-    operation_ids: list[str],
-    *,
-    behavior_card_models: dict[str, dict[str, object]] | None = None,
-) -> str:
+def preferred_failure_code(row: dict[str, object], endpoint_rows: list[dict[str, object]], operation_ids: list[str]) -> str:
     lowered = " ".join(
         [
             str(row.get("scenario", "")).lower(),
@@ -229,7 +219,7 @@ def preferred_failure_code(
         ]
     )
     scenario_type = str(row.get("scenario_type", "")).strip().lower()
-    failure_codes = collect_runtime_failure_codes(endpoint_rows, operation_ids, behavior_card_models=behavior_card_models)
+    failure_codes = collect_failure_codes(endpoint_rows, operation_ids)
 
     deny_intent = any(term in lowered for term in ("cross-tenant", "tenant deny", "tenant_forbidden", "forbidden", "deny"))
     if deny_intent:
@@ -249,17 +239,11 @@ def preferred_failure_code(
     return ""
 
 
-def scenario_failure_variants(
-    endpoint_rows: list[dict[str, object]],
-    operation_ids: list[str],
-    *,
-    behavior_card_models: dict[str, dict[str, object]] | None = None,
-) -> list[dict[str, str]]:
+def scenario_failure_variants(endpoint_rows: list[dict[str, object]], operation_ids: list[str]) -> list[dict[str, str]]:
     variant_specs = [
         ("invalid request", ("400",), re.compile(r"(invalid|validation|required|missing)")),
         ("permission", ("403",), re.compile(r"(forbidden|permission|tenant)")),
         ("conflict", ("409",), re.compile(r"(conflict|stale|duplicate|version)")),
-        ("dependency", ("5",), re.compile(r"(db|database|dependency|unavailable|timeout)")),
     ]
     variants: list[dict[str, str]] = []
     by_name = endpoint_index(endpoint_rows)
@@ -270,8 +254,6 @@ def scenario_failure_variants(
                 status = str(failure.get("status", "")).strip()
                 code = str(failure.get("error_code", "")).strip()
                 if not code:
-                    continue
-                if not failure_has_runtime_signal_for_endpoint(row, failure, behavior_card_models=behavior_card_models):
                     continue
                 if status.startswith(status_prefixes) or code_pattern.search(code):
                     variants.append(
@@ -318,6 +300,69 @@ def render_supplemental_failure_variant_tests(variants: list[dict[str, str]]) ->
             ]
         )
     return lines
+
+
+def failure_condition_signal_lines(error_code: str, payload_name: str = "payload") -> list[str]:
+    normalized = error_code.lower()
+    if "tenant_forbidden" in normalized:
+        return [
+            f"    const existingAuthContext = {payload_name}.auth_context && typeof {payload_name}.auth_context === 'object'",
+            f"      ? {payload_name}.auth_context as Record<string, unknown>",
+            "      : {};",
+            f"    {payload_name}.auth_context = {{",
+            "      ...existingAuthContext,",
+            '      tenant_id: "wrong-tenant",',
+            '      subject_id: String(existingAuthContext.subject_id ?? "user_forbidden"),',
+            '      session_id: String(existingAuthContext.session_id ?? "sess_forbidden"),',
+            "      roles: Array.isArray(existingAuthContext.roles) && existingAuthContext.roles.length > 0",
+            "        ? existingAuthContext.roles",
+            '        : ["authenticated"],',
+            "    };",
+            f'    {payload_name}.expectedOwnerService = "OtherService";',
+        ]
+    if "rbac_forbidden" in normalized:
+        return [
+            f"    const existingAuthContext = {payload_name}.auth_context && typeof {payload_name}.auth_context === 'object'",
+            f"      ? {payload_name}.auth_context as Record<string, unknown>",
+            "      : {};",
+            f"    {payload_name}.auth_context = {{",
+            "      ...existingAuthContext,",
+            '      subject_id: "user_forbidden",',
+            '      session_id: "sess_forbidden",',
+            '      roles: ["phase3_forbidden_role"],',
+            "    };",
+        ]
+    if "forbidden" in normalized:
+        return [
+            f"    const existingAuthContext = {payload_name}.auth_context && typeof {payload_name}.auth_context === 'object'",
+            f"      ? {payload_name}.auth_context as Record<string, unknown>",
+            "      : {};",
+            f"    {payload_name}.auth_context = {{",
+            "      ...existingAuthContext,",
+            '      subject_id: "user_forbidden",',
+            '      session_id: "sess_forbidden",',
+            "      roles: Array.isArray(existingAuthContext.roles) && existingAuthContext.roles.length > 0",
+            "        ? existingAuthContext.roles",
+            '        : ["authenticated"],',
+            "    };",
+            f'    {payload_name}.expectedOwnerService = "OtherService";',
+        ]
+    if any(token in normalized for token in ("conflict", "stale", "version", "duplicate")):
+        return [
+            f"    {payload_name}.expectedVersion = 0;",
+            f"    {payload_name}.currentVersion = 1;",
+        ]
+    if "not_found" in normalized or "missing" in normalized:
+        return [
+            f"    {payload_name}.path_params = {{ ...(({payload_name}.path_params ?? {{}}) as Record<string, unknown>), id: \"missing_id\" }};",
+            f'    {payload_name}.not_found_id = "missing_record";',
+        ]
+    if "dependency" in normalized or "unavailable" in normalized:
+        return [
+            f"    {payload_name}.simulateDependencyFailure = true;",
+        ]
+    return []
+
 
 def scenario_state_collector_lines() -> list[str]:
     return [
@@ -450,6 +495,41 @@ def shared_response_business_fields(endpoint_rows: list[dict[str, object]], firs
     shared = [field for field in response_data_fields(endpoint_rows, final_operation_id) if field in first_fields and (field.endswith("Id") or field.endswith("_id"))]
     return shared
 
+
+def remap_operation_ids_to_runtime_contract(
+    operation_ids: list[str],
+    *,
+    source_endpoint_rows: list[dict[str, object]],
+    runtime_endpoint_rows: list[dict[str, object]],
+) -> list[str]:
+    runtime_names = {str(row.get("endpoint_name", "")).strip() for row in runtime_endpoint_rows}
+    source_by_name = {str(row.get("endpoint_name", "")).strip(): row for row in source_endpoint_rows}
+    runtime_by_signature = {
+        (
+            str(row.get("method", "")).strip().upper(),
+            str(row.get("path", "")).strip(),
+        ): str(row.get("endpoint_name", "")).strip()
+        for row in runtime_endpoint_rows
+        if str(row.get("endpoint_name", "")).strip()
+    }
+    mapped: list[str] = []
+    for operation_id in operation_ids:
+        if operation_id in runtime_names:
+            mapped.append(operation_id)
+            continue
+        source_row = source_by_name.get(operation_id)
+        if not source_row:
+            continue
+        signature = (
+            str(source_row.get("method", "")).strip().upper(),
+            str(source_row.get("path", "")).strip(),
+        )
+        runtime_operation_id = runtime_by_signature.get(signature, "")
+        if runtime_operation_id:
+            mapped.append(runtime_operation_id)
+    return dedupe_preserve_order(mapped)
+
+
 def primary_id_field(endpoint_rows: list[dict[str, object]], operation_id: str) -> str:
     by_name = endpoint_index(endpoint_rows)
     row = by_name.get(operation_id, {})
@@ -474,33 +554,16 @@ def primary_record_key(endpoint_rows: list[dict[str, object]], operation_id: str
     return primary_id_field(endpoint_rows, operation_id)
 
 
-def operation_supports_failure(
-    endpoint_rows: list[dict[str, object]],
-    operation_id: str,
-    failure_code: str,
-    *,
-    behavior_card_models: dict[str, dict[str, object]] | None = None,
-) -> bool:
+def operation_supports_failure(endpoint_rows: list[dict[str, object]], operation_id: str, failure_code: str) -> bool:
     if not failure_code:
         return False
     row = endpoint_index(endpoint_rows).get(operation_id, {})
-    return any(
-        str(item.get("error_code", "")).strip() == failure_code
-        and failure_has_runtime_signal_for_endpoint(row, item, behavior_card_models=behavior_card_models)
-        for item in row.get("failure_codes", [])
-        if isinstance(item, dict)
-    )
+    return any(str(item.get("error_code", "")).strip() == failure_code for item in row.get("failure_codes", []))
 
 
-def choose_failure_operation(
-    operation_ids: list[str],
-    endpoint_rows: list[dict[str, object]],
-    failure_code: str,
-    *,
-    behavior_card_models: dict[str, dict[str, object]] | None = None,
-) -> str:
+def choose_failure_operation(operation_ids: list[str], endpoint_rows: list[dict[str, object]], failure_code: str) -> str:
     for operation_id in operation_ids:
-        if operation_supports_failure(endpoint_rows, operation_id, failure_code, behavior_card_models=behavior_card_models):
+        if operation_supports_failure(endpoint_rows, operation_id, failure_code):
             return operation_id
     return operation_ids[0] if operation_ids else ""
 
@@ -512,66 +575,35 @@ def expected_context_fields(endpoint_rows: list[dict[str, object]], operation_id
     return sorted(dict.fromkeys(field for field in fields if field))
 
 
-def operation_runtime_context_inputs(endpoint_rows: list[dict[str, object]], operation_id: str) -> set[str]:
-    row = endpoint_row_for_operation(endpoint_rows, operation_id)
-    request = row.get("request_body_example", {}) if isinstance(row, dict) else {}
-    fields: set[str] = set()
-    if isinstance(request, dict):
-        fields.update(str(key) for key in request.keys() if str(key).strip())
-    path = str(row.get("path", "") if isinstance(row, dict) else "")
-    fields.update(re.findall(r"{([^}]+)}", path))
-    return {normalize_field_token(field) for field in fields if normalize_field_token(field)}
-
-
-def operation_context_outputs(endpoint_rows: list[dict[str, object]], operation_id: str) -> set[str]:
-    fields = set(response_data_fields(endpoint_rows, operation_id))
-    row = endpoint_row_for_operation(endpoint_rows, operation_id)
-    request = row.get("request_body_example", {}) if isinstance(row, dict) else {}
-    if isinstance(request, dict):
-        for key in ("tenantId", "tenant_id", "traceId", "trace_id"):
-            if key in request:
-                fields.add(key)
-    return {normalize_field_token(field) for field in fields if normalize_field_token(field)}
-
-
-def operation_can_follow_context(
-    endpoint_rows: list[dict[str, object]],
-    previous_operation_id: str,
-    next_operation_id: str,
-) -> bool:
-    if not previous_operation_id or not next_operation_id:
-        return False
-    if operation_is_list_like(endpoint_rows, next_operation_id):
-        return True
-    next_inputs = {
-        field
-        for field in operation_runtime_context_inputs(endpoint_rows, next_operation_id)
-        if field not in {"tenantid", "tenant_id", "traceid", "trace_id", "cursor", "pagesize", "page_size"}
-    }
-    if not next_inputs:
-        return True
-    previous_outputs = operation_context_outputs(endpoint_rows, previous_operation_id)
-    return bool(next_inputs & previous_outputs)
-
-
-def filter_context_compatible_operation_chain(
-    row: dict[str, object],
-    endpoint_rows: list[dict[str, object]],
-    operation_ids: list[str],
-) -> list[str]:
-    if len(operation_ids) < 2:
-        return operation_ids
-    filtered = [operation_ids[0]]
-    for operation_id in operation_ids[1:]:
-        if operation_can_follow_context(endpoint_rows, filtered[-1], operation_id):
-            filtered.append(operation_id)
-    if len(filtered) == 1 and str(row.get("contracts / endpoints", "")).strip():
-        return filtered
-    return filtered if filtered else operation_ids[:1]
-
-
 def any_operation_has_field(endpoint_rows: list[dict[str, object]], operation_ids: list[str], field_name: str) -> bool:
     return any(field_name in response_data_fields(endpoint_rows, operation_id) for operation_id in operation_ids)
+
+
+def normalize_field_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+
+def resolve_response_field(
+    endpoint_rows: list[dict[str, object]],
+    operation_ids: list[str],
+    candidates: list[str],
+    *,
+    preferred_operation_id: str = "",
+) -> str:
+    ordered_operations = [preferred_operation_id, *operation_ids] if preferred_operation_id else list(operation_ids)
+    seen_operations: set[str] = set()
+    normalized_candidates = [normalize_field_token(candidate) for candidate in candidates]
+    for operation_id in ordered_operations:
+        if not operation_id or operation_id in seen_operations:
+            continue
+        seen_operations.add(operation_id)
+        fields = response_data_fields(endpoint_rows, operation_id)
+        by_token = {normalize_field_token(field): field for field in fields}
+        for candidate in normalized_candidates:
+            if candidate in by_token:
+                return by_token[candidate]
+    return ""
+
 
 def semantic_assertion_lines(
     row: dict[str, object],
@@ -670,6 +702,33 @@ def scenario_profile(
     if len(operation_ids) >= 2:
         return "read_bundle"
     return "generic_success"
+
+
+def render_harness_import(generated_text: str) -> list[str]:
+    always = [
+        "  extractEnvelopeData,",
+        "  invokeHttpOperation,",
+        "  startBackendRuntime,",
+        "  type BackendRuntime,",
+    ]
+    conditional = [
+        ("absorbEnvelopeContext", "  absorbEnvelopeContext,"),
+        ("applyRuntimeContext", "  applyRuntimeContext,"),
+        ("buildFailurePayload", "  buildFailurePayload,"),
+        ("buildOperationPayload", "  buildOperationPayload,"),
+        ("collectPersistenceRoundTripEvidence", "  collectPersistenceRoundTripEvidence,"),
+        ("captureApiError", "  captureApiError,"),
+        ("normalizeRuntimeIdentifierValue", "  normalizeRuntimeIdentifierValue,"),
+        ("requiresPersistenceRoundTripEvidence", "  requiresPersistenceRoundTripEvidence,"),
+    ]
+    imports = [line for token, line in conditional if token in generated_text]
+    return [
+        'import {',
+        *sorted(set(imports)),
+        *always,
+        '} from "../support/backend-runtime-harness";',
+    ]
+
 
 def render_validation_failure_body(failure_operation_id: str, record_key: str) -> tuple[list[str], list[str]]:
     const_lines = [f'const failureOperationId = "{failure_operation_id}";']
@@ -1062,16 +1121,10 @@ def render_body(
     operation_ids: list[str],
     endpoint_rows: list[dict[str, object]],
     failure_code: str,
-    behavior_card_models: dict[str, dict[str, object]] | None = None,
 ) -> tuple[list[str], list[str]]:
     profile = scenario_profile(row, operation_ids=operation_ids, endpoint_rows=endpoint_rows, failure_code=failure_code)
     primary_operation_id = operation_ids[0] if operation_ids else ""
-    failure_operation_id = choose_failure_operation(
-        operation_ids,
-        endpoint_rows,
-        failure_code,
-        behavior_card_models=behavior_card_models,
-    )
+    failure_operation_id = choose_failure_operation(operation_ids, endpoint_rows, failure_code)
     primary_record = primary_record_key(endpoint_rows, primary_operation_id)
     primary_id = primary_id_field(endpoint_rows, primary_operation_id)
     final_operation_id = operation_ids[-1] if operation_ids else ""
@@ -1179,21 +1232,15 @@ def render_scenario_test(
         operation_ids = dedupe_preserve_order(infer_operation_ids(row, endpoint_rows))
     if not operation_ids:
         return render_scenario_skip_test(row, unresolved_operation_ids=unresolved_operation_ids or [])
-    failure_code = preferred_failure_code(row, endpoint_rows, operation_ids, behavior_card_models=behavior_card_models)
+    failure_code = preferred_failure_code(row, endpoint_rows, operation_ids)
     behavior_mapping_lines = []
     for operation_id in operation_ids:
         model = (behavior_card_models or {}).get(operation_id)
         if model:
             behavior_mapping_lines.extend(render_behavior_step_test_mapping(model)["scenario"].splitlines())
-    const_lines, body_lines = render_body(
-        row,
-        operation_ids=operation_ids,
-        endpoint_rows=endpoint_rows,
-        failure_code=failure_code,
-        behavior_card_models=behavior_card_models,
-    )
+    const_lines, body_lines = render_body(row, operation_ids=operation_ids, endpoint_rows=endpoint_rows, failure_code=failure_code)
     supplemental_failure_lines = render_supplemental_failure_variant_tests(
-        scenario_failure_variants(endpoint_rows, operation_ids, behavior_card_models=behavior_card_models)
+        scenario_failure_variants(endpoint_rows, operation_ids)
     )
     include_failure_code = any("failureCode" in line for line in const_lines + body_lines)
     generated_body_text = "\n".join([*behavior_mapping_lines, *const_lines, *body_lines, *supplemental_failure_lines])
@@ -1266,7 +1313,6 @@ def scaffold_scenario_tests(
     files: list[str] = []
     for row in rows:
         operation_ids = dedupe_preserve_order(infer_operation_ids(row, inference_endpoint_rows))
-        operation_ids = filter_context_compatible_operation_chain(row, inference_endpoint_rows, operation_ids)
         unresolved_operation_ids: list[str] = []
         if runtime_endpoint_rows and source_endpoint_rows:
             if operation_ids:
@@ -1282,7 +1328,6 @@ def scaffold_scenario_tests(
                     operation_ids = []
             else:
                 operation_ids = dedupe_preserve_order(infer_operation_ids(row, runtime_endpoint_rows))
-                operation_ids = filter_context_compatible_operation_chain(row, runtime_endpoint_rows, operation_ids)
         target = output_dir / scenario_test_filename(str(row["scenario"]))
         target.write_text(
             render_scenario_test(

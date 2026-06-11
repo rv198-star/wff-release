@@ -18,26 +18,8 @@ import json
 import re
 from pathlib import Path
 
-from common.script_data_assets import load_script_text_asset
 from phase3.phase3_behavior_card_consumption import render_behavior_step_test_mapping
 from phase3.contract_tools import parse_schema_tables
-
-
-WFF_SCRIPT_DATA_ASSETS = ("scripts/phase3/data/sql-test.ts.template",)
-
-
-def load_sql_test_template() -> str:
-    return load_script_text_asset(__file__, "sql-test.ts.template")
-
-
-def _render_sql_test_template(replacements: dict[str, object]) -> str:
-    text = load_sql_test_template()
-    for key, value in replacements.items():
-        text = text.replace(key, str(value))
-    unresolved = sorted(set(re.findall(r"__[A-Z0-9_]+__", text)))
-    if unresolved:
-        raise ValueError(f"unresolved SQL test template placeholders: {', '.join(unresolved)}")
-    return text
 
 
 def test_filename(table_name: str) -> str:
@@ -410,24 +392,154 @@ def render_sql_test(
         persistence_effects = str(model.get("persistence_effects", "")).lower()
         if table_name.lower() in persistence_effects:
             behavior_mapping_lines.extend(render_behavior_step_test_mapping(model)["sql"].splitlines())
-    behavior_mapping_block = "\n".join(behavior_mapping_lines)
-    behavior_mapping_block = behavior_mapping_block + "\n\n" if behavior_mapping_block else "\n"
-    state_update_statement = f'`UPDATE "{table_name}" SET "{pk_field}" = "{pk_field}" WHERE "{pk_field}" = $1`'
-    select_query = f'`SELECT {select_columns} FROM "{table_name}" WHERE "{pk_field}" = $1`'
-    return _render_sql_test_template(
-        {
-            "__TABLE_NAME__": json.dumps(table_name, ensure_ascii=False),
-            "__EXPECTED_COLUMNS__": json.dumps(fields, ensure_ascii=False, indent=2),
-            "__EXPECTED_INDEX_HINTS__": json.dumps(composite_indexes + unique_constraints, ensure_ascii=False, indent=2),
-            "__SEED_STATEMENTS__": json.dumps(insert_statements, ensure_ascii=False, indent=2),
-            "__CONSTRAINT_PROBES__": json.dumps(constraint_probes, ensure_ascii=False, indent=2),
-            "__PRIMARY_KEY_VALUE__": json.dumps(pk_value, ensure_ascii=False),
-            "__EXPECTED_MATCH__": json.dumps(expected_match, ensure_ascii=False, indent=2),
-            "__STATE_UPDATE_STATEMENT__": state_update_statement,
-            "__BEHAVIOR_MAPPING_BLOCK__": behavior_mapping_block,
-            "__DESCRIBE_LABEL__": json.dumps(f"SQL: {table_name}", ensure_ascii=False),
-            "__SELECT_QUERY__": select_query,
-        }
+    return "\n".join(
+        [
+            'import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";',
+            'import { queryTableColumns, queryTableIndexes, startBackendRuntime, type BackendRuntime } from "../support/backend-runtime-harness";',
+            "",
+            f'const tableName = "{table_name}";',
+            f"const expectedColumns = {json.dumps(fields, ensure_ascii=False, indent=2)};",
+            f"const expectedIndexHints = {json.dumps(composite_indexes + unique_constraints, ensure_ascii=False, indent=2)};",
+            f"const seedStatements = {json.dumps(insert_statements, ensure_ascii=False, indent=2)};",
+            f"const constraintProbes = {json.dumps(constraint_probes, ensure_ascii=False, indent=2)};",
+            f"const primaryKeyValue = {json.dumps(pk_value, ensure_ascii=False)};",
+            f"const expectedMatch = {json.dumps(expected_match, ensure_ascii=False, indent=2)};",
+            f'const stateUpdateStatement = `UPDATE "{table_name}" SET "{pk_field}" = "{pk_field}" WHERE "{pk_field}" = $1`;',
+            *behavior_mapping_lines,
+            "",
+            "let runtime: BackendRuntime;",
+            "",
+            "function normalizeCell(value: unknown): unknown {",
+            "  if (value instanceof Date) {",
+            '    return value.toISOString().replace(".000Z", "Z");',
+            "  }",
+            "  if (Array.isArray(value)) {",
+            "    return value.map((item) => normalizeCell(item));",
+            "  }",
+            '  if (value && typeof value === "object") {',
+            "    return Object.fromEntries(",
+            '      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, normalizeCell(entry)]),',
+            "    );",
+            "  }",
+            '  if (typeof value === "string" && /^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$/.test(value.trim())) {',
+            "    const parsed = Number(value);",
+            "    if (Number.isFinite(parsed)) {",
+            "      return parsed;",
+            "    }",
+            "  }",
+            "  return value;",
+            "}",
+            "",
+            "function normalizeRow(row: Record<string, unknown>): Record<string, unknown> {",
+            "  return Object.fromEntries(Object.entries(row).map(([key, value]) => [key, normalizeCell(value)]));",
+            "}",
+            "",
+            "async function tableRowCount(): Promise<number> {",
+            "  const rows = await runtime.query<{ count: number }>(`SELECT COUNT(*)::int AS count FROM \"${tableName}\"`);",
+            "  return Number(rows[0]?.count ?? 0);",
+            "}",
+            "",
+            "async function expectConstraintViolation(statement: string, expectedSqlState?: string): Promise<void> {",
+            "  try {",
+            "    await runtime.query(statement);",
+            "  } catch (error) {",
+            "    const sqlState = (error as { code?: string }).code;",
+            "    if (expectedSqlState) {",
+            "      expect(sqlState).toBe(expectedSqlState);",
+            "    } else {",
+            "      expect(sqlState).toEqual(expect.any(String));",
+            "    }",
+            "    return;",
+            "  }",
+            "  throw new Error(`Expected SQL constraint violation for statement: ${statement}`);",
+            "}",
+            "",
+            "beforeAll(async () => {",
+            "  runtime = await startBackendRuntime();",
+            "  await runtime.initializeDatabase();",
+            "});",
+            "",
+            "afterAll(async () => {",
+            "  await runtime.close();",
+            "});",
+            "",
+            "let scenarioInitialized = true;",
+            "",
+            "beforeEach(async () => {",
+            "  if (scenarioInitialized) {",
+            "    scenarioInitialized = false;",
+            "    return;",
+            "  }",
+            "  await runtime.restoreScenario();",
+            "});",
+            "",
+            f'describe("SQL: {table_name}", () => {{',
+            '  it("applies migrations and exposes the frozen table shape", async () => {',
+            "    const columns = await queryTableColumns(runtime, tableName);",
+            "    expect(columns).toEqual(expect.arrayContaining(expectedColumns));",
+            "    const indexes = await queryTableIndexes(runtime, tableName);",
+            "    for (const hint of expectedIndexHints) {",
+            "      const normalizedHint = hint.toLowerCase();",
+            "      expect(indexes.some((indexName) => indexName.toLowerCase().includes(tableName.toLowerCase()) || indexName.toLowerCase().includes(normalizedHint.replace(/[^a-z0-9]+/g, \"_\")))).toBe(true);",
+            "    }",
+            "  });",
+            "",
+            '  it("persists a representative row and reads it back through real SQL", async () => {',
+            "    for (const statement of seedStatements) {",
+            "      await runtime.query(statement);",
+            "    }",
+            "    const countRows = await runtime.query<{ count: number }>(`SELECT COUNT(*)::int AS count FROM \"${tableName}\"`);",
+            "    expect(Number(countRows[0]?.count ?? 0)).toBeGreaterThan(0);",
+            f'    const selected = await runtime.query<Record<string, unknown>>(`SELECT {select_columns} FROM "{table_name}" WHERE "{pk_field}" = $1`, [primaryKeyValue]);',
+            "    expect(selected).toHaveLength(1);",
+            "    expect(normalizeRow(selected[0])).toMatchObject(normalizeCell(expectedMatch) as Record<string, unknown>);",
+            "  });",
+            "",
+            '  it("rolls back transaction on failed state update and supports restore reentry", async () => {',
+            "    const beforeRows = await tableRowCount();",
+            "    await runtime.withTransaction(async (query) => {",
+            "      for (const statement of seedStatements) {",
+            "        await query(statement);",
+            "      }",
+            "      await query(stateUpdateStatement, [primaryKeyValue]);",
+            "      throw new Error('force rollback after state update probe');",
+            "    }).catch((error: Error) => {",
+            "      expect(error.message).toBe('force rollback after state update probe');",
+            "    });",
+            "    const afterRollbackRows = await tableRowCount();",
+            "    expect(afterRollbackRows).toBe(beforeRows);",
+            "    await runtime.restoreScenario();",
+            "    for (const statement of seedStatements) {",
+            "      await runtime.query(statement);",
+            "    }",
+            "    const afterRestoreRows = await tableRowCount();",
+            "    expect(afterRestoreRows).toBeGreaterThan(beforeRows);",
+            "  });",
+            "",
+            '  it("violates not-null constraints for required fields", async () => {',
+            "    for (const statement of constraintProbes.not_null as string[]) {",
+            "      await expectConstraintViolation(statement, '23502');",
+            "    }",
+            "  });",
+            "",
+            '  it("violates unique constraints for duplicate business keys", async () => {',
+            "    for (const probe of constraintProbes.unique as Array<{ fields: string[]; setup: string[]; duplicate: string }>) {",
+            "      expect(probe.fields.length).toBeGreaterThan(0);",
+            "      for (const statement of probe.setup) {",
+            "        await runtime.query(statement);",
+            "      }",
+            "      await expectConstraintViolation(probe.duplicate, '23505');",
+            "    }",
+            "  });",
+            "",
+            '  it("violates foreign key constraints for orphan references", async () => {',
+            "    for (const statement of constraintProbes.foreign_key as string[]) {",
+            "      await expectConstraintViolation(statement, '23503');",
+            "    }",
+            "  });",
+            "});",
+            "",
+        ]
     )
 
 

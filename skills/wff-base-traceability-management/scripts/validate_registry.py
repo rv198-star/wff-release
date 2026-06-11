@@ -1,18 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 from common import ProjectScope, default_db_path, open_db
-
-
-def table_exists(conn, table_name: str) -> bool:
-    row = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
-        (table_name,),
-    ).fetchone()
-    return bool(row)
 
 
 def parse_args() -> argparse.Namespace:
@@ -69,33 +60,6 @@ def main() -> int:
             f"broken link[{row['id']}]: {row['from_artifact_id']} -[{row['link_type']}]-> {row['to_artifact_id']}"
         )
 
-    has_claim_evidence_table = table_exists(conn, "claim_evidence_refs")
-    if has_claim_evidence_table:
-        orphan_claim_evidence_refs = conn.execute(
-            "SELECT r.id, r.artifact_id, r.block_id FROM claim_evidence_refs r LEFT JOIN artifacts a ON r.project_scope = a.project_scope AND r.artifact_id = a.artifact_id WHERE r.project_scope = ? AND a.artifact_id IS NULL",
-            (scope.scope_id,),
-        ).fetchall()
-        for row in orphan_claim_evidence_refs:
-            issues.append(f"orphan claim evidence ref: {row['artifact_id']}#{row['block_id']}")
-
-        claim_evidence_rows = conn.execute(
-            "SELECT id, artifact_id, block_id, rendered_claim_refs_json, source_claim_refs_json, proposed_claim_refs_json FROM claim_evidence_refs WHERE project_scope = ?",
-            (scope.scope_id,),
-        ).fetchall()
-        for row in claim_evidence_rows:
-            for field_name in ("rendered_claim_refs_json", "source_claim_refs_json", "proposed_claim_refs_json"):
-                try:
-                    parsed = json.loads(row[field_name])
-                except json.JSONDecodeError:
-                    issues.append(
-                        f"invalid claim evidence refs json: {row['artifact_id']}#{row['block_id']} {field_name}"
-                    )
-                    continue
-                if not isinstance(parsed, list) or any(not isinstance(item, str) for item in parsed):
-                    issues.append(
-                        f"invalid claim evidence refs shape: {row['artifact_id']}#{row['block_id']} {field_name}"
-                    )
-
     if issues:
         print("VALIDATION: FAIL")
         for issue in issues:
@@ -110,16 +74,9 @@ def main() -> int:
         "SELECT COUNT(*) AS c FROM links WHERE project_scope = ?",
         (scope.scope_id,),
     ).fetchone()[0]
-    claim_evidence_ref_count = 0
-    if has_claim_evidence_table:
-        claim_evidence_ref_count = conn.execute(
-            "SELECT COUNT(*) AS c FROM claim_evidence_refs WHERE project_scope = ?",
-            (scope.scope_id,),
-        ).fetchone()[0]
     print("VALIDATION: PASS")
     print(f"artifacts={artifact_count}")
     print(f"links={link_count}")
-    print(f"claim_evidence_refs={claim_evidence_ref_count}")
     return 0
 
 

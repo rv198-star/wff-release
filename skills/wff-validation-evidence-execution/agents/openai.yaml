@@ -1,0 +1,4 @@
+interface:
+  display_name: "Phase-4 Stage-02"
+  short_description: "Execute acceptance against inherited evidence and record defects honestly"
+  default_prompt: "Use $wff-validation-evidence-execution to run Phase-4 Stage-02 from Stage-01 outputs, resolve functional items from real validation evidence, and keep UI/visual gaps explicit as defects or review-bound items."

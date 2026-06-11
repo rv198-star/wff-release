@@ -71,36 +71,8 @@ ENDPOINT_ACTION_VERBS = {
     "start",
     "update",
 }
+
 POSTGRES_IDENTIFIER_MAX_LEN = 63
-POSTGRES_UNSAFE_IDENTIFIER_WORDS = {
-    "alter",
-    "case",
-    "constraint",
-    "create",
-    "delete",
-    "drop",
-    "else",
-    "end",
-    "foreign",
-    "from",
-    "group",
-    "having",
-    "index",
-    "insert",
-    "join",
-    "limit",
-    "offset",
-    "order",
-    "primary",
-    "references",
-    "select",
-    "table",
-    "then",
-    "union",
-    "update",
-    "user",
-    "when",
-}
 
 
 def strip_ticks(value: str) -> str:
@@ -116,8 +88,6 @@ def slugify(value: str) -> str:
 
 def _safe_db_identifier(value: str) -> str:
     normalized = _snake_case_token(value)
-    if normalized in POSTGRES_UNSAFE_IDENTIFIER_WORDS:
-        normalized = f"{normalized}_record"
     if len(normalized) <= POSTGRES_IDENTIFIER_MAX_LEN:
         return normalized
     digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:8]
@@ -126,13 +96,6 @@ def _safe_db_identifier(value: str) -> str:
     if not head:
         head = normalized[:head_len]
     return f"{head}_{digest}"
-
-
-def _sql_identifier(value: str) -> str:
-    identifier = _safe_db_identifier(value)
-    if re.fullmatch(r"[a-z_][a-z0-9_]*", identifier) and identifier not in POSTGRES_UNSAFE_IDENTIFIER_WORDS:
-        return identifier
-    return f'"{identifier.replace(chr(34), chr(34) + chr(34))}"'
 
 
 def parse_list_cell(raw: str) -> list[str]:
@@ -172,22 +135,6 @@ def endpoint_action_token(operation_id: str) -> str:
     if parts and parts[0] in ENDPOINT_ACTION_VERBS:
         return parts[0]
     return ""
-
-
-def explicit_operation_mentions(text: str) -> list[str]:
-    mentions: list[str] = []
-    seen: set[str] = set()
-    for match in re.finditer(r"\b([A-Z][A-Za-z0-9]*)\b", text):
-        candidate = match.group(1).strip()
-        if not candidate:
-            continue
-        action = endpoint_action_token(candidate)
-        if not action or candidate.lower() == action:
-            continue
-        if candidate not in seen:
-            seen.add(candidate)
-            mentions.append(candidate)
-    return mentions
 
 
 def extract_heading_section(text: str, heading: str) -> str:
@@ -729,7 +676,6 @@ def build_contract_trace_matches(
     endpoint_rows: list[dict[str, object]],
 ) -> list[dict[str, object]]:
     endpoint_candidates = []
-    endpoint_names = {str(endpoint.get("endpoint_name", "")).strip() for endpoint in endpoint_rows}
     for idx, endpoint in enumerate(endpoint_rows):
         operation_id = str(endpoint["endpoint_name"])
         aliases = [str(item).strip() for item in endpoint.get("aliases", []) if str(item).strip()]
@@ -773,13 +719,8 @@ def build_contract_trace_matches(
                 or any(alias and alias in compact_haystack for alias in candidate.get("compact_aliases", []))
             )
         ]
-        explicit_missing_mentions = [
-            operation_id
-            for operation_id in explicit_operation_mentions(str(contract_row.get("verification_hook", "")))
-            if operation_id not in endpoint_names
-        ]
         matched_endpoints: list[str] = sorted(set(explicit_matches))
-        if not matched_endpoints and not explicit_missing_mentions:
+        if not matched_endpoints:
             scored_candidates: list[tuple[int, int, int, str]] = []
             for candidate in endpoint_candidates:
                 anchor_overlap = haystack_tokens & set(candidate["anchor_tokens"])
@@ -1085,7 +1026,6 @@ def _referenced_constraint_fields(summary: dict[str, str]) -> list[str]:
 def _constraint_field_fallback(table_name: str, field_name: str) -> dict[str, str]:
     field_name = _safe_db_identifier(field_name)
     base_name = table_name.removesuffix("_revision") if table_name.endswith("_revision") else table_name
-    base_table_name = _safe_db_identifier(base_name)
     base_pk = _safe_db_identifier(f"{base_name}_id")
     revision_parent_key = _safe_db_identifier(f"{table_name}_parent_id")
     if field_name == "revision_no":
@@ -1097,7 +1037,7 @@ def _constraint_field_fallback(table_name: str, field_name: str) -> dict[str, st
         if field_name == "tenant_id":
             constraints = "fk tenant.tenant_id"
         elif field_name in {base_pk, revision_parent_key}:
-            constraints = f"fk {base_table_name}.{base_pk}"
+            constraints = f"fk {base_name}.{base_pk}"
         return {
             "field_name": field_name,
             "data_type": "uuid",
@@ -1502,25 +1442,6 @@ def _schema_summary_fields(summary: dict[str, str]) -> list[dict[str, str]]:
     return fields
 
 
-def _normalize_schema_constraint_refs(constraint_text: str) -> str:
-    return re.sub(
-        r"\bfk\s+([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)",
-        lambda match: f"fk {_safe_db_identifier(match.group(1))}.{_safe_db_identifier(match.group(2))}",
-        constraint_text,
-        flags=re.IGNORECASE,
-    )
-
-
-def _normalize_schema_field_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
-    normalized_rows: list[dict[str, str]] = []
-    for row in rows:
-        normalized = dict(row)
-        normalized["field_name"] = _safe_db_identifier(str(normalized.get("field_name", "")))
-        normalized["constraints"] = _normalize_schema_constraint_refs(str(normalized.get("constraints", "")))
-        normalized_rows.append(normalized)
-    return normalized_rows
-
-
 def parse_schema_tables(text: str) -> list[dict[str, object]]:
     try:
         endpoint_rows = parse_api_endpoint_rows(text)
@@ -1534,13 +1455,10 @@ def parse_schema_tables(text: str) -> list[dict[str, object]]:
     )
     summary_by_table: dict[str, dict[str, str]] = {}
     if summary_table is not None:
-        for row in summary_table["rows"]:
-            raw_table_name = strip_ticks(str(row["table_name"]))
-            normalized_table_name = _safe_db_identifier(raw_table_name)
-            summary = {key: strip_ticks(str(value)) for key, value in row.items()}
-            summary["table_name"] = normalized_table_name
-            summary_by_table[raw_table_name] = summary
-            summary_by_table[normalized_table_name] = summary
+        summary_by_table = {
+            strip_ticks(str(row["table_name"])): {key: strip_ticks(str(value)) for key, value in row.items()}
+            for row in summary_table["rows"]
+        }
 
     tables: list[dict[str, object]] = []
     lines = section.splitlines()
@@ -1551,8 +1469,7 @@ def parse_schema_tables(text: str) -> list[dict[str, object]]:
             idx += 1
             continue
 
-        raw_table_name = strip_ticks(stripped.split(":", 1)[1])
-        table_name = _safe_db_identifier(raw_table_name)
+        table_name = strip_ticks(stripped.split(":", 1)[1])
         unique_raw = ""
         indexes_raw = ""
         idx += 1
@@ -1568,10 +1485,10 @@ def parse_schema_tables(text: str) -> list[dict[str, object]]:
             if current.startswith("|"):
                 break
             if current.startswith("- table_name:"):
-                raise ValueError(f"field matrix marker not found for table: {raw_table_name}")
+                raise ValueError(f"field matrix marker not found for table: {table_name}")
             idx += 1
         if idx >= len(lines):
-            raise ValueError(f"field matrix marker not found for table: {raw_table_name}")
+            raise ValueError(f"field matrix marker not found for table: {table_name}")
 
         table_lines: list[str] = []
         while idx < len(lines) and lines[idx].lstrip().startswith("|"):
@@ -1579,7 +1496,7 @@ def parse_schema_tables(text: str) -> list[dict[str, object]]:
             idx += 1
         field_tables = markdown_tables("\n".join(table_lines))
         if not field_tables:
-            raise ValueError(f"field matrix not found for table: {raw_table_name}")
+            raise ValueError(f"field matrix not found for table: {table_name}")
 
         while idx < len(lines):
             current = lines[idx].strip()
@@ -1595,9 +1512,8 @@ def parse_schema_tables(text: str) -> list[dict[str, object]]:
             {key: strip_ticks(str(value)) for key, value in row.items()}
             for row in field_tables[0]["rows"]
         ]
-        summary = summary_by_table.get(raw_table_name, summary_by_table.get(table_name, {}))
-        field_rows = _expand_payload_shell_fields(raw_table_name, summary, field_rows, endpoint_rows)
-        field_rows = _normalize_schema_field_rows(field_rows)
+        summary = summary_by_table.get(table_name, {})
+        field_rows = _expand_payload_shell_fields(table_name, summary, field_rows, endpoint_rows)
         tables.append(
             {
                 "table_name": table_name,
@@ -1615,13 +1531,11 @@ def parse_schema_tables(text: str) -> list[dict[str, object]]:
         )
     if not tables:
         for table_name, summary in summary_by_table.items():
-            if table_name != _safe_db_identifier(table_name):
-                continue
             tables.append(
                 {
                     "table_name": table_name,
                     "ownership": summary.get("ownership", ""),
-                    "fields": _normalize_schema_field_rows(_schema_summary_fields(summary)),
+                    "fields": _schema_summary_fields(summary),
                     "unique_constraints": [
                         normalize_index_spec(spec) for spec in split_specs(summary.get("unique_constraints", ""))
                     ],
@@ -1866,13 +1780,6 @@ def build_openapi_spec(
             response_example=response_example,
         )
 
-        resolved_path = _unique_operation_path(
-            paths,
-            resolved_path=resolved_path,
-            method=method,
-            endpoint_name=endpoint_name,
-        )
-
         operation: dict[str, object] = {
             "operationId": endpoint_name,
             "summary": str(row["purpose"]),
@@ -2008,22 +1915,12 @@ def _identity_query_keys(request_example: object) -> list[str]:
     return keys
 
 
-def _identity_response_keys(response_example: object) -> list[str]:
-    if not isinstance(response_example, dict):
-        return []
-    data = response_example.get("data")
-    if isinstance(data, list):
-        data = next((item for item in data if isinstance(item, dict)), {})
-    if not isinstance(data, dict):
-        data = response_example
-    return _identity_query_keys(data)
-
-
-def _rank_identity_keys(endpoint_name: str, candidates: list[str]) -> list[str]:
+def _choose_detail_path_param(endpoint_name: str, request_example: object) -> str:
+    candidates = _identity_query_keys(request_example)
     if not candidates:
-        return []
+        return ""
     normalized_endpoint = re.sub(r"[^a-z0-9]+", "", endpoint_name.lower())
-    return sorted(
+    ranked = sorted(
         candidates,
         key=lambda key: (
             0
@@ -2033,14 +1930,7 @@ def _rank_identity_keys(endpoint_name: str, candidates: list[str]) -> list[str]:
             key,
         ),
     )
-
-
-def _choose_detail_path_param(endpoint_name: str, request_example: object, response_example: object | None = None) -> str:
-    request_candidates = _rank_identity_keys(endpoint_name, _identity_query_keys(request_example))
-    if request_candidates:
-        return request_candidates[0]
-    response_candidates = _rank_identity_keys(endpoint_name, _identity_response_keys(response_example or {}))
-    return response_candidates[0] if response_candidates else ""
+    return ranked[0]
 
 
 def resolve_openapi_operation_path(
@@ -2065,43 +1955,10 @@ def resolve_openapi_operation_path(
     response_data = response_payload.get("data") if isinstance(response_payload, dict) else None
     if isinstance(response_data, list):
         return normalized_path
-    path_param = _choose_detail_path_param(endpoint_name, request_example, response_example)
+    path_param = _choose_detail_path_param(endpoint_name, request_example)
     if not path_param:
         return normalized_path
     return f"{normalized_path.rstrip('/')}/{{{path_param}}}"
-
-
-def _operation_collision_slug(endpoint_name: str) -> str:
-    expanded = re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", endpoint_name)
-    slug = slugify(expanded)
-    return slug or "operation"
-
-
-def _unique_operation_path(
-    paths: dict[str, object],
-    *,
-    resolved_path: str,
-    method: str,
-    endpoint_name: str,
-) -> str:
-    path_item = paths.get(resolved_path, {})
-    if not isinstance(path_item, dict) or method not in path_item:
-        return resolved_path
-    existing_operation = path_item.get(method, {})
-    if isinstance(existing_operation, dict) and str(existing_operation.get("operationId", "")).strip() == endpoint_name:
-        return resolved_path
-
-    slug = _operation_collision_slug(endpoint_name)
-    base = resolved_path.rstrip("/")
-    candidate = f"{base}/{slug}"
-    if not isinstance(paths.get(candidate, {}), dict) or method not in paths.get(candidate, {}):
-        return candidate
-    for index in range(2, 100):
-        candidate = f"{base}/{slug}-{index}"
-        candidate_item = paths.get(candidate, {})
-        if not isinstance(candidate_item, dict) or method not in candidate_item:
-            return candidate
-    raise ValueError(f"unable to allocate unique OpenAPI path for operation: {endpoint_name}")
 
 
 def _foreign_key_target(constraint_text: str) -> tuple[str, str] | None:
@@ -2121,7 +1978,7 @@ def _column_constraint_sql(field_name: str, constraint_text: str, *, include_ref
 
     fk_target = _foreign_key_target(constraint_text)
     if include_references and fk_target:
-        clauses.append(f"REFERENCES {_sql_identifier(fk_target[0])} ({_sql_identifier(fk_target[1])})")
+        clauses.append(f"REFERENCES {fk_target[0]} ({fk_target[1]})")
 
     default_match = re.search(r"default\s+(.+)", constraint_text, flags=re.IGNORECASE)
     if default_match:
@@ -2143,51 +2000,11 @@ def _column_constraint_sql(field_name: str, constraint_text: str, *, include_ref
 
 def _index_name(prefix: str, table_name: str, spec: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", spec.lower()).strip("_")
-    return _safe_db_identifier(f"{prefix}_{table_name}_{slug}")
+    return f"{prefix}_{table_name}_{slug}"[:63]
 
 
 def _foreign_key_constraint_name(table_name: str, field_name: str, referenced_table: str, referenced_column: str) -> str:
     return _index_name("fk", table_name, f"{field_name}_{referenced_table}_{referenced_column}")
-
-
-def _render_index_column_spec(raw: str) -> str:
-    text = strip_ticks(raw)
-    if not text:
-        return ""
-    match = re.match(r"^([A-Za-z0-9_]+)(\s+(?:asc|desc))?$", text, flags=re.IGNORECASE)
-    if match:
-        direction = str(match.group(2) or "").lower()
-        return f"{_sql_identifier(match.group(1))}{direction}"
-
-    def replace_token(token_match: re.Match[str]) -> str:
-        token = token_match.group(0)
-        if token.isdigit() or token.lower() in {"asc", "desc", "nulls", "first", "last"}:
-            return token
-        return _sql_identifier(token)
-
-    return re.sub(r"[A-Za-z0-9_]+", replace_token, text)
-
-
-def _render_column_list(raw_columns: str) -> str:
-    rendered = [
-        _render_index_column_spec(part.strip())
-        for part in raw_columns.split(",")
-        if part.strip()
-    ]
-    return ", ".join(part for part in rendered if part)
-
-
-def _render_predicate_expression(raw: str, known_identifiers: set[str]) -> str:
-    rendered = raw
-    for identifier in sorted(known_identifiers, key=len, reverse=True):
-        if not identifier:
-            continue
-        rendered = re.sub(
-            rf"(?<![A-Za-z0-9_]){re.escape(identifier)}(?![A-Za-z0-9_])",
-            _sql_identifier(identifier),
-            rendered,
-        )
-    return rendered
 
 
 def generate_migration_sql(tables: list[dict[str, object]]) -> str:
@@ -2201,24 +2018,18 @@ def generate_migration_sql(tables: list[dict[str, object]]) -> str:
 
     for table in tables:
         table_name = _safe_db_identifier(str(table["table_name"]))
-        table_sql = _sql_identifier(table_name)
-        field_names = {
-            _safe_db_identifier(str(field.get("field_name", "")))
-            for field in table["fields"]  # type: ignore[index]
-        }
-        lines.append(f"CREATE TABLE IF NOT EXISTS {table_sql} (")
+        lines.append(f"CREATE TABLE IF NOT EXISTS {table_name} (")
         column_lines: list[str] = []
         table_constraints: list[str] = []
         notes: list[str] = []
 
         for field in table["fields"]:  # type: ignore[index]
             field_name = _safe_db_identifier(str(field["field_name"]))
-            field_sql = _sql_identifier(field_name)
             data_type = str(field["data_type"])
             nullable = str(field["nullable"]).lower()
             constraint_text = str(field["constraints"])
-            parts = [field_sql, data_type]
-            parts.extend(_column_constraint_sql(field_sql, constraint_text, include_references=False))
+            parts = [field_name, data_type]
+            parts.extend(_column_constraint_sql(field_name, constraint_text, include_references=False))
             if nullable == "no" and "PRIMARY KEY" not in parts:
                 parts.append("NOT NULL")
             column_lines.append("  " + " ".join(parts))
@@ -2229,9 +2040,6 @@ def generate_migration_sql(tables: list[dict[str, object]]) -> str:
                 constraint_name = _foreign_key_constraint_name(
                     table_name, field_name, referenced_table, referenced_column
                 )
-                constraint_sql = _sql_identifier(constraint_name)
-                referenced_table_sql = _sql_identifier(referenced_table)
-                referenced_column_sql = _sql_identifier(referenced_column)
                 deferred_foreign_keys.extend(
                     [
                         "DO $$",
@@ -2239,8 +2047,8 @@ def generate_migration_sql(tables: list[dict[str, object]]) -> str:
                         "  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = "
                         f"'{referenced_table}') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '{constraint_name}') THEN",
                         "    ALTER TABLE "
-                        f"{table_sql} ADD CONSTRAINT {constraint_sql} FOREIGN KEY ({field_sql}) "
-                        f"REFERENCES {referenced_table_sql} ({referenced_column_sql});",
+                        f"{table_name} ADD CONSTRAINT {constraint_name} FOREIGN KEY ({field_name}) "
+                        f"REFERENCES {referenced_table} ({referenced_column});",
                         "  END IF;",
                         "END $$;",
                         "",
@@ -2259,19 +2067,14 @@ def generate_migration_sql(tables: list[dict[str, object]]) -> str:
                 continue
             if " where " in lowered:
                 column_part, where_part = re.split(r"\bwhere\b", unique_spec, maxsplit=1, flags=re.IGNORECASE)
-                column_part = _render_column_list(column_part)
-                rendered_where_part = _render_predicate_expression(where_part.strip(), field_names)
+                column_part = ", ".join(_safe_db_identifier(part.strip()) for part in column_part.split(",") if part.strip())
                 deferred_indexes.append(
                     "CREATE UNIQUE INDEX IF NOT EXISTS "
-                    f"{_sql_identifier(_index_name('uidx', table_name, unique_spec))} ON {table_sql} "
-                    f"({column_part.strip()}) WHERE {rendered_where_part};"
+                    f"{_index_name('uidx', table_name, unique_spec)} ON {table_name} "
+                    f"({column_part.strip()}) WHERE {where_part.strip()};"
                 )
                 continue
-            columns = [
-                _render_index_column_spec(part.strip())
-                for part in unique_spec.split(",")
-                if part.strip()
-            ]
+            columns = [_safe_db_identifier(part.strip()) for part in unique_spec.split(",") if part.strip()]
             table_constraints.append(f"  UNIQUE ({', '.join(columns)})")
 
         lines.extend(",\n".join(column_lines + table_constraints).splitlines())
@@ -2281,10 +2084,14 @@ def generate_migration_sql(tables: list[dict[str, object]]) -> str:
             lowered = index_spec.lower()
             if lowered == "none":
                 continue
-            normalized_index_spec = _render_column_list(index_spec)
+            normalized_index_spec = re.sub(
+                r"[A-Za-z_][A-Za-z0-9_]*",
+                lambda match: _safe_db_identifier(match.group(0)),
+                index_spec,
+            )
             deferred_indexes.append(
                 "CREATE INDEX IF NOT EXISTS "
-                f"{_sql_identifier(_index_name('idx', table_name, index_spec))} ON {table_sql} ({normalized_index_spec});"
+                f"{_index_name('idx', table_name, index_spec)} ON {table_name} ({normalized_index_spec});"
             )
 
         if notes:

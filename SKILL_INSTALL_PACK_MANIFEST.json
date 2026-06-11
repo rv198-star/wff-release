@@ -510,7 +510,7 @@
     "wff-meta-source-unit-coverage-ledger",
     "wff-meta-stage-skill-construction-lifecycle"
   ],
-  "generated_at": "2026-06-11T16:14:30+00:00",
+  "generated_at": "2026-06-11T16:20:26+00:00",
   "included_base_skills": [
     "wff-base-traceability-management"
   ],
@@ -1064,5 +1064,5 @@
     "wff-validation-closure-judgment",
     "wff-validation-evidence-execution"
   ],
-  "source_revision": "d5dcd88fbdb1210ec3a52e25d5c000dfa0f9e51b"
+  "source_revision": "f124ecb5dfaa60a355f5ba131d98585809ebda3b"
 }

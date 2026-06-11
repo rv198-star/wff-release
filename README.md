@@ -6,8 +6,8 @@
 
 ## 标识
 - pack_name: `wff-v1.5.3-skills-install-pack`
-- generated_at: `2026-06-11T16:14:30+00:00`
-- source_revision: `d5dcd88fbdb1210ec3a52e25d5c000dfa0f9e51b`
+- generated_at: `2026-06-11T16:20:26+00:00`
+- source_revision: `f124ecb5dfaa60a355f5ba131d98585809ebda3b`
 
 ## 能力边界
 - `Phase 1` 到 `Phase 4`：GA 主线能力。

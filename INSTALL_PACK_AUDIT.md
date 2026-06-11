@@ -6,7 +6,7 @@
 - profile_id: `full-pack`
 - profile_status: `default`
 - profile_claim: `default-full-pack`
-- 源修订版本: `d5dcd88fbdb1210ec3a52e25d5c000dfa0f9e51b`
+- 源修订版本: `f124ecb5dfaa60a355f5ba131d98585809ebda3b`
 - 总体结论: `pass`
 
 ## 硬失败项

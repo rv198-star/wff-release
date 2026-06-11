@@ -7,7 +7,6 @@ import hashlib
 import json
 from typing import Any
 
-from phase3.test_scaffolder_common import unique_strings as _unique_strings
 
 MAP_KIND = "phase3-action-card-execution-map.v1"
 POINTER_MANIFEST_KIND = "phase3-action-card-pointer-manifest.v1"
@@ -16,6 +15,17 @@ RICH_CONTEXT_KIND = "phase3-action-card-execution-context.v1"
 
 def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
+
+
+def _unique_strings(values: list[Any]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value).strip()
+        if text and text not in seen:
+            result.append(text)
+            seen.add(text)
+    return result
 
 
 def build_action_card_execution_map(

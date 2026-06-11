@@ -1,6 +1,0 @@
-{
-  "name": "@app/shared-types",
-  "private": true,
-  "type": "module",
-  "main": "./index.ts"
-}

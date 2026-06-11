@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-import importlib
 import json
-import shutil
 from pathlib import Path
 from typing import Any, Callable
 
+from phase3.agentic_generation_quality_loop import write_agentic_generation_quality_loop_artifacts
 from phase3.agentic_implementation_loop import write_agentic_implementation_loop_artifacts
+from phase3.agentic_module_implementation import build_module_implementation_briefs
+from phase3.agentic_semantic_authoring import build_agentic_semantic_decisions
+from phase3.action_card_direct_implementation import build_action_card_direct_implementation_driver
 from phase3.action_card_execution_map import build_action_card_execution_context
+from phase3.business_behavior_authoring import build_business_behavior_authoring_plan
 from phase3.contract_test_scaffolder import contract_test_filename
 from phase3.contract_tools import slugify
 from phase3.implementation_binding_tools import backend_module_unit_test_path, parse_openapi_operations
@@ -15,83 +18,15 @@ from phase2.project_language_handoff import build_project_language_handoff
 from phase3.phase3_implementation_action_card_scaffolder import load_action_card_obligations
 from phase3.project_implementation_conventions import parse_stack_decision_text, synthesize_project_implementation_conventions
 from phase3.synthesis_boundary import write_phase3_synthesis_brief_artifacts
+from phase3.test_obligation_matrix import write_test_obligation_artifacts
+from phase3.test_richness_review import write_test_richness_review_artifacts
 from phase3.timing_report import record_timing_segment, set_timing_segment, start_timer, write_phase3_timing_report
-from phase3.trace_registry import project_phase3_trace_registry_to_trace_db
 from phase3.validation_levels import build_validation_profile, normalize_validation_level
 
 
 def write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
-def carry_phase2_trace_identity_source(*, phase2_root: Path, output_dir: Path) -> dict[str, Any]:
-    source = phase2_root / ".trace" / "trace.db"
-    target = output_dir / ".trace" / "trace.db"
-    if not source.exists():
-        return {
-            "status": "missing",
-            "source": str(source),
-            "target": str(target),
-            "trace_db_present": False,
-            "reason": "phase2_trace_db_missing",
-        }
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if source.resolve() != target.resolve():
-        shutil.copy2(source, target)
-    return {
-        "status": "carried",
-        "source": str(source),
-        "target": str(target),
-        "trace_db_present": target.exists(),
-        "size_bytes": target.stat().st_size if target.exists() else 0,
-    }
-
-
-def agentic_authoring_enrichment_module(module_name: str):
-    return importlib.import_module(f"phase3.{module_name}")
-
-
-def optional_phase3_diagnostic_module(module_name: str):
-    try:
-        return importlib.import_module(f"phase3.{module_name}")
-    except ModuleNotFoundError as exc:
-        if exc.name == f"phase3.{module_name}":
-            return None
-        raise
-
-
-def diagnostic_sidecar_unavailable_summary(sidecar_id: str) -> dict[str, object]:
-    return {
-        "mode": "unavailable",
-        "sidecar_id": sidecar_id,
-        "reason": f"{sidecar_id}_sidecar_not_packaged",
-    }
-
-
-def write_test_obligation_artifacts(*args: object, **kwargs: object) -> dict[str, object]:
-    module = optional_phase3_diagnostic_module("test_obligation_matrix")
-    if module is None:
-        return diagnostic_sidecar_unavailable_summary("test_obligation_matrix")
-    return module.write_test_obligation_artifacts(*args, **kwargs)
-
-
-def write_test_richness_review_artifacts(*args: object, **kwargs: object) -> dict[str, object]:
-    module = optional_phase3_diagnostic_module("test_richness_review")
-    if module is None:
-        return diagnostic_sidecar_unavailable_summary("test_richness_review")
-    return module.write_test_richness_review_artifacts(*args, **kwargs)
-
-
-def write_agentic_generation_quality_loop_artifacts(*args: object, **kwargs: object) -> dict[str, object]:
-    module = optional_phase3_diagnostic_module("agentic_generation_quality_loop")
-    if module is None:
-        return {
-            **diagnostic_sidecar_unavailable_summary("agentic_generation_quality_loop"),
-            "selected_behavior_unit_count": 0,
-            "generated_quality_obligation_test_path": "",
-        }
-    return module.write_agentic_generation_quality_loop_artifacts(*args, **kwargs)
 
 
 def runtime_operation_specs_from_openapi(openapi_spec: dict[str, object]) -> dict[str, dict[str, Any]]:
@@ -473,6 +408,26 @@ def prepare_phase3_foundation_workspace(
             0,
         ),
     }
+    business_behavior_authoring_plan = build_business_behavior_authoring_plan(
+        operations=parse_openapi_operations(spec),
+        operation_specs=runtime_operation_specs_from_openapi(spec),
+        behavior_card_models=bootstrap.get("behavior_card_models", {}),
+        implementation_bindings={
+            "artifact_kind": "phase3-business-behavior-authoring-source-bindings",
+            "rows": trace_registry.get("rows", []) if isinstance(trace_registry.get("rows", []), list) else [],
+        },
+        action_card_execution_map=action_card_rich_context,
+    )
+    business_behavior_authoring_plan_summary = {
+        "mode": "in-memory-action-card-compatibility-projection",
+        "path": "",
+        "persisted": False,
+        "operation_count": business_behavior_authoring_plan.get("summary", {}).get("operation_count", 0),
+        "fallback_operation_count": business_behavior_authoring_plan.get("summary", {}).get(
+            "fallback_operation_count",
+            0,
+        ),
+    }
     project_implementation_conventions = synthesize_project_implementation_conventions(
         p2_language_handoff=p2_project_language_handoff,
         tech_stack_decision=parse_stack_decision_text(stack_decision_path.read_text(encoding="utf-8")),
@@ -487,112 +442,55 @@ def prepare_phase3_foundation_workspace(
             else {}
         ),
     }
-    agentic_authoring_enrichment_enabled = bool(getattr(args, "enable_agentic_authoring_enrichment", False))
-    business_behavior_authoring_plan: dict[str, Any] | None = None
-    agentic_semantic_decisions: dict[str, Any] | None = None
-    agentic_module_implementation_briefs: dict[str, Any] | None = None
-    action_card_direct_implementation_driver: dict[str, Any] | None = None
-    business_behavior_authoring_plan_summary: dict[str, Any] = {
-        "mode": "disabled",
-        "path": "",
+    agentic_semantic_decisions = build_agentic_semantic_decisions(
+        operations=parse_openapi_operations(spec),
+        rich_context=action_card_rich_context,
+        operation_specs=runtime_operation_specs_from_openapi(spec),
+        behavior_card_models=bootstrap.get("behavior_card_models", {}),
+        project_implementation_conventions=project_implementation_conventions,
+    )
+    agentic_semantic_authoring_summary = {
+        "mode": agentic_semantic_decisions.get("mode", ""),
         "persisted": False,
-        "operation_count": 0,
-        "fallback_operation_count": 0,
+        **(
+            agentic_semantic_decisions.get("summary", {})
+            if isinstance(agentic_semantic_decisions.get("summary"), dict)
+            else {}
+        ),
     }
-    agentic_semantic_authoring_summary: dict[str, Any] = {
-        "mode": "disabled",
+    agentic_module_implementation_briefs = build_module_implementation_briefs(
+        operations=parse_openapi_operations(spec),
+        rich_context=action_card_rich_context,
+        operation_specs=runtime_operation_specs_from_openapi(spec),
+        agentic_semantic_decisions=agentic_semantic_decisions,
+        project_implementation_conventions=project_implementation_conventions,
+    )
+    agentic_module_implementation_brief_summary = {
+        "mode": agentic_module_implementation_briefs.get("mode", ""),
         "persisted": False,
-        "agentic_semantic_decision_count": 0,
-        "default_heavy_artifact_count": 0,
+        **(
+            agentic_module_implementation_briefs.get("summary", {})
+            if isinstance(agentic_module_implementation_briefs.get("summary"), dict)
+            else {}
+        ),
     }
-    agentic_module_implementation_brief_summary: dict[str, Any] = {
-        "mode": "disabled",
+    action_card_direct_implementation_driver = build_action_card_direct_implementation_driver(
+        operations=parse_openapi_operations(spec),
+        rich_context=action_card_rich_context,
+        runtime_operation_specs=runtime_operation_specs_from_openapi(spec),
+        agentic_semantic_decisions=agentic_semantic_decisions,
+        project_implementation_conventions=project_implementation_conventions,
+        module_implementation_briefs=agentic_module_implementation_briefs,
+    )
+    action_card_direct_implementation_driver_summary = {
+        "mode": action_card_direct_implementation_driver.get("mode", ""),
         "persisted": False,
-        "module_count": 0,
-        "persisted_default_heavy_artifact_count": 0,
+        **(
+            action_card_direct_implementation_driver.get("summary", {})
+            if isinstance(action_card_direct_implementation_driver.get("summary"), dict)
+            else {}
+        ),
     }
-    action_card_direct_implementation_driver_summary: dict[str, Any] = {
-        "mode": "disabled",
-        "persisted": False,
-        "operation_count": 0,
-        "persisted_default_heavy_artifact_count": 0,
-    }
-    if agentic_authoring_enrichment_enabled:
-        business_behavior_authoring = agentic_authoring_enrichment_module("business_behavior_authoring")
-        agentic_semantic_authoring = agentic_authoring_enrichment_module("agentic_semantic_authoring")
-        agentic_module_implementation = agentic_authoring_enrichment_module("agentic_module_implementation")
-        action_card_direct_implementation = agentic_authoring_enrichment_module("action_card_direct_implementation")
-        business_behavior_authoring_plan = business_behavior_authoring.build_business_behavior_authoring_plan(
-            operations=parse_openapi_operations(spec),
-            operation_specs=runtime_operation_specs_from_openapi(spec),
-            behavior_card_models=bootstrap.get("behavior_card_models", {}),
-            implementation_bindings={
-                "artifact_kind": "phase3-business-behavior-authoring-source-bindings",
-                "rows": trace_registry.get("rows", []) if isinstance(trace_registry.get("rows", []), list) else [],
-            },
-            action_card_execution_map=action_card_rich_context,
-        )
-        business_behavior_authoring_plan_summary = {
-            "mode": "in-memory-action-card-compatibility-projection",
-            "path": "",
-            "persisted": False,
-            "operation_count": business_behavior_authoring_plan.get("summary", {}).get("operation_count", 0),
-            "fallback_operation_count": business_behavior_authoring_plan.get("summary", {}).get(
-                "fallback_operation_count",
-                0,
-            ),
-        }
-        agentic_semantic_decisions = agentic_semantic_authoring.build_agentic_semantic_decisions(
-            operations=parse_openapi_operations(spec),
-            rich_context=action_card_rich_context,
-            operation_specs=runtime_operation_specs_from_openapi(spec),
-            behavior_card_models=bootstrap.get("behavior_card_models", {}),
-            project_implementation_conventions=project_implementation_conventions,
-        )
-        agentic_semantic_authoring_summary = {
-            "mode": agentic_semantic_decisions.get("mode", ""),
-            "persisted": False,
-            **(
-                agentic_semantic_decisions.get("summary", {})
-                if isinstance(agentic_semantic_decisions.get("summary"), dict)
-                else {}
-            ),
-        }
-        agentic_module_implementation_briefs = agentic_module_implementation.build_module_implementation_briefs(
-            operations=parse_openapi_operations(spec),
-            rich_context=action_card_rich_context,
-            operation_specs=runtime_operation_specs_from_openapi(spec),
-            agentic_semantic_decisions=agentic_semantic_decisions,
-            project_implementation_conventions=project_implementation_conventions,
-        )
-        agentic_module_implementation_brief_summary = {
-            "mode": agentic_module_implementation_briefs.get("mode", ""),
-            "persisted": False,
-            **(
-                agentic_module_implementation_briefs.get("summary", {})
-                if isinstance(agentic_module_implementation_briefs.get("summary"), dict)
-                else {}
-            ),
-        }
-        action_card_direct_implementation_driver = (
-            action_card_direct_implementation.build_action_card_direct_implementation_driver(
-                operations=parse_openapi_operations(spec),
-                rich_context=action_card_rich_context,
-                runtime_operation_specs=runtime_operation_specs_from_openapi(spec),
-                agentic_semantic_decisions=agentic_semantic_decisions,
-                project_implementation_conventions=project_implementation_conventions,
-                module_implementation_briefs=agentic_module_implementation_briefs,
-            )
-        )
-        action_card_direct_implementation_driver_summary = {
-            "mode": action_card_direct_implementation_driver.get("mode", ""),
-            "persisted": False,
-            **(
-                action_card_direct_implementation_driver.get("summary", {})
-                if isinstance(action_card_direct_implementation_driver.get("summary"), dict)
-                else {}
-            ),
-        }
     implementation_summary = scaffold_phase3_implementation_fn(
         esp_text=esp_text,
         openapi_spec=spec,
@@ -611,10 +509,6 @@ def prepare_phase3_foundation_workspace(
         project_implementation_conventions=project_implementation_conventions,
         module_implementation_briefs=agentic_module_implementation_briefs,
         action_card_direct_implementation_driver=action_card_direct_implementation_driver,
-        include_frontend=bool(
-            getattr(args, "enable_ui_fallback", False)
-            or getattr(args, "require_frontend_contract", False)
-        ),
     )
     test_obligation_summary = write_test_obligation_artifacts(
         output_dir=output_dir,
@@ -716,14 +610,8 @@ def prepare_phase3_foundation_workspace(
         root_package_json_path=output_dir / "package.json",
         api_package_json_path=output_dir / "apps" / "api" / "package.json",
         toolchain_bootstrap_report_path=toolchain_bootstrap_path,
-        test_obligation_audit_path=(
-            (output_dir / "test-obligation-audit.json")
-            if (output_dir / "test-obligation-audit.json").exists()
-            else None
-        ),
-        test_richness_review_path=(
-            paths["test_richness_review_path"] if paths["test_richness_review_path"].exists() else None
-        ),
+        test_obligation_audit_path=output_dir / "test-obligation-audit.json",
+        test_richness_review_path=paths["test_richness_review_path"],
         require_frontend_contract=args.require_frontend_contract,
     )
     write_json(quality_report_path, quality)
@@ -734,7 +622,7 @@ def prepare_phase3_foundation_workspace(
             "version": args.version,
             "phase2_root": str(phase2_root),
             "artifact_kind": "fresh-phase3-foundation-run",
-            "generation_entrypoint": getattr(args, "generation_entrypoint", "scripts/phase3/run_phase3_first_version.py"),
+            "generation_entrypoint": "scripts/phase3/run_phase3_first_version.py",
             "generation_purity": "fresh-from-phase2-root",
             "mainline_profile": "backend-first",
             "frontend_contract_required": args.require_frontend_contract,
@@ -746,17 +634,9 @@ def prepare_phase3_foundation_workspace(
             "agentic_implementation_loop": str(paths["agentic_implementation_loop_path"]),
             "agentic_implementation_loop_markdown": str(paths["agentic_implementation_loop_markdown_path"]),
             "agentic_implementation_loop_summary": agentic_implementation_loop_summary,
-            "has_agentic_generation_quality_loop": paths["agentic_generation_quality_loop_path"].exists(),
-            "agentic_generation_quality_loop": (
-                str(paths["agentic_generation_quality_loop_path"])
-                if paths["agentic_generation_quality_loop_path"].exists()
-                else ""
-            ),
-            "agentic_generation_quality_loop_markdown": (
-                str(paths["agentic_generation_quality_loop_markdown_path"])
-                if paths["agentic_generation_quality_loop_markdown_path"].exists()
-                else ""
-            ),
+            "has_agentic_generation_quality_loop": True,
+            "agentic_generation_quality_loop": str(paths["agentic_generation_quality_loop_path"]),
+            "agentic_generation_quality_loop_markdown": str(paths["agentic_generation_quality_loop_markdown_path"]),
             "agentic_generation_quality_loop_summary": agentic_generation_quality_loop_summary,
             "has_phase3_synthesis_brief": synthesis_boundary_enabled,
             "phase3_synthesis_brief": str(phase3_synthesis_brief_summary["json_path"]) if synthesis_boundary_enabled else "",
@@ -774,14 +654,14 @@ def prepare_phase3_foundation_workspace(
             "has_action_card_execution_map": True,
             "action_card_execution_map": str(paths["action_card_execution_map_path"]),
             "action_card_execution_map_summary": action_card_execution_map_summary,
-            "has_agentic_semantic_authoring": agentic_authoring_enrichment_enabled,
+            "has_agentic_semantic_authoring": True,
             "agentic_semantic_authoring_summary": agentic_semantic_authoring_summary,
             "has_project_implementation_conventions": True,
             "project_implementation_convention_summary": project_implementation_convention_summary,
-            "has_agentic_module_implementation_brief": agentic_authoring_enrichment_enabled,
+            "has_agentic_module_implementation_brief": True,
             "agentic_module_implementation_brief_summary": agentic_module_implementation_brief_summary,
-            "has_action_card_direct_implementation_driver": agentic_authoring_enrichment_enabled,
-            "action_card_direct_implementation_driver_default": agentic_authoring_enrichment_enabled,
+            "has_action_card_direct_implementation_driver": True,
+            "action_card_direct_implementation_driver_default": True,
             "action_card_direct_implementation_driver": "",
             "action_card_direct_implementation_driver_persisted": False,
             "action_card_direct_implementation_driver_summary": action_card_direct_implementation_driver_summary,
@@ -798,23 +678,9 @@ def prepare_phase3_foundation_workspace(
         },
     )
 
-    trace_identity_source_summary = carry_phase2_trace_identity_source(
-        phase2_root=phase2_root,
-        output_dir=output_dir,
-    )
     trace_registry_final = finalize_trace_registry_fn(
         test_trace_matrix=matrix,
         implementation_bindings=implementation_bindings,
-    )
-    trace_registry_final = {
-        **trace_registry_final,
-        "trace_db_present": bool(trace_identity_source_summary.get("trace_db_present")),
-        "trace_identity_source": trace_identity_source_summary,
-    }
-    trace_registry_final["trace_db_projection"] = project_phase3_trace_registry_to_trace_db(
-        trace_db_path=output_dir / ".trace" / "trace.db",
-        trace_registry_final=trace_registry_final,
-        source_path=trace_registry_final_path,
     )
     write_json(trace_registry_final_path, trace_registry_final)
 
@@ -855,7 +721,6 @@ def prepare_phase3_foundation_workspace(
         "quality": quality,
         "toolchain_bootstrap_report": toolchain_bootstrap_report,
         "trace_registry_final": trace_registry_final,
-        "trace_identity_source_summary": trace_identity_source_summary,
         "bootstrap_worker_run_report_path": bootstrap_worker_run_report_path,
     }
 
@@ -929,47 +794,24 @@ def finalize_phase3_foundation_delivery(
         }
     else:
         verification_started = start_timer()
-        verification_result = execute_phase3_mainline_backend_verification_fn(
-            output_dir=output_dir,
-            implementation_bindings_path=paths["implementation_bindings_path"],
-            actor=getattr(args, "runner_actor", "run_phase3_first_version"),
-            note="internal backend verification for backend-first mainline",
-            validation_level=validation_level,
-            full_targeted_evidence=full_targeted_evidence,
-        )
-        if verification_result.get("sidecar_unavailable"):
-            sidecar_status = "blocked" if strict_runtime_closure else "skipped"
-            if timing_segments is not None:
-                set_timing_segment(
-                    timing_segments,
-                    "mainline_backend_verification",
-                    duration_seconds=0.0,
-                    status=sidecar_status,
-                )
-            mainline_backend_verification = {
-                "mode": mode,
-                "attempted": False,
-                "status": sidecar_status,
-                "toolchain_status": toolchain_status,
-                **verification_result,
-                "status": sidecar_status,
-                "reason": str(verification_result.get("reason") or "mainline_backend_verification_sidecar_not_packaged"),
-                "validation_level": validation_level,
-                "validation_profile": validation_profile,
-                "full_targeted_evidence": full_targeted_evidence,
-            }
-        else:
-            mainline_backend_verification = {
-                "mode": mode,
-                "status": "executed",
-                "toolchain_status": toolchain_status,
-                **verification_result,
-                "validation_level": validation_level,
-                "validation_profile": validation_profile,
-                "full_targeted_evidence": full_targeted_evidence,
-            }
-            if timing_segments is not None:
-                record_timing_segment(timing_segments, "mainline_backend_verification", verification_started)
+        mainline_backend_verification = {
+            "mode": mode,
+            "status": "executed",
+            "toolchain_status": toolchain_status,
+            **execute_phase3_mainline_backend_verification_fn(
+                output_dir=output_dir,
+                implementation_bindings_path=paths["implementation_bindings_path"],
+                actor="run_phase3_first_version",
+                note="internal backend verification for backend-first mainline",
+                validation_level=validation_level,
+                full_targeted_evidence=full_targeted_evidence,
+            ),
+            "validation_level": validation_level,
+            "validation_profile": validation_profile,
+            "full_targeted_evidence": full_targeted_evidence,
+        }
+        if timing_segments is not None:
+            record_timing_segment(timing_segments, "mainline_backend_verification", verification_started)
 
     mainline_status = str(mainline_backend_verification.get("status", "")).strip()
     mainline_verdict = str(mainline_backend_verification.get("overall_verdict", "")).strip().lower()
@@ -1028,13 +870,9 @@ def build_phase3_foundation_summary(
     mainline_backend_verification: dict[str, Any],
 ) -> dict[str, object]:
     dispatch_lane_state = workspace["dispatch_lane_state"]
-    scaffold_quality_gate = str(workspace["quality"].get("overall_quality_gate", "")).strip() or "unknown"
-    phase_verdict = str(refresh_summary.get("phase_verdict", "")).strip()
-    final_quality_gate = "pass" if scaffold_quality_gate == "pass" and phase_verdict.startswith("PASS") else "fail"
     return {
         "output_dir": str(output_dir),
-        "quality_gate": final_quality_gate,
-        "scaffold_quality_gate": scaffold_quality_gate,
+        "quality_gate": workspace["quality"]["overall_quality_gate"],
         "recommended_formal_state": refresh_summary.get("recommended_formal_state", ""),
         "stack_decision": str(paths["stack_decision_path"]),
         "schema_summary": workspace["schema_summary"],
@@ -1079,7 +917,7 @@ def build_phase3_foundation_summary(
         "mainline_assessment_artifacts": refresh_summary.get("mainline_assessment_paths", {}),
         "mainline_assessment_summary": refresh_summary.get("mainline_assessment_summary", {}),
         "phase_verdict_path": refresh_summary.get("phase_verdict_path", ""),
-        "phase_verdict": phase_verdict,
+        "phase_verdict": refresh_summary.get("phase_verdict", ""),
         "phase_total_score": refresh_summary.get("phase_total_score"),
         "run_metadata": str(paths["run_metadata_path"]),
     }

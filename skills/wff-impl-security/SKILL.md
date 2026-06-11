@@ -60,7 +60,7 @@ Read:
 
 ## Primary Tool
 
-- use the audit playbook to produce `security-audit-report.md` and `security-audit-checklist.json`; optional security-audit support mode is full-pack/source-tree only
+- `scripts/phase3/phase3_delivery_gate.py --mode security-audit`
 
 ## Audit Playbook
 

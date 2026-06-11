@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
-from phase3.renderer_common import ascii_slug
+
+def slugify(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-") or "phase3-app"
 
 
 def write_text(path: Path, content: str) -> None:
@@ -15,7 +18,7 @@ def write_text(path: Path, content: str) -> None:
 def scaffold_root_workspace(*, output_dir: Path, project_name: str) -> dict[str, Any]:
     files = []
     package = {
-        "name": ascii_slug(project_name, fallback="phase3-app"),
+        "name": slugify(project_name),
         "private": True,
         "packageManager": "pnpm@9.0.0",
         "scripts": {"test": "vitest run --config vitest.config.ts"},

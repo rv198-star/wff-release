@@ -15,7 +15,6 @@ import re
 from typing import Any
 
 from common.contamination_boundary import build_contamination_report
-from common.script_data_assets import load_script_text_asset
 
 
 PACKET_BLOCKS = {
@@ -45,9 +44,6 @@ P1_CONFIRMATION_CHECKLIST_FILENAME = "p1-demand-confirmation-checklist.md"
 PX_SEMANTIC_REENTRY_BRIEF_FILENAME = "px-semantic-reentry-brief.md"
 PX_CONTAMINATION_REPORT_FILENAME = "px-contamination-report.json"
 SCAN_CODE_BASELINE_FILENAME = "wff-x-scan-code-baseline.md"
-
-WFF_SCRIPT_DATA_ASSETS = ("scripts/phasex/data/p1-reentry-packet.md.template",)
-P1_REENTRY_PACKET_TEMPLATE = load_script_text_asset(__file__, "p1-reentry-packet.md.template")
 
 
 TOP_LEVEL_FIELD_RE = re.compile(r"^-\s+([A-Za-z0-9_-]+):\s*$")
@@ -676,103 +672,280 @@ def render_p1_packet(*, block: str, semantic_context: dict[str, Any] | None = No
     response_entity = f"{change_entity}Response"
     audit_entity = f"{change_entity}Audit"
 
-    target_change_clarification_block = ""
-    desired_outcome_clarification_block = ""
-    acceptance_clarification_block = ""
-    nonfunctional_requirements_block = ""
-    truth_state_clarification_row = ""
-    open_truth_gap_clarification_row = ""
-    if clarification["answered"]:
-        target_change_clarification_block = '\n'.join(
-            [
-                "Demand clarification addendum provides a sharper target and acceptance boundary:",
-                f"- {clarification_statement}",
-            ]
-        ) + "\n"
-        desired_outcome_clarification_block = '\n'.join(
-            [
-                f"- Clarified target success boundary: {clarification.get('target_success_boundary')}",
-                f"- Clarified acceptance boundary: {clarification.get('acceptance_boundary')}",
-                f"- Clarified priority workflow: {clarification.get('priority_users_workflows')}",
-                f"- Clarified scope / compatibility boundary: {clarification.get('scope_confirmation')} / {clarification.get('compatibility_confirmation')}",
-            ]
-        ) + "\n"
-        acceptance_clarification_block = '\n'.join(
-            [
-                f"- Clarified acceptance boundary: {clarification.get('acceptance_boundary')}",
-                f"- Clarified target success boundary: {clarification.get('target_success_boundary')}",
-                f"- Remaining review-bound items: {remaining_review_bound}",
-            ]
-        ) + "\n"
-        nonfunctional_requirements_block = '\n'.join(
-            [
-                "### Non-functional Requirements",
-                "",
-                f"- Clarified load target: {clarification.get('target_success_boundary')}",
-                f"- Clarified response-time target: {clarification.get('acceptance_boundary')}",
-                f"- Rollout safety target: {clarification.get('conservative_default_if_unanswered')}",
-                "",
-            ]
-        ) + "\n"
-        truth_state_clarification_row = (
-            f"| TS-005 | Demand clarification addendum: {clarification_statement} | answer-backed | PX-to-P1 Demand Clarification Addendum | source clarification for P1 convergence |\n"
-        )
-        if remaining_review_bound:
-            open_truth_gap_clarification_row = (
-                f"| GAP-002 | {remaining_review_bound} | Clarification answered part of the target, but remaining constraints still cap P1 claims. | Keep these items review-bound unless later evidence confirms them. |\n"
-            )
-        handoff_clarification_block = '\n'.join(
-            [
-                f"- Clarification addendum: {clarification_statement}",
-                f"- Review-bound after addendum: {remaining_review_bound}",
-            ]
-        )
-    else:
-        handoff_clarification_block = "- Review-bound: target semantics, owner availability, and product acceptance policy."
-
-    semantic_reentry_section = (
-        '\n'.join(render_p1_semantic_reentry_section(semantic_context)) + "\n"
-        if semantic_context
-        else ""
-    )
-
-    return P1_REENTRY_PACKET_TEMPLATE.format(
-        current_state=current_state,
-        target_change=target_change,
-        observed_facts=observed_facts,
-        inferred_semantics=inferred_semantics,
-        preserve=preserve,
-        source_conflicts=source_conflicts,
-        unknowns=unknowns,
-        non_goals=non_goals,
-        acceptance_pressure=acceptance_pressure,
-        change_intent=change_intent,
-        business_impact=business_impact,
-        affected_workflows=affected_workflows,
-        scope_boundaries=scope_boundaries,
-        proceed_decision=proceed_decision,
-        claim_ceiling=claim_ceiling,
-        change_label=change_label,
-        change_label_lower=change_label.lower(),
-        legacy_label=legacy_label,
-        primary_actor=primary_actor,
-        downstream_actor=downstream_actor,
-        protected_entity=protected_entity,
-        protected_label=protected_label,
-        request_entity=request_entity,
-        policy_entity=policy_entity,
-        response_entity=response_entity,
-        audit_entity=audit_entity,
-        target_change_clarification_block=target_change_clarification_block,
-        semantic_reentry_section=semantic_reentry_section,
-        desired_outcome_clarification_block=desired_outcome_clarification_block,
-        demand_confirmation_boundary='\n'.join(render_demand_confirmation_boundary()),
-        demand_clarification_addendum='\n'.join(render_demand_clarification_addendum(clarification)),
-        acceptance_clarification_block=acceptance_clarification_block,
-        nonfunctional_requirements_block=nonfunctional_requirements_block,
-        truth_state_clarification_row=truth_state_clarification_row,
-        open_truth_gap_clarification_row=open_truth_gap_clarification_row,
-        handoff_clarification_block=handoff_clarification_block,
+    return "\n".join(
+        [
+            "# P1 Source Input Packet",
+            "",
+            "- `packet_subtype`: `existing-system-change`",
+            "- `producer`: `upstream-existing-system-analysis`",
+            "- `source_status`: `mixed`",
+            "- `admission_status`: `ready-for-P1`",
+            "",
+            "## P1 Source Brief",
+            "",
+            "### Current State Summary",
+            "",
+            f"The existing system already exposes a user-visible {change_label.lower()} surface. Current-state summary: {current_state}",
+            f"{change_label} is already part of the product workflow: {observed_facts}",
+            f"{primary_actor} and downstream consumers depend on stable {protected_label} behavior, history, and response semantics.",
+            "",
+            "### Target Change Summary",
+            "",
+            f"The requested change is to clarify and constrain bounded {change_label.lower()} behavior. Target summary: {target_change}",
+            f"The product change intent is to {change_intent}",
+            *(
+                [
+                    "Demand clarification addendum provides a sharper target and acceptance boundary:",
+                    f"- {clarification_statement}",
+                ]
+                if clarification["answered"]
+                else []
+            ),
+            "P1 should converge the visible product policy before any implementation plan is treated as ready.",
+            "",
+            "### Observed Business Facts",
+            "",
+            f"- {observed_facts}",
+            f"- Existing {protected_label} behavior and response shape are part of the compatibility surface.",
+            f"- Downstream consumers can break if {change_label.lower()} behavior or response semantics change incompatibly.",
+            "",
+            "### Inferred Business Semantics",
+            "",
+            f"- {inferred_semantics}",
+            "- Target policy or acceptance semantics may be a product acceptance rule, not only an implementation detail.",
+            "",
+            "### Users and Workflow",
+            "",
+            f"- Primary users: {primary_actor} who use, review, or operate the existing {change_label.lower()} workflow.",
+            f"- Downstream users: {downstream_actor} that relies on {change_label.lower()} response compatibility.",
+            f"- Main workflow: initiate {change_label.lower()} -> check scope and acceptance policy -> apply bounded behavior -> preserve {protected_label} behavior -> return compatible response -> record history/audit evidence.",
+            f"- Affected workflow: {affected_workflows}",
+            f"- Business impact if mishandled: {business_impact}",
+            "",
+            "### User, Buyer, Operator, And Decision Roles",
+            "",
+            "| Role | Evidence state | Responsibility | Product implication |",
+            "|---|---|---|---|",
+            f"| {primary_actor} | inferred-from-existing-system | use, review, or operate the existing {change_label.lower()} workflow | Needs the existing workflow to stay understandable and compatible. |",
+            f"| {downstream_actor} | observed-compatibility-pressure | depends on stable {change_label.lower()} response semantics | Response shape and protected behavior changes must be explicit product decisions. |",
+            "| Product policy reviewer or Agentic conservative default | review-bound | decides whether target behavior changes acceptance semantics | Missing owner confirmation cannot be hidden as a pure implementation detail. |",
+            "",
+            *(render_p1_semantic_reentry_section(semantic_context) if semantic_context else []),
+            "### Current-State Baseline Or Substitute Path",
+            "",
+            f"- Current baseline: {current_state}",
+            f"- Existing workflow evidence: {observed_facts}",
+            f"- Compatibility pressure: {acceptance_pressure}",
+            f"- Substitute / fallback if weak: users or clients rely on the {legacy_label} behavior and conservative policy review.",
+            "",
+            "### Desired Outcome And Success Signals",
+            "",
+            f"- Desired outcome: {target_change}",
+            f"- Success signal: {change_label.lower()} behavior is bounded without breaking {protected_label} behavior or response compatibility.",
+            *(
+                [
+                    f"- Clarified target success boundary: {clarification.get('target_success_boundary')}",
+                    f"- Clarified acceptance boundary: {clarification.get('acceptance_boundary')}",
+                    f"- Clarified priority workflow: {clarification.get('priority_users_workflows')}",
+                    f"- Clarified scope / compatibility boundary: {clarification.get('scope_confirmation')} / {clarification.get('compatibility_confirmation')}",
+                ]
+                if clarification["answered"]
+                else []
+            ),
+            "- Success signal: target semantics are externally confirmed, explicitly constrained, or kept review-bound with a conservative default.",
+            "- Success signal: implementation planning can name the protected client contract and review-bound policy gap.",
+            "",
+            "### Scope Boundary",
+            "",
+            "P0:",
+            f"- clarify {change_label.lower()} policy and acceptance boundary",
+            f"- preserve existing {protected_label} behavior and response compatibility",
+            "- expose target policy as review-bound until resolved, constrained, or externally confirmed",
+            "",
+            "P1:",
+            f"- richer review, reporting, or analytics around {change_label.lower()} history",
+            "- deeper workflow variants after policy resolution or explicit bounded default",
+            "",
+            "P2:",
+            "- broader platform or domain redesign",
+            f"- unrelated {protected_label} lifecycle redesign",
+            "- external integration changes outside the bounded change",
+            "",
+            "Out of scope:",
+            f"- {non_goals}",
+            f"- {scope_boundaries}",
+            "",
+            "### Module Responsibility Matrix",
+            "",
+            "| module | primary_actor | core_objects | responsibility | input | output |",
+            "|---|---|---|---|---|---|",
+            f"| {change_label} Intake | {primary_actor} | {protected_entity}, {request_entity} | capture the bounded change request against existing behavior | current {protected_label} state and requested change reason | classified change request with compatibility flags |",
+            f"| {change_label} Policy Review | Product policy reviewer or Agentic conservative default | {policy_entity}, PolicyDecision | decide whether target behavior changes product acceptance semantics | classified request and open policy question | accepted policy decision, conservative default, or review-bound constraint |",
+            f"| Client Compatibility Guard | {downstream_actor} | {response_entity}, CompatibilityContract | preserve protected behavior and response-shape expectations | bounded behavior and protected legacy response shape | compatible response or explicit non-compatible change warning |",
+            f"| {change_label} Audit Trail | {primary_actor} | {audit_entity}, {protected_entity}History | record applied change and policy evidence | applied bounded behavior and policy decision | auditable history |",
+            "",
+            "### Core Business Objects",
+            "",
+            "| object | description | module |",
+            "|---|---|---|",
+            f"| {protected_entity} | Existing protected business object or behavior that must remain stable. | {change_label} Intake |",
+            f"| {request_entity} | User-visible bounded change request. | {change_label} Intake |",
+            f"| {policy_entity} | Product-level target semantics and acceptance policy. | {change_label} Policy Review |",
+            f"| {response_entity} | Client-visible response shape. | Client Compatibility Guard |",
+            f"| {audit_entity} | Audit evidence for applied change and policy decision. | {change_label} Audit Trail |",
+            "",
+            "### Key Business Flows / Scenarios",
+            "",
+            f"#### {change_label} bounded change flow",
+            f"1. {primary_actor} initiates the existing {change_label.lower()} workflow.",
+            "2. System checks whether the request stays inside the bounded change scope.",
+            "3. Product policy is resolved as externally confirmed, conservatively defaulted, or explicitly review-bound.",
+            f"4. System applies only accepted bounded behavior and preserves {protected_label} behavior.",
+            "5. System returns a compatible response to existing clients.",
+            "6. System records audit/history evidence for later review.",
+            "",
+            "### Rules, Exceptions, Permissions, And Approvals",
+            "",
+            "- Rule: target semantics remain review-bound until product policy is externally confirmed or safely constrained by a conservative default.",
+            f"- Rule: existing {protected_label} behavior and response shape must not change silently.",
+            "- Exception: if policy or target semantics cannot be externally confirmed, downstream design may reserve a seam and proceed only within conservative compatibility-preserving behavior.",
+            "- Permission / audit pressure: policy decision and applied change need traceable evidence.",
+            "",
+            "### Constraints",
+            "",
+            f"- Compatibility constraint: existing {protected_label} behavior and response shape are protected.",
+            f"- Migration constraint: do not force full {protected_label} lifecycle redesign into this bounded change.",
+            "- Evidence constraint: no bundled policy document or owner confirmation means target behavior remains review-bound.",
+            "",
+            "### Product Policy Question",
+            "",
+            f"The main review-bound policy question is whether target behavior changes acceptance semantics: {unknowns}",
+            "P1 should decide whether the target is only an implementation constraint or a product policy that changes what users and clients can expect.",
+            "",
+            *render_demand_confirmation_boundary(),
+            *render_demand_clarification_addendum(clarification),
+            "### Legacy Behaviors To Preserve",
+            "",
+            f"- Legacy behavior to preserve: {preserve}",
+            f"- Acceptance pressure: {acceptance_pressure}",
+            "",
+            "### Non-Goals",
+            "",
+            f"- Non-goals: {non_goals}",
+            f"- Explicit scope boundary: {scope_boundaries}",
+            f"- Do not redesign the full {protected_label} lifecycle or unrelated modules in this bounded change.",
+            "",
+            "### Source Conflicts",
+            "",
+            f"- Source conflict: {source_conflicts}",
+            "",
+            "### Acceptance Pressure",
+            "",
+            f"- {acceptance_pressure}",
+            *(
+                [
+                    f"- Clarified acceptance boundary: {clarification.get('acceptance_boundary')}",
+                    f"- Clarified target success boundary: {clarification.get('target_success_boundary')}",
+                    f"- Remaining review-bound items: {remaining_review_bound}",
+                ]
+                if clarification["answered"]
+                else []
+            ),
+            "",
+            *(
+                [
+                    "### Non-functional Requirements",
+                    "",
+                    f"- Clarified load target: {clarification.get('target_success_boundary')}",
+                    f"- Clarified response-time target: {clarification.get('acceptance_boundary')}",
+                    f"- Rollout safety target: {clarification.get('conservative_default_if_unanswered')}",
+                    "",
+                ]
+                if clarification["answered"]
+                else []
+            ),
+            "## Demand Change Evaluation",
+            "",
+            "### Change Intent",
+            "",
+            change_intent,
+            "",
+            "### Business Impact",
+            "",
+            business_impact,
+            "",
+            "### Affected Users / Workflows",
+            "",
+            affected_workflows,
+            "",
+            "### Non-Goals / Scope Boundaries",
+            "",
+            scope_boundaries,
+            "",
+            "### Proceed Decision",
+            "",
+            f"- `decision`: `{proceed_decision}`",
+            "- `reason`: The target change, affected workflow, compatibility pressure, and review-bound policy gap are explicit enough for P1 convergence.",
+            f"- `visible_gaps`: {unknowns}",
+            "",
+            "## Truth-State Ledger",
+            "",
+            "| Item ID | Statement | Truth State | Evidence Pointer | P1 Handling |",
+            "|---|---|---|---|---|",
+            f"| TS-001 | {observed_facts} | observed | wff-x-intake-target-driver current-state packet | fact base |",
+            f"| TS-002 | {inferred_semantics} | inferred | wff-x-intake-target-driver semantic inference | review-bound product policy question |",
+            f"| TS-003 | {preserve} | review-bound | wff-x-intake-target-driver preservation pressure | acceptance boundary |",
+            f"| TS-004 | {unknowns} | unknown | no bundled policy document | open gap |",
+            *(
+                [
+                    f"| TS-005 | Demand clarification addendum: {clarification_statement} | answer-backed | PX-to-P1 Demand Clarification Addendum | source clarification for P1 convergence |",
+                ]
+                if clarification["answered"]
+                else []
+            ),
+            "",
+            "## Open Truth Gaps",
+            "",
+            "| Gap ID | Missing Truth | Why It Matters | Required Clarification |",
+            "|---|---|---|---|",
+            f"| GAP-001 | {unknowns} | Target semantics may change acceptance criteria and client expectations. | Record product policy as confirmed, constrained, or review-bound before P2/P3 implementation planning. |",
+            *(
+                [
+                    f"| GAP-002 | {remaining_review_bound} | Clarification answered part of the target, but remaining constraints still cap P1 claims. | Keep these items review-bound unless later evidence confirms them. |",
+                ]
+                if clarification["answered"] and remaining_review_bound
+                else []
+            ),
+            "",
+            "## Reviewer Concerns",
+            "",
+            "- Keep target policy review-bound until product policy is externally confirmed or constrained by a conservative default.",
+            f"- Preserve {protected_label} behavior and response-shape compatibility unless P1 explicitly changes the product promise.",
+            "- Do not convert current technical route existence into a target product requirement by default.",
+            "",
+            "## Admission Decision",
+            "",
+            "- `admission_status`: `ready-for-P1`",
+            f"- `claim_ceiling`: {claim_ceiling}",
+            "- `reason`: The packet is sufficient for P1 to converge demand and product policy, but not sufficient to claim architecture readiness or production readiness.",
+            "",
+            "## Handoff Note For wff-req",
+            "",
+            f"- Safe fact base: existing {change_label.lower()} workflow, affected workflow, compatibility pressure.",
+            *(
+                [
+                    f"- Clarification addendum: {clarification_statement}",
+                    f"- Review-bound after addendum: {remaining_review_bound}",
+                ]
+                if clarification["answered"]
+                else [
+                    "- Review-bound: target semantics, owner availability, and product acceptance policy.",
+                ]
+            ),
+            f"- Historical behavior to preserve: {protected_label} behavior and response shape.",
+            "- P2 clues only: route, endpoint, persistence, compatibility, and rollback details belong to architecture/design intake, not P1 product truth.",
+            "",
+        ]
     )
 
 

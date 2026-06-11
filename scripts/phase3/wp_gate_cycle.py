@@ -19,9 +19,8 @@ from pathlib import Path
 from typing import Any
 
 from common.output_language import localize_phase3_wp_gate_cycle_report
-from phase3.execution_packet_access import load_json_if_exists as load_verification_ledger_if_exists
-from phase3.runtime_cycle import run_runtime_cycle
-from phase3.verification_ledger import synthesize_gate_inputs_from_ledger
+from phase3.worker_packet_runner import load_json_if_exists as load_verification_ledger_if_exists
+from phase3.worker_packet_runner import run_runtime_cycle, synthesize_gate_inputs_from_ledger
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -80,32 +79,23 @@ def split_required_optional_tests(test_targets: set[str]) -> tuple[set[str], set
 
 
 def infer_binding_lane_hint(*, test_targets: set[str], implementation_targets: set[str]) -> str:
-    has_backend_tests = any(
+    has_backend = any(
         target.startswith("tests/sql/")
         or target.startswith("tests/contracts/")
         or target.startswith("tests/unit/api/")
-        for target in test_targets
+        or target.startswith("apps/api/")
+        for target in [*test_targets, *implementation_targets]
     )
-    has_frontend_tests = any(target.startswith("tests/unit/web/") for target in test_targets)
-    if has_backend_tests and has_frontend_tests:
+    has_frontend = any(
+        target.startswith("tests/unit/web/")
+        or target.startswith("apps/web/")
+        for target in [*test_targets, *implementation_targets]
+    )
+    if has_backend and has_frontend:
         return "fullstack"
-    if has_backend_tests:
+    if has_backend:
         return "backend"
-    if has_frontend_tests:
-        return "frontend"
-
-    has_scenario_tests = any(target.startswith("tests/scenarios/") for target in test_targets)
-    has_backend_implementation = any(target.startswith("apps/api/") for target in implementation_targets)
-    has_frontend_implementation = any(target.startswith("apps/web/") for target in implementation_targets)
-    if has_scenario_tests and has_frontend_implementation:
-        return "frontend"
-    if has_scenario_tests and has_backend_implementation:
-        return "backend"
-    if has_backend_implementation and has_frontend_implementation:
-        return "fullstack"
-    if has_backend_implementation:
-        return "backend"
-    if has_frontend_implementation:
+    if has_frontend:
         return "frontend"
     return ""
 

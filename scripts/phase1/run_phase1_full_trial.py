@@ -765,58 +765,6 @@ def build_phase1_prd_excellence_regression_command(context: Phase1FullTrialConte
     ]
 
 
-def append_optional_step_skip(
-    segments: list[dict[str, Any]] | None,
-    *,
-    name: str,
-    command: list[str],
-) -> None:
-    if segments is None:
-        return
-    append_timing_segment(
-        segments,
-        name=name,
-        started_at=utc_now_iso(),
-        started_monotonic=time.monotonic(),
-        status="skipped-not-bundled",
-        command=command,
-        returncode=0,
-    )
-
-
-def run_phase1_runtime_snapshot_if_available(
-    context: Phase1FullTrialContext,
-    *,
-    segments: list[dict[str, Any]] | None = None,
-) -> bool:
-    command = build_record_phase1_runtime_snapshot_command(context)
-    if not (context.script_dir / "record_phase1_runtime_snapshot.py").exists():
-        append_optional_step_skip(segments, name="runtime_snapshot", command=command)
-        return False
-    if segments is None:
-        run(command)
-    else:
-        run_timed(command, segments=segments, name="runtime_snapshot")
-    return True
-
-
-def run_phase1_prd_excellence_regression_if_available(
-    context: Phase1FullTrialContext,
-    *,
-    segments: list[dict[str, Any]] | None = None,
-) -> bool:
-    scorer_path = context.script_dir / "phase1_prd_excellence_regression.py"
-    command = build_phase1_prd_excellence_regression_command(context)
-    if not scorer_path.exists():
-        append_optional_step_skip(segments, name="prd_excellence_regression", command=command)
-        return False
-    if segments is None:
-        run(command)
-    else:
-        run_timed(command, segments=segments, name="prd_excellence_regression")
-    return True
-
-
 def phase1_main_stage_commands(context: Phase1FullTrialContext) -> list[list[str]]:
     if context.commercial_argument_rewrite and context.commercial_argument_rewrite.exists():
         shutil.copyfile(context.commercial_argument_rewrite, context.output_dir / "commercial-argument-rewrite.json")
@@ -826,6 +774,7 @@ def phase1_main_stage_commands(context: Phase1FullTrialContext) -> list[list[str
             context.output_dir / "prd-narrative-compression-rewrite.json",
         )
     commands = [
+        build_record_phase1_runtime_snapshot_command(context),
         build_phase1_deep_stage_command(context),
         build_phase1_stage_artifact_depth_gate_command(context),
         build_phase1_assemble_prd_command(context),
@@ -894,11 +843,14 @@ def run_captured_command(command: list[str]) -> subprocess.CompletedProcess[str]
 
 
 def run_phase1_skill_family_audit(context: Phase1FullTrialContext, *, segments: list[dict[str, Any]] | None = None) -> None:
-    command = build_phase1_skill_family_audit_command(context)
     audit_proc = (
-        run_captured_command_timed(command, segments=segments, name="skill_family_audit")
+        run_captured_command_timed(
+            build_phase1_skill_family_audit_command(context),
+            segments=segments,
+            name="skill_family_audit",
+        )
         if segments is not None
-        else run_captured_command(command)
+        else run_captured_command(build_phase1_skill_family_audit_command(context))
     )
     context.family_audit.write_text((audit_proc.stdout or "") + (audit_proc.stderr or ""), encoding="utf-8")
     if audit_proc.returncode != 0:
@@ -907,25 +859,15 @@ def run_phase1_skill_family_audit(context: Phase1FullTrialContext, *, segments: 
         raise SystemExit(audit_proc.returncode)
 
 
-def run_phase1_skill_family_audit_if_available(
-    context: Phase1FullTrialContext,
-    *,
-    segments: list[dict[str, Any]] | None = None,
-) -> bool:
-    command = build_phase1_skill_family_audit_command(context)
-    if not (context.script_dir / "phase1_skill_family_audit.py").exists():
-        append_optional_step_skip(segments, name="skill_family_audit", command=command)
-        return False
-    run_phase1_skill_family_audit(context, segments=segments)
-    return True
-
-
 def run_phase1_material_library_audit(context: Phase1FullTrialContext, *, segments: list[dict[str, Any]] | None = None) -> None:
-    command = build_phase1_material_library_audit_command(context)
     material_proc = (
-        run_captured_command_timed(command, segments=segments, name="material_library_audit")
+        run_captured_command_timed(
+            build_phase1_material_library_audit_command(context),
+            segments=segments,
+            name="material_library_audit",
+        )
         if segments is not None
-        else run_captured_command(command)
+        else run_captured_command(build_phase1_material_library_audit_command(context))
     )
     if material_proc.stdout:
         print(material_proc.stdout)
@@ -935,23 +877,17 @@ def run_phase1_material_library_audit(context: Phase1FullTrialContext, *, segmen
         raise SystemExit(material_proc.returncode)
 
 
-def run_phase1_material_library_audit_if_available(
-    context: Phase1FullTrialContext,
-    *,
-    segments: list[dict[str, Any]] | None = None,
-) -> bool:
-    command = build_phase1_material_library_audit_command(context)
-    if not (context.script_dir / "phase1_material_library_coverage_audit.py").exists():
-        append_optional_step_skip(segments, name="material_library_audit", command=command)
-        return False
-    run_phase1_material_library_audit(context, segments=segments)
-    return True
-
-
 def run_phase1_postrun_audits(context: Phase1FullTrialContext, *, segments: list[dict[str, Any]] | None = None) -> None:
-    run_phase1_skill_family_audit_if_available(context, segments=segments)
-    run_phase1_material_library_audit_if_available(context, segments=segments)
-    run_phase1_prd_excellence_regression_if_available(context, segments=segments)
+    run_phase1_skill_family_audit(context, segments=segments)
+    run_phase1_material_library_audit(context, segments=segments)
+    if segments is None:
+        run(build_phase1_prd_excellence_regression_command(context))
+    else:
+        run_timed(
+            build_phase1_prd_excellence_regression_command(context),
+            segments=segments,
+            name="prd_excellence_regression",
+        )
 
 
 def _phase1_claim_source_candidates(context: Phase1FullTrialContext) -> list[Path]:
@@ -1369,7 +1305,6 @@ def run_phase1_full_trial(context: Phase1FullTrialContext) -> Phase1FullTrialRes
     timing_started_monotonic = time.monotonic()
     timing_segments: list[dict[str, Any]] = []
     try:
-        run_phase1_runtime_snapshot_if_available(context, segments=timing_segments)
         for command in phase1_main_stage_commands(context):
             run_timed(command, segments=timing_segments, name=command_segment_name(command, "phase1_step"))
 
@@ -1444,18 +1379,9 @@ def emit_phase1_full_trial_summary(context: Phase1FullTrialContext, result: Phas
     print(f"human_review_index: {context.output_dir / 'human-review' / 'INDEX.md'}")
     print(f"convergence_json: {context.gate_json_final}")
     emit_phase1_gate_summary(load_phase1_gate_payload(context))
-    if context.family_audit.exists():
-        print(f"skill_family_audit: {context.family_audit}")
-    else:
-        print("skill_family_audit: not-bundled optional release/development evidence")
-    if context.material_audit_md.exists() or context.material_audit_json.exists():
-        print(f"material_library_audit: {context.material_audit_md}")
-    else:
-        print("material_library_audit: not-bundled optional release/development evidence")
-    if context.excellence_md.exists() or context.excellence_json.exists():
-        print(f"prd_excellence_regression: {context.excellence_md}")
-    else:
-        print("prd_excellence_regression: not-bundled optional release/development evidence")
+    print(f"skill_family_audit: {context.family_audit}")
+    print(f"material_library_audit: {context.material_audit_md}")
+    print(f"prd_excellence_regression: {context.excellence_md}")
     print(f"prd_claim_control: {context.prd_claim_control}")
     print(f"timing_report: {context.timing_report}")
     if result.draft_gate_code != 0 or result.final_gate_code != 0:

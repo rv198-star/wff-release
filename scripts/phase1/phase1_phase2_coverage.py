@@ -5,15 +5,41 @@ Shared helpers for Phase-1 -> Phase-2 coverage contract analysis.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+from typing import Any
 
-from common.markdown_table_tools import (
-    markdown_tables,
-    normalize_table_header,
-    table_rows_with_required_headers,
-)
 from phase1.phase1_trace_units import extract_phase1_trace_units, phase1_phase2_design_contract_rows
 from phase2.phase2_trace_alignment import build_phase2_phase1_resolution_report, split_trace_ids
+
+
+def normalize_table_header(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip().strip("`").lower())
+
+
+def markdown_tables(text: str) -> list[dict[str, Any]]:
+    tables: list[dict[str, Any]] = []
+    lines = text.splitlines()
+    idx = 0
+    while idx < len(lines):
+        if not lines[idx].lstrip().startswith("|"):
+            idx += 1
+            continue
+        group: list[str] = []
+        while idx < len(lines) and lines[idx].lstrip().startswith("|"):
+            group.append(lines[idx].strip())
+            idx += 1
+        if len(group) < 2 or "---" not in group[1]:
+            continue
+        headers = [normalize_table_header(part) for part in group[0].strip("|").split("|")]
+        rows: list[dict[str, str]] = []
+        for row_line in group[2:]:
+            parts = [part.strip().strip("`") for part in row_line.strip("|").split("|")]
+            if len(parts) < len(headers):
+                parts.extend([""] * (len(headers) - len(parts)))
+            rows.append(dict(zip(headers, parts)))
+        tables.append({"headers": headers, "rows": rows})
+    return tables
 
 
 def block_text(text: str, block_name: str) -> str:
@@ -37,7 +63,12 @@ def block_text(text: str, block_name: str) -> str:
 
 
 def table_rows_from_block(block: str, required_headers: set[str]) -> list[dict[str, str]]:
-    return table_rows_with_required_headers(block, required_headers)
+    for table in markdown_tables(block):
+        headers = set(table["headers"])
+        if not required_headers.issubset(headers):
+            continue
+        return [row for row in table["rows"] if all(row.get(header, "").strip() for header in required_headers)]
+    return []
 
 
 def extract_fine_grained_trace_units(stage_paths: dict[str, Path]) -> dict[str, list[dict[str, str]]]:

@@ -19,7 +19,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-from common.script_data_assets import load_script_json_asset
 from phasex.scaffold_phasex_case import PROFILE_METHOD_BACKBONES, PROFILE_OUTPUTS
 
 
@@ -27,26 +26,104 @@ MANIFEST_NAME = "phasex-wave1-manifest.md"
 SCAFFOLD_MARKERS = ("state: `fresh-target`", "scaffolded_target:")
 PROFILE_RE = re.compile(r"selected_profile:\s*`([^`]+)`")
 
-WFF_SCRIPT_DATA_ASSETS = ("scripts/phasex/data/validation-snippet-rules.json",)
-_VALIDATION_SNIPPET_RULES = load_script_json_asset(__file__, "validation-snippet-rules.json")
 
+BASE_REQUIRED_SNIPPETS = {
+    "wff-x-scan-code-baseline.md": (
+        "entrypoint_inventory",
+        "third_party_dependency_scan",
+        "runnability_precheck",
+        "uncertainty_register",
+        "codebase_truth_packet",
+        "observed_code_evidence",
+        "inferred_brownfield_semantics",
+        "runnability_evidence",
+        "explicit_unknowns",
+        "downstream_truth_implications",
+    ),
+    "wff-x-scan-tech-health.md": (
+        "health_scorecard",
+        "risk_matrix",
+        "decision_recommendation",
+        "brownfield_health_judgment",
+        "risk_to_action_map",
+        "evidence_backed_score_rationale",
+        "refactor_readiness_judgment",
+        "change_mode",
+        "behavior_preservation_boundary",
+        "two_hats_risk",
+    ),
+    "wff-x-plan-test-protection.md": (
+        "safety_net_candidate_list",
+        "critical_path_protection_plan",
+        "effectiveness_criteria",
+        "refactoring_discipline_guardrails",
+        "self_testing_feedback_loop",
+        "behavior_preservation_boundary",
+        "safety_net_strategy",
+        "go_no_go_protection_decision",
+        "fastest_repeatable_feedback",
+        "implementation_gate",
+    ),
+    "wff-x-intake-target-driver.md": (
+        "px_handoff_cards",
+        "current_state_facts",
+        "target_driver",
+        "gap_summary",
+        "evidence_refs",
+        "required_prework",
+        "claim_ceiling",
+        "px_to_p1_change_source_packet",
+        "existing-system-change",
+        "demand_change_evaluation",
+        "proceed-to-P1",
+        "px_to_p2_architecture_change_intake_packet",
+        "existing-system-architecture-change",
+        "architecture_change_impact_triage",
+        "change_impact_level",
+        "phase1_constrained_reentry_summary",
+        "affected_module_register",
+        "impacted_surfaces",
+        "acceptance_criteria",
+        "compatibility_constraints",
+        "brownfield_invariants",
+        "brownfield_non_goals",
+        "brownfield_handoff_packet",
+        "phase1_consumption_notes",
+        "phase3_consumption_notes",
+        "compatibility_claim_ceiling",
+        "route_decision_rationale",
+        "downstream_route_recommendation",
+        "recommended_route",
+        "third-party-dependency-manifest",
+    ),
+}
 
-def _snippet_rule_map_from_payload(payload: Any) -> dict[str, tuple[str, ...]]:
-    if not isinstance(payload, dict):
-        return {}
-    return {
-        str(path): tuple(str(snippet) for snippet in snippets)
-        for path, snippets in payload.items()
-        if isinstance(snippets, list)
-    }
-
-
-BASE_REQUIRED_SNIPPETS = _snippet_rule_map_from_payload(_VALIDATION_SNIPPET_RULES.get("base_required_snippets", {}))
 
 PROFILE_SPECIFIC_SNIPPETS = {
-    str(profile): _snippet_rule_map_from_payload(files)
-    for profile, files in _VALIDATION_SNIPPET_RULES.get("profile_specific_snippets", {}).items()
-    if isinstance(files, dict)
+    "technical-refactor": {
+        "wff-x-scan-code-baseline.md": (
+            "refactor_signal_register",
+        ),
+        "wff-x-scan-tech-health.md": (
+            "refactor_candidate_register",
+            "branch_by_abstraction_needed",
+            "behavior-preserving-refactor",
+            "recommended_next_move",
+        ),
+        "wff-x-plan-test-protection.md": (
+            "branch_by_abstraction_trigger",
+            "small_step_execution_rule",
+        ),
+    },
+    "target-driver": {
+        "wff-x-intake-target-driver.md": (
+            "return-to-P1",
+            "enter-P2",
+            "protect-first",
+            "direct-to-P3",
+            "decision-required",
+        ),
+    },
 }
 
 

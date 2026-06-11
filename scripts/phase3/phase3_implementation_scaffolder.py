@@ -14,7 +14,6 @@ if str(SCRIPTS_ROOT) not in sys.path:
 
 
 import argparse
-import importlib
 import json
 from pathlib import Path
 from typing import Any
@@ -49,6 +48,28 @@ from phase3.backend_module_renderer import (
     synthesis_units_for_module,
 )
 from phase3.backend_runtime_harness_renderer import render_backend_runtime_harness
+from phase3.frontend_scaffold_renderer import (
+    infer_targets_from_scope,
+    load_compiled_bindings,
+    load_ui_pages,
+    merge_preferred_ui_sections,
+    normalize_ui_input_spec,
+    normalize_ui_route,
+    related_operations_for_surface,
+    related_work_packages_for_surface,
+    render_auth_entry_page,
+    render_frontend_page_unit_test,
+    render_home_page,
+    render_page_component,
+    render_role_session_storage_module,
+    render_ui_app,
+    render_workflow_progress_storage_module,
+    render_workflow_storage_module,
+    route_slug,
+    sanitize_route_segment,
+    ui_app_context,
+    ui_page_route_segment,
+)
 from phase3.generated_runtime_renderer import (
     build_runtime_operation_specs,
     infer_default_tenant,
@@ -63,7 +84,6 @@ from phase3.implementation_binding_tools import (
     append_generated_unit_test_bindings,
     backend_foundation_unit_test_paths,
     backend_module_unit_test_path,
-    expand_scope_term_equivalents,
     build_wp_lookup,
     foundation_implementation_targets_for_test_targets,
     frontend_surface_unit_test_path,
@@ -74,103 +94,16 @@ from phase3.implementation_binding_tools import (
     rebind_cross_operation_test_rows,
     suggest_work_packages,
     trace_ids_in_text,
-    scope_tokens,
     unit_test_targets_for_implementation_targets,
 )
+from phase3.module_synthesis import (
+    build_module_authoring_context,
+    build_module_candidate_ledger,
+    load_module_synthesis_bundle,
+    write_module_synthesis_evidence,
+    write_module_synthesis_quality_evidence,
+)
 from phase3.surface_policy import write_phase3_diagnostic_surface
-
-
-def _module_synthesis_tools():
-    return importlib.import_module("phase3.module_synthesis")
-
-
-def _frontend_scaffold_renderer():
-    return importlib.import_module("phase3.frontend_scaffold_renderer")
-
-
-def sanitize_route_segment(route_value: str, fallback_surface: str) -> str:
-    candidates = [part for part in str(route_value).split("/") if part.strip()]
-    normalized = [stable_slug(part, fallback="surface") for part in candidates]
-    if normalized:
-        return "/".join(normalized)
-    return stable_slug(fallback_surface, fallback="surface")
-
-
-def route_slug(surface: str) -> str:
-    return stable_slug(surface, fallback="surface")
-
-
-def infer_targets_from_scope(
-    *,
-    scope: str,
-    acceptance_criteria: str,
-    operations_by_tag: dict[str, list[dict[str, str]]],
-    ui_pages: list[dict[str, Any]],
-    output_dir: Path,
-) -> list[str]:
-    if ui_pages:
-        return _frontend_scaffold_renderer().infer_targets_from_scope(
-            scope=scope,
-            acceptance_criteria=acceptance_criteria,
-            operations_by_tag=operations_by_tag,
-            ui_pages=ui_pages,
-            output_dir=output_dir,
-        )
-    targets: set[str] = set()
-    scope_terms = expand_scope_term_equivalents(scope_tokens(scope) | scope_tokens(acceptance_criteria))
-    if not scope_terms:
-        return []
-    for module_slug, grouped_operations in operations_by_tag.items():
-        haystack = " ".join(
-            " ".join([operation["operation_id"], operation["tag"], operation["path"]])
-            for operation in grouped_operations
-        )
-        if len(scope_terms & scope_tokens(haystack)) >= 1:
-            base_path = Path("apps") / "api" / "src" / "modules" / module_slug
-            targets.update(
-                [
-                    str(base_path / f"{module_slug}.controller.ts"),
-                    str(base_path / f"{module_slug}.service.ts"),
-                    str(base_path / f"{module_slug}.repository.ts"),
-                ]
-            )
-    return sorted(targets)
-
-
-def load_ui_pages(*args: Any, **kwargs: Any) -> Any:
-    return _frontend_scaffold_renderer().load_ui_pages(*args, **kwargs)
-
-
-def frontend_route_file_segment(*args: Any, **kwargs: Any) -> str:
-    return _frontend_scaffold_renderer().frontend_route_file_segment(*args, **kwargs)
-
-
-def merge_preferred_ui_sections(*args: Any, **kwargs: Any) -> Any:
-    return _frontend_scaffold_renderer().merge_preferred_ui_sections(*args, **kwargs)
-
-
-def normalize_ui_input_spec(*args: Any, **kwargs: Any) -> Any:
-    return _frontend_scaffold_renderer().normalize_ui_input_spec(*args, **kwargs)
-
-
-def render_home_page(*args: Any, **kwargs: Any) -> str:
-    return _frontend_scaffold_renderer().render_home_page(*args, **kwargs)
-
-
-def render_auth_entry_page(*args: Any, **kwargs: Any) -> str:
-    return _frontend_scaffold_renderer().render_auth_entry_page(*args, **kwargs)
-
-
-def ui_app_context(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    return _frontend_scaffold_renderer().ui_app_context(*args, **kwargs)
-
-
-def render_page_component(*args: Any, **kwargs: Any) -> str:
-    return _frontend_scaffold_renderer().render_page_component(*args, **kwargs)
-
-
-def render_ui_app(*args: Any, **kwargs: Any) -> str:
-    return _frontend_scaffold_renderer().render_ui_app(*args, **kwargs)
 
 
 def write_text(path: Path, content: str) -> None:
@@ -242,23 +175,10 @@ def scaffold_phase3_implementation(
 ) -> dict[str, object]:
     operations = parse_openapi_operations(openapi_spec)
     wp_rows = build_wp_lookup(esp_text)
-    frontend_renderer = _frontend_scaffold_renderer() if include_frontend else None
-    if frontend_renderer is not None:
-        primary_surfaces = extract_nested_bullet_items(esp_text, "primary_surfaces")
-        ui_pages = frontend_renderer.load_ui_pages(
-            output_dir=output_dir,
-            primary_surfaces=primary_surfaces,
-            ui_ia_contract_path=ui_ia_contract_path,
-        )
-        app_context = frontend_renderer.ui_app_context(ui_pages)
-        compiled_bindings = frontend_renderer.load_compiled_bindings(
-            output_dir=output_dir,
-            ui_ia_contract_path=ui_ia_contract_path,
-        )
-    else:
-        ui_pages = []
-        app_context = {}
-        compiled_bindings = []
+    primary_surfaces = extract_nested_bullet_items(esp_text, "primary_surfaces")
+    ui_pages = load_ui_pages(output_dir=output_dir, primary_surfaces=primary_surfaces, ui_ia_contract_path=ui_ia_contract_path)
+    app_context = ui_app_context(ui_pages)
+    compiled_bindings = load_compiled_bindings(output_dir=output_dir, ui_ia_contract_path=ui_ia_contract_path)
     runtime_specs = build_runtime_operation_specs(openapi_spec, compiled_bindings=compiled_bindings)
     module_synthesis_candidate_ledger: dict[str, Any] | None = None
     module_synthesis_bundle: dict[str, Any] | None = None
@@ -279,8 +199,7 @@ def scaffold_phase3_implementation(
         "bypassed_renderers": [],
     }
     if module_synthesis_bundle_path is not None:
-        module_synthesis_tools = _module_synthesis_tools()
-        module_synthesis_candidate_ledger = module_synthesis_tools.build_module_candidate_ledger(
+        module_synthesis_candidate_ledger = build_module_candidate_ledger(
             openapi_spec=openapi_spec,
             phase3_trace_registry=phase3_trace_registry,
             operation_specs=runtime_specs,
@@ -290,7 +209,7 @@ def scaffold_phase3_implementation(
         if not isinstance(manifest, dict):
             raise ValueError("module synthesis bundle manifest must be a JSON object")
         selected_module = str(manifest.get("selected_module", "")).strip()
-        module_synthesis_authoring_context = module_synthesis_tools.build_module_authoring_context(
+        module_synthesis_authoring_context = build_module_authoring_context(
             openapi_spec=openapi_spec,
             candidate_ledger=module_synthesis_candidate_ledger,
             selected_module=selected_module,
@@ -298,12 +217,12 @@ def scaffold_phase3_implementation(
             operation_specs=runtime_specs,
             behavior_card_models=behavior_card_models,
         )
-        module_synthesis_bundle = module_synthesis_tools.load_module_synthesis_bundle(
+        module_synthesis_bundle = load_module_synthesis_bundle(
             bundle_root=module_synthesis_bundle_path,
             candidate_ledger=module_synthesis_candidate_ledger,
             authoring_context=module_synthesis_authoring_context,
         )
-        quality_paths = module_synthesis_tools.write_module_synthesis_quality_evidence(
+        quality_paths = write_module_synthesis_quality_evidence(
             output_dir=output_dir,
             bundle=module_synthesis_bundle,
         )
@@ -369,19 +288,14 @@ def scaffold_phase3_implementation(
     else:
         foundation_unit_test_paths = []
     if include_frontend:
-        assert frontend_renderer is not None
-        write_text(output_dir / "apps" / "web" / "app" / "page.tsx", frontend_renderer.render_home_page(ui_pages, operations, wp_rows))
-        write_text(output_dir / "apps" / "web" / "app" / "ui-app.tsx", frontend_renderer.render_ui_app(ui_pages))
-        route_guard_policy = app_context.get("route_guard_policy") if isinstance(app_context.get("route_guard_policy"), dict) else {}
-        auth_entry_route = frontend_renderer.normalize_ui_route((route_guard_policy or {}).get("auth_entry_route") or "")
+        write_text(output_dir / "apps" / "web" / "app" / "page.tsx", render_home_page(ui_pages, operations, wp_rows))
+        write_text(output_dir / "apps" / "web" / "app" / "ui-app.tsx", render_ui_app(ui_pages))
+        auth_entry_route = normalize_ui_route(((app_context.get("route_guard_policy") if isinstance(app_context.get("route_guard_policy"), dict) else {}) or {}).get("auth_entry_route") or "")
         if auth_entry_route and auth_entry_route != "/":
-            write_text(
-                output_dir / "apps" / "web" / "app" / frontend_renderer.frontend_route_file_segment(auth_entry_route.strip("/")) / "page.tsx",
-                frontend_renderer.render_auth_entry_page(ui_pages),
-            )
-        write_text(output_dir / "apps" / "web" / "app" / "workflow-storage.ts", frontend_renderer.render_workflow_storage_module())
-        write_text(output_dir / "apps" / "web" / "app" / "role-session-storage.ts", frontend_renderer.render_role_session_storage_module())
-        write_text(output_dir / "apps" / "web" / "app" / "workflow-progress-storage.ts", frontend_renderer.render_workflow_progress_storage_module())
+            write_text(output_dir / "apps" / "web" / "app" / auth_entry_route.strip("/") / "page.tsx", render_auth_entry_page(ui_pages))
+        write_text(output_dir / "apps" / "web" / "app" / "workflow-storage.ts", render_workflow_storage_module())
+        write_text(output_dir / "apps" / "web" / "app" / "role-session-storage.ts", render_role_session_storage_module())
+        write_text(output_dir / "apps" / "web" / "app" / "workflow-progress-storage.ts", render_workflow_progress_storage_module())
 
     written_modules: list[str] = []
     written_repositories: list[str] = []
@@ -473,7 +387,7 @@ def scaffold_phase3_implementation(
             )
 
     if module_synthesis_candidate_ledger is not None and module_synthesis_bundle is not None:
-        module_synthesis_summary = module_synthesis_tools.write_module_synthesis_evidence(
+        module_synthesis_summary = write_module_synthesis_evidence(
             output_dir=output_dir,
             candidate_ledger=module_synthesis_candidate_ledger,
             bundle=module_synthesis_bundle,
@@ -486,18 +400,16 @@ def scaffold_phase3_implementation(
         surface = str(page.get("page_title") or "").strip()
         if not surface:
             continue
-        assert frontend_renderer is not None
-        route = frontend_renderer.ui_page_route_segment(page, surface)
-        route_file_segment = frontend_renderer.frontend_route_file_segment(route)
-        page_path = output_dir / "apps" / "web" / "app" / route_file_segment / "page.tsx"
+        route = ui_page_route_segment(page, surface)
+        page_path = output_dir / "apps" / "web" / "app" / route / "page.tsx"
         unit_test_path = output_dir / frontend_surface_unit_test_path(route)
         write_text(
             page_path,
-            frontend_renderer.render_page_component(
+            render_page_component(
                 surface,
                 page_contract=page,
-                related_operations=frontend_renderer.related_operations_for_surface(surface, operations, page_contract=page),
-                related_work_packages=frontend_renderer.related_work_packages_for_surface(surface, wp_rows, page_contract=page),
+                related_operations=related_operations_for_surface(surface, operations, page_contract=page),
+                related_work_packages=related_work_packages_for_surface(surface, wp_rows, page_contract=page),
                 navigation={
                     "previous_route": str(frontend_pages[index - 1].get("route", "")).strip() if index > 0 else "",
                     "next_route": str(frontend_pages[index + 1].get("route", "")).strip() if index + 1 < len(frontend_pages) else "",
@@ -505,7 +417,7 @@ def scaffold_phase3_implementation(
                 app_context=app_context,
             ),
         )
-        write_text(unit_test_path, frontend_renderer.render_frontend_page_unit_test(route))
+        write_text(unit_test_path, render_frontend_page_unit_test(route))
         written_pages.append(str(page_path))
         written_unit_tests.append(str(unit_test_path))
 

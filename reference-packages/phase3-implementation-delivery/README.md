@@ -23,9 +23,9 @@ The public Agent entry surfaces remain in `skills/wff-impl*`.
 | `wff-impl-backend` | Generate backend API/service/repository implementation. | `scripts/phase3/run_impl_backend.py` |
 | `wff-impl-frontend` | Generate optional frontend surface when the P2/P3 input contains UI intent. | `scripts/phase3/run_impl_frontend.py` |
 | `wff-impl-verification` | Generate and run verification pack surfaces. | `scripts/phase3/run_impl_verification.py` |
-| `wff-impl-review` | Review implementation structure, naming, and delivery consistency. | skill playbook; optional support mode is full-pack/source-tree only |
-| `wff-impl-security` | Review security posture and risk evidence. | skill playbook; optional support mode is full-pack/source-tree only |
-| `wff-impl-handoff` | Package delivery handoff and final implementation closure evidence. | `scripts/phase3/phase3_delivery_gate.py` with supplied evidence |
+| `wff-impl-review` | Review implementation structure, naming, and delivery consistency. | `scripts/phase3/phase3_delivery_gate.py --mode code-review` |
+| `wff-impl-security` | Review security posture and risk evidence. | `scripts/phase3/phase3_delivery_gate.py --mode security-audit` |
+| `wff-impl-handoff` | Package delivery handoff and final implementation closure evidence. | `scripts/phase3/phase3_delivery_gate.py --mode delivery-handoff` |
 
 Aggregate entry:
 
@@ -34,7 +34,7 @@ Aggregate entry:
 
 Compatibility entry:
 
-- legacy first-version runner is full-pack/source-tree only; slim install profiles use `scripts/phase3/run_impl.py` plus focused capability runners.
+- `scripts/phase3/run_phase3_first_version.py`
 
 ## 3. Control boundary
 

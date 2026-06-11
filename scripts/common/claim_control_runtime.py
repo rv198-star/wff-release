@@ -10,13 +10,13 @@ sidecar consumed by the generic acceptance runner.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import importlib
 import hashlib
 import json
 import re
 from pathlib import Path
 from typing import Any, Iterable
 
+from common.claim_control_acceptance import default_surface_path, evaluate_claim_control_acceptance, infer_artifact_metadata
 
 
 @dataclass(frozen=True)
@@ -99,79 +99,6 @@ PHASE1_TRACE_GROUP_ORDER = (
     "requirement_trace_units",
     "acceptance_trace_units",
 )
-
-
-def _claim_control_acceptance_module():
-    try:
-        return importlib.import_module("common.claim_control_acceptance")
-    except ModuleNotFoundError as exc:
-        if exc.name == "common.claim_control_acceptance":
-            return None
-        raise
-
-
-def infer_artifact_metadata(artifact_path: str | Path, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
-    module = _claim_control_acceptance_module()
-    if module is not None:
-        return module.infer_artifact_metadata(artifact_path, overrides)
-    path = Path(artifact_path)
-    metadata = {
-        "artifact_id": path.stem.strip() or path.name.strip(),
-        "source_count": 1,
-        "view_count": 1 if path.exists() else 0,
-        "claim_count": 0,
-        "has_mermaid": False,
-        "has_tables": False,
-        "has_prose_sections": False,
-        "inference_policy": "claim-control-acceptance-sidecar-unavailable",
-    }
-    if overrides:
-        for key, value in overrides.items():
-            if value is not None:
-                metadata[key] = value
-    return metadata
-
-
-def default_surface_path(artifact_path: str | Path) -> Path:
-    module = _claim_control_acceptance_module()
-    if module is not None:
-        return module.default_surface_path(artifact_path)
-    path = Path(artifact_path)
-    return path.with_name(f"{path.stem}.claim-control.json")
-
-
-def evaluate_claim_control_acceptance(
-    artifact_path: str | Path,
-    *,
-    surface_path: str | Path | None = None,
-    metadata_overrides: dict[str, Any] | None = None,
-    profile: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    module = _claim_control_acceptance_module()
-    if module is not None:
-        return module.evaluate_claim_control_acceptance(
-            artifact_path,
-            surface_path=surface_path,
-            metadata_overrides=metadata_overrides,
-            profile=profile,
-        )
-    artifact = Path(artifact_path)
-    surface = Path(surface_path) if surface_path is not None else default_surface_path(artifact)
-    return {
-        "artifact_kind": "claim-control-acceptance-report",
-        "artifact_path": str(artifact),
-        "surface_path": str(surface),
-        "overall_status": "not_evaluated",
-        "claim_ceiling": "review-bound:claim-control-acceptance-sidecar-not-packaged",
-        "classifications": ["claim_control_acceptance_sidecar_unavailable"],
-        "route_decision": {},
-        "metadata": infer_artifact_metadata(artifact, metadata_overrides),
-        "mechanism_report": None,
-        "creates_claims": False,
-        "uses_rendered_views_as_truth": False,
-        "policy": "claim-control sidecar was emitted; acceptance validation is not packaged in this install profile",
-        "sidecar_unavailable": True,
-    }
 
 
 def _sha256_text(text: str) -> str:

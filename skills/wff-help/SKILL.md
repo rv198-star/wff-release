@@ -1,19 +1,13 @@
 ---
 name: wff-help
-description: Deprecated init-only compatibility helper for users who have installed WFF Skills and need project initialization guidance around wff-init. For general WFF routing, use using-wff.
+description: Use when a user has installed WFF Skills and needs help initializing the current project, understanding where WFF runtime files should live, or recovering from project-level WFF install layout confusion. In v1.3.14 this skill only supports project init guidance.
 ---
 
 # WFF Help
 
-## Deprecated Init-Only Compatibility
+Use this skill when the user has installed WFF Skills but is not sure how to make a new or existing project runnable with WFF.
 
-`wff-help` is deprecated as a general WFF entry surface.
-
-Use `using-wff` for normal user routing, scenario selection, lifecycle entry choice, role-based usage, or plain-language onboarding.
-
-This skill is retained only as init-only compatibility for users or older install packs that still look for `wff-help` when attaching WFF to a project with `wff-init`.
-
-## Supported Task
+## Supported Task In v1.3.14
 
 Only one task is supported:
 
@@ -45,19 +39,19 @@ It also records the WFF install-pack resource root when one can be found. This m
 If the user is already in the target project directory, use:
 
 ```bash
-/path/to/wff-v1.5-skills-install-pack/wff-init
+/path/to/wff-v1.3-skills-install-pack/wff-init
 ```
 
 If the user is not in the target project directory, use:
 
 ```bash
-/path/to/wff-v1.5-skills-install-pack/wff-init --project-root /path/to/your-project
+/path/to/wff-v1.3-skills-install-pack/wff-init --project-root /path/to/your-project
 ```
 
 If automatic skills discovery fails, use:
 
 ```bash
-/path/to/wff-v1.5-skills-install-pack/wff-init --skills-root /path/to/installed/skills
+/path/to/wff-v1.3-skills-install-pack/wff-init --skills-root /path/to/installed/skills
 ```
 
 ## Supported Parameters
@@ -67,7 +61,7 @@ Only these two parameters are supported:
 - `--project-root <path>`: target business project directory; defaults to the current directory.
 - `--skills-root <path>`: installed WFF skills root; defaults to automatic discovery.
 
-Do not suggest `--dry-run`, `--yes`, `--force`, `--mode`, global install commands, or business-project scaffolding for this compatibility helper.
+Do not suggest `--dry-run`, `--yes`, `--force`, `--mode`, global install commands, or business-project scaffolding for v1.3.14.
 
 ## Discovery Model
 

@@ -5,9 +5,6 @@ from __future__ import annotations
 import re
 import sys
 
-from common.markdown_table_tools import normalize_snake_table_header
-from common.markdown_table_tools import parse_markdown_table as parse_common_markdown_table
-
 GENERIC_SUBSYSTEM_FIELD_KEYS = {
     "module_detail",
     "responsibility",
@@ -18,21 +15,6 @@ GENERIC_SUBSYSTEM_FIELD_KEYS = {
     "sensitivity",
     "not_realtime_hard",
 }
-
-
-def _safe_description_alias(raw: str) -> str:
-    cleaned = str(raw or "").strip().strip("`")
-    if not cleaned or any(ord(char) > 127 for char in cleaned):
-        return ""
-    if len(cleaned) > 48 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 -]*", cleaned):
-        return ""
-    words = re.findall(r"[A-Za-z0-9]+", cleaned)
-    if not 1 <= len(words) <= 5:
-        return ""
-    lowered = cleaned.lower()
-    if re.search(r"\b(?:primary|supporting)\b.*\bobject\b.*\bfor\b", lowered):
-        return ""
-    return cleaned
 
 
 def _heading_block(text: str, heading: str) -> str:
@@ -49,19 +31,55 @@ def _heading_block(text: str, heading: str) -> str:
     return text[start:end].strip()
 
 
-def parse_markdown_table(block: str) -> list[dict[str, str]]:
-    return parse_common_markdown_table(
-        block,
-        header_style="snake",
-        strip_backticks=False,
-        merge_extra_cells=True,
-        extra_cell_policy="middle",
-        pad_short_rows=False,
-    )
-
-
 def _normalize_key(raw: str) -> str:
-    return normalize_snake_table_header(raw)
+    value = raw.strip().lower()
+    value = re.sub(r"[^a-z0-9]+", "_", value)
+    return re.sub(r"_+", "_", value).strip("_")
+
+
+def _split_pipe_row(line: str) -> list[str]:
+    trimmed = line.strip().strip("|")
+    return [cell.strip() for cell in trimmed.split("|")]
+
+
+def _coerce_table_cells(cells: list[str], header_count: int) -> list[str]:
+    if len(cells) == header_count:
+        return cells
+    if len(cells) < header_count or header_count <= 1:
+        return []
+    collapsed: list[str] = [cells[0]]
+    middle_source = cells[1:-1]
+    middle_header_count = header_count - 2
+    if middle_header_count == 1:
+        collapsed.append(" | ".join(middle_source))
+    else:
+        collapsed.extend(middle_source[: middle_header_count - 1])
+        collapsed.append(" | ".join(middle_source[middle_header_count - 1 :]))
+    collapsed.append(cells[-1])
+    return collapsed if len(collapsed) == header_count else []
+
+
+def parse_markdown_table(block: str) -> list[dict[str, str]]:
+    lines = [line.rstrip() for line in block.splitlines() if line.strip()]
+    for idx in range(len(lines) - 1):
+        if "|" not in lines[idx] or "|" not in lines[idx + 1]:
+            continue
+        if not re.match(r"^\s*\|?[\-:\s|]+\|?\s*$", lines[idx + 1]):
+            continue
+        headers = [_normalize_key(cell) for cell in _split_pipe_row(lines[idx])]
+        rows: list[dict[str, str]] = []
+        for line in lines[idx + 2 :]:
+            if "|" not in line:
+                break
+            cells = _split_pipe_row(line)
+            if len(cells) != len(headers):
+                cells = _coerce_table_cells(cells, len(headers))
+            if len(cells) != len(headers):
+                continue
+            rows.append({header: cell for header, cell in zip(headers, cells)})
+        if rows:
+            return rows
+    return []
 
 
 def _split_values(raw: str) -> list[str]:
@@ -198,10 +216,10 @@ def extract_object_alias_hints(prd_text: str) -> dict[str, list[str]]:
                 _split_values(
                     " / ".join(
                         [
+                            row.get("description", ""),
                             row.get("alias", ""),
                             row.get("english_name", ""),
                             row.get("technical_name", ""),
-                            _safe_description_alias(row.get("description", "")),
                         ]
                     )
                 )

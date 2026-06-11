@@ -5,6 +5,8 @@ description: Use when a docs-first project needs managed artifact identity, proj
 
 # Traceability Management
 
+Version: v0.1
+
 ## Overview
 
 This skill provides a **document registry management mechanism** for docs-first traceability.
@@ -119,7 +121,7 @@ Expected inputs:
 ### `allocate-id`
 Allocate a canonical artifact ID within the current project scope.
 
-Supported Phase-1 / Phase-2 artifact types include:
+Supported Phase-1 / Phase-2 pilot types now include:
 - `REQ`
 - `ARCH`
 - `BOUNDARY`
@@ -220,7 +222,7 @@ Generate:
 
 Each business project must have its own registry.
 
-Recommended layout:
+Recommended v0.1 layout:
 - `<project-root>/.trace/trace.db`
 
 Also keep `project_scope` in registry tables as a second isolation guard.
@@ -234,13 +236,13 @@ Instead:
 - Chinese audit artifact = its own registry record
 - `canonical_of` links the Chinese mirror back to the English canonical artifact
 
-## Current Scope
+## v0.1 Pilot Scope
 
 Start with coarse-grained Phase-1 / Phase-2 stage outputs first.
 
 Do not begin with full lifecycle coverage or paragraph-level decomposition.
 
-Core goals:
+Pilot goals:
 - initialize registry
 - allocate IDs
 - bind Phase-1 output artifacts

@@ -12,13 +12,6 @@
       ]
     },
     {
-      "id": "usage-router",
-      "resource_modules": [],
-      "skills": [
-        "using-wff"
-      ]
-    },
-    {
       "id": "project-context-base",
       "resource_modules": [
         "generated-output-policy"
@@ -169,7 +162,6 @@
       "audience": "mixed-user-and-maintainer",
       "blockers": [],
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -182,6 +174,7 @@
         "p3-worker-guidance",
         "governance-core",
         "reader-translation-lane",
+        "release-proof-orchestration",
         "role-agent-companion"
       ],
       "explicit_docs": [
@@ -201,26 +194,6 @@
         "scripts/release/wff_agent.py"
       ],
       "explicit_templates": [],
-      "excluded_scripts": [
-        "scripts/artifact_consistency/__init__.py",
-        "scripts/artifact_consistency/audit.py",
-        "scripts/artifact_consistency_audit.py",
-        "scripts/phase1/phase1_material_library_coverage_audit.py",
-        "scripts/phase1/phase1_prd_excellence_regression.py",
-        "scripts/phase1/phase1_skill_family_audit.py",
-        "scripts/phase1/record_phase1_runtime_snapshot.py",
-        "scripts/phase3/agentic_repair_loop.py",
-        "scripts/phase3/dispatch_execution.py",
-        "scripts/phase3/dispatch_runtime.py",
-        "scripts/phase3/phase3_dispatch_runner.py",
-        "scripts/phase3/runtime_environment.py",
-        "scripts/phase3/worker_packet_artifacts.py",
-        "scripts/phase3/worker_packet_runner.py",
-        "scripts/release/bootstrap_mindthus_dependency.py",
-        "scripts/release/run_release_dual_case_eval.py",
-        "scripts/phase3/run_phase3_first_version.py",
-        "scripts/phase2/run_phase2_full_trial.py"
-      ],
       "id": "full-pack",
       "include_full_pack_defaults": true,
       "include_skill_direct_assets": true,
@@ -234,13 +207,10 @@
         "phasex-runtime-scripts",
         "phasex-reference-package",
         "phase1-runtime-scripts",
-        "phase1-release-gate-support-scripts",
         "phase1-reference-package",
         "phase2-runtime-scripts",
         "phase2-reference-package",
         "phase3-runtime-scripts",
-        "phase3-runtime-smoke-scripts",
-        "p3-mainline-runtime-closure-scripts",
         "p3-impl-core-runtime",
         "p3-impl-action-card-runtime",
         "p3-impl-db-schema-runtime",
@@ -249,18 +219,14 @@
         "p3-impl-frontend-runtime",
         "p3-impl-verification-runtime",
         "p3-impl-aggregate-runtime",
-        "p3-impl-foundation-runtime",
         "p3-delivery-gate-core",
-        "p3-delivery-gate-full-sidecar-scripts",
-        "p3-delivery-assessment-sidecar-scripts",
-        "p3-delivery-support-sidecar-scripts",
-        "p3-scenario-replay-test-sidecar-scripts",
         "phase3-reference-package",
         "p3-worker-guidance-docs",
         "phase4-runtime-scripts",
         "phase4-reference-package",
         "governance-docs",
         "reader-translation-scripts",
+        "release-proof-scripts",
         "mindthus-runtime-dependency",
         "role-agent-mounts",
         "wff-agent-platform-adapter"
@@ -274,7 +240,6 @@
         "wff-agent"
       ],
       "skills": [
-        "using-wff",
         "wff-arch",
         "wff-base-reader-translation",
         "wff-base-traceability-management",
@@ -304,7 +269,6 @@
       "audience": "business-project-user",
       "blockers": [],
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -358,7 +322,6 @@
         "wff-init"
       ],
       "skills": [
-        "using-wff",
         "wff-req-chat",
         "wff-project-context",
         "wff-help",
@@ -374,7 +337,6 @@
       "audience": "business-project-user",
       "blockers": [],
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -382,16 +344,7 @@
         "governance-core"
       ],
       "excluded_scripts": [
-        "scripts/release/run_release_dual_case_eval.py",
-        "scripts/phase2/phase2_quality_check.py",
-        "scripts/phase2/run_phase2_full_trial.py",
-        "scripts/phase2/cross_stage_consistency.py",
-        "scripts/phase2/validate_mermaid.py",
-        "scripts/phase2/component_semantic_inventory.py",
-        "scripts/phase2/phase2_operation_semantic_payload.py",
-        "scripts/phase3/operation_risk_tiering.py",
-        "scripts/phase3/phase3_operation_semantics.py",
-        "scripts/common/human_review_surface.py"
+        "scripts/release/run_release_dual_case_eval.py"
       ],
       "explicit_docs": [
         "docs/public/wff-orientation-map.zh-CN.md"
@@ -406,9 +359,8 @@
       "explicit_runtime_dep_dirs": [],
       "explicit_scripts": [
         "scripts/release/wff_init.py",
-        "scripts/phase2/run_phase2_fresh_generation.py",
-        "scripts/phase2/run_phase2_existing_system_intake.py",
-        "scripts/phase2/run_phase2_first_version.py"
+        "scripts/phase2/run_phase2_first_version.py",
+        "scripts/phase2/run_phase2_full_trial.py"
       ],
       "explicit_templates": [],
       "id": "architecture-design",
@@ -432,7 +384,6 @@
         "wff-init"
       ],
       "skills": [
-        "using-wff",
         "wff-project-context",
         "wff-help",
         "wff-base-traceability-management",
@@ -446,7 +397,6 @@
       "audience": "business-project-user",
       "blockers": [],
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -455,62 +405,7 @@
         "governance-core"
       ],
       "excluded_scripts": [
-        "scripts/release/run_release_dual_case_eval.py",
-        "scripts/phase3/ui_prototype_fallback.py",
-        "scripts/phase3/run_phase3_first_version.py",
-        "scripts/phase3/phase3_dispatch_runner.py",
-        "scripts/phase3/worker_packet_runner.py",
-        "scripts/phase3/module_synthesis.py",
-        "scripts/phase3/phase3_runtime_smoke.py",
-        "scripts/phase3/phase3_started_service_smoke.py",
-        "scripts/phase3/business_behavior_authoring.py",
-        "scripts/phase3/agentic_semantic_authoring.py",
-        "scripts/phase3/agentic_module_implementation.py",
-        "scripts/phase3/action_card_direct_implementation.py",
-        "scripts/phase3/frontend_scaffold_renderer.py",
-        "scripts/phase3/productness_gate.py",
-        "scripts/phase3/code_review.py",
-        "scripts/phase3/coverage_collection.py",
-        "scripts/phase3/delivery_handoff.py",
-        "scripts/phase3/security_audit.py",
-        "scripts/phase3/test_obligation_matrix.py",
-        "scripts/phase3/test_richness_review.py",
-        "scripts/phase3/agentic_generation_quality_loop.py",
-        "scripts/phase3/agentic_repair_loop.py",
-        "scripts/phase3/mainline_backend_execution.py",
-        "scripts/phase3/runtime_verification_support.py",
-        "scripts/phase3/verification_execution.py",
-        "scripts/phase3/verification_plan.py",
-        "scripts/phase3/verification_ledger.py",
-        "scripts/phase3/verification_backend_evidence.py",
-        "scripts/phase3/execution_runtime_preflight.py",
-        "scripts/phase3/wp_gate_cycle.py",
-        "scripts/phase3/runtime_cycle.py",
-        "scripts/phase3/execution_dispatch_state.py",
-        "scripts/phase3/execution_packet_access.py",
-        "scripts/phase3/worker_run_report.py",
-        "scripts/common/host_port_allocator.py",
-        "scripts/phase3/phase3_quality_check.py",
-        "scripts/phase3/phase3_artifact_quality.py",
-        "scripts/phase3/phase3_behavior_card_validator.py",
-        "scripts/phase3/mainline_assessment.py",
-        "scripts/phase3/agentic_repair_interrupt.py",
-        "scripts/phase3/backend_truth_checks.py",
-        "scripts/phase3/frontend_contract_checks.py",
-        "scripts/phase3/operable_surface_contract_metrics.py",
-        "scripts/common/claim_control_acceptance.py",
-        "scripts/common/claim_control_contract.py",
-        "scripts/phase3/scenario_test_scaffolder.py",
-        "scripts/phase3/replay_test_scaffolder.py",
-        "scripts/phase3/test_trace_matrix_builder.py",
-        "scripts/phase3/trace_registry.py",
-        "scripts/phase3/post_execution_refresh.py",
-        "scripts/phase3/delivery_closure.py",
-        "scripts/phase3/delivery_report_rendering.py",
-        "scripts/phase3/phase3_delivery_gate_full.py",
-        "scripts/phase3/phase3_first_version_runtime.py",
-        "scripts/phase3/run_impl_foundation.py",
-        "scripts/phase3/phase3_operation_semantics.py"
+        "scripts/release/run_release_dual_case_eval.py"
       ],
       "explicit_docs": [
         "docs/public/wff-orientation-map.zh-CN.md"
@@ -532,9 +427,15 @@
         "scripts/phase3/run_impl_backend.py",
         "scripts/phase3/run_impl_frontend.py",
         "scripts/phase3/run_impl_verification.py",
+        "scripts/phase3/run_phase3_first_version.py",
+        "scripts/phase3/phase3_dispatch_runner.py",
         "scripts/phase3/run_vitest_targets_sequentially.py",
         "scripts/phase3/phase3_delivery_gate.py",
-        "scripts/phase3/api_doc_generation.py"
+        "scripts/phase3/api_doc_generation.py",
+        "scripts/phase3/code_review.py",
+        "scripts/phase3/coverage_collection.py",
+        "scripts/phase3/delivery_handoff.py",
+        "scripts/phase3/security_audit.py"
       ],
       "explicit_templates": [],
       "id": "implementation-delivery",
@@ -568,7 +469,6 @@
         "wff-init"
       ],
       "skills": [
-        "using-wff",
         "wff-project-context",
         "wff-help",
         "wff-base-traceability-management",
@@ -591,7 +491,6 @@
       "audience": "business-project-user",
       "blockers": [],
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -600,10 +499,8 @@
       ],
       "excluded_scripts": [
         "scripts/release/run_release_dual_case_eval.py",
-        "scripts/phase2/run_phase2_fresh_generation.py",
-        "scripts/phase3/run_phase3_first_version.py",
-        "scripts/phase2/run_phase2_existing_system_intake.py",
-        "scripts/phase2/run_phase2_first_version.py"
+        "scripts/phase2/run_phase2_first_version.py",
+        "scripts/phase3/run_phase3_first_version.py"
       ],
       "explicit_docs": [
         "docs/public/wff-orientation-map.zh-CN.md"
@@ -645,7 +542,6 @@
         "wff-init"
       ],
       "skills": [
-        "using-wff",
         "wff-project-context",
         "wff-help",
         "wff-base-traceability-management",
@@ -659,7 +555,6 @@
       "audience": "business-project-user",
       "blockers": [],
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -674,56 +569,7 @@
       ],
       "excluded_release_case_dirs": [],
       "excluded_scripts": [
-        "scripts/release/run_release_dual_case_eval.py",
-        "scripts/phase3/ui_prototype_fallback.py",
-        "scripts/phase3/phase3_dispatch_runner.py",
-        "scripts/phase3/worker_packet_runner.py",
-        "scripts/phase3/module_synthesis.py",
-        "scripts/phase3/phase3_runtime_smoke.py",
-        "scripts/phase3/phase3_started_service_smoke.py",
-        "scripts/phase3/business_behavior_authoring.py",
-        "scripts/phase3/agentic_semantic_authoring.py",
-        "scripts/phase3/agentic_module_implementation.py",
-        "scripts/phase3/action_card_direct_implementation.py",
-        "scripts/phase3/frontend_scaffold_renderer.py",
-        "scripts/phase3/productness_gate.py",
-        "scripts/phase3/code_review.py",
-        "scripts/phase3/coverage_collection.py",
-        "scripts/phase3/delivery_handoff.py",
-        "scripts/phase3/security_audit.py",
-        "scripts/phase3/test_obligation_matrix.py",
-        "scripts/phase3/test_richness_review.py",
-        "scripts/phase3/agentic_generation_quality_loop.py",
-        "scripts/phase3/agentic_repair_loop.py",
-        "scripts/phase3/mainline_backend_execution.py",
-        "scripts/phase3/runtime_verification_support.py",
-        "scripts/phase3/verification_execution.py",
-        "scripts/phase3/verification_plan.py",
-        "scripts/phase3/verification_ledger.py",
-        "scripts/phase3/verification_backend_evidence.py",
-        "scripts/phase3/execution_runtime_preflight.py",
-        "scripts/phase3/wp_gate_cycle.py",
-        "scripts/phase3/runtime_cycle.py",
-        "scripts/phase3/execution_dispatch_state.py",
-        "scripts/phase3/execution_packet_access.py",
-        "scripts/phase3/worker_run_report.py",
-        "scripts/common/host_port_allocator.py",
-        "scripts/phase3/phase3_quality_check.py",
-        "scripts/phase3/phase3_artifact_quality.py",
-        "scripts/phase3/phase3_behavior_card_validator.py",
-        "scripts/phase3/mainline_assessment.py",
-        "scripts/phase3/agentic_repair_interrupt.py",
-        "scripts/phase3/backend_truth_checks.py",
-        "scripts/phase3/frontend_contract_checks.py",
-        "scripts/phase3/operable_surface_contract_metrics.py",
-        "scripts/phase3/scenario_test_scaffolder.py",
-        "scripts/phase3/replay_test_scaffolder.py",
-        "scripts/phase3/post_execution_refresh.py",
-        "scripts/phase3/delivery_closure.py",
-        "scripts/phase3/delivery_report_rendering.py",
-        "scripts/phase3/phase3_delivery_gate_full.py",
-        "scripts/phase3/run_phase3_first_version.py",
-        "scripts/phase2/run_phase2_full_trial.py"
+        "scripts/release/run_release_dual_case_eval.py"
       ],
       "explicit_docs": [
         "docs/public/wff-orientation-map.zh-CN.md"
@@ -745,9 +591,8 @@
         "scripts/release/wff_init.py",
         "scripts/phase1/run_phase1_full_trial.py",
         "scripts/phase1/run_phase1_convergence.py",
-        "scripts/phase2/run_phase2_fresh_generation.py",
-        "scripts/phase2/run_phase2_existing_system_intake.py",
         "scripts/phase2/run_phase2_first_version.py",
+        "scripts/phase2/run_phase2_full_trial.py",
         "scripts/phase3/run_impl.py",
         "scripts/phase3/run_impl_action_cards.py",
         "scripts/phase3/run_impl_db_schema.py",
@@ -755,6 +600,8 @@
         "scripts/phase3/run_impl_backend.py",
         "scripts/phase3/run_impl_frontend.py",
         "scripts/phase3/run_impl_verification.py",
+        "scripts/phase3/run_phase3_first_version.py",
+        "scripts/phase3/phase3_dispatch_runner.py",
         "scripts/phase3/run_vitest_targets_sequentially.py",
         "scripts/phase4/run_phase4_first_version.py",
         "scripts/phase4/run_p1_p4_mainline_closure.py",
@@ -786,7 +633,6 @@
         "p3-impl-frontend-runtime",
         "p3-impl-verification-runtime",
         "p3-impl-aggregate-runtime",
-        "p3-impl-foundation-runtime",
         "p3-delivery-gate-core",
         "phase3-reference-package",
         "phase4-runtime-scripts",
@@ -803,7 +649,6 @@
         "wff-init"
       ],
       "skills": [
-        "using-wff",
         "wff-req-chat",
         "wff-project-context",
         "wff-help",
@@ -831,7 +676,6 @@
       "audience": "business-project-user",
       "blockers": [],
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -875,7 +719,6 @@
         "wff-init"
       ],
       "skills": [
-        "using-wff",
         "wff-project-context",
         "wff-help",
         "wff-base-traceability-management",
@@ -965,7 +808,6 @@
       "audience": "business-project-user",
       "blockers": [],
       "capabilities": [
-        "usage-router",
         "role-agent-companion"
       ],
       "explicit_docs": [
@@ -1001,7 +843,6 @@
         "wff-agent"
       ],
       "skills": [
-        "using-wff",
         "wff-role-agents"
       ],
       "standalone_claim": "adapter-export-only",
@@ -1182,7 +1023,11 @@
       "explicit_runtime_dep_dirs": [],
       "explicit_scripts": [
         "scripts/phase3/phase3_delivery_gate.py",
-        "scripts/phase3/api_doc_generation.py"
+        "scripts/phase3/api_doc_generation.py",
+        "scripts/phase3/code_review.py",
+        "scripts/phase3/coverage_collection.py",
+        "scripts/phase3/delivery_handoff.py",
+        "scripts/phase3/security_audit.py"
       ],
       "explicit_templates": [],
       "id": "p3-delivery-gate",
@@ -1257,13 +1102,12 @@
             "scripts/phasex/validate_phasex_case.py",
             "scripts/phasex/extract_mainline_reentry_packets.py"
           ],
-          "future_action": "Use the fuller brownfield-change profile when project bootstrap, context, and traceability support are needed.",
-          "reason": "PhaseX / PX is supported for code-backed existing-system assessment and depends on brownfield reference assets and scripts.",
-          "type": "phasex-runtime"
+          "future_action": "Run a separate PhaseX profile smoke before claiming standalone preview installability.",
+          "reason": "PhaseX is preview/incubating and still depends on brownfield reference assets and scripts.",
+          "type": "phasex-preview-runtime"
         }
       ],
       "capabilities": [
-        "usage-router",
         "phasex-brownfield-runtime"
       ],
       "explicit_docs": [
@@ -1279,7 +1123,7 @@
       "include_skill_direct_assets": true,
       "layer": "install-profile",
       "pack_type": "skills-install-profile-pack",
-      "package_kind": "user-facing-scenario",
+      "package_kind": "preview-scenario",
       "resource_modules": [
         "phasex-runtime-scripts",
         "phasex-reference-package"
@@ -1287,11 +1131,10 @@
       "root_entrypoint_targets": {},
       "root_entrypoints": [],
       "skills": [
-        "using-wff",
         "wff-x"
       ],
-      "standalone_claim": "minimal supported PhaseX / PX entry profile for code-backed existing-system assessment",
-      "status": "supported",
+      "standalone_claim": "preview-not-proven",
+      "status": "preview",
       "target_package": "brownfield-change"
     }
   ],
@@ -1345,36 +1188,6 @@
       "type": "phase-runtime"
     },
     {
-      "id": "phase1-release-gate-support-scripts",
-      "paths": [
-        "scripts/phase1/phase1_stage_artifact_depth_gate.py",
-        "scripts/phase1/phase1_prd_quality_gate.py",
-        "scripts/phase1/phase1_prd_analysis_delta_gate.py",
-        "scripts/phase1/phase1_prd_assembly_integrity_gate.py",
-        "scripts/phase1/phase1_prd_executability_gate.py",
-        "scripts/phase1/phase1_prd_section_scoring_gate.py",
-        "scripts/phase1/phase1_artifact_consistency_gate.py",
-        "scripts/phase1/phase1_emit_execution_report.py"
-      ],
-      "type": "release-gate-support"
-    },
-    {
-      "id": "phase1-diagnostic-proof-scripts",
-      "paths": [
-        "scripts/phase1/record_phase1_runtime_snapshot.py",
-        "scripts/phase1/phase1_material_library_coverage_audit.py",
-        "scripts/phase1/phase1_skill_family_audit.py"
-      ],
-      "type": "historical-proof-snapshot"
-    },
-    {
-      "id": "phase1-development-regression-scripts",
-      "paths": [
-        "scripts/phase1/phase1_prd_excellence_regression.py"
-      ],
-      "type": "development-regression-evidence"
-    },
-    {
       "id": "phase1-reference-package",
       "paths": [
         "reference-packages/phase1-product-requirements"
@@ -1384,19 +1197,10 @@
     {
       "id": "phase2-runtime-scripts",
       "paths": [
-        "scripts/phase2/run_phase2_fresh_generation.py",
-        "scripts/phase2/run_phase2_existing_system_intake.py",
         "scripts/phase2/run_phase2_first_version.py",
-        "scripts/phase2/phase2_closure_runtime.py"
-      ],
-      "type": "phase-runtime"
-    },
-    {
-      "id": "phase2-full-trial-manual-sidecar-scripts",
-      "paths": [
         "scripts/phase2/run_phase2_full_trial.py"
       ],
-      "type": "manual-closure-sidecar"
+      "type": "phase-runtime"
     },
     {
       "id": "phase2-reference-package",
@@ -1408,111 +1212,11 @@
     {
       "id": "phase3-runtime-scripts",
       "paths": [
+        "scripts/phase3/run_phase3_first_version.py",
+        "scripts/phase3/phase3_dispatch_runner.py",
         "scripts/phase3/run_vitest_targets_sequentially.py"
       ],
       "type": "phase-runtime"
-    },
-    {
-      "id": "p3-first-version-legacy-sidecar-scripts",
-      "paths": [
-        "scripts/phase3/run_phase3_first_version.py"
-      ],
-      "type": "optional-legacy-runtime-support"
-    },
-    {
-      "id": "phase3-dispatch-runtime-scripts",
-      "paths": [
-        "scripts/phase3/dispatch_lane_bootstrap.py",
-        "scripts/phase3/phase3_dispatch_runner.py"
-      ],
-      "type": "phase-runtime"
-    },
-    {
-      "id": "phase3-ui-fallback-runtime-scripts",
-      "paths": [
-        "scripts/phase3/ui_prototype_fallback.py"
-      ],
-      "type": "phase-runtime"
-    },
-    {
-      "id": "phase3-module-synthesis-runtime-scripts",
-      "paths": [
-        "scripts/phase3/module_synthesis.py"
-      ],
-      "type": "phase-runtime"
-    },
-    {
-      "id": "phase3-runtime-smoke-scripts",
-      "paths": [
-        "scripts/phase3/phase3_runtime_smoke.py",
-        "scripts/phase3/phase3_started_service_smoke.py"
-      ],
-      "type": "phase-runtime"
-    },
-    {
-      "id": "p3-mainline-runtime-closure-scripts",
-      "paths": [
-        "scripts/phase3/post_execution_refresh.py",
-        "scripts/phase3/mainline_backend_execution.py"
-      ],
-      "type": "phase-runtime"
-    },
-    {
-      "id": "phase3-agentic-authoring-enrichment-scripts",
-      "paths": [
-        "scripts/phase3/business_behavior_authoring.py",
-        "scripts/phase3/agentic_semantic_authoring.py",
-        "scripts/phase3/agentic_module_implementation.py",
-        "scripts/phase3/action_card_direct_implementation.py"
-      ],
-      "type": "phase-runtime"
-    },
-    {
-      "id": "phase3-rich-frontend-scaffold-renderer-scripts",
-      "paths": [
-        "scripts/phase3/frontend_scaffold_renderer.py"
-      ],
-      "type": "phase-runtime"
-    },
-    {
-      "id": "phase3-ui-locale-full-sidecar-scripts",
-      "paths": [
-        "scripts/phase3/ui_locale_full.py"
-      ],
-      "type": "optional-ui-locale-support"
-    },
-    {
-      "id": "phase3-productness-gate-scripts",
-      "paths": [
-        "scripts/phase3/productness_gate.py"
-      ],
-      "type": "phase-runtime"
-    },
-    {
-      "id": "p3-scenario-replay-test-sidecar-scripts",
-      "paths": [
-        "scripts/phase3/scenario_test_scaffolder.py",
-        "scripts/phase3/replay_test_scaffolder.py"
-      ],
-      "type": "optional-verification-test-scaffold-support"
-    },
-    {
-      "id": "p3-trace-refresh-sidecar-scripts",
-      "paths": [
-        "scripts/phase3/test_trace_matrix_builder.py",
-        "scripts/phase3/trace_registry.py",
-        "scripts/phase3/post_execution_refresh.py"
-      ],
-      "type": "optional-trace-refresh-support"
-    },
-    {
-      "id": "phase3-quality-diagnostic-sidecar-scripts",
-      "paths": [
-        "scripts/phase3/test_obligation_matrix.py",
-        "scripts/phase3/test_richness_review.py",
-        "scripts/phase3/agentic_generation_quality_loop.py"
-      ],
-      "type": "optional-diagnostic-support"
     },
     {
       "id": "phase3-reference-package",
@@ -1587,83 +1291,16 @@
       "type": "phase-runtime"
     },
     {
-      "id": "p3-impl-foundation-runtime",
-      "paths": [
-        "scripts/phase3/phase3_first_version_runtime.py",
-        "scripts/phase3/run_impl_foundation.py",
-        "scripts/phase3/test_trace_matrix_builder.py",
-        "scripts/phase3/trace_registry.py",
-        "scripts/phase3/ui_locale_full.py",
-        "scripts/phase3/validation_levels.py",
-        "scripts/phase3/timing_report.py"
-      ],
-      "type": "phase-runtime"
-    },
-    {
       "id": "p3-delivery-gate-core",
       "paths": [
-        "scripts/phase3/phase3_delivery_gate.py"
-      ],
-      "type": "shared-runtime-core"
-    },
-    {
-      "id": "p3-delivery-gate-full-sidecar-scripts",
-      "paths": [
-        "scripts/phase3/phase3_delivery_gate_full.py"
-      ],
-      "type": "optional-release-gate-support"
-    },
-    {
-      "id": "p3-delivery-assessment-sidecar-scripts",
-      "paths": [
-        "scripts/phase3/mainline_assessment.py",
-        "scripts/phase3/agentic_repair_interrupt.py",
-        "scripts/phase3/backend_truth_checks.py",
-        "scripts/phase3/frontend_contract_checks.py",
-        "scripts/phase3/operable_surface_contract_metrics.py"
-      ],
-      "type": "optional-delivery-assessment-support"
-    },
-    {
-      "id": "p3-delivery-support-sidecar-scripts",
-      "paths": [
+        "scripts/phase3/phase3_delivery_gate.py",
+        "scripts/phase3/api_doc_generation.py",
         "scripts/phase3/code_review.py",
         "scripts/phase3/coverage_collection.py",
         "scripts/phase3/delivery_handoff.py",
-        "scripts/phase3/security_audit.py",
-        "scripts/phase3/delivery_closure.py",
-        "scripts/phase3/delivery_report_rendering.py"
+        "scripts/phase3/security_audit.py"
       ],
-      "type": "optional-release-gate-support"
-    },
-    {
-      "id": "p3-runtime-verification-sidecar-scripts",
-      "paths": [
-        "scripts/phase3/agentic_repair_loop.py",
-        "scripts/phase3/mainline_backend_execution.py",
-        "scripts/phase3/runtime_verification_support.py",
-        "scripts/phase3/verification_execution.py",
-        "scripts/phase3/verification_plan.py",
-        "scripts/phase3/verification_ledger.py",
-        "scripts/phase3/verification_backend_evidence.py",
-        "scripts/phase3/execution_runtime_preflight.py",
-        "scripts/phase3/wp_gate_cycle.py",
-        "scripts/phase3/runtime_cycle.py",
-        "scripts/phase3/execution_dispatch_state.py",
-        "scripts/phase3/execution_packet_access.py",
-        "scripts/phase3/worker_run_report.py",
-        "scripts/common/host_port_allocator.py"
-      ],
-      "type": "optional-runtime-verification-support"
-    },
-    {
-      "id": "p3-bootstrap-quality-sidecar-scripts",
-      "paths": [
-        "scripts/phase3/phase3_quality_check.py",
-        "scripts/phase3/phase3_artifact_quality.py",
-        "scripts/phase3/phase3_behavior_card_validator.py"
-      ],
-      "type": "optional-bootstrap-quality-support"
+      "type": "shared-runtime-core"
     },
     {
       "id": "p3-worker-guidance-docs",
@@ -1744,7 +1381,6 @@
     {
       "audience": "business-project-user",
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -1761,7 +1397,6 @@
     {
       "audience": "business-project-user",
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -1786,7 +1421,6 @@
     {
       "audience": "business-project-user",
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -1807,7 +1441,6 @@
     {
       "audience": "business-project-user",
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -1839,7 +1472,6 @@
     {
       "audience": "business-project-user",
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -1860,7 +1492,6 @@
     {
       "audience": "business-project-user",
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -1879,7 +1510,6 @@
     {
       "audience": "business-project-user",
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -1901,7 +1531,6 @@
         "phase1-runtime-scripts",
         "phase1-reference-package",
         "phase2-runtime-scripts",
-        "phase2-full-trial-manual-sidecar-scripts",
         "phase2-reference-package",
         "phase3-runtime-scripts",
         "p3-impl-core-runtime",

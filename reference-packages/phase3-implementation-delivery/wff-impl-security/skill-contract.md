@@ -25,4 +25,4 @@ Review Phase-3 security posture and security-relevant implementation evidence.
 
 ## Runtime
 
-Use the security audit playbook to produce security evidence in slim profiles; optional security-audit support generation is full-pack/source-tree only.
+Use `scripts/phase3/phase3_delivery_gate.py --mode security-audit`.

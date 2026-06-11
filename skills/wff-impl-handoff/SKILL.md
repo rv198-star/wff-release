@@ -60,9 +60,10 @@ Read:
 
 ## Primary Tool
 
+- `scripts/phase3/phase3_delivery_gate.py --mode delivery-handoff`
+- `scripts/phase3/phase3_runtime_smoke.py`
+- `scripts/phase3/phase3_started_service_smoke.py`
 - `scripts/phase3/phase3_delivery_gate.py`
-- provide runtime smoke / started-service evidence to the delivery gate when slim profiles do not ship smoke helper scripts
-- full-pack/source-tree support mode: delivery-handoff report generation is optional support tooling, not shipped in slim implementation profiles
 
 ## Completion Standard
 

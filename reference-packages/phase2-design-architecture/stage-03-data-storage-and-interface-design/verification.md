@@ -1,0 +1,260 @@
+# Stage-03 Verification — data-storage-and-interface-design
+
+## 1. Minimal Valid-Input Self-Test Case
+- upstream_package: Stage-02 decomposition package exists with conceptual ER and domain event coverage
+- declaration_states:
+  - upstream_nfr_state: `unknown`
+  - decomposition_readiness: `present`
+  - quality_detail: `unknown`
+
+## 2. Dry-Run Snapshot
+- data_model_summary: present
+- storage_strategy: present
+- access_pattern_and_index_strategy: present
+  - sampled_access_patterns:
+    - access_pattern_1:
+      - access_pattern: `tenant-scoped recommendation lookup sorted by freshness`
+      - proposed_index: `btree (tenant_id, recommendation_state, created_at desc)`
+    - access_pattern_2:
+      - access_pattern: `review replay by run_id and task state`
+      - proposed_index: `btree (run_id, task_state, reviewed_at desc)`
+- schema_draft: present
+- interface_contracts: present
+  - sample_structured_contracts:
+    - contract_1:
+      - contract_name: `ReviewDecisionSnapshot`
+      - producer: `review-service`
+      - consumer: `planning-ui`
+      - purpose: expose read-only review decision state
+      - schema_form:
+        - `json_schema`
+      - json_schema:
+        - type: object
+        - required: [`review_id`, `decision_state`, `issued_at`]
+      - failure_semantics:
+        - absent decision remains explicit
+      - compatibility_rule:
+        - additive fields only
+    - contract_2:
+      - contract_name: `TaskOutcomeSnapshot`
+      - producer: `task-service`
+      - consumer: `review-service`
+      - purpose: surface task execution evidence
+      - schema_form:
+        - `ts_interface`
+      - ts_interface:
+        - interface TaskOutcomeSnapshot { taskId: string; state: string; updatedAt: string; }
+      - failure_semantics:
+        - blocked task states remain valid outputs
+      - compatibility_rule:
+        - enum changes require version bump
+    - contract_3:
+      - contract_name: `ActiveScopeSnapshot`
+      - producer: `scope-service`
+      - consumer: `observation-service`
+      - purpose: provide scope/version truth
+      - schema_form:
+        - `json_schema`
+      - json_schema:
+        - type: object
+        - required: [`scope_id`, `version_id`, `activation_state`]
+      - failure_semantics:
+        - inactive scope blocks downstream start
+      - compatibility_rule:
+        - versioned snapshot contract
+- response_and_error_contract: present
+  - canonical_error_response:
+    - error_type: `business_error | system_error`
+    - error_code: stable machine-readable code
+    - message: caller-facing explanation
+    - retryability: `never | safe_with_backoff | caller_after_fix`
+    - caller_action: fix input / retry later / escalate
+    - trace_id: request trace handle
+  - classification_rule:
+    - domain/policy conflicts stay `business_error`; dependency/runtime failures stay `system_error`
+- api_endpoint_draft: present
+  - sampled_json_examples:
+    - endpoint: `POST /api/v1/meeting-summaries`
+    - request_body_example:
+      ```json
+      {
+        "tenant_id": "tenant_123",
+        "meeting_id": "mtg_456",
+        "transcript_ref": "tr_789",
+        "requested_by": "user_001"
+      }
+      ```
+    - response_body_example:
+      ```json
+      {
+        "summary_id": "sum_001",
+        "status": "queued",
+        "review_required": true
+      }
+      ```
+  - sampled_operational_controls:
+    - endpoint_1:
+      - endpoint_name: `GET /api/v1/findings`
+      - response_profile: `envelope`
+      - rate_limit_policy: `60 req/min per tenant`
+      - pagination_rule: `cursor-based pagination required`
+      - retryability_policy: `safe_with_backoff for 5xx only`
+      - idempotency_rule: `GET is naturally idempotent`
+    - endpoint_2:
+      - endpoint_name: `GET /api/v1/review-reports`
+      - response_profile: `envelope`
+      - rate_limit_policy: `30 req/min per tenant`
+      - pagination_rule: `page-size <= 50; cursor-based pagination`
+      - retryability_policy: `safe_with_backoff for transient dependency failures`
+      - idempotency_rule: `GET is naturally idempotent`
+- lifecycle_and_command_consistency_checks: present
+- public_boundary_registry_closure: present
+  - namespace_rule:
+    - all public contracts use `geo.contracts.<domain>` and snapshots use `geo.snapshots.<domain>`
+  - sample_namespaced_entries:
+    - public_name: `ReviewDecisionSnapshot`
+    - namespace: `geo.snapshots.review`
+    - public_name: `TaskOutcomeSnapshot`
+    - namespace: `geo.snapshots.task`
+    - public_name: `RecommendationTaskPayload`
+    - namespace: `geo.contracts.tasking`
+    - public_name: `ActiveScopeSnapshot`
+    - namespace: `geo.snapshots.scope`
+    - public_name: `ClarificationOutcome`
+    - namespace: `geo.contracts.tasking`
+- interaction_flow: present
+- scenario_coverage_matrix: present
+  - sampled_scenario_categories:
+    - happy_path
+    - failure_path
+    - concurrent_conflict
+  - sampled_concurrency_strategy:
+    - optimistic_lock retry on recommendation approval collision
+- security_architecture_outline: present
+  - trust_boundaries:
+    - browser/client boundary
+    - API edge to application-service boundary
+    - application-service to CRM connector boundary
+  - authn_authz_posture:
+    - authenticated reviewer identity required for write commands; reviewer/admin roles separated from read-only observers
+  - auth_sequence_direction:
+    - client obtains authenticated session first, then calls application commands; CRM connector calls happen only after server-side authorization succeeds
+  - token_posture:
+    - browser-facing session token is short-lived; downstream connector tokens are server-side only and never returned through public APIs
+  - audit_logging_hooks:
+    - review decisions, export attempts, permission changes, and connector failures emit audit events
+  - sensitive_data_handling:
+    - summaries, transcript references, and export payloads are classified as sensitive business content
+  - key_management_posture:
+    - connector secrets and encryption keys are centrally rotated and not embedded in endpoint payloads
+- technology_stack_and_deployment_assumptions: present
+- technology_selection_evaluation_matrix: present
+  - comparison_depth_note:
+    - each candidate row carries at least 10 explicit comparison dimensions before evidence / decision / rejection columns
+  - sampled_evidence_sources:
+    - candidate_1: `FastAPI modular monolith`
+      - evidence_sources:
+        - source_url: `https://fastapi.tiangolo.com/features/`
+        - verification_date: `2026-03-28`
+        - note: framework capability baseline
+    - candidate_2: `Temporal-backed workflow variant`
+      - evidence_sources:
+        - source_url: `https://docs.temporal.io/`
+        - verification_date: `2026-03-28`
+        - note: workflow durability baseline
+    - candidate_3: `Kafka-centric event-driven services`
+      - evidence_sources:
+        - source_url: `https://kafka.apache.org/documentation/`
+        - verification_date: `2026-03-28`
+        - note: event-stream platform baseline
+    - candidate_4: `Redis/Celery worker split`
+      - evidence_sources:
+        - source_url: `https://docs.celeryq.dev/`
+        - verification_date: `2026-03-28`
+        - note: worker/queue baseline
+    - candidate_5: `Django monolith`
+      - evidence_sources:
+        - source_url: `https://docs.djangoproject.com/`
+        - verification_date: `2026-03-28`
+        - note: framework maturity baseline
+- dominant_bottleneck_hypothesis: present
+  - measurement_plan:
+    - replay representative review/task flows and measure queue delay plus evidence fetch latency
+  - threshold:
+    - p95 cross-boundary completion delay must remain below `5 minutes`
+  - spike_scope:
+    - one spike targets evidence growth and one spike targets external task-sink latency/retry behavior
+- architecture_alternative_candidate_set: present
+  - candidate_1:
+    - candidate_name: `FastAPI modular monolith`
+    - pros: explicit contracts with moderate ops cost
+    - cons: less durable orchestration than workflow engine
+    - cost_burden: low-medium
+    - fit_scenario: first-wave constrained workflow system
+    - reversibility: high
+  - candidate_2:
+    - candidate_name: `Workflow-engine augmented monolith`
+    - pros: stronger long-running workflow guarantees
+    - cons: higher operational burden
+    - cost_burden: high
+    - fit_scenario: retry-heavy multi-step orchestration
+    - reversibility: medium
+  - candidate_3:
+    - candidate_name: `Kafka-centric services`
+    - pros: highest fan-out scalability
+    - cons: excessive complexity for current dominant constraint
+    - cost_burden: very high
+    - fit_scenario: internet-scale event fan-out
+    - reversibility: low
+  - candidate_4:
+    - candidate_name: `Django monolith`
+    - pros: strong CRUD productivity
+    - cons: weaker fit for explicit API-first contract posture
+    - cost_burden: low-medium
+    - fit_scenario: admin-heavy CRUD baseline
+    - reversibility: medium
+- baseline_insufficiency_note: present
+- constraint_dominant_optimum_candidate: present
+- capacity_and_performance_assumptions: present
+- key_tradeoff_decisions: present
+- review-bound markers: explicit
+
+## 3. Gate Checks
+- decomposition-grounded design: PASS
+- ownership/contract clarity: PASS
+- lifecycle and command consistency: PASS
+- access-pattern/index rationale explicit: PASS
+- schema draft explicit enough for convergence: PASS
+- schema field registries use implementation-facing data types: PASS
+- API endpoint draft explicit enough for convergence: PASS
+- sampled endpoint JSON request/response examples are parseable: PASS
+- canonical response/error contract explicit: PASS
+- implementation-facing endpoints include response profile, retryability, and idempotency posture: PASS
+- business and system error semantics remain distinguishable: PASS
+- public-boundary registry closure: PASS
+- scenario coverage across all known business scenarios: PASS
+- concurrent-conflict scenarios explicitly covered: PASS
+- public-boundary freeze discipline explicit: PASS
+- technology selection rationale explicit: PASS
+- technology selection matrix includes `>=10` comparison dimensions per candidate: PASS
+- time-sensitive technology facts externally verified: PASS
+- technology evidence includes URL and verification date: PASS
+- interface contracts include structured schema forms: PASS
+- key list/read endpoints include pagination and rate-limit posture: PASS
+- bottleneck hypothesis includes measurement plan / threshold / spike scope: PASS
+- alternative candidates include pros / cons / cost / fit / reversibility: PASS
+- public boundary registry includes namespace rule and namespaced entries: PASS
+- dominant bottleneck explicit: PASS
+- materially different alternatives evaluated: PASS
+- baseline insufficiency explicit where relevant: PASS
+- constraint-dominant optimum candidate explicit: PASS
+- security/stack/performance assumptions explicit: PASS
+- security outline includes auth direction, token posture, and key-management posture: PASS
+- Stage-04 handoff readiness: PASS
+- declaration-state semantics preserved: PASS (`present | absent | unknown | deferred` semantics retained where relevant)
+- Mermaid data/interaction representation present: PASS
+
+## 4. Verification Conclusion
+- result: PASS on minimal valid-input path
+- limits: adversarial/contradictory input hardening deferred
+- next consumer: `design-convergence-and-delivery-prototype`

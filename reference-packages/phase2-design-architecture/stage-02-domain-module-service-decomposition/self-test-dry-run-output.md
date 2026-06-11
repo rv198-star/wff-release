@@ -1,0 +1,128 @@
+# Stage-02 Dry-Run Output — meeting assistant decomposition
+
+## 1. Document Metadata
+- document_name:
+  - ai-meeting-assistant-stage-02-dry-run
+- stage:
+  - domain-module-service-decomposition
+- version:
+  - v0.1-dry-run
+- status:
+  - `provisional`
+- source_status:
+  - `mixed`
+- artifact_id:
+  - `ARCH-STG02-OUTPUT-0001`
+- artifact_type:
+  - `DOMAIN`
+- depends_on:
+  - `ARCH-STG01-OUTPUT-0001`
+- feeds:
+  - `ARCH-STG03-OUTPUT-0001`
+- source_path:
+  - `reference-packages/phase2-design-architecture/stage-02-domain-module-service-decomposition/self-test-dry-run-output.md`
+- source_anchor:
+  - `#arch-stg02-output-0001`
+- traceability_managed_by:
+  - `wff-base-traceability-management`
+
+## 2. Context and Objective {#arch-stg02-output-0001}
+- decomposition_objective:
+  - derive module/service structure from Stage-01 boundary and capability package
+- upstream_boundary_summary:
+  - Stage-01 froze meeting-assistant boundary, capability map, and architecture direction
+- upstream_declaration_states:
+  - `present | unknown | deferred`
+- assumptions:
+  - CRM synchronization remains a separable external-facing concern
+- open_questions:
+  - whether review workflow and action extraction should remain within one bounded context or split later
+
+## 3. Core Structured Output
+- domain_map:
+  - meeting-capture domain
+  - summary-review domain
+  - action-sync domain
+- module_map:
+  - ingestion module
+  - transcript processing module
+  - review workflow module
+  - CRM sync module
+- service_candidates:
+  - capture service
+  - summarization service
+  - review orchestration service
+  - CRM integration service
+- responsibility_matrix:
+  - review workflow owns human validation before action sync
+  - CRM integration owns outbound dependency behavior
+- lifecycle_ownership_closure:
+  - meeting capture aggregate:
+    - writer module: ingestion / transcript processing
+    - lifecycle: `captured -> processed`
+  - review aggregate:
+    - writer module: review workflow
+    - lifecycle: `draft -> approved | rejected -> archived`
+  - CRM sync job aggregate:
+    - writer module: CRM sync
+    - lifecycle: `queued -> delivered | retrying | failed`
+  - closure rule:
+    - no downstream read-only consumer mutates upstream review truth after handoff
+- dependency_collaboration_map:
+  - capture -> processing -> review -> action extraction -> CRM sync
+- entity_relationship_diagram:
+  - `Meeting` owns `TranscriptArtifact`
+  - `Meeting` produces `SummaryDraft`
+  - `SummaryDraft` is evaluated into `ReviewDecision`
+  - `ReviewDecision` spawns `CRMSyncJob`
+  - `CRMSyncJob` emits `CRMSyncAttempt`
+- domain_event_catalog:
+  - `MeetingCaptured`:
+    - producer: capture service
+    - consumer: summarization service
+    - trigger: transcript artifact accepted
+  - `SummaryDraftPrepared`:
+    - producer: summarization service
+    - consumer: review orchestration service
+    - trigger: summary candidate ready for human review
+  - `ReviewDecisionRecorded`:
+    - producer: review orchestration service
+    - consumer: CRM integration service
+    - trigger: reviewer approves or rejects a summary candidate
+  - `CRMSyncAttemptRecorded`:
+    - producer: CRM integration service
+    - consumer: reporting/audit readers
+    - trigger: outbound sync completes, retries, or fails
+- decomposition_decisions:
+  - keep CRM sync separate from summarization core
+  - keep review workflow explicit because it carries trust and approval semantics
+
+## 3.1 Provenance / Confidence / Verification
+- source:
+  - `mixed`
+- confidence_profile:
+  - input_confidence:
+    - `partially-confirmed`
+  - evidence_strength:
+    - `internally-grounded`
+  - design_stability:
+    - `provisional`
+  - optimality_confidence:
+    - `not-applicable`
+- verification:
+  - `required`
+- assumptions_to_validate:
+  - whether review and action extraction remain separable at MVP scale
+- what_changes_if_wrong:
+  - service split and interface ownership may shift in Stage-03
+
+## 4. Acceptance and Flow
+- handoff_to:
+  - `data-storage-and-interface-design`
+- handoff_package:
+  - domain/module/service maps
+  - lifecycle ownership closure notes
+  - dependency map
+  - conceptual entity relationship diagram
+  - domain event catalog
+  - unresolved quality and declaration-state notes

@@ -15,7 +15,7 @@ from common.claim_control_runtime import (
     emit_path_b_claim_control_sidecar,
 )
 from common.cross_phase_surface_policy import find_cross_phase_surface_path
-from phase3.impl_context import p2_operation_claim_id
+from phase2.component_semantic_inventory import p2_operation_claim_id
 from phase3.impl_context import write_json
 from phase3.phase3_implementation_action_card_scaffolder import (
     card_depth_label,

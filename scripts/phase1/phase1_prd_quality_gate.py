@@ -24,9 +24,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
-
-from common.script_data_assets import load_script_json_asset
+from typing import Iterable
 
 
 @dataclass(frozen=True)
@@ -53,32 +51,99 @@ class CategoryResult:
     passed: bool
 
 
-WFF_SCRIPT_DATA_ASSETS = ("scripts/phase1/data/prd-quality-gate-categories.json",)
-_PRD_QUALITY_GATE_CATEGORIES = load_script_json_asset(__file__, "prd-quality-gate-categories.json")
-
-
-def _pattern_def_from_payload(entry: dict[str, Any]) -> PatternDef:
-    return PatternDef(label=str(entry["label"]), regex=str(entry["regex"]))
-
-
-def _category_def_from_payload(entry: dict[str, Any]) -> CategoryDef:
-    patterns = tuple(
-        _pattern_def_from_payload(pattern)
-        for pattern in entry.get("patterns", [])
-        if isinstance(pattern, dict)
-    )
-    return CategoryDef(
-        name=str(entry["name"]),
-        ratio_required=float(entry["ratio_required"]),
-        min_required=int(entry["min_required"]),
-        patterns=patterns,
-    )
-
-
-CATEGORIES: tuple[CategoryDef, ...] = tuple(
-    _category_def_from_payload(category)
-    for category in _PRD_QUALITY_GATE_CATEGORIES.get("categories", [])
-    if isinstance(category, dict)
+CATEGORIES: tuple[CategoryDef, ...] = (
+    CategoryDef(
+        name="segment_landscape",
+        ratio_required=0.6,
+        min_required=2,
+        patterns=(
+            PatternDef("b2b", r"\bB2B\b"),
+            PatternDef("consumer_brand", r"消费品牌"),
+            PatternDef("ecommerce", r"电商"),
+            PatternDef("creator", r"内容创作者"),
+            PatternDef("local_service", r"本地服务"),
+        ),
+    ),
+    CategoryDef(
+        name="capability_clusters",
+        ratio_required=0.6,
+        min_required=2,
+        patterns=(
+            PatternDef("core_capability", r"核心能力|core capability"),
+            PatternDef("key_feature", r"关键功能|key feature"),
+            PatternDef("competitor_analysis", r"竞争对手监控分析|竞品"),
+            PatternDef("business_module", r"业务模块|business module|系统功能|system function|功能集群|capability cluster"),
+            PatternDef("automation_execution", r"自动化优化执行|自动化"),
+        ),
+    ),
+    CategoryDef(
+        name="metric_definitions",
+        ratio_required=0.75,
+        min_required=2,
+        patterns=(
+            PatternDef("key_metric", r"关键指标|KPI|key metric|度量|measurement|measure"),
+            PatternDef("quality_score", r"提及内容质量评分|质量评分"),
+            PatternDef("roi", r"\bROI\b|转化效果"),
+            PatternDef("coverage_rate", r"重点问题覆盖率"),
+        ),
+    ),
+    CategoryDef(
+        name="mvp_scope_boundaries",
+        ratio_required=0.7,
+        min_required=2,
+        patterns=(
+            PatternDef("mvp_in_scope", r"MVP in-scope|MVP In-scope|MVP in scope"),
+            PatternDef("mvp_out_scope", r"MVP out-of-scope|MVP Out-of-scope|out-of-scope"),
+            PatternDef("phase2_candidates", r"Phase-2 candidates|Phase-2"),
+            PatternDef("non_goals", r"non-goals|non-goals|非目标"),
+        ),
+    ),
+    CategoryDef(
+        name="validation_thresholds",
+        ratio_required=0.5,
+        min_required=2,
+        patterns=(
+            PatternDef("target_sections", r"Target\s*[1-9]"),
+            PatternDef("at_least_n_people", r"至少\s*[0-9]+\s*位"),
+            PatternDef("percent_70", r"70%"),
+            PatternDef("percent_50", r"50%"),
+            PatternDef("signal_threshold", r"signal\s*/\s*threshold|threshold|判定信号"),
+        ),
+    ),
+    CategoryDef(
+        name="priority_groups",
+        ratio_required=1.0,
+        min_required=2,
+        patterns=(
+            PatternDef("p0", r"\bP0\b"),
+            PatternDef("p1", r"\bP1\b"),
+            PatternDef("p2", r"\bP2\b"),
+        ),
+    ),
+    CategoryDef(
+        name="workflow_steps",
+        ratio_required=0.6,
+        min_required=2,
+        patterns=(
+            PatternDef("step_1", r"Step\s*1|初始化配置"),
+            PatternDef("step_2", r"Step\s*2|步骤\s*2|流程|workflow|process"),
+            PatternDef("step_3", r"Step\s*3|步骤\s*3|操作|operation"),
+            PatternDef("step_4", r"Step\s*4|步骤\s*4|执行|execute|run"),
+            PatternDef("step_5", r"Step\s*5|步骤\s*5|step"),
+        ),
+    ),
+    CategoryDef(
+        name="page_or_module_hints",
+        ratio_required=0.6,
+        min_required=2,
+        patterns=(
+            PatternDef("dashboard", r"首页仪表板|dashboard"),
+            PatternDef("list_page", r"列表页|list page"),
+            PatternDef("detail_page", r"详情页|detail page"),
+            PatternDef("management_page", r"管理页|management page|设置页|settings page"),
+            PatternDef("module_wording", r"Module\s*[A-Z]|模块"),
+        ),
+    ),
 )
 
 

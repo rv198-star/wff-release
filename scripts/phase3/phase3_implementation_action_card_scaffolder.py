@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from common.cross_phase_surface_policy import find_cross_phase_surface_path
-from phase3.impl_context import p2_operation_claim_id
+from phase2.component_semantic_inventory import p2_operation_claim_id
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:

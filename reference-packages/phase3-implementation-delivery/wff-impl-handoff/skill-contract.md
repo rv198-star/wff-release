@@ -25,4 +25,4 @@ Package Phase-3 delivery handoff and implementation closure evidence.
 
 ## Runtime
 
-Use `scripts/phase3/phase3_delivery_gate.py` with supplied handoff/runtime evidence in slim profiles; optional handoff report generation support is full-pack/source-tree only.
+Use `scripts/phase3/phase3_delivery_gate.py --mode delivery-handoff`.

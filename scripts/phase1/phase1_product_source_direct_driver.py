@@ -6,10 +6,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from phase1.phase1_generation_kernel import (
-    clean_source_text_value as _clean_text,
-    find_markdown_block as _find_markdown_block,
-)
 from phase1.phase1_semantic_authoring_spine import build_semantic_authoring_spine
 from phase1.phase1_source_text_normalization import normalize_source_handoff_phrases
 
@@ -17,6 +13,33 @@ from phase1.phase1_source_text_normalization import normalize_source_handoff_phr
 DRIVER_ID = "p1-product-source-direct-driver.v1"
 BUSINESS_COMPLETENESS_DRIVER_ID = "p1-business-completeness-direct-driver.v1"
 
+
+def _clean_text(value: object) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"\s+", " ", text)
+    return normalize_source_handoff_phrases(text.strip(" `"))
+
+
+def _find_markdown_block(text: str, heading_keywords: tuple[str, ...]) -> str:
+    for keyword in heading_keywords:
+        match = re.search(
+            rf"^##+\s+(?:\d+(?:\.\d+)?\s+)?[^\n]*{re.escape(keyword)}[^\n]*$",
+            text,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+        if not match:
+            continue
+        start = match.start()
+        heading_level = len(re.match(r"^#+", match.group(0)).group(0))
+        tail = text[start:]
+        next_heading = re.search(
+            rf"^#{{2,{heading_level}}}\s+",
+            tail[match.end() - start :],
+            flags=re.MULTILINE,
+        )
+        end = (match.end() - start) + next_heading.start() if next_heading else len(tail)
+        return tail[:end].strip()
+    return ""
 
 
 def _source_fact_text(source_text: str) -> str:

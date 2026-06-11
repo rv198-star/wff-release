@@ -4,18 +4,34 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
-from common.script_data_assets import load_script_text_asset
 from phase3.api_support_renderer import binding_rbac_policies, index_compiled_bindings_by_endpoint
-from phase3.renderer_common import json_clone, normalize_default_tenant_id, stable_uuid_seed
 
 
-WFF_SCRIPT_DATA_ASSETS = ("scripts/phase3/data/generated-runtime.ts.template",)
+UUID_LIKE_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
 
-def load_generated_runtime_template() -> str:
-    return load_script_text_asset(__file__, "generated-runtime.ts.template")
+def stable_uuid_seed(seed: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "", str(seed).lower())
+    alphabet = "abcdef0123456789"
+    mapped = "".join(alphabet[ord(char) % len(alphabet)] for char in normalized)
+    padded = (mapped + ("0" * 32))[:32]
+    return f"{padded[:8]}-{padded[8:12]}-{padded[12:16]}-{padded[16:20]}-{padded[20:32]}"
+
+
+def normalize_default_tenant_id(value: str) -> str:
+    tenant = str(value).strip()
+    if not tenant:
+        return ""
+    if UUID_LIKE_RE.fullmatch(tenant):
+        return tenant.lower()
+    return stable_uuid_seed(f"tenant_id:{tenant}")
+
+
+def json_clone(value: object) -> object:
+    return json.loads(json.dumps(value, ensure_ascii=False))
 
 
 def build_runtime_operation_specs(
@@ -151,7 +167,2358 @@ def infer_default_tenant(operation_specs: dict[str, dict[str, Any]]) -> str:
 
 
 def render_generated_runtime(operation_specs: dict[str, dict[str, Any]], default_tenant_id: str) -> str:
-    template = load_generated_runtime_template()
+    template = """import { createHash } from "node:crypto";
+import { buildEnvelope } from "./envelope.js";
+import { createApiError } from "./errors.js";
+import { normalizeAuthSession } from "./auth-session.js";
+import { buildCursorMeta } from "./pagination.js";
+
+/**
+ * Phase-3 shared execution support kernel.
+ *
+ * This file provides reusable stateful execution helpers for early Phase-3
+ * verification and for repository-level operation planning. It is not, by
+ * itself, evidence that the case has reached runnable implementation completion.
+ *
+ * Replacement rule:
+ * 1. Replace repository delegates with real DAL/domain handlers during Phase-3 implementation.
+ * 2. Keep frozen OpenAPI, unit tests, contract tests, scenario tests, and replay tests green during replacement.
+ * 3. Keep generated-runtime.ts only as a compatibility facade once repository-level execution plans exist.
+ */
+
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+type JsonRecord = Record<string, JsonValue | unknown>;
+
+type FailureSpec = {
+  status: string;
+  error_kind: string;
+  error_code: string;
+  retryability: string;
+};
+
+type OperationSpec = {
+  operationId: string;
+  method: string;
+  path: string;
+  tag: string;
+  purpose: string;
+  requestExample: unknown;
+  requestRequiredFields: string[];
+  requestSchemaSource?: string;
+  responseExample: unknown;
+  failureCases: FailureSpec[];
+  successStatus: string;
+  pathParams: string[];
+  requiredPathParams: string[];
+  rbacPolicies: string[];
+  paginationRule: string;
+  retryabilityPolicy: string;
+  idempotencyRule: string;
+};
+
+type OperationExecutionPlan = {
+  operation_id: string;
+  execution_mode: string;
+  module_slug?: string;
+  uniqueness_hint_fields?: string[];
+  primary_record_key_hint?: string;
+};
+
+type AuditRecord = {
+  audit_record_id: string;
+  operation_id?: string;
+  request_id: string;
+  tenant_id: string;
+  action_type: string;
+  outcome: string;
+  reason?: string;
+  subject_id?: string;
+  observed_at: string;
+};
+
+type RuntimeState = {
+  entityRecords: Record<string, Record<string, JsonRecord>>;
+  auditRecords: AuditRecord[];
+  counters: Record<string, number>;
+  createdKeys: Set<string>;
+};
+
+const OPERATION_SPECS: Record<string, OperationSpec> = __OPERATION_SPECS__;
+const DEFAULT_TENANT_ID = "__DEFAULT_TENANT_ID__";
+const DENY_TENANT_ID = "22222222-2222-2222-2222-222222222222";
+const DEFAULT_AUTHENTICATED_ROLE = "authenticated";
+
+let runtimeState = createInitialState();
+
+function clone<T>(value: T): T {
+  if (value === undefined) {
+    return value;
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function asRecord(value: unknown): JsonRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return value as JsonRecord;
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function numberValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
+}
+
+function snakeCase(value: string): string {
+  return value.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+}
+
+function looksLikeIsoTimestamp(value: string): boolean {
+  return /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$/.test(value);
+}
+
+function alignTimestampPrecision(value: string, template: string): string {
+  if (!looksLikeIsoTimestamp(value) || !looksLikeIsoTimestamp(template)) {
+    return value;
+  }
+  if (!template.includes(".")) {
+    return value.replace(".000Z", "Z");
+  }
+  return value;
+}
+
+function normalizeTemporalLikeValue(exampleValue: unknown, actualValue: unknown): unknown {
+  if (actualValue instanceof Date) {
+    return alignTimestampPrecision(actualValue.toISOString(), stringValue(exampleValue));
+  }
+  if (typeof actualValue === "string" && typeof exampleValue === "string") {
+    return alignTimestampPrecision(actualValue, exampleValue);
+  }
+  return actualValue;
+}
+
+function normalizeScalarLikeValue(exampleValue: unknown, actualValue: unknown): unknown {
+  const normalizedTemporal = normalizeTemporalLikeValue(exampleValue, actualValue);
+  if (typeof exampleValue === "number") {
+    const normalizedNumber = numberValue(normalizedTemporal);
+    if (normalizedNumber !== undefined) {
+      return normalizedNumber;
+    }
+  }
+  return normalizedTemporal;
+}
+
+function isIdField(value: string): boolean {
+  if (
+    value === "operation_id"
+    || value === "dispatch_operation_id"
+    || value === "operationId"
+    || value === "dispatchOperationId"
+    || value === "trace_id"
+    || value === "traceId"
+    || value === "request_id"
+    || value === "requestId"
+  ) {
+    return false;
+  }
+  return value.endsWith("_id") || value.endsWith("Id");
+}
+
+function stripIdSuffix(value: string): string {
+  if (value.endsWith("_id")) {
+    return value.slice(0, -3);
+  }
+  if (value.endsWith("Id")) {
+    return value.slice(0, -2);
+  }
+  return value;
+}
+
+function snakeIdField(value: string): string {
+  return snakeCase(value);
+}
+
+function camelIdField(value: string): string {
+  const normalized = snakeIdField(value);
+  if (!normalized.endsWith("_id")) {
+    return value;
+  }
+  const base = normalized.slice(0, -3);
+  return `${base.replace(/_([a-z0-9])/g, (_, token: string) => token.toUpperCase())}Id`;
+}
+
+function camelField(value: string): string {
+  return snakeCase(value).replace(/_([a-z0-9])/g, (_, token: string) => token.toUpperCase());
+}
+
+function idFieldAliases(value: string): string[] {
+  const normalized = snakeIdField(value);
+  if (!normalized.endsWith("_id")) {
+    return [normalized];
+  }
+  const aliases = new Set<string>([normalized]);
+  const parts = normalized.split("_").filter(Boolean);
+  if (parts.length > 2) {
+    aliases.add(`${parts[parts.length - 2]}_id`);
+  }
+  return Array.from(aliases);
+}
+
+function primaryKeyAliasCandidates(value: string): string[] {
+  const normalized = snakeIdField(value);
+  if (!normalized.endsWith("_id")) {
+    return [normalized].filter(Boolean);
+  }
+  const aliases = new Set<string>([normalized, ...idFieldAliases(normalized)]);
+  const stripped = stripIdSuffix(normalized);
+  const parts = stripped.split("_").filter(Boolean);
+  if (parts.length > 1) {
+    aliases.add(`${parts.at(-1)}_id`);
+  }
+  return Array.from(aliases).filter(Boolean);
+}
+
+function executionPlan(payload: JsonRecord): JsonRecord {
+  return asRecord(payload.execution_plan);
+}
+
+function planPrimaryRecordKeyHint(payload: JsonRecord): string {
+  const plan = executionPlan(payload);
+  const hint = stringValue(plan.primary_record_key_hint) || stringValue(plan.primaryRecordKeyHint);
+  return hint ? snakeCase(hint) : "";
+}
+
+function planUniquenessHintFields(payload: JsonRecord): string[] {
+  const plan = executionPlan(payload);
+  const raw = plan.uniqueness_hint_fields ?? plan.uniquenessHintFields;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function isCreateLikeOperation(spec: OperationSpec): boolean {
+  return (
+    spec.operationId.startsWith("Create")
+    || spec.operationId.startsWith("Launch")
+    || spec.operationId.startsWith("Export")
+  );
+}
+
+function plannedFieldValue(payload: JsonRecord, pathParams: JsonRecord, field: string): string {
+  const snakeField = snakeCase(field);
+  const camelizedField = camelField(field);
+  return (
+    stringValue(payload[field])
+    || stringValue(payload[snakeField])
+    || stringValue(payload[camelizedField])
+    || stringValue(pathParams[field])
+    || stringValue(pathParams[snakeField])
+    || stringValue(pathParams[camelizedField])
+  );
+}
+
+function tokenParts(value: string): string[] {
+  return value.split("_").filter(Boolean);
+}
+
+function scoreIdFieldCandidate(paramKey: string, field: string): number {
+  const normalizedField = snakeIdField(field);
+  if (!isIdField(field) || !normalizedField.endsWith("_id")) {
+    return -1;
+  }
+  if (normalizedField === paramKey) {
+    return 100;
+  }
+  const paramCore = stripIdSuffix(paramKey);
+  const fieldCore = stripIdSuffix(normalizedField);
+  if (fieldCore === paramCore) {
+    return 90;
+  }
+  if (fieldCore.endsWith(paramCore) || paramCore.endsWith(fieldCore)) {
+    return 80;
+  }
+  const paramTokens = tokenParts(paramCore);
+  const fieldTokens = tokenParts(fieldCore);
+  const overlap = paramTokens.filter((token) => fieldTokens.includes(token)).length;
+  return overlap > 0 ? overlap * 10 : -1;
+}
+
+function resolvePathParamRecordId(spec: OperationSpec, param: string, data: JsonRecord): string {
+  const paramKey = snakeCase(param);
+  const direct = stringValue(data[paramKey]);
+  if (direct) {
+    return direct;
+  }
+  let bestField = "";
+  let bestScore = -1;
+  for (const [field, rawValue] of Object.entries(data)) {
+    const id = stringValue(rawValue);
+    if (!id) {
+      continue;
+    }
+    const score = scoreIdFieldCandidate(paramKey, field);
+    if (score > bestScore) {
+      bestField = field;
+      bestScore = score;
+    }
+  }
+  return bestField ? stringValue(data[bestField]) : "";
+}
+
+function mergeRecords(base: JsonRecord, overrides: JsonRecord): JsonRecord {
+  return {
+    ...clone(base),
+    ...clone(overrides),
+  };
+}
+
+function nextCounter(key: string): number {
+  runtimeState.counters[key] = (runtimeState.counters[key] ?? 0) + 1;
+  return runtimeState.counters[key];
+}
+
+function nextId(prefix: string): string {
+  return `${prefix}_${nextCounter(prefix)}`;
+}
+
+function isUuidLike(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function stableUuidSeed(seed: string): string {
+  const digest = createHash("sha256").update(seed.toLowerCase()).digest("hex").slice(0, 32);
+  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-${digest.slice(12, 16)}-${digest.slice(16, 20)}-${digest.slice(20, 32)}`;
+}
+
+export function normalizeIdValue(field: string, raw: string): string {
+  const normalizedField = snakeIdField(field);
+  if (!normalizedField.endsWith("_id")) {
+    return raw;
+  }
+  if (isUuidLike(raw)) {
+    return raw.toLowerCase();
+  }
+  return stableUuidSeed(`${normalizedField}:${raw}`);
+}
+
+function normalizePayloadIdentifiers(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizePayloadIdentifiers(item));
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  const record = value as Record<string, unknown>;
+  const normalized: JsonRecord = {};
+  for (const [key, entry] of Object.entries(record)) {
+    if (typeof entry === "string" && (isIdField(key) || key === "tenant_id" || key === "tenantId")) {
+      normalized[key] = normalizeIdValue(key, entry);
+      continue;
+    }
+    normalized[key] = normalizePayloadIdentifiers(entry);
+  }
+  return normalized;
+}
+
+function nowIso(): string {
+  return "2026-04-01T00:00:00.000Z";
+}
+
+function shouldExposePagination(spec: OperationSpec, meta: Record<string, unknown>): boolean {
+  const rule = String(spec.paginationRule || "").trim().toLowerCase();
+  if (rule && !["none", "not_applicable", "n/a"].includes(rule)) {
+    return true;
+  }
+  return meta.nextCursor !== undefined || meta.next_cursor !== undefined || meta.returnedCount !== undefined || meta.returned_count !== undefined;
+}
+
+function paginationEnvelope(meta: Record<string, unknown>): Record<string, unknown> {
+  return {
+    hasMore: Boolean(meta.nextCursor ?? meta.next_cursor),
+    nextCursor: meta.nextCursor ?? meta.next_cursor ?? null,
+    pageSize: Number(meta.returnedCount ?? meta.returned_count ?? 0),
+  };
+}
+
+function successEnvelope(spec: OperationSpec, data: unknown, meta?: Record<string, unknown>): Record<string, unknown> {
+  const example = asRecord(spec.responseExample);
+  const exampleMeta = asRecord(example.meta) as Record<string, unknown>;
+  const resolvedMeta = meta ?? exampleMeta;
+  const envelope = buildEnvelope(
+    data,
+    {
+      traceId: stringValue(example.trace_id) || stringValue(exampleMeta.traceId) || stringValue(exampleMeta.trace_id) || `tr_${nextCounter("trace")}`,
+      requestId: stringValue(example.request_id) || stringValue(exampleMeta.requestId) || stringValue(exampleMeta.request_id) || `req_${nextCounter("request")}`,
+    },
+    resolvedMeta,
+  ) as unknown as Record<string, unknown>;
+  const orderedEnvelope: Record<string, unknown> = {
+    data: envelope.data,
+    meta: envelope.meta,
+  };
+  if (shouldExposePagination(spec, resolvedMeta)) {
+    orderedEnvelope.pagination = paginationEnvelope(resolvedMeta);
+  }
+  orderedEnvelope.request_id = envelope.request_id;
+  orderedEnvelope.trace_id = envelope.trace_id;
+  return orderedEnvelope;
+}
+
+function fieldLookupCandidates(field: string, options: { includeWorkflowInputVariants?: boolean } = {}): string[] {
+  const normalized = snakeCase(field);
+  const candidates = new Set<string>([field, normalized, camelField(field)]);
+  const workflowInputPrefix = "workflow_input_";
+  if (isIdField(field)) {
+    for (const alias of idFieldAliases(field)) {
+      candidates.add(alias);
+      candidates.add(camelIdField(alias));
+    }
+  }
+  if (options.includeWorkflowInputVariants && normalized && !normalized.startsWith(workflowInputPrefix)) {
+    const workflowInputField = `${workflowInputPrefix}${normalized}`;
+    candidates.add(workflowInputField);
+    candidates.add(camelField(workflowInputField));
+  }
+  if (normalized.startsWith(workflowInputPrefix)) {
+    const suffix = normalized.slice(workflowInputPrefix.length);
+    if (suffix) {
+      candidates.add(suffix);
+      candidates.add(camelField(suffix));
+    }
+  }
+  return Array.from(candidates);
+}
+
+function lookupFieldValue(record: JsonRecord, candidates: string[]): unknown {
+  for (const candidate of candidates) {
+    if (Object.prototype.hasOwnProperty.call(record, candidate)) {
+      return record[candidate];
+    }
+  }
+  return undefined;
+}
+
+function projectedRecordValue(record: JsonRecord, key: string): unknown {
+  return lookupFieldValue(record, fieldLookupCandidates(key, { includeWorkflowInputVariants: true }));
+}
+
+function projectToExampleShape(exampleValue: unknown, actualValue: unknown): unknown {
+  if (Array.isArray(exampleValue)) {
+    if (!Array.isArray(actualValue)) {
+      return clone(exampleValue);
+    }
+    if (exampleValue.length === 0) {
+      return clone(actualValue);
+    }
+    return actualValue.map((item) => projectToExampleShape(exampleValue[0], item));
+  }
+  if (exampleValue && typeof exampleValue === "object") {
+    const exampleRecord = asRecord(exampleValue);
+    const actualRecord = asRecord(actualValue);
+    if (Object.keys(exampleRecord).length === 0) {
+      return clone(actualRecord);
+    }
+    const projected: JsonRecord = {};
+    for (const [key, exampleEntry] of Object.entries(exampleRecord)) {
+      projected[key] = projectToExampleShape(exampleEntry, projectedRecordValue(actualRecord, key));
+    }
+    return projected;
+  }
+  const normalizedActual = normalizeScalarLikeValue(exampleValue, actualValue);
+  return normalizedActual === undefined ? clone(exampleValue) : clone(normalizedActual);
+}
+
+function projectResponseData(spec: OperationSpec, actualValue: unknown): unknown {
+  return projectToExampleShape(asRecord(spec.responseExample).data, actualValue);
+}
+
+function projectListResponseData(spec: OperationSpec, actualRows: unknown[]): unknown {
+  const exampleData = asRecord(spec.responseExample).data;
+  if (Array.isArray(exampleData)) {
+    return projectToExampleShape(exampleData, actualRows);
+  }
+  if (exampleData && typeof exampleData === "object") {
+    const exampleRecord = asRecord(exampleData);
+    const wrappedCollectionEntry = Object.entries(exampleRecord).find(([, entry]) => (
+      Array.isArray(entry)
+      && (entry.length === 0 || entry.some((item) => item && typeof item === "object" && !Array.isArray(item)))
+    ));
+    if (wrappedCollectionEntry) {
+      const [collectionKey, exampleCollection] = wrappedCollectionEntry;
+      const projected: JsonRecord = {};
+      for (const [key, exampleEntry] of Object.entries(exampleRecord)) {
+        projected[key] = key === collectionKey
+          ? projectToExampleShape(exampleCollection, actualRows)
+          : clone(exampleEntry);
+      }
+      return projected;
+    }
+    return projectToExampleShape(exampleRecord, actualRows[0]);
+  }
+  return projectToExampleShape(exampleData, actualRows);
+}
+
+function projectResponseMeta(spec: OperationSpec, actualMeta?: Record<string, unknown>): Record<string, unknown> {
+  const exampleMeta = asRecord(asRecord(spec.responseExample).meta) as Record<string, unknown>;
+  return projectToExampleShape(exampleMeta, actualMeta ?? exampleMeta) as Record<string, unknown>;
+}
+
+function findFailure(spec: OperationSpec, code: string): FailureSpec | undefined {
+  return spec.failureCases.find((failure) => failure.error_code === code);
+}
+
+function findFailureByStatusPrefix(spec: OperationSpec, prefix: string): FailureSpec | undefined {
+  return spec.failureCases.find((failure) => failure.status.startsWith(prefix));
+}
+
+function failureFor(spec: OperationSpec, code: string, fallbackStatus = "400"): never {
+  const failure = findFailure(spec, code) ?? findFailureByStatusPrefix(spec, fallbackStatus);
+  const status = Number(failure?.status ?? fallbackStatus);
+  throw createApiError(
+    status,
+    failure?.error_kind || "business_error",
+    failure?.error_code || code,
+    failure?.retryability || "never",
+    `${spec.operationId} rejected with ${failure?.error_code || code}`,
+  );
+}
+
+function appendAuditRecord(details: {
+  tenantId: string;
+  actionType: string;
+  outcome: string;
+  reason?: string;
+  subjectId?: string;
+  operationId?: string;
+  requestId?: string;
+}): void {
+  runtimeState.auditRecords.push({
+    audit_record_id: nextId("aud"),
+    operation_id: details.operationId,
+    request_id: details.requestId || `req_audit_${nextCounter("audit_request")}`,
+    tenant_id: details.tenantId,
+    action_type: details.actionType,
+    outcome: details.outcome,
+    reason: details.reason,
+    subject_id: details.subjectId,
+    observed_at: nowIso(),
+  });
+}
+
+function createInitialState(): RuntimeState {
+  const state: RuntimeState = {
+    entityRecords: {},
+    auditRecords: [],
+    counters: {},
+    createdKeys: new Set<string>(),
+  };
+  for (const spec of Object.values(OPERATION_SPECS)) {
+    seedStateFromSpec(state, spec);
+  }
+  return state;
+}
+
+function seedStateFromSpec(state: RuntimeState, spec: OperationSpec): void {
+  const response = asRecord(spec.responseExample);
+  const request = asRecord(spec.requestExample);
+  const responseMeta = asRecord(response.meta);
+  const tenantId = normalizeIdValue(
+    "tenant_id",
+    stringValue(request.tenant_id) || stringValue(request.tenantId) || DEFAULT_TENANT_ID,
+  );
+  const responseData = response.data;
+  if (Array.isArray(responseData) && spec.operationId === "ListAuditLogs") {
+    state.auditRecords = responseData
+      .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+      .map((item) => ({
+        audit_record_id: stringValue(item.audit_record_id) || nextId("aud"),
+        request_id: stringValue(item.request_id)
+          || stringValue(item.requestId)
+          || stringValue(response.request_id)
+          || stringValue(responseMeta.request_id)
+          || stringValue(responseMeta.requestId)
+          || `req_audit_seed_${nextCounter("audit_seed_request")}`,
+        tenant_id: stringValue(item.tenant_id) || tenantId,
+        action_type: stringValue(item.action_type) || "task_export",
+        outcome: stringValue(item.outcome) || "allowed",
+        observed_at: nowIso(),
+      }));
+    return;
+  }
+  if (isCreateLikeOperation(spec)) {
+    return;
+  }
+  const responseRecords = responseExampleRecords(spec);
+  if (responseRecords.length === 0) {
+    return;
+  }
+  for (const responseRecord of responseRecords) {
+    const data = normalizePayloadIdentifiers({
+      ...clone(responseRecord),
+      tenant_id: stringValue(responseRecord.tenant_id) || stringValue(responseRecord.tenantId) || tenantId,
+    }) as JsonRecord;
+    for (const [field, rawValue] of Object.entries(data)) {
+      if (!isIdField(field)) {
+        continue;
+      }
+      const id = stringValue(rawValue);
+      if (!id) {
+        continue;
+      }
+      for (const recordKey of idFieldAliases(field)) {
+        state.entityRecords[recordKey] ??= {};
+        state.entityRecords[recordKey][id] = {
+          ...clone(data),
+          ...clone(state.entityRecords[recordKey][id] ?? {}),
+        };
+      }
+    }
+    for (const param of spec.pathParams) {
+      const key = snakeCase(param);
+      const id = resolvePathParamRecordId(spec, param, data);
+      if (!id) {
+        continue;
+      }
+      state.entityRecords[key] ??= {};
+      state.entityRecords[key][id] = {
+        ...clone(data),
+        ...clone(state.entityRecords[key][id] ?? {}),
+      };
+    }
+  }
+}
+
+function recordKeyAliases(recordKey: string): string[] {
+  const normalized = snakeCase(recordKey);
+  return Array.from(new Set([recordKey, normalized, camelIdField(normalized), ...idFieldAliases(normalized)]));
+}
+
+function lookupRecord(recordKey: string, id: string): JsonRecord | undefined {
+  for (const alias of recordKeyAliases(recordKey)) {
+    const normalizedId = normalizeIdValue(alias, id);
+    const record = runtimeState.entityRecords[alias]?.[id] ?? runtimeState.entityRecords[alias]?.[normalizedId];
+    if (record) {
+      return record;
+    }
+  }
+  return undefined;
+}
+
+function primaryPathParam(spec: OperationSpec): string {
+  return spec.pathParams[0] || "";
+}
+
+function pathParamRecordKey(spec: OperationSpec, param: string): string {
+  const normalized = snakeCase(param);
+  if (normalized && normalized !== "id") {
+    return normalized;
+  }
+  const responsePrimary = responsePrimaryIdField(spec);
+  if (responsePrimary) {
+    return responsePrimary;
+  }
+  const operationEntity = operationEntityBase(spec);
+  if (operationEntity) {
+    return `${operationEntity}_id`;
+  }
+  return normalized;
+}
+
+function primaryRecordKey(spec: OperationSpec): string {
+  const param = primaryPathParam(spec);
+  return param ? pathParamRecordKey(spec, param) : "";
+}
+
+function defaultPathParams(spec: OperationSpec): Record<string, unknown> {
+  const params: Record<string, unknown> = {};
+  for (const param of spec.pathParams) {
+    const key = snakeCase(param);
+    const recordKey = pathParamRecordKey(spec, param) || key;
+    const known = runtimeState.entityRecords[recordKey] ?? runtimeState.entityRecords[key];
+    const first = known ? Object.keys(known)[0] : "";
+    const fallbackBase = recordKey || key || "id";
+    const fallback = first || `${fallbackBase}_1`;
+    params[param] = (isIdField(param) || recordKey.endsWith("_id"))
+      ? normalizeIdValue(recordKey || param, fallback)
+      : fallback;
+  }
+  return params;
+}
+
+function resolveRecordKeyCandidates(spec: OperationSpec, payload: JsonRecord): string[] {
+  const candidates = [planPrimaryRecordKeyHint(payload), primaryRecordKey(spec)].filter(Boolean);
+  return Array.from(new Set(candidates));
+}
+
+function resolvePrimaryRecordContext(spec: OperationSpec, payload: JsonRecord): {
+  pathParams: JsonRecord;
+  recordKey: string;
+  id: string;
+  record: JsonRecord | undefined;
+} {
+  const pathParams = mergeRecords(defaultPathParams(spec), asRecord(payload.path_params));
+  const pathParam = primaryPathParam(spec);
+  const recordKeys = resolveRecordKeyCandidates(spec, payload);
+  const id = pathParam
+    ? stringValue(pathParams[pathParam]) || stringValue(pathParams[snakeCase(pathParam)])
+    : "";
+  let recordKey = recordKeys[0] || "";
+  let record: JsonRecord | undefined;
+  if (id) {
+    for (const candidate of recordKeys) {
+      const resolved = lookupRecord(candidate, id);
+      if (resolved) {
+        recordKey = candidate;
+        record = resolved;
+        break;
+      }
+    }
+  }
+  return {
+    pathParams,
+    recordKey,
+    id,
+    record,
+  };
+}
+
+function deriveTargetTenantId(spec: OperationSpec, payload: JsonRecord): string {
+  const pathParams = asRecord(payload.path_params);
+  const authContext = asRecord(payload.auth_context);
+  const tenantIdFromPayload =
+    stringValue(payload.tenant_id)
+    || stringValue(payload.tenantId)
+    || stringValue(pathParams.tenant_id)
+    || stringValue(pathParams.tenantId)
+    || stringValue(authContext.tenant_id)
+    || stringValue(authContext.tenantId);
+  if (tenantIdFromPayload) {
+    return normalizeIdValue("tenant_id", tenantIdFromPayload);
+  }
+  for (const param of spec.pathParams) {
+    const record = lookupRecord(
+      pathParamRecordKey(spec, param),
+      stringValue(pathParams[param]) || stringValue(pathParams[snakeCase(param)]),
+    );
+    if (record) {
+      return normalizeIdValue("tenant_id", stringValue(record.tenant_id) || DEFAULT_TENANT_ID);
+    }
+  }
+  return DEFAULT_TENANT_ID;
+}
+
+function hasTenantAccessControl(spec: OperationSpec): boolean {
+  return spec.failureCases.some((failure) => failure.error_code === "tenant_forbidden");
+}
+
+function resolveExecutionAccess(spec: OperationSpec, payload: JsonRecord): { tenantId: string; subjectId: string } {
+  const tenantId = deriveTargetTenantId(spec, payload);
+  const policies = effectiveRbacPolicies(spec);
+  const requiresTenantCheck = hasTenantAccessControl(spec);
+  if (policies.length === 0 && !requiresTenantCheck) {
+    return { tenantId, subjectId: "user_1" };
+  }
+  const session = normalizeAuthSession(payload.auth_context, tenantId);
+  requireAnyRbacRole(session, policies);
+  const sessionTenantId = normalizeIdValue("tenant_id", stringValue(session.tenant_id) || tenantId);
+  if (requiresTenantCheck && sessionTenantId !== tenantId) {
+    appendAuditRecord({
+      tenantId,
+      actionType: `${spec.tag}_access`,
+      outcome: "denied",
+      reason: "tenant_forbidden",
+      subjectId: session.subject_id,
+    });
+    failureFor(spec, "tenant_forbidden", "403");
+  }
+  return { tenantId: sessionTenantId, subjectId: session.subject_id };
+}
+
+function uniqueNonEmpty(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => String(value).trim()).filter(Boolean)));
+}
+
+function effectiveRbacPolicies(spec: OperationSpec): string[] {
+  const policies = uniqueNonEmpty(spec.rbacPolicies || []);
+  return policies.length > 0 ? policies : [DEFAULT_AUTHENTICATED_ROLE];
+}
+
+function requireAnyRbacRole(session: { roles: string[] }, roles: string[]): void {
+  const requiredRoles = uniqueNonEmpty(roles);
+  if (requiredRoles.length === 0) {
+    return;
+  }
+  if (!requiredRoles.some((role) => session.roles.includes(role))) {
+    throw createApiError(403, "business_error", "rbac_forbidden", "never", `Missing one of roles: ${requiredRoles.join(", ")}`);
+  }
+}
+
+function hasPresentField(payload: JsonRecord, field: string): boolean {
+  const candidates = uniqueNonEmpty([field, snakeCase(field), camelField(field)]);
+  return candidates.some((candidate) => {
+    const value = payload[candidate];
+    if (value === undefined || value === null) {
+      return false;
+    }
+    if (typeof value === "string") {
+      return value.trim().length > 0;
+    }
+    return true;
+  });
+}
+
+function requiredBodyKeys(spec: OperationSpec): string[] {
+  return uniqueNonEmpty(spec.requestRequiredFields || []);
+}
+
+function requiredPathParamKeys(spec: OperationSpec): string[] {
+  return uniqueNonEmpty((spec.requiredPathParams && spec.requiredPathParams.length > 0 ? spec.requiredPathParams : spec.pathParams) || []);
+}
+
+function validatePayload(spec: OperationSpec, payload: JsonRecord): void {
+  maybeForcedFailure(spec, payload);
+  const requiredBody = requiredBodyKeys(spec);
+  for (const key of requiredBody) {
+    if (!hasPresentField(payload, key)) {
+      failureFor(spec, "validation_failed", "400");
+    }
+  }
+  const pathParams = asRecord(payload.path_params);
+  for (const key of requiredPathParamKeys(spec)) {
+    if (!hasPresentField(pathParams, key)) {
+      failureFor(spec, "validation_failed", "400");
+    }
+  }
+  if (payload.invalid_query) {
+    failureFor(spec, "validation_failed", "400");
+  }
+}
+
+function maybeForcedFailure(spec: OperationSpec, payload: JsonRecord): void {
+  const code = stringValue(payload.force_error_code);
+  if (code) {
+    failureFor(spec, code, "409");
+  }
+}
+
+function buildStoredData(spec: OperationSpec, payload: JsonRecord, tenantId: string): JsonRecord {
+  const example = asRecord(asRecord(spec.responseExample).data);
+  const data = mergeRecords(example, payload);
+  const pathParams = asRecord(payload.path_params);
+  const authContext = asRecord(payload.auth_context);
+  const createLike = isCreateLikeOperation(spec);
+  delete data.auth_context;
+  delete data.path_params;
+  delete data.force_error_code;
+  delete data.invalid_query;
+  data.tenant_id = normalizeIdValue(
+    "tenant_id",
+    stringValue(data.tenant_id)
+      || stringValue(data.tenantId) || tenantId
+      || stringValue(authContext.tenant_id)
+      || stringValue(authContext.tenantId),
+  );
+  for (const [field, value] of Object.entries(data)) {
+    if (!isIdField(field)) {
+      continue;
+    }
+    const providedId = snakeIdField(field) === "tenant_id" ? tenantId : plannedFieldValue(payload, pathParams, field);
+    if (providedId) {
+      data[field] = normalizeIdValue(field, providedId);
+      continue;
+    }
+    if (createLike || !stringValue(value)) {
+      data[field] = normalizeIdValue(field, nextId(stripIdSuffix(snakeIdField(field))));
+    }
+  }
+  for (const [field, value] of Object.entries({ ...data })) {
+    if (!isIdField(field)) {
+      continue;
+    }
+    const id = stringValue(value);
+    if (!id) {
+      continue;
+    }
+    for (const snakeField of idFieldAliases(field)) {
+      const camelField = camelIdField(snakeField);
+      if (!stringValue(data[snakeField])) {
+        data[snakeField] = id;
+      }
+      if (!stringValue(data[camelField])) {
+        data[camelField] = id;
+      }
+    }
+  }
+  if (spec.operationId.startsWith("Launch")) {
+    data.run_id = stringValue(data.run_id) || nextId("run");
+    data.status = stringValue(data.status) || "queued";
+  }
+  return data;
+}
+
+function rememberRecord(data: JsonRecord): void {
+  const normalized = normalizePayloadIdentifiers(clone(data)) as JsonRecord;
+  for (const [field, rawValue] of Object.entries(normalized)) {
+    if (!isIdField(field)) {
+      continue;
+    }
+    const id = stringValue(rawValue);
+    if (!id) {
+      continue;
+    }
+    for (const recordKey of idFieldAliases(field)) {
+      runtimeState.entityRecords[recordKey] ??= {};
+      runtimeState.entityRecords[recordKey][id] = clone(normalized);
+    }
+  }
+}
+
+function createUniqueKey(spec: OperationSpec, payload: JsonRecord, pathParams: JsonRecord): string {
+  const hintedFields = planUniquenessHintFields(payload);
+  if (hintedFields.length > 0) {
+    const hintedValues = hintedFields.map((field) => plannedFieldValue(payload, pathParams, field)).filter(Boolean);
+    if (hintedValues.length > 0) {
+      return `${spec.operationId}:${hintedValues.join(":")}`;
+    }
+  }
+  const values = [
+    stringValue(payload.tenant_id),
+    stringValue(payload.scope_key),
+    stringValue(payload.recommendation_id),
+    stringValue(payload.task_id),
+    stringValue(pathParams.recommendationId),
+    stringValue(pathParams.taskId),
+    stringValue(payload.review_report_id),
+    stringValue(pathParams.reportId),
+  ].filter(Boolean);
+  return `${spec.operationId}:${values.join(":")}`;
+}
+
+function operationEntityBase(spec: OperationSpec): string {
+  const operationId = spec.operationId || "";
+  const stripped = operationId.replace(/^(Create|Get|List|Update|Start|Complete|Generate|Launch|Export|Manage|Record)/, "");
+  if (!stripped) {
+    return "";
+  }
+  return snakeCase(stripped);
+}
+
+function purposeEntityCandidates(spec: OperationSpec): string[] {
+  const purpose = stringValue(spec.purpose);
+  if (!purpose) {
+    return [];
+  }
+  const candidates = new Set<string>();
+  const matches = purpose.match(/`([^`]+)`/g) ?? [];
+  for (const wrapped of matches) {
+    const raw = wrapped.slice(1, -1).trim();
+    if (!raw) {
+      continue;
+    }
+    const terminal = raw.split(".").at(-1) || raw;
+    const candidate = snakeCase(terminal);
+    if (candidate) {
+      candidates.add(candidate);
+    }
+  }
+  return Array.from(candidates);
+}
+
+function collectResponseExampleRecords(value: unknown): JsonRecord[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectResponseExampleRecords(item));
+  }
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+  const record = asRecord(value);
+  const hasIdField = Object.keys(record).some((field) => isIdField(field));
+  if (hasIdField) {
+    return [record];
+  }
+  const nested = Object.values(record).flatMap((entry) => collectResponseExampleRecords(entry));
+  return nested.length > 0 ? nested : [record];
+}
+
+function responseExampleRecords(spec: OperationSpec): JsonRecord[] {
+  return collectResponseExampleRecords(asRecord(spec.responseExample).data);
+}
+
+function responsePrimaryIdField(spec: OperationSpec): string {
+  const responseRecord = responseExampleRecords(spec)[0] ?? {};
+  for (const field of Object.keys(responseRecord)) {
+    if (isIdField(field)) {
+      return snakeIdField(field);
+    }
+  }
+  return "";
+}
+
+function responseExampleRecord(spec: OperationSpec): JsonRecord {
+  return responseExampleRecords(spec)[0] ?? {};
+}
+
+function responseEntityTableCandidates(spec: OperationSpec): string[] {
+  return Array.from(
+    new Set(
+      responseExampleRecords(spec)
+        .flatMap((record) => Object.keys(record))
+        .filter((field) => isIdField(field))
+        .flatMap((field) => {
+          const entity = stripIdSuffix(snakeIdField(field));
+          return [entity, singularTableName(entity)];
+        })
+        .filter(Boolean),
+    ),
+  );
+}
+
+function sharedPrimaryIdEntityCandidates(spec: OperationSpec): string[] {
+  const responsePrimary = responsePrimaryIdField(spec);
+  if (!responsePrimary) {
+    return [];
+  }
+  const operationEntity = operationEntityBase(spec);
+  return Array.from(
+    new Set(
+      Object.values(OPERATION_SPECS)
+        .filter((candidateSpec) => candidateSpec.operationId !== spec.operationId)
+        .filter((candidateSpec) => responsePrimaryIdField(candidateSpec) === responsePrimary)
+        .map((candidateSpec) => operationEntityBase(candidateSpec))
+        .filter((candidate) => candidate && candidate !== operationEntity),
+    ),
+  );
+}
+
+function persistenceTableName(spec: OperationSpec, payload: JsonRecord): string {
+  const hinted = planPrimaryRecordKeyHint(payload);
+  const primary = primaryRecordKey(spec);
+  const operationEntity = operationEntityBase(spec);
+  const responsePrimary = responsePrimaryIdField(spec);
+  const source = hinted || primary;
+  if (source) {
+    return stripIdSuffix(snakeCase(source));
+  }
+  if (operationEntity) {
+    return operationEntity;
+  }
+  if (responsePrimary) {
+    return stripIdSuffix(snakeCase(responsePrimary));
+  }
+  return "";
+}
+
+function persistencePrimaryKey(spec: OperationSpec, payload: JsonRecord): string {
+  const hinted = planPrimaryRecordKeyHint(payload);
+  const primary = primaryRecordKey(spec);
+  const operationEntity = operationEntityBase(spec);
+  const responsePrimary = responsePrimaryIdField(spec);
+  const source = hinted || primary || responsePrimary;
+  if (source) {
+    return snakeCase(source);
+  }
+  if (operationEntity) {
+    return `${operationEntity}_id`;
+  }
+  return "";
+}
+
+type PersistenceClient = {
+  connect(): Promise<unknown>;
+  end(): Promise<unknown>;
+  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+};
+
+function databaseConnectionTimeoutMillis(): number {
+  return Number.parseInt(String((process.env as Record<string, unknown>).PHASE3_DB_CONNECT_TIMEOUT_MS ?? '3000'), 10);
+}
+
+function databaseStatementTimeoutMillis(): number {
+  return Number.parseInt(String((process.env as Record<string, unknown>).PHASE3_DB_STATEMENT_TIMEOUT_MS ?? '5000'), 10);
+}
+
+type PersistenceKeyRow = {
+  column_name: string;
+  constraint_name: string;
+  constraint_type: string;
+  ordinal_position: number;
+};
+
+type PersistenceConstraint = {
+  name: string;
+  type: string;
+  columns: string[];
+};
+
+type PersistenceTarget = {
+  tableName: string;
+  columns: string[];
+  notNullColumns: string[];
+  primaryKeyColumns: string[];
+  conflictKeys: string[];
+  conflictKey: string;
+  lookupKey: string;
+  orderKey: string;
+  matchedColumnCount: number;
+  isStrictCandidate: boolean;
+};
+
+function singularTableName(value: string): string {
+  if (value.endsWith("ies")) {
+    return `${value.slice(0, -3)}y`;
+  }
+  if (value.endsWith("s")) {
+    return value.slice(0, -1);
+  }
+  return value;
+}
+
+function strictPersistenceTableCandidates(spec: OperationSpec, payload: JsonRecord): string[] {
+  const tableName = persistenceTableName(spec, payload);
+  const fallbackOperationTable = operationEntityBase(spec);
+  return Array.from(
+    new Set(
+      [
+        tableName,
+        singularTableName(tableName),
+        fallbackOperationTable,
+        singularTableName(fallbackOperationTable),
+      ].filter(Boolean),
+    ),
+  );
+}
+
+function persistenceTableCandidates(spec: OperationSpec, payload: JsonRecord): string[] {
+  const strictCandidates = strictPersistenceTableCandidates(spec, payload);
+  const responseEntityCandidates = responseEntityTableCandidates(spec);
+  const fallbackResponseTable = stripIdSuffix(responsePrimaryIdField(spec));
+  const purposeEntities = purposeEntityCandidates(spec);
+  const sharedPrimaryEntities = sharedPrimaryIdEntityCandidates(spec);
+  return Array.from(
+    new Set(
+      [
+        ...responseEntityCandidates,
+        ...strictCandidates,
+        ...sharedPrimaryEntities,
+        ...sharedPrimaryEntities.map((candidate) => singularTableName(candidate)),
+        fallbackResponseTable,
+        singularTableName(fallbackResponseTable),
+        ...purposeEntities,
+        ...purposeEntities.map((candidate) => singularTableName(candidate)),
+      ].filter(Boolean),
+    ),
+  );
+}
+
+function parseStructuredDbValue(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith("{") && trimmed.endsWith("}"))
+    || (trimmed.startsWith("[") && trimmed.endsWith("]"))
+  ) {
+    try {
+      return JSON.parse(trimmed) as unknown;
+    } catch {
+      return value;
+    }
+  }
+  return value;
+}
+
+function nestedSummaryValue(data: JsonRecord): unknown {
+  const input = asRecord(data.input);
+  if (typeof input.summary === "string" && input.summary.trim()) {
+    return input.summary;
+  }
+  const payload = asRecord(data.payload);
+  if (typeof payload.summary === "string" && payload.summary.trim()) {
+    return payload.summary;
+  }
+  return undefined;
+}
+
+function buildPersistenceRow(columns: string[], data: JsonRecord): Record<string, unknown> {
+  const row: Record<string, unknown> = {};
+  const input = asRecord(data.input);
+  for (const column of columns) {
+    if (column === "created_at" || column === "updated_at" || column === "observed_at") {
+      continue;
+    }
+    const candidates = fieldLookupCandidates(column);
+    const direct = lookupFieldValue(data, candidates);
+    const nestedInput = lookupFieldValue(input, candidates);
+    const derivedSummary = column.endsWith("summary") ? nestedSummaryValue(data) : undefined;
+    const value = direct ?? nestedInput ?? derivedSummary;
+    if (value === undefined) {
+      continue;
+    }
+    if (typeof value === "object" && value !== null && !(value instanceof Date)) {
+      row[column] = JSON.stringify(value);
+      continue;
+    }
+    if ((column.endsWith("_id") || column.endsWith("Id")) && typeof value === "string" && value) {
+      row[column] = normalizeIdValue(column, value);
+      continue;
+    }
+    row[column] = value;
+  }
+  return row;
+}
+
+function rowToRecord(row: Record<string, unknown>): JsonRecord {
+  const record: JsonRecord = {};
+  for (const [key, value] of Object.entries(row)) {
+    record[key] = parseStructuredDbValue(value);
+  }
+  return record;
+}
+
+function hasPresentPersistenceValue(value: unknown): boolean {
+  if (value === undefined || value === null) {
+    return false;
+  }
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+  return true;
+}
+
+function groupPersistenceConstraints(rows: PersistenceKeyRow[]): PersistenceConstraint[] {
+  const grouped = new Map<string, PersistenceKeyRow[]>();
+  for (const row of rows) {
+    const existing = grouped.get(row.constraint_name) ?? [];
+    existing.push(row);
+    grouped.set(row.constraint_name, existing);
+  }
+  return Array.from(grouped.entries()).map(([name, entries]) => ({
+    name,
+    type: entries[0]?.constraint_type || "UNIQUE",
+    columns: entries
+      .slice()
+      .sort((left, right) => left.ordinal_position - right.ordinal_position)
+      .map((entry) => entry.column_name)
+      .filter(Boolean),
+  }));
+}
+
+function matchedPersistenceColumns(columns: string[], builtRow: Record<string, unknown>): string[] {
+  return columns.filter((column) => (
+    hasPresentPersistenceValue(builtRow[column])
+    || hasPresentPersistenceValue(builtRow[camelField(column)])
+  ));
+}
+
+function constraintScore(
+  constraint: PersistenceConstraint,
+  builtRow: Record<string, unknown>,
+  lookupKey: string,
+  hintedPrimaryKey: string,
+): number {
+  const normalizedColumns = constraint.columns.filter(Boolean);
+  if (normalizedColumns.length === 0) {
+    return -1;
+  }
+  if (!normalizedColumns.every((column) => hasPresentPersistenceValue(builtRow[column]))) {
+    return -1;
+  }
+  let score = normalizedColumns.length * 100;
+  if (constraint.type === "UNIQUE") {
+    score += normalizedColumns.length > 1 ? 600 : 400;
+  } else if (constraint.type === "PRIMARY KEY") {
+    score += 200;
+  }
+  if (lookupKey && normalizedColumns.includes(lookupKey)) {
+    score += 80;
+  }
+  if (hintedPrimaryKey && normalizedColumns.includes(hintedPrimaryKey)) {
+    score += 60;
+  }
+  return score;
+}
+
+function tableCandidateScore(
+  candidate: string,
+  strictCandidates: Set<string>,
+  columns: string[],
+  constraints: PersistenceConstraint[],
+  builtRow: Record<string, unknown>,
+  lookupKey: string,
+  hintedPrimaryKey: string,
+  candidateIndex: number,
+): number {
+  const matchedColumns = matchedPersistenceColumns(columns, builtRow);
+  const bestConstraintScore = constraints.reduce((best, constraint) => (
+    Math.max(best, constraintScore(constraint, builtRow, lookupKey, hintedPrimaryKey))
+  ), -1);
+  let score = matchedColumns.length * 200;
+  if (strictCandidates.has(candidate)) {
+    score += 1000;
+  }
+  if (lookupKey && matchedColumns.includes(lookupKey)) {
+    score += 180;
+  }
+  if (hintedPrimaryKey && matchedColumns.includes(hintedPrimaryKey)) {
+    score += 120;
+  }
+  if (bestConstraintScore >= 0) {
+    score += bestConstraintScore;
+  }
+  return score - candidateIndex;
+}
+
+function selectPersistenceConstraint(
+  constraints: PersistenceConstraint[],
+  builtRow: Record<string, unknown>,
+  lookupKey: string,
+  hintedPrimaryKey: string,
+): PersistenceConstraint | undefined {
+  const ranked = constraints
+    .map((constraint) => ({
+      constraint,
+      score: constraintScore(constraint, builtRow, lookupKey, hintedPrimaryKey),
+    }))
+    .filter((entry) => entry.score >= 0)
+    .sort((left, right) => right.score - left.score);
+  if (ranked.length > 0) {
+    return ranked[0]?.constraint;
+  }
+  return undefined;
+}
+
+function preferredLookupKey(
+  spec: OperationSpec,
+  columns: string[],
+  builtRow: Record<string, unknown>,
+  hintedPrimaryKey: string,
+): string {
+  return (
+    (hintedPrimaryKey && columns.includes(hintedPrimaryKey) && (stringValue(builtRow[hintedPrimaryKey]) || hintedPrimaryKey === primaryRecordKey(spec)) && hintedPrimaryKey)
+    || (primaryRecordKey(spec) && columns.includes(primaryRecordKey(spec)) && primaryRecordKey(spec))
+    || columns.find((column) => column.endsWith("_id") && stringValue(builtRow[column]))
+    || columns.find((column) => column.endsWith("_id"))
+    || ""
+  );
+}
+
+function preferExistingRowPrimaryKeyTarget(
+  target: PersistenceTarget,
+  existingRow: Record<string, unknown> | undefined,
+): PersistenceTarget {
+  if (!existingRow || target.primaryKeyColumns.length === 0) {
+    return target;
+  }
+  if (!target.primaryKeyColumns.every((column) => (
+    hasPresentPersistenceValue(existingRow[column])
+    || hasPresentPersistenceValue(existingRow[camelField(column)])
+  ))) {
+    return target;
+  }
+  return {
+    ...target,
+    conflictKeys: target.primaryKeyColumns,
+    conflictKey: target.primaryKeyColumns[0] || target.conflictKey,
+  };
+}
+
+function syntheticPersistenceValue(column: string): string {
+  const normalized = snakeCase(column);
+  if (normalized.endsWith("_id")) {
+    return normalizeIdValue(column, nextId(stripIdSuffix(normalized)));
+  }
+  return `${normalized}_${nextCounter("seed")}`;
+}
+
+async function withPersistenceClient<T>(run: (client: PersistenceClient) => Promise<T>): Promise<T | undefined> {
+  const connectionString = stringValue((process.env as Record<string, unknown>).DATABASE_URL);
+  if (!connectionString) {
+    return undefined;
+  }
+  const pgModule = await import("pg");
+  const ClientCtor = (pgModule as unknown as { Client?: new (options: { connectionString: string; connectionTimeoutMillis?: number; statement_timeout?: number; query_timeout?: number }) => PersistenceClient }).Client;
+  if (!ClientCtor) {
+    return undefined;
+  }
+  const client = new ClientCtor({
+    connectionString,
+    connectionTimeoutMillis: databaseConnectionTimeoutMillis(),
+    statement_timeout: databaseStatementTimeoutMillis(),
+    query_timeout: databaseStatementTimeoutMillis(),
+  });
+  await client.connect();
+  try {
+    await client.query("CREATE SCHEMA IF NOT EXISTS public");
+    await client.query("SET search_path TO public");
+    return await run(client);
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
+async function withPersistenceTransaction<T>(client: PersistenceClient, run: () => Promise<T>): Promise<T> {
+  await client.query("BEGIN");
+  try {
+    const result = await run();
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  }
+}
+
+function shouldForceTransactionRollbackProbe(payload: JsonRecord): boolean {
+  return payload.force_transaction_rollback_probe === true || stringValue(payload.force_transaction_rollback_probe) === "true";
+}
+
+function forcedTransactionRollbackProbeError(spec: OperationSpec): never {
+  const error = {
+    error_kind: "system_error",
+    error_code: "forced_transaction_rollback_probe",
+    retryability: "never",
+  };
+  throw createApiError(
+    500,
+    error.error_kind,
+    error.error_code,
+    error.retryability,
+    `${spec.operationId} forced transaction rollback probe`,
+  );
+}
+
+async function resolvePersistenceTarget(
+  client: PersistenceClient,
+  spec: OperationSpec,
+  payload: JsonRecord,
+  data: JsonRecord = {},
+  options: { preferPrimaryKeyConstraint?: boolean } = {},
+): Promise<PersistenceTarget | undefined> {
+  const hintedPrimaryKey = persistencePrimaryKey(spec, payload);
+  const tableCandidates = persistenceTableCandidates(spec, payload);
+  const strictTableCandidates = new Set(strictPersistenceTableCandidates(spec, payload));
+  if (tableCandidates.length === 0) {
+    return undefined;
+  }
+  const candidateTargets: Array<PersistenceTarget & { score: number }> = [];
+  for (const [candidateIndex, candidate] of tableCandidates.entries()) {
+    const tableRows = await client.query<{ present: boolean }>(
+      "SELECT to_regclass($1) IS NOT NULL AS present",
+      [`public.${candidate}`],
+    );
+    if (!tableRows.rows[0]?.present) {
+      continue;
+    }
+    const columnRows = await client.query<{ column_name: string; is_nullable: string }>(
+      "SELECT column_name, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1",
+      [candidate],
+    );
+    const constraintRows = await client.query<PersistenceKeyRow>(
+      `SELECT kcu.column_name, tc.constraint_name, tc.constraint_type, kcu.ordinal_position
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu
+           ON tc.constraint_name = kcu.constraint_name
+          AND tc.table_schema = kcu.table_schema
+          AND tc.table_name = kcu.table_name
+        WHERE tc.table_schema = 'public'
+          AND tc.table_name = $1
+          AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE')
+        ORDER BY
+          CASE WHEN tc.constraint_type = 'PRIMARY KEY' THEN 0 ELSE 1 END,
+          tc.constraint_name,
+          kcu.ordinal_position`,
+      [candidate],
+    );
+    const columns = columnRows.rows.map((row) => stringValue(row.column_name)).filter(Boolean);
+    const notNullColumns = columnRows.rows
+      .filter((row) => stringValue(row.is_nullable).toUpperCase() === "NO")
+      .map((row) => stringValue(row.column_name))
+      .filter((column) => column && !["created_at", "updated_at", "observed_at"].includes(column));
+    const builtRow = buildPersistenceRow(columns, mergeRecords(payload, data));
+    const constraints = groupPersistenceConstraints(
+      constraintRows.rows.map((row) => ({
+        column_name: stringValue(row.column_name),
+        constraint_name: stringValue(row.constraint_name),
+        constraint_type: stringValue(row.constraint_type),
+        ordinal_position: Number(row.ordinal_position ?? 0),
+      })).filter((row) => row.column_name && row.constraint_name && row.constraint_type),
+    );
+    const primaryKeyColumns = constraints.find((constraint) => constraint.type === "PRIMARY KEY")?.columns ?? [];
+    const lookupKey = preferredLookupKey(spec, columns, builtRow, hintedPrimaryKey);
+    const primaryKeyConstraint = constraints.find((constraint) => (
+      constraint.type === "PRIMARY KEY"
+      && constraint.columns.length > 0
+      && constraint.columns.every((column) => hasPresentPersistenceValue(builtRow[column]))
+    ));
+    const selectedConstraint = options.preferPrimaryKeyConstraint && primaryKeyConstraint
+      ? primaryKeyConstraint
+      : selectPersistenceConstraint(
+        constraints,
+        builtRow,
+        lookupKey,
+        hintedPrimaryKey,
+      );
+    const effectiveConflictKeys = selectedConstraint?.columns ?? (
+      primaryKeyColumns.length > 0
+        ? primaryKeyColumns.slice(0, 1)
+        : (lookupKey && columns.includes(lookupKey) ? [lookupKey] : [])
+    );
+    const effectiveConflictKey = effectiveConflictKeys[0] || "";
+    const matchedColumns = matchedPersistenceColumns(columns, builtRow);
+    candidateTargets.push({
+      tableName: candidate,
+      columns,
+      notNullColumns,
+      primaryKeyColumns,
+      conflictKeys: effectiveConflictKeys,
+      conflictKey: effectiveConflictKey,
+      lookupKey: lookupKey || effectiveConflictKey,
+      orderKey: columns.includes("created_at")
+        ? "created_at"
+        : (columns.includes("updated_at") ? "updated_at" : (effectiveConflictKey || lookupKey)),
+      matchedColumnCount: matchedColumns.length,
+      isStrictCandidate: strictTableCandidates.has(candidate),
+      score: tableCandidateScore(
+        candidate,
+        strictTableCandidates,
+        columns,
+        constraints,
+        builtRow,
+        lookupKey,
+        hintedPrimaryKey,
+        candidateIndex,
+      ),
+    });
+  }
+  const bestCandidate = candidateTargets.sort((left, right) => right.score - left.score)[0];
+  if (!bestCandidate) {
+    return undefined;
+  }
+  return {
+    tableName: bestCandidate.tableName,
+    columns: bestCandidate.columns,
+    notNullColumns: bestCandidate.notNullColumns,
+    primaryKeyColumns: bestCandidate.primaryKeyColumns,
+    conflictKeys: bestCandidate.conflictKeys,
+    conflictKey: bestCandidate.conflictKey,
+    lookupKey: bestCandidate.lookupKey,
+    orderKey: bestCandidate.orderKey,
+    matchedColumnCount: bestCandidate.matchedColumnCount,
+    isStrictCandidate: bestCandidate.isStrictCandidate,
+  };
+}
+
+function synthesizeMissingPersistenceValue(column: string, row: Record<string, unknown>, target: PersistenceTarget): unknown {
+  if (column === 'revision_no') {
+    return 1;
+  }
+  if (column.endsWith('_parent_id')) {
+    const siblingIdColumn = target.primaryKeyColumns.find((candidate) => candidate.endsWith('_id'))
+      || Object.keys(row).find((candidate) => candidate.endsWith('_id') && !candidate.endsWith('_parent_id'))
+      || target.lookupKey
+      || target.conflictKey;
+    const siblingValue = siblingIdColumn ? row[siblingIdColumn] : undefined;
+    if (hasPresentPersistenceValue(siblingValue)) {
+      return normalizeIdValue(column, String(siblingValue));
+    }
+    return syntheticPersistenceValue(column);
+  }
+  if (column.endsWith('_id')) {
+    return syntheticPersistenceValue(column);
+  }
+  return undefined;
+}
+
+async function writePersistenceRecord(
+  client: PersistenceClient,
+  target: PersistenceTarget,
+  row: Record<string, unknown>,
+  options: { allowSyntheticConflictKeys?: boolean } = {},
+): Promise<void> {
+  if (target.conflictKeys.length === 0) {
+    return;
+  }
+  const allowSyntheticConflictKeys = options.allowSyntheticConflictKeys ?? true;
+  for (const notNullColumn of (target.notNullColumns ?? [])) {
+    if (!hasPresentPersistenceValue(row[notNullColumn])) {
+      row[notNullColumn] = synthesizeMissingPersistenceValue(notNullColumn, row, target);
+    }
+  }
+  for (const conflictKey of target.conflictKeys) {
+    if (!hasPresentPersistenceValue(row[conflictKey])) {
+      if (!allowSyntheticConflictKeys) {
+        return;
+      }
+      row[conflictKey] = synthesizeMissingPersistenceValue(conflictKey, row, target);
+    }
+  }
+  const names = Object.keys(row);
+  if (names.length === 0) {
+    return;
+  }
+  const values = names.map((name) => row[name]);
+  const placeholders = names.map((_, index) => `$${index + 1}`).join(", ");
+  const protectedColumns = new Set([...target.conflictKeys, ...target.primaryKeyColumns]);
+  const updates = names.filter((name) => !protectedColumns.has(name)).map((name) => `"${name}" = EXCLUDED."${name}"`);
+  const conflictTarget = target.conflictKeys.map((name) => `"${name}"`).join(", ");
+  const conflictClause = updates.length > 0
+    ? `DO UPDATE SET ${updates.join(", ")}`
+    : "DO NOTHING";
+  let replicationRoleModified = false;
+  try {
+    await client.query("SET session_replication_role = replica");
+    replicationRoleModified = true;
+    await client.query(
+      `INSERT INTO "${target.tableName}" (${names.map((name) => `"${name}"`).join(", ")}) VALUES (${placeholders}) ON CONFLICT (${conflictTarget}) ${conflictClause}`,
+      values,
+    );
+  } finally {
+    if (replicationRoleModified) {
+      await client.query("SET session_replication_role = origin").catch(() => undefined);
+    }
+  }
+}
+
+async function persistRecord(spec: OperationSpec, payload: JsonRecord, data: JsonRecord): Promise<void> {
+  await withPersistenceClient(async (client) => {
+    const target = await resolvePersistenceTarget(client, spec, payload, data);
+    if (!target?.conflictKeys.length) {
+      return;
+    }
+    await withPersistenceTransaction(client, async () => {
+      const row = buildPersistenceRow(target.columns, data);
+      await writePersistenceRecord(client, target, row);
+      if (shouldForceTransactionRollbackProbe(payload)) {
+        forcedTransactionRollbackProbeError(spec);
+      }
+    });
+  });
+}
+
+async function persistSeedRecord(spec: OperationSpec, payload: JsonRecord, data: JsonRecord): Promise<void> {
+  await withPersistenceClient(async (client) => {
+    const target = await resolvePersistenceTarget(client, spec, payload, data, { preferPrimaryKeyConstraint: true });
+    if (!target?.conflictKeys.length) {
+      return;
+    }
+    const row = buildPersistenceRow(target.columns, data);
+    const lookupFilters = seedLookupFilters(target, row);
+    const existingByLookup = lookupFilters.length > 0
+      ? await selectPersistenceRow(client, target, lookupFilters)
+      : undefined;
+    const effectiveTarget = preferExistingRowPrimaryKeyTarget(target, existingByLookup);
+    mergeExistingPrimaryKeyValues(row, effectiveTarget.primaryKeyColumns, existingByLookup);
+    const allowSyntheticConflictKeys = Boolean(existingByLookup) || target.isStrictCandidate || target.matchedColumnCount > 1;
+    await writePersistenceRecord(client, effectiveTarget, row, { allowSyntheticConflictKeys });
+  });
+}
+
+async function selectPersistenceRow(
+  client: PersistenceClient,
+  target: PersistenceTarget,
+  filters: Array<[string, unknown]>,
+): Promise<Record<string, unknown> | undefined> {
+  const presentFilters = filters.filter(([, value]) => hasPresentPersistenceValue(value));
+  if (presentFilters.length === 0) {
+    return undefined;
+  }
+  const whereClause = presentFilters.map(([column], index) => `"${column}" = $${index + 1}`).join(" AND ");
+  const orderClause = target.orderKey ? ` ORDER BY "${target.orderKey}" DESC` : "";
+  const rows = await client.query<Record<string, unknown>>(
+    `SELECT * FROM "${target.tableName}" WHERE ${whereClause}${orderClause} LIMIT 1`,
+    presentFilters.map(([, value]) => value),
+  );
+  return rows.rows[0];
+}
+
+function seedLookupFilters(target: PersistenceTarget, row: Record<string, unknown>): Array<[string, unknown]> {
+  const filters: Array<[string, unknown]> = [];
+  if (target.lookupKey) {
+    const lookupValue = row[target.lookupKey] ?? row[camelField(target.lookupKey)];
+    if (hasPresentPersistenceValue(lookupValue)) {
+      filters.push([target.lookupKey, lookupValue]);
+    }
+  }
+  if (target.columns.includes("tenant_id") && !filters.some(([column]) => column === "tenant_id")) {
+    const tenantValue = row.tenant_id ?? row.tenantId;
+    if (hasPresentPersistenceValue(tenantValue)) {
+      filters.push(["tenant_id", tenantValue]);
+    }
+  }
+  return filters;
+}
+
+function mergeExistingPrimaryKeyValues(
+  merged: JsonRecord,
+  primaryKeyColumns: string[],
+  existingRow: Record<string, unknown> | undefined,
+): void {
+  if (!existingRow) {
+    return;
+  }
+  for (const primaryKeyColumn of primaryKeyColumns) {
+    if (
+      hasPresentPersistenceValue(merged[primaryKeyColumn])
+      || hasPresentPersistenceValue(merged[camelField(primaryKeyColumn)])
+    ) {
+      continue;
+    }
+    const existingValue = existingRow[primaryKeyColumn] ?? existingRow[camelField(primaryKeyColumn)];
+    if (!hasPresentPersistenceValue(existingValue)) {
+      continue;
+    }
+    merged[primaryKeyColumn] = typeof existingValue === "string"
+      ? normalizeIdValue(primaryKeyColumn, existingValue)
+      : existingValue;
+  }
+}
+
+async function loadRecordFromPersistence(
+  spec: OperationSpec,
+  payload: JsonRecord,
+  pathParams: JsonRecord,
+): Promise<JsonRecord | undefined> {
+  return withPersistenceClient(async (client) => {
+    const target = await resolvePersistenceTarget(client, spec, payload);
+    if (!target?.lookupKey) {
+      return undefined;
+    }
+    const id = stringValue(pathParams[primaryPathParam(spec)]) || stringValue(pathParams[snakeCase(primaryPathParam(spec))]);
+    if (!id) {
+      return undefined;
+    }
+    const normalizedId = normalizeIdValue(target.lookupKey, id);
+    const row = await selectPersistenceRow(client, target, [[target.lookupKey, normalizedId]]);
+    return row ? rowToRecord(row) : undefined;
+  });
+}
+
+function listFilterEntries(
+  payload: JsonRecord,
+  pathParams: JsonRecord,
+  columns: string[],
+  tenantId?: string,
+): Array<[string, unknown]> {
+  const merged = mergeRecords(payload, pathParams);
+  const entries: Array<[string, unknown]> = [];
+  for (const column of columns) {
+    const value = merged[column] ?? merged[camelField(column)];
+    if (value === undefined || value === null || value === "") {
+      continue;
+    }
+    if (typeof value === "object") {
+      continue;
+    }
+    const normalizedValue = (column.endsWith("_id") || column.endsWith("Id")) && typeof value === "string"
+      ? normalizeIdValue(column, value)
+      : value;
+    entries.push([column, normalizedValue]);
+  }
+  if (tenantId && columns.includes("tenant_id") && !entries.some(([column]) => column === "tenant_id")) {
+    entries.push(["tenant_id", normalizeIdValue("tenant_id", tenantId)]);
+  }
+  return entries;
+}
+
+async function listRecordsFromPersistence(
+  spec: OperationSpec,
+  payload: JsonRecord,
+  tenantId?: string,
+): Promise<JsonRecord[] | undefined> {
+  return withPersistenceClient(async (client) => {
+    const target = await resolvePersistenceTarget(client, spec, payload);
+    if (!target) {
+      return undefined;
+    }
+    const pathParams = mergeRecords(defaultPathParams(spec), asRecord(payload.path_params));
+    const filters = listFilterEntries(payload, pathParams, target.columns, tenantId);
+    const whereClause = filters.length > 0
+      ? ` WHERE ${filters.map(([column], index) => `"${column}" = $${index + 1}`).join(" AND ")}`
+      : "";
+    const orderClause = target.orderKey ? ` ORDER BY "${target.orderKey}" DESC` : "";
+    const rows = await client.query<Record<string, unknown>>(
+      `SELECT * FROM "${target.tableName}"${whereClause}${orderClause}`,
+      filters.map(([, value]) => value),
+    );
+    return rows.rows.map((row) => rowToRecord(row));
+  });
+}
+
+async function persistCommandRecord(
+  spec: OperationSpec,
+  payload: JsonRecord,
+  pathParams: JsonRecord,
+  data: JsonRecord,
+): Promise<JsonRecord | undefined> {
+  return withPersistenceClient(async (client) => {
+    const target = await resolvePersistenceTarget(client, spec, payload, data);
+    if (!target?.conflictKeys.length) {
+      return undefined;
+    }
+    const lookupId = target.lookupKey
+      ? (
+        stringValue(data[target.lookupKey])
+        || stringValue(payload[target.lookupKey])
+        || stringValue(data[camelField(target.lookupKey)])
+        || stringValue(payload[camelField(target.lookupKey)])
+        || stringValue(pathParams[primaryPathParam(spec)])
+      )
+      : "";
+    const normalizedLookupId = target.lookupKey && lookupId
+      ? normalizeIdValue(target.lookupKey, lookupId)
+      : "";
+    const existingByLookup = (target.lookupKey && normalizedLookupId)
+      ? await selectPersistenceRow(client, target, [[target.lookupKey, normalizedLookupId]])
+      : undefined;
+    const effectiveTarget = preferExistingRowPrimaryKeyTarget(target, existingByLookup);
+    const merged = mergeRecords(payload, data);
+    if (normalizedLookupId && target.lookupKey) {
+      merged[target.lookupKey] = normalizedLookupId;
+    }
+    mergeExistingPrimaryKeyValues(merged, effectiveTarget.primaryKeyColumns, existingByLookup);
+    for (const conflictKey of effectiveTarget.conflictKeys) {
+      const conflictId = (
+        stringValue(merged[conflictKey])
+        || stringValue(merged[camelField(conflictKey)])
+        || stringValue(existingByLookup?.[conflictKey])
+        || stringValue(existingByLookup?.[camelField(conflictKey)])
+        || (effectiveTarget.lookupKey === conflictKey ? normalizedLookupId : "")
+      );
+      merged[conflictKey] = conflictId
+        ? normalizeIdValue(conflictKey, conflictId)
+        : syntheticPersistenceValue(conflictKey);
+    }
+    const row = buildPersistenceRow(effectiveTarget.columns, merged);
+    for (const conflictKey of effectiveTarget.conflictKeys) {
+      row[conflictKey] = merged[conflictKey];
+    }
+    if (effectiveTarget.lookupKey && merged[effectiveTarget.lookupKey] !== undefined) {
+      row[effectiveTarget.lookupKey] = merged[effectiveTarget.lookupKey];
+    }
+    return withPersistenceTransaction(client, async () => {
+      await writePersistenceRecord(client, effectiveTarget, row);
+      if (shouldForceTransactionRollbackProbe(payload)) {
+        forcedTransactionRollbackProbeError(spec);
+      }
+      if (effectiveTarget.lookupKey) {
+        const lookupValue = merged[effectiveTarget.lookupKey];
+        const persistedByLookup = await selectPersistenceRow(client, effectiveTarget, [[effectiveTarget.lookupKey, lookupValue]]);
+        if (persistedByLookup) {
+          return rowToRecord(persistedByLookup);
+        }
+      }
+      const persisted = await selectPersistenceRow(
+        client,
+        effectiveTarget,
+        effectiveTarget.conflictKeys.map((conflictKey) => [conflictKey, merged[conflictKey]] as [string, unknown]),
+      );
+      return persisted ? rowToRecord(persisted) : merged;
+    });
+  });
+}
+
+async function handleCreateLike(spec: OperationSpec, payload: JsonRecord): Promise<Record<string, unknown>> {
+  validatePayload(spec, payload);
+  const { tenantId, subjectId } = resolveExecutionAccess(spec, payload);
+  const normalizedPayload = mergeRecords(payload, {
+    tenant_id: tenantId,
+    auth_context: mergeRecords(asRecord(payload.auth_context), { tenant_id: tenantId }),
+  });
+  const pathParams = asRecord(normalizedPayload.path_params);
+  const uniqueKey = createUniqueKey(spec, normalizedPayload, pathParams);
+  if (uniqueKey !== `${spec.operationId}:` && runtimeState.createdKeys.has(uniqueKey)) {
+    const duplicateFailure = spec.failureCases.find((failure) => failure.status.startsWith("409")) ?? findFailureByStatusPrefix(spec, "409");
+    if (duplicateFailure) {
+      appendAuditRecord({
+        tenantId,
+        actionType: spec.tag || "create",
+        outcome: "duplicate",
+        reason: duplicateFailure?.error_code || "idempotency_hit",
+        subjectId,
+        operationId: spec.operationId,
+      });
+      failureFor(spec, duplicateFailure.error_code || "conflict", "409");
+    }
+  }
+  runtimeState.createdKeys.add(uniqueKey);
+  const stored = buildStoredData(spec, normalizedPayload, tenantId);
+  await persistRecord(spec, normalizedPayload, stored);
+  rememberRecord(stored);
+  appendAuditRecord({
+    tenantId,
+    actionType: spec.tag || "create",
+    outcome: "allowed",
+    subjectId,
+    operationId: spec.operationId,
+  });
+  return successEnvelope(spec, projectResponseData(spec, stored), projectResponseMeta(spec));
+}
+
+async function handleDetailRead(spec: OperationSpec, payload: JsonRecord): Promise<Record<string, unknown>> {
+  maybeForcedFailure(spec, payload);
+  const { pathParams, recordKey, id, record: existingRecord } = resolvePrimaryRecordContext(spec, payload);
+  const access = resolveExecutionAccess(spec, { ...payload, path_params: pathParams });
+  let record = await loadRecordFromPersistence(spec, payload, pathParams);
+  record = record ?? existingRecord;
+  const responseExampleData = asRecord(asRecord(spec.responseExample).data);
+  if (recordKey && id && !record) {
+    const notFound = findFailureByStatusPrefix(spec, "404");
+    if (notFound) {
+      failureFor(spec, notFound.error_code || "not_found", "404");
+    }
+  }
+  record = record ?? responseExampleData;
+  const merged = mergeRecords(responseExampleData, record);
+  if (hasTenantAccessControl(spec) && stringValue(merged.tenant_id) === "") {
+    merged.tenant_id = access.tenantId;
+  }
+  return successEnvelope(spec, projectResponseData(spec, merged), projectResponseMeta(spec));
+}
+
+async function handleListRead(spec: OperationSpec, payload: JsonRecord): Promise<Record<string, unknown>> {
+  maybeForcedFailure(spec, payload);
+  const normalizedPayload = mergeRecords(payload, {
+    path_params: mergeRecords(defaultPathParams(spec), asRecord(payload.path_params)),
+  });
+  validatePayload(spec, normalizedPayload);
+  const executionAccess = resolveExecutionAccess(spec, normalizedPayload);
+  const tenantAccess = spec.failureCases.some((failure) => failure.error_code === "tenant_forbidden");
+  const scopedTenantId = effectiveRbacPolicies(spec).length > 0 || tenantAccess
+    ? executionAccess.tenantId
+    : undefined;
+  const example = asRecord(spec.responseExample);
+  const exampleMeta = asRecord(example.meta) as Record<string, unknown>;
+  const persistedRows = await listRecordsFromPersistence(spec, normalizedPayload, scopedTenantId);
+  if (persistedRows) {
+    const rows = projectListResponseData(spec, persistedRows);
+    return successEnvelope(
+      spec,
+      rows,
+      projectResponseMeta(
+        spec,
+        buildCursorMeta(persistedRows, exampleMeta, stringValue(exampleMeta.nextCursor) || stringValue(exampleMeta.next_cursor) || (persistedRows.length ? "cur_next" : undefined)),
+      ),
+    );
+  }
+  if (spec.operationId === "ListAuditLogs") {
+    const tenantId = scopedTenantId || DEFAULT_TENANT_ID;
+    const rows = runtimeState.auditRecords.filter((item) => item.tenant_id === tenantId);
+    const projectedRows = projectListResponseData(spec, rows);
+    return successEnvelope(
+      spec,
+      projectedRows,
+      projectResponseMeta(
+        spec,
+        buildCursorMeta(
+          rows,
+          exampleMeta,
+          stringValue(exampleMeta.nextCursor) || stringValue(exampleMeta.next_cursor) || (rows.length ? "cur_next" : undefined),
+        ),
+      ),
+    );
+  }
+  if (Array.isArray(example.data)) {
+    const exampleRows = clone(example.data) as unknown[];
+    const rows = projectListResponseData(spec, exampleRows);
+    return successEnvelope(
+      spec,
+      rows,
+      projectResponseMeta(
+        spec,
+        buildCursorMeta(exampleRows, exampleMeta, stringValue(exampleMeta.nextCursor) || stringValue(exampleMeta.next_cursor) || undefined),
+      ),
+    );
+  }
+  const record = asRecord(example.data);
+  if (Object.keys(record).length > 0) {
+    return successEnvelope(spec, projectResponseData(spec, clone(record)), projectResponseMeta(spec, exampleMeta));
+  }
+  const rows = projectResponseData(spec, clone(asArray(example.data)));
+  return successEnvelope(
+    spec,
+    rows,
+    projectResponseMeta(
+      spec,
+      buildCursorMeta(asArray(rows), exampleMeta, stringValue(exampleMeta.nextCursor) || stringValue(exampleMeta.next_cursor) || undefined),
+    ),
+  );
+}
+
+async function handleCommand(spec: OperationSpec, payload: JsonRecord): Promise<Record<string, unknown>> {
+  maybeForcedFailure(spec, payload);
+  const { pathParams, recordKey, id, record } = resolvePrimaryRecordContext(spec, payload);
+  const persistedRecord = await loadRecordFromPersistence(spec, payload, pathParams);
+  const currentRecord = persistedRecord ?? record;
+  if (recordKey && id && !currentRecord) {
+    const notFound = findFailureByStatusPrefix(spec, "404");
+    if (notFound) {
+      failureFor(spec, notFound.error_code || "not_found", "404");
+    }
+  }
+  const access = resolveExecutionAccess(spec, { ...payload, path_params: pathParams });
+  const normalizedPayload = mergeRecords(payload, {
+    tenant_id: access.tenantId,
+    path_params: pathParams,
+    auth_context: mergeRecords(asRecord(payload.auth_context), { tenant_id: access.tenantId }),
+  });
+  if (stringValue(normalizedPayload.next_state) === "invalid" || stringValue(normalizedPayload.decision) === "invalid") {
+    const invalid = findFailure(spec, "invalid_state_transition");
+    if (invalid) {
+      failureFor(spec, invalid.error_code, invalid.status);
+    }
+  }
+  validatePayload(spec, normalizedPayload);
+  const data = mergeRecords(mergeRecords(asRecord(asRecord(spec.responseExample).data), currentRecord ?? {}), asRecord(normalizedPayload));
+  const responseExampleData = asRecord(asRecord(spec.responseExample).data);
+  for (const [field, exampleValue] of Object.entries(responseExampleData)) {
+    if (field !== "version" && field !== "row_version" && !field.endsWith("_version")) {
+      continue;
+    }
+    const exampleNumber = numberValue(exampleValue);
+    if (exampleNumber === undefined) {
+      continue;
+    }
+    const incoming = numberValue(normalizedPayload[field]);
+    if (incoming === undefined) {
+      data[field] = exampleNumber;
+      continue;
+    }
+    const nextVersion = spec.operationId.startsWith("Update") ? incoming + 1 : incoming;
+    data[field] = Math.max(exampleNumber, nextVersion);
+  }
+  const persisted = await persistCommandRecord(spec, normalizedPayload, pathParams, data);
+  rememberRecord(persisted ?? data);
+  appendAuditRecord({
+    tenantId: access.tenantId,
+    actionType: spec.tag || "command",
+    outcome: "allowed",
+    subjectId: access.subjectId,
+    operationId: spec.operationId,
+  });
+  return successEnvelope(
+    spec,
+    projectResponseData(spec, mergeRecords(responseExampleData, persisted ?? data)),
+    projectResponseMeta(spec),
+  );
+}
+
+export function getOperationSpec(operationId: string): OperationSpec {
+  const spec = OPERATION_SPECS[operationId];
+  if (!spec) {
+    throw new Error(`Unknown operation: ${operationId}`);
+  }
+  return spec;
+}
+
+function persistenceProbeIdFieldCandidates(spec: OperationSpec): string[] {
+  const responseIdFields = responseExampleRecords(spec)
+    .flatMap((record) => Object.keys(record))
+    .filter((field) => isIdField(field))
+    .flatMap((field) => [
+      snakeIdField(field),
+      ...primaryKeyAliasCandidates(field),
+    ]);
+  return Array.from(
+    new Set(
+      [
+        ...responseIdFields,
+        ...primaryKeyAliasCandidates(responsePrimaryIdField(spec)),
+      ].filter(Boolean),
+    ),
+  );
+}
+
+export function persistenceProbeHints(operationId: string): { tableCandidates: string[]; strictTableCandidates: string[]; idFieldCandidates: string[] } {
+  const spec = getOperationSpec(operationId);
+  const payload = buildOperationPayload(operationId);
+  const responseIdFields = persistenceProbeIdFieldCandidates(spec);
+  const fieldBackedTables = responseIdFields.flatMap((field) => {
+    const stripped = stripIdSuffix(field);
+    return [stripped, singularTableName(stripped)];
+  });
+  const strictTableCandidates = spec.method === "GET" ? [] : Array.from(new Set(persistenceTableCandidates(spec, payload).filter(Boolean)));
+  return {
+    strictTableCandidates,
+    tableCandidates: Array.from(
+      new Set(
+        [
+          ...strictTableCandidates,
+          ...fieldBackedTables,
+        ].filter(Boolean),
+      ),
+    ),
+    idFieldCandidates: persistenceProbeIdFieldCandidates(spec),
+  };
+}
+
+export function buildOperationPlan(partial: OperationExecutionPlan): JsonRecord {
+  return clone(partial as unknown as JsonRecord);
+}
+
+export async function executeCreateOperation(spec: OperationSpec, payload: JsonRecord): Promise<Record<string, unknown>> {
+  return handleCreateLike(spec, payload);
+}
+
+export async function executeDetailReadOperation(spec: OperationSpec, payload: JsonRecord): Promise<Record<string, unknown>> {
+  return handleDetailRead(spec, payload);
+}
+
+export async function executeListReadOperation(spec: OperationSpec, payload: JsonRecord): Promise<Record<string, unknown>> {
+  return handleListRead(spec, payload);
+}
+
+export async function executeCommandOperation(spec: OperationSpec, payload: JsonRecord): Promise<Record<string, unknown>> {
+  return handleCommand(spec, payload);
+}
+
+export function resetGeneratedRuntime(): void {
+  runtimeState = createInitialState();
+}
+
+export function getAuditRecords(): AuditRecord[] {
+  return clone(runtimeState.auditRecords);
+}
+
+export function recordGeneratedAuditEvent(details: {
+  tenantId?: string;
+  operationId?: string;
+  actionType?: string;
+  outcome: string;
+  reason?: string;
+  subjectId?: string;
+  requestId?: string;
+}): void {
+  appendAuditRecord({
+    tenantId: normalizeIdValue("tenant_id", stringValue(details.tenantId) || DEFAULT_TENANT_ID),
+    actionType: details.actionType || details.operationId || "api_request",
+    outcome: details.outcome,
+    reason: details.reason,
+    subjectId: details.subjectId,
+    operationId: details.operationId,
+    requestId: details.requestId,
+  });
+}
+
+export function getGeneratedRecord(recordKey: string, id: string): Record<string, unknown> | undefined {
+  const record = lookupRecord(recordKey, id);
+  if (!record) {
+    return undefined;
+  }
+  return clone(record) as Record<string, unknown>;
+}
+
+export function listGeneratedRecords(recordKey: string): Record<string, unknown>[] {
+  for (const alias of recordKeyAliases(recordKey)) {
+    const records = runtimeState.entityRecords[alias];
+    if (records) {
+      return Object.values(records).map((row) => clone(row) as Record<string, unknown>);
+    }
+  }
+  return [];
+}
+
+export function countGeneratedRecords(recordKey: string): number {
+  for (const alias of recordKeyAliases(recordKey)) {
+    const records = runtimeState.entityRecords[alias];
+    if (records) {
+      return Object.keys(records).length;
+    }
+  }
+  return 0;
+}
+
+function seededTenantId(record: JsonRecord): string {
+  const explicit = stringValue(record.tenant_id) || stringValue(record.tenantId);
+  if (explicit) {
+    return normalizeIdValue("tenant_id", explicit);
+  }
+  const rememberedTenantIds = Object.keys(runtimeState.entityRecords.tenant_id ?? {});
+  const remembered =
+    rememberedTenantIds.filter((tenantId) => tenantId && tenantId !== DEFAULT_TENANT_ID).at(-1)
+    || rememberedTenantIds.at(-1)
+    || "";
+  if (remembered) {
+    return remembered;
+  }
+  return DEFAULT_TENANT_ID;
+}
+
+export function seedGeneratedRuntimeState(): void {
+  for (const spec of Object.values(OPERATION_SPECS)) {
+    for (const responseRecord of responseExampleRecords(spec)) {
+      const normalizedRecord = normalizePayloadIdentifiers(clone(responseRecord)) as JsonRecord;
+      const record = normalizePayloadIdentifiers(mergeRecords(normalizedRecord, {
+        tenant_id: seededTenantId(normalizedRecord),
+      })) as JsonRecord;
+      rememberRecord(record);
+    }
+  }
+}
+
+export async function seedGeneratedRuntimePersistence(): Promise<void> {
+  for (const spec of Object.values(OPERATION_SPECS)) {
+    const payload = buildOperationPayload(spec.operationId);
+    for (const responseRecord of responseExampleRecords(spec)) {
+      const normalizedRecord = normalizePayloadIdentifiers(clone(responseRecord)) as JsonRecord;
+      const record = normalizePayloadIdentifiers(mergeRecords(normalizedRecord, {
+        tenant_id: seededTenantId(normalizedRecord),
+      })) as JsonRecord;
+      rememberRecord(record);
+      await persistSeedRecord(spec, payload, record);
+    }
+  }
+}
+
+function harmonizeHappyPathPayloadWithResponseExample(spec: OperationSpec, payload: JsonRecord): JsonRecord {
+  const responseRecord = responseExampleRecord(spec);
+  const next = mergeRecords(payload, {});
+  for (const [field] of Object.entries(responseRecord)) {
+    const normalized = snakeCase(field);
+    if (normalized !== "status" && normalized !== "state") {
+      continue;
+    }
+    const aliases = uniqueNonEmpty([field, normalized, camelField(field)]);
+    const responseValue = responseRecord[field] ?? responseRecord[normalized] ?? responseRecord[camelField(field)];
+    if (!aliases.some((alias) => hasPresentField(payload, alias)) || responseValue === undefined) {
+      continue;
+    }
+    for (const alias of aliases) {
+      if (Object.prototype.hasOwnProperty.call(next, alias)) {
+        next[alias] = clone(responseValue);
+      }
+    }
+  }
+  return next;
+}
+
+export function buildOperationPayload(operationId: string, overrides: JsonRecord = {}): JsonRecord {
+  const spec = OPERATION_SPECS[operationId];
+  if (!spec) {
+    throw new Error(`Unknown operation: ${operationId}`);
+  }
+  const requestPayload = harmonizeHappyPathPayloadWithResponseExample(
+    spec,
+    normalizePayloadIdentifiers(clone(asRecord(spec.requestExample))) as JsonRecord,
+  );
+  const pathParams = defaultPathParams(spec);
+  for (const param of spec.pathParams) {
+    const requestPathId = resolvePathParamRecordId(spec, param, requestPayload);
+    if (requestPathId) {
+      pathParams[param] = normalizeIdValue(param, requestPathId);
+    }
+  }
+  const targetTenantId = deriveTargetTenantId(spec, {
+    ...requestPayload,
+    path_params: pathParams,
+  });
+  const base: JsonRecord = {
+    ...requestPayload,
+    path_params: pathParams,
+    auth_context: {
+      subject_id: "user_1",
+      tenant_id: targetTenantId,
+      roles: effectiveRbacPolicies(spec),
+      session_id: "sess_1",
+      oidc_claims: {
+        tenant_id: targetTenantId,
+        email: "user@example.com",
+      },
+    },
+  };
+  if (!("tenant_id" in requestPayload) && !("tenantId" in requestPayload)) {
+    base.tenant_id = targetTenantId;
+  }
+  return mergeRecords(base, overrides);
+}
+
+function validationLikeFailure(spec: OperationSpec, errorCode: string): boolean {
+  const code = errorCode.toLowerCase();
+  const failure = findFailure(spec, errorCode);
+  return (
+    errorCode === "validation_failed"
+    || Boolean(failure && failure.status.startsWith("400"))
+    || code.includes("invalid")
+    || code.includes("validation")
+    || code.includes("missing")
+    || code.includes("required")
+  );
+}
+
+export function buildFailurePayload(operationId: string, errorCode: string): JsonRecord {
+  const payload = buildOperationPayload(operationId);
+  const spec = OPERATION_SPECS[operationId];
+  if (!spec) {
+    return payload;
+  }
+  if (errorCode === "tenant_forbidden") {
+    payload.auth_context = mergeRecords(asRecord(payload.auth_context), { tenant_id: DENY_TENANT_ID });
+    return payload;
+  }
+  if (validationLikeFailure(spec, errorCode)) {
+    const requiredBody = requiredBodyKeys(spec);
+    if (requiredBody.length > 0) {
+      delete payload[requiredBody[0]];
+    }
+    payload.invalid_query = true;
+    return payload;
+  }
+  const notFound = findFailureByStatusPrefix(spec, "404");
+  if (notFound && errorCode === notFound.error_code) {
+    const pathParams = asRecord(payload.path_params);
+    const key = primaryPathParam(spec);
+    if (key) {
+      pathParams[key] = `missing_${snakeCase(key)}`;
+      payload.path_params = pathParams;
+    } else {
+      payload.force_error_code = errorCode;
+    }
+    return payload;
+  }
+  if (errorCode === "invalid_state_transition") {
+    payload.next_state = "invalid";
+    return payload;
+  }
+  payload.force_error_code = errorCode;
+  return payload;
+}
+
+export async function invokeGeneratedOperation(operationId: string, payload: unknown): Promise<unknown> {
+  const spec = OPERATION_SPECS[operationId];
+  if (!spec) {
+    throw new Error(`Unknown operation: ${operationId}`);
+  }
+  const normalized = asRecord(payload);
+  const responseData = asRecord(spec.responseExample).data;
+  if (operationId.startsWith("Create") || operationId.startsWith("Launch") || operationId.startsWith("Export")) {
+    return handleCreateLike(spec, normalized);
+  }
+  if (operationId.startsWith("Get") && spec.pathParams.length > 0) {
+    return handleDetailRead(spec, normalized);
+  }
+  if ((spec.method === "GET" && Array.isArray(responseData)) || operationId.startsWith("List")) {
+    return handleListRead(spec, normalized);
+  }
+  return handleCommand(spec, normalized);
+}
+"""
     return (
         template.replace(
             "__OPERATION_SPECS__",

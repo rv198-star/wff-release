@@ -5,7 +5,6 @@ Generate a Stage-05 prototype-spec artifact from Phase-1 PRD and stage outputs.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 import sys
 
@@ -19,85 +18,10 @@ import re
 from pathlib import Path
 
 from common.output_language import resolve_output_locale
-from phase1.phase1_generation_kernel import parse_markdown_table_padded as parse_markdown_table
 from phase1.phase1_localize_prd_zh import INLINE_PHRASE_MAP, render_primary_locale_lines, replace_phrases
 
 
 CURRENT_OUTPUT_LOCALE = resolve_output_locale()
-
-
-@dataclass(frozen=True)
-class PrototypeSpecPaths:
-    prd_path: Path
-    stage_02a_path: Path
-    stage_02b_path: Path | None
-    stage_03_path: Path
-    stage_04_path: Path
-    output_path: Path
-    prompt_pack_output_path: Path
-
-
-@dataclass(frozen=True)
-class PrototypeSpecSourceTexts:
-    prd_text: str
-    stage_02a_text: str
-    stage_02b_text: str
-    stage_03_text: str
-    stage_04_text: str
-
-
-@dataclass(frozen=True)
-class PrototypeSpecSourceSections:
-    executive_summary: str
-    out_of_scope_block: str
-    review_bound_block: str
-    business_flow_block: str
-    state_machine_block: str
-    acceptance_block: str
-    design_start_block: str
-    carryover_block: str
-    deferred_block: str
-    assumptions_block: str
-    persona_context_block: str
-    design_requirements_block: str
-    ia_alternatives_block: str
-    core_objects_block: str
-    use_cases_block: str
-
-
-PROTOTYPE_PAGE_MAP_HEADERS = [
-    "page_id",
-    "page_name",
-    "route",
-    "page_blueprint_type",
-    "primary_actor",
-    "allowed_roles",
-    "primary_user_goal",
-    "bound_use_case_ids",
-    "business_objects",
-    "must_show_together",
-    "required_regions",
-    "entry_conditions",
-    "exit_conditions",
-    "next_route_candidates",
-    "denied_behavior",
-    "readiness_status",
-    "blocked_reason",
-    "primary_action",
-    "route_pattern",
-    "parent_page",
-    "canonical_page_id",
-    "surface_variant",
-    "audience_mode",
-    "session_role_source",
-    "auth_entry_route",
-    "auth_entry_label",
-    "workspace_entry_roles",
-    "route_reachability_mode",
-    "navigation_scope",
-    "handoff_visibility",
-    "forbidden_exposure",
-]
 
 SECTION_ALIASES = {
     "executive_summary": ["Executive Summary"],
@@ -583,62 +507,6 @@ def extract_single_line_field(text: str, field: str) -> str:
     return match.group(1).strip() if match else ""
 
 
-def resolve_prototype_spec_paths(args: argparse.Namespace) -> PrototypeSpecPaths:
-    output_path = Path(args.output).resolve()
-    return PrototypeSpecPaths(
-        prd_path=Path(args.prd).resolve(),
-        stage_02a_path=Path(args.stage_02a).resolve(),
-        stage_02b_path=Path(args.stage_02b).resolve() if args.stage_02b else None,
-        stage_03_path=Path(args.stage_03).resolve(),
-        stage_04_path=Path(args.stage_04).resolve(),
-        output_path=output_path,
-        prompt_pack_output_path=(
-            Path(args.prompt_pack_output).resolve()
-            if args.prompt_pack_output
-            else output_path.with_name("prototype-prompt-pack.md")
-        ),
-    )
-
-
-def read_prototype_spec_source_texts(paths: PrototypeSpecPaths) -> PrototypeSpecSourceTexts:
-    return PrototypeSpecSourceTexts(
-        prd_text=read_text(paths.prd_path),
-        stage_02a_text=read_text(paths.stage_02a_path),
-        stage_02b_text=read_text(paths.stage_02b_path) if paths.stage_02b_path and paths.stage_02b_path.exists() else "",
-        stage_03_text=read_text(paths.stage_03_path),
-        stage_04_text=read_text(paths.stage_04_path),
-    )
-
-
-def extract_prototype_spec_source_sections(texts: PrototypeSpecSourceTexts) -> PrototypeSpecSourceSections:
-    return PrototypeSpecSourceSections(
-        executive_summary=section(texts.prd_text, "executive_summary"),
-        out_of_scope_block=section(texts.prd_text, "out_of_scope"),
-        review_bound_block=section(texts.stage_04_text, "review_bound"),
-        business_flow_block=section(texts.prd_text, "business_flows"),
-        state_machine_block=section(texts.prd_text, "state_machine"),
-        acceptance_block=section(texts.prd_text, "acceptance"),
-        design_start_block=section(texts.prd_text, "design_start"),
-        carryover_block=section(texts.stage_03_text, "carryover"),
-        deferred_block=section(texts.stage_03_text, "deferred"),
-        assumptions_block=section(texts.stage_03_text, "assumptions"),
-        persona_context_block=section(texts.stage_02a_text, "persona_context"),
-        design_requirements_block=section(texts.stage_02a_text, "design_requirements"),
-        ia_alternatives_block=section(texts.prd_text, "ia_alternatives"),
-        core_objects_block=section(texts.prd_text, "core_objects"),
-        use_cases_block=section(texts.prd_text, "use_cases"),
-    )
-
-
-def extract_prototype_spec_artifact_ids(texts: PrototypeSpecSourceTexts) -> dict[str, str]:
-    return {
-        "stage_02a": extract_single_line_field(texts.stage_02a_text, "artifact_id") or "P1-S02a-OUT-001",
-        "stage_02b": extract_single_line_field(texts.stage_02b_text, "artifact_id") or "P1-S02b-OUT-001",
-        "stage_03": extract_single_line_field(texts.stage_03_text, "artifact_id") or "P1-S03-OUT-001",
-        "stage_04": extract_single_line_field(texts.stage_04_text, "artifact_id") or "P1-S04-OUT-001",
-    }
-
-
 def first_nonempty_lines(block: str, count: int) -> list[str]:
     lines: list[str] = []
     for line in strip_first_heading(block).splitlines():
@@ -653,6 +521,21 @@ def first_nonempty_lines(block: str, count: int) -> list[str]:
             break
     return lines
 
+
+def parse_markdown_table(block: str) -> list[dict[str, str]]:
+    table_lines = [line.strip() for line in block.splitlines() if line.strip().startswith("|")]
+    if len(table_lines) < 3:
+        return []
+    headers = [cell.strip() for cell in table_lines[0].strip("|").split("|")]
+    rows: list[dict[str, str]] = []
+    for line in table_lines[2:]:
+        if re.match(r"^\|\s*[-: ]+\|\s*$", line):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) < len(headers):
+            cells.extend([""] * (len(headers) - len(cells)))
+        rows.append(dict(zip(headers, cells)))
+    return rows
 
 
 def extract_markdown_table_blocks(text: str) -> list[str]:
@@ -1815,551 +1698,6 @@ def inline_table_value(values: list[str], fallback: str = "—") -> str:
     return ", ".join(cleaned) if cleaned else fallback
 
 
-def prototype_page_map_row_values(page: dict[str, object]) -> list[str]:
-    return [
-        required_value(str(page["page_id"])),
-        required_value(str(page["page_name"])),
-        required_value(str(page["route"])),
-        required_value(str(page["page_blueprint_type"])),
-        required_value(str(page["primary_actor"])),
-        required_value(inline_table_value(list(page["allowed_roles"]))),
-        required_value(str(page["primary_user_goal"])),
-        required_value(inline_table_value(list(page["bound_use_case_ids"]))),
-        required_value(inline_table_value(list(page["business_objects"]))),
-        required_value(inline_table_value(list(page["must_show_together"]))),
-        required_value(inline_table_value(list(page["required_regions"]))),
-        required_value(inline_table_value(list(page["entry_conditions"]))),
-        required_value(inline_table_value(list(page["exit_conditions"]))),
-        required_value(inline_table_value(list(page["next_route_candidates"]))),
-        required_value(str(page["denied_behavior"])),
-        required_value(str(page["readiness_status"])),
-        required_value(str(page.get("blocked_reason") or ""), "—"),
-        required_value(str(page["primary_action"])),
-        required_value(str(page["route_pattern"])),
-        required_value(str(page["parent_page"]), "—"),
-        required_value(str(page["canonical_page_id"])),
-        required_value(str(page["surface_variant"])),
-        required_value(str(page["audience_mode"])),
-        required_value(str(page["session_role_source"]), "—"),
-        required_value(str(page.get("auth_entry_route") or ""), "—"),
-        required_value(str(page.get("auth_entry_label") or ""), "—"),
-        required_value(inline_table_value(list(page["workspace_entry_roles"])), "—"),
-        required_value(str(page["route_reachability_mode"]), "—"),
-        required_value(str(page["navigation_scope"]), "—"),
-        required_value(str(page["handoff_visibility"]), "—"),
-        required_value(inline_table_value(list(page["forbidden_exposure"]))),
-    ]
-
-
-def render_prototype_page_map_lines(pages: list[dict[str, object]]) -> list[str]:
-    lines = [
-        "",
-        "## 4. Page Map",
-        "- surface_matrix_authority_note:",
-        "  - The table below is the authoritative page-level Surface Matrix for Stage-05.",
-        "  - `route` is the authority field; `route_pattern` is retained as a compatibility mirror for existing downstream parsers.",
-        "  - `primary_action` and `parent_page` remain compatibility columns and do not replace the page-level contract fields.",
-        "  - `canonical_page_id / surface_variant / audience_mode / session_role_source / auth_entry_route / auth_entry_label / workspace_entry_roles / route_reachability_mode / navigation_scope / handoff_visibility / forbidden_exposure` freeze the audience-aware surface contract for downstream phases.",
-        "  - If `readiness_status` is not `ready`, `blocked_reason` must explain why the page-level contract is still constrained.",
-        "",
-        "| " + " | ".join(PROTOTYPE_PAGE_MAP_HEADERS) + " |",
-        "| " + " | ".join("---" for _ in PROTOTYPE_PAGE_MAP_HEADERS) + " |",
-    ]
-    for page in pages:
-        lines.append("| " + " | ".join(prototype_page_map_row_values(page)) + " |")
-    lines.extend(
-        [
-            "- navigation_structure_note:",
-            "  - Workflow-first organization remains primary; support pages stay secondary to the main operating backbone.",
-        ]
-    )
-    return lines
-
-
-def render_prototype_main_flow_lines(route_entries: list[dict[str, str]], pages: list[dict[str, object]]) -> list[str]:
-    lines = [
-        "",
-        "## 5. Main Flow and Key Transitions",
-        "- main_flow:",
-    ]
-    for index, entry in enumerate(route_entries, start=1):
-        lines.extend(
-            [
-                f"  - step_{index}:",
-                f"    - from_page: `{entry['from_page']}`",
-                f"    - user_goal: {entry['user_goal']}",
-                f"    - system_response: {entry['system_response']}",
-                f"    - to_page: `{entry['to_page']}`",
-                f"    - context_that_must_survive_navigation: {entry['context_that_must_survive_navigation']}",
-            ]
-        )
-    lines.extend(
-        [
-            "- alternate_paths:",
-            "  - path_1:",
-            "    - trigger: `an upstream prerequisite is incomplete`",
-            "    - consequence: prototype must surface validation and blocked states instead of pretending the happy path always succeeds",
-            "    - visible_pages:",
-        ]
-    )
-    if pages:
-        lines.append(f"      - `{pages[0]['page_name']}`")
-    if len(pages) > 1:
-        lines.append(f"      - `{pages[1]['page_name']}`")
-    lines.extend(
-        [
-            "  - path_2:",
-            "    - trigger: `the current record set is empty, stale, or non-interpretable`",
-            "    - consequence: prototype must show failure, uncertainty, and recovery guidance instead of silently routing to a happy path",
-            "    - visible_pages:",
-        ]
-    )
-    for page in pages[:2]:
-        lines.append(f"      - `{page['page_name']}`")
-    lines.extend(
-        [
-            "  - path_3:",
-            "    - trigger: `a downstream action is returned for clarification before it can continue`",
-            "    - consequence: prototype must keep the handoff reversible and preserve the reason for the interruption",
-            "    - visible_pages:",
-        ]
-    )
-    for page in pages[1:3]:
-        lines.append(f"      - `{page['page_name']}`")
-    lines.extend(
-        [
-            "- route_graph_note:",
-            "  - The prototype should keep the mainline route walkable while preserving blocked or exception paths so review honesty is visible, not implied.",
-        ]
-    )
-    return lines
-
-
-def render_prototype_page_brief_lines(
-    pages: list[dict[str, object]],
-    state_machine: dict[str, dict[str, object]],
-    global_design_rules: list[str],
-) -> list[str]:
-    page_by_id = {str(page["page_id"]): page for page in pages}
-    lines = [
-        "",
-        "## 6. Page Briefs",
-    ]
-    for page in pages:
-        parent_page = page_by_id.get(str(page["parent_page"])) if str(page["parent_page"]) != "—" else None
-        next_page = None
-        for candidate in pages:
-            if str(candidate["parent_page"]) == str(page["page_id"]):
-                next_page = candidate
-                break
-        lines.extend(
-            [
-                f"  - page_{str(page['page_id']).replace('P', '').lstrip('0') or '1'}:",
-                f"    - page_name: `{page['page_name']}`",
-                f"    - page_role: `{page['page_role']}`",
-                f"    - why_it_exists: {required_value(synthesize_page_goal(page))}",
-                f"    - dominant_interaction_pattern: `{page['dominant_interaction_pattern']}`",
-                f"    - key_data_objects: {required_value(', '.join(str(item) for item in page['required_information_objects']))}",
-                f"    - business_state_transitions: {required_value(infer_business_state_transitions(page, state_machine))}",
-                f"    - entry_condition: {required_value(str(page['entry_condition']))}",
-                f"    - page_blueprint_type: `{page['page_blueprint_type']}`",
-                f"    - primary_work_region: {page['primary_work_region']}",
-                "    - secondary_support_regions:",
-            ]
-        )
-        lines.extend(format_bullet_list(list(page["secondary_support_regions"]), 6))
-        lines.extend(
-            [
-                f"    - dominant_component_pattern: {page['dominant_component_pattern']}",
-                f"    - action_model: {page['action_model']}",
-                "    - forbidden_layout_patterns:",
-            ]
-        )
-        lines.extend(format_bullet_list(list(page["forbidden_layout_patterns"]), 6))
-        lines.extend(["    - page_specific_design_rules:"])
-        lines.extend(format_bullet_list(global_design_rules or ["preserve workflow continuity and required outcome honesty"], 6))
-        lines.extend(["    - must_show_together:"])
-        lines.extend(format_bullet_list(synthesize_context_contract(page), 6))
-        lines.extend(["    - core_information_blocks:"])
-        lines.extend(format_bullet_list([f"`{item}`" for item in page["required_information_objects"]] or ["workflow context"], 6))
-        lines.extend(["    - core_actions:"])
-        lines.extend(format_bullet_list([f"`{item}`" for item in page["exit_actions"]], 6))
-        lines.extend(["    - required_user_inputs_or_confirmations:"])
-        lines.extend(format_bullet_list(synthesize_required_inputs(page), 6))
-        lines.extend(["    - render_blocks_in_order:"])
-        lines.extend(format_bullet_list(list(page["render_blocks_in_order"]), 6))
-        lines.extend(["    - field_groups:"])
-        lines.extend(format_bullet_list(list(page["field_groups"]), 6))
-        lines.extend(["    - input_controls:"])
-        lines.extend(format_bullet_list(list(page["input_controls"]), 6))
-        lines.extend(["    - summary_cards:"])
-        lines.extend(format_bullet_list(list(page["summary_cards"]), 6))
-        lines.extend(["    - detail_fields_in_order:"])
-        lines.extend(format_bullet_list(list(page["detail_fields_in_order"]), 6))
-        lines.extend(["    - table_columns:"])
-        lines.extend(format_bullet_list(list(page["table_columns"]), 6))
-        lines.extend(["    - filters_and_selectors:"])
-        lines.extend(format_bullet_list(list(page["filters_and_selectors"]), 6))
-        lines.extend(["    - required_status_messages:"])
-        lines.extend(format_bullet_list(list(page["required_status_messages"]), 6))
-        lines.extend(["    - important_state_variants:"])
-        state_variants = ["normal", "loading", "empty", "error", "blocked"]
-        lines.extend(format_bullet_list([f"`{item}`" for item in state_variants], 6))
-        lines.extend(
-            [
-                f"    - primary_cta_label: `{page['primary_cta_label']}`",
-                "    - secondary_ctas:",
-            ]
-        )
-        lines.extend(format_bullet_list(list(page["secondary_ctas"]), 6))
-        lines.extend(["    - submission_feedback:"])
-        lines.extend(format_bullet_list(list(page["submission_feedback"]), 6))
-        lines.extend(
-            [
-                f"    - context_arrives_from: {synthesize_context_bridge(parent_page, page)}",
-                f"    - context_must_continue_to: {synthesize_context_bridge(page, next_page)}",
-                "    - executor_brief:",
-            ]
-        )
-        lines.extend(format_bullet_list(page_executor_brief(page, global_design_rules), 6))
-    return lines
-
-
-def build_object_pages_index(pages: list[dict[str, object]]) -> dict[str, list[str]]:
-    object_pages: dict[str, list[str]] = {}
-    for page in pages:
-        for obj in page["required_information_objects"]:
-            object_pages.setdefault(str(obj), []).append(str(page["page_name"]))
-    return object_pages
-
-
-def render_prototype_object_state_matrix_lines(
-    core_objects: list[str],
-    pages: list[dict[str, object]],
-    state_machine: dict[str, dict[str, object]],
-) -> list[str]:
-    object_pages = build_object_pages_index(pages)
-    ordered_objects = list(dict.fromkeys(core_objects + sorted(object_pages.keys())))
-    lines = ["", "## 7. Core Objects and State Matrix", "- object_state_matrix:"]
-    for index, obj in enumerate(ordered_objects, start=1):
-        states = state_machine.get(obj, {}).get("states", ["visible", "selected"])
-        lines.extend(
-            [
-                f"  - object_{index}:",
-                f"    - object_name: `{obj}`",
-                "    - visible_in_pages:",
-            ]
-        )
-        lines.extend(format_bullet_list(sorted(dict.fromkeys(object_pages.get(obj, []))) or ["(not directly named in a page contract)"], 6))
-        lines.extend(["    - required_states:"])
-        lines.extend(format_bullet_list([str(item) for item in states], 6))
-        lines.extend(["    - state_changing_actions:"])
-        action_candidates: list[str] = []
-        for page in pages:
-            if obj in page["required_information_objects"]:
-                action_candidates.extend(str(item) for item in page["exit_actions"])
-        lines.extend(format_bullet_list(sorted(dict.fromkeys(action_candidates)) or ["visible through workflow transitions"], 6))
-        lines.extend(["    - blocked_or_exception_notes: preserve blocked or exception context where the workflow can stop or degrade."])
-    lines.extend(
-        [
-            "- object_matrix_compilation_note:",
-            "  - Supporting detail blocks are folded into their parent workflow objects instead of being modeled as standalone state machines.",
-        ]
-    )
-    return lines
-
-
-def render_prototype_state_and_generation_constraint_lines(product_name: str) -> list[str]:
-    return [
-        "",
-        "## 8. Key State Coverage",
-        "- key_state_coverage:",
-        "  - loading_state:",
-        "    - where_visible: `core workflow pages`",
-        "    - why_required: data loading, generated views, or downstream dependencies must remain honest in the prototype.",
-        "  - empty_state:",
-        "    - where_visible: `record-centric and list-centric pages`",
-        "    - why_required: the prototype must show no-data and not-yet-generated states honestly.",
-        "  - error_state:",
-        "    - where_visible: `setup, dashboard, and execution pages`",
-        "    - why_required: failed retrieval or invalid submission paths must remain visible.",
-        "  - permission_state:",
-        "    - where_visible: `setup and decision pages`",
-        "    - why_required: ownership and governance boundaries are first-wave constraints, not late add-ons.",
-        "  - disabled_or_blocked_state:",
-        "    - where_visible: `pages with state-changing actions`",
-        "    - why_required: operations must show blocked behavior before they can be reviewed safely.",
-        "- state_gap_note:",
-        "  - Some secondary edge states may still need finer-grained treatment during HTML execution.",
-        "",
-        "## 9. Prototype Generation Constraints",
-        "- prototype_generation_constraints:",
-        "  - must_preserve_main_flow: `yes`",
-        "  - must_not_add_features_outside_scope: `yes`",
-        "  - must_cover_key_states: `yes`",
-        "  - must_keep_deferred_items_out_of_mainline_ui: `yes`",
-        "  - must_mark_inferred_content: `yes`",
-        "  - may_use_static_html_css_js_only: `yes`",
-        "  - must_render_page_specific_data_contracts: `yes`",
-        "  - must_render_real_input_controls_for_required_user_inputs: `yes`",
-        "  - must_preserve_context_carry_forward_between_pages: `yes`",
-        "  - must_use_upstream_page_names_or_domain_nouns: `yes`",
-        "  - must_present_as_business_product_not_demo_shell: `yes`",
-        "  - must_not_render_demo_console_or_api_explorer: `yes`",
-        "  - must_not_center_home_on_stepper_or_debug_cards: `yes`",
-        "  - must_not_replace_page_intent_with_generic_workspace_labels: `yes`",
-        "  - preferred_output_shape:",
-        "    - `small-multi-file`",
-        "- execution_handoff_note:",
-        "  - Any derived prototype executor may choose layout and styling, but must not invent new product capabilities, hidden states, or automation claims outside the first-wave boundary.",
-        "- external_executor_brief:",
-        f"  - treat the site as a business application named `{product_name}`, not as a demo artifact or acceptance harness",
-        "  - the first screen must explain what workflow the product supports, who it serves, and where the operator should start",
-        "  - every workflow page must expose the information needed to decide and the controls needed to continue, not just explanatory copy",
-        "  - when a later page depends on earlier context, show the carried-forward context on arrival instead of resetting to an empty shell",
-        "  - never use labels such as `API Explorer`, `Runtime Console`, `Acceptance Dashboard`, or `Demo Steps` as the dominant UX framing",
-        "  - treat `prototype-prompt-pack.md` as supplementary guidance only; `prototype-spec.md` remains the authority",
-    ]
-
-
-def render_prototype_reasoning_evidence_lines(
-    *,
-    ia_alternatives_block: str,
-    mainline_pages: list[dict[str, object]],
-    state_machine: dict[str, dict[str, object]],
-    deferred_items: list[str],
-    non_goals: list[str],
-) -> list[str]:
-    lines = [
-        "",
-        "## 11. Reasoning Evidence",
-        "",
-        "This section is REQUIRED, not optional.",
-        "",
-        "### Page-Map Construction Reasoning",
-        "- page_candidates_considered:",
-    ]
-    ia_alternatives = parse_markdown_table(ia_alternatives_block)
-    if ia_alternatives:
-        for index, row in enumerate(ia_alternatives[:3], start=1):
-            lines.extend(
-                [
-                    f"  - candidate_{index}:",
-                    f"    - name: `{row_value(row, 'alternative')}`",
-                    f"    - why_considered: {row_value(row, 'strength') or row_value(row, 'organizing axis')}",
-                    f"    - why_rejected_or_kept: {row_value(row, 'verdict')} / {row_value(row, 'failure risk')}",
-                ]
-            )
-    else:
-        lines.extend(
-            [
-                "  - candidate_1:",
-                "    - name: `workflow-first`",
-                "    - why_considered: closest to the first-wave operating loop",
-                "    - why_rejected_or_kept: kept",
-            ]
-        )
-    lines.extend(
-        [
-            "- chosen_page_map_logic: workflow-first page grouping remains primary because it preserves the main operating sequence without hiding the object model.",
-            "- why_this_page_map_not_that: entity-first is clearer for pure domain review but weaker for first-wave route comprehension; role-first fragments the loop.",
-            "",
-            "### Flow Preservation Reasoning",
-            "- workflow_backbone_used:",
-        ]
-    )
-    for page in mainline_pages:
-        lines.append(f"  - `{page['page_name']}`")
-    lines.extend(
-        [
-            "- what_must_not_break_across_pages:",
-            "  - dependent records must carry forward without a blind reset",
-            "  - the next action must remain operable on every primary page",
-            "  - object continuity must stay visible across the mainline route",
-            "- where_route_simplification_was_allowed:",
-            "  - secondary support pages may stay outside the mainline route",
-            "- where_route_simplification_was_forbidden:",
-            "  - prerequisite setup cannot be skipped",
-            "  - a downstream action cannot skip the page that provides its required context",
-            "  - final review cannot detach from the records and states it is judging",
-            "",
-            "### State Coverage Honesty",
-            "- explicit_states_preserved_from_upstream:",
-        ]
-    )
-    for subject, meta in state_machine.items():
-        if "states" in meta:
-            lines.append(f"  - `{subject}: {' -> '.join(str(item) for item in meta['states'])}`")
-    lines.extend(
-        [
-            "- states_inferred_for_prototype_usability:",
-            "  - page-level loading surfaces",
-            "  - permission-limited variants",
-            "  - disabled action treatments where operations are blocked",
-            "- states_still_missing:",
-            "  - some secondary edge variants may still need deeper HTML treatment",
-            "- downstream_risk_if_missing:",
-            "  - HTML execution may over-polish the prototype and hide the operational friction that the product actually depends on.",
-            "",
-            "### Deferred / Non-Goal Preservation",
-            "- deferred_items_that_must_remain_hidden_from_mainline:",
-        ]
-    )
-    for item in deferred_items:
-        lines.append(f"  - `{item}`")
-    lines.extend(["- non_goals_that_must_not_reappear_as_ui:"])
-    for item in non_goals:
-        lines.append(f"  - `{item}`")
-    lines.extend(
-        [
-            "- prototype_risk_if_boundary_is_blurred:",
-            "  - reviewers may mistake a high-fidelity shell for a stronger product commitment than the PRD actually allows.",
-            "",
-            "### Deepening Loop Log",
-            "- loop_state:",
-            "  - `S-review-bound-freeze`",
-            "- rounds_executed:",
-            "  - 1",
-            "- round_log:",
-            "  - round_1:",
-            "    - trigger: `recompile PRD and late-stage outputs into page-level Surface Matrix authority`",
-            "    - artifact_unit_improved: `surface matrix + route graph + state coverage`",
-            "    - what_was_refined: `workflow-first page grouping and downstream prototype guardrails`",
-            "    - outcome:",
-            "      - `freeze`",
-            "- freeze_rationale:",
-            "  - Stage-05 is a page-level authority artifact; deeper interaction and binding detail should move into later stages, not back into informal page-map prose.",
-            "",
-            "### Method-Family Usage Evidence",
-            "- method_family_1:",
-            "  - name: `workflow-to-page-map recompilation`",
-            "  - visible_effect: `mainline route stays anchored in the primary operating loop rather than page-shell sprawl`",
-            "- method_family_2:",
-            "  - name: `module-driven page grouping`",
-            "  - visible_effect: `each module contributes at least one concrete page contract`",
-            "- method_family_3:",
-            "  - name: `object and state context discipline`",
-            "  - visible_effect: `core business objects remain explicit across pages and state coverage`",
-            "- method_family_4:",
-            "  - name: `deferred and non-goal preservation`",
-            "  - visible_effect: `deferred items remain outside the prototype mainline with explicit boundary notes`",
-        ]
-    )
-    return lines
-
-
-def render_prototype_diagram_and_acceptance_lines(mainline_pages: list[dict[str, object]]) -> list[str]:
-    lines = [
-        "",
-        "## 12. Diagram / Structured Representation",
-        "- requires_uml_or_mermaid:",
-        "  - `yes`",
-        "- diagram_type:",
-        "  - `page-map-and-route-graph`",
-        "- diagram_obligation:",
-        "  - `required`",
-        "- diagram_minimum_elements:",
-        "  - major pages",
-        "  - main flow transitions",
-        "  - at least one alternate or exception path",
-        "  - explicit start and end points",
-        "- fail_action:",
-        "  - return to page-map and route clarification if no coherent route graph exists",
-        "- route_graph_mermaid:",
-    ]
-    lines.extend(build_mermaid_route_graph(mainline_pages))
-    lines.extend(
-        [
-            "",
-            "## 13. Acceptance and Flow",
-            "- minimum_acceptance:",
-            "  - page-level Surface Matrix authority exists",
-            "  - page map compatibility view exists",
-            "  - main flow exists",
-            "  - page briefs exist",
-            "  - object / state matrix exists",
-            "  - key state coverage exists",
-            "  - prototype generation constraints exist",
-            "  - derived supplementary prompt guidance exists",
-            "- handoff_to:",
-            "  - `Phase-2 engineering alignment`",
-            "  - `derived prototype prompt-pack generation`",
-            "- handoff_package:",
-            "  - `prototype-spec.md`",
-            "  - authoritative surface matrix / page map",
-            "  - route graph",
-            "  - page briefs",
-            "  - object / state matrix",
-            "  - key state coverage",
-            "  - deferred / non-goal boundary note",
-            "  - prototype generation constraints",
-            "- downstream_usage_rule:",
-            "  - downstream may consume provisional content only as explicitly marked prototype inference",
-            "  - downstream must not treat inferred UI detail as confirmed product truth",
-            "  - `prototype-prompt-pack.md` may supplement visual generation, but it must not add or mutate page authority fields",
-        ]
-    )
-    return lines
-
-
-def render_prototype_reference_and_source_note_lines(
-    *,
-    paths: PrototypeSpecPaths,
-    persona_lines: list[str],
-    design_requirement_lines: list[str],
-    carryover_lines: list[str],
-    deferred_lines: list[str],
-    acceptance_lines: list[str],
-) -> list[str]:
-    lines = [
-        "",
-        "## 14. Referenced Upstream Artifacts",
-        f"- referenced_prd: `{paths.prd_path.name}`",
-        "- referenced_stage_outputs:",
-        f"  - Stage-02a: `{paths.stage_02a_path.name}`",
-    ]
-    if paths.stage_02b_path and paths.stage_02b_path.exists():
-        lines.append(f"  - Stage-02b: `{paths.stage_02b_path.name}`")
-    else:
-        lines.append("  - Stage-02b: `(not provided)`")
-    lines.extend(
-        [
-            f"  - Stage-03: `{paths.stage_03_path.name}`",
-            f"  - Stage-04: `{paths.stage_04_path.name}`",
-            "- referenced_sections:",
-            "  - `PRD Executive Summary`",
-            "  - `PRD Module Responsibility Matrix`",
-            "  - `PRD Key Business Flows`",
-            "  - `PRD State Machine and Transition Rules`",
-            "  - `Stage-03 Source Feature Carryover Ledger`",
-            "  - `Stage-03 Deferred Items Honesty Check`",
-            "  - `Stage-04 Review-Bound Carryover and Forbidden Assumptions`",
-            "",
-            "## 15. Surface Authority Downstream Mapping",
-            "- this_artifact_feeds:",
-            "  - surface_matrix / page_map -> downstream page-level authority alignment",
-            "  - main_flow -> route and handoff planning",
-            "  - page_briefs -> page content / module scaffolding",
-            "  - object_state_matrix -> stateful UI representation",
-            "  - key_state_coverage -> empty / error / loading / permission page variants",
-            "  - prototype_generation_constraints -> supplementary prototype guardrails",
-            "",
-            "## 16. Source Notes",
-            "- persona_context_signal:",
-        ]
-    )
-    lines.extend(format_bullet_list(persona_lines or ["Primary persona context still centers on the business workflow operator."]))
-    lines.extend(["- design_requirement_signal:"])
-    lines.extend(format_bullet_list(design_requirement_lines or ["Design requirements remain workflow-first and action-chain preserving."]))
-    lines.extend(["- carryover_signal:"])
-    lines.extend(format_bullet_list(carryover_lines or ["Deferred and non-goal boundaries remain explicit and must not be hidden in the prototype."]))
-    lines.extend(["- deferred_honesty_signal:"])
-    lines.extend(format_bullet_list(deferred_lines or ["Deferred items remain review-bound rather than silently promoted into the first-wave UI."]))
-    lines.extend(["- acceptance_signal:"])
-    lines.extend(format_bullet_list(acceptance_lines or ["Acceptance criteria already require workflow continuity and explicit state honesty."]))
-    return lines
-
-
 def build_pages(module_rows: list[dict[str, str]], core_objects: list[str]) -> list[dict[str, object]]:
     pages: list[dict[str, object]] = []
     for index, row in enumerate(module_rows, start=1):
@@ -2458,55 +1796,6 @@ def ensure_mainline_pages(flow_pages: list[dict[str, object]], pages: list[dict[
         if page not in ordered:
             ordered.append(page)
     return ordered
-
-
-def apply_prototype_page_authority_contracts(
-    pages: list[dict[str, object]],
-    flow_pages: list[dict[str, object]],
-) -> list[dict[str, object]]:
-    mainline_pages = ensure_mainline_pages(flow_pages, pages)
-    for index, page in enumerate(mainline_pages):
-        parent_page = mainline_pages[index - 1] if index > 0 else None
-        page["parent_page"] = str(parent_page["page_id"]) if parent_page else "—"
-        page["route_pattern"] = route_pattern_for_slug(str(page["slug"]), str(parent_page["slug"]) if parent_page else "")
-        page["page_role"] = "mainline" if page in flow_pages else "support"
-    for page in pages:
-        if "parent_page" not in page:
-            page["parent_page"] = "—"
-        if "route_pattern" not in page:
-            page["route_pattern"] = route_pattern_for_slug(str(page["slug"]), "")
-        if "page_role" not in page:
-            page["page_role"] = "support"
-        page["route"] = str(page["route_pattern"])
-        page["primary_user_goal"] = synthesize_page_goal(page)
-        page["bound_use_case_ids"] = infer_use_case_ids(page)
-        page["business_objects"] = [str(item) for item in page["required_information_objects"]]
-        page["must_show_together"] = infer_must_show_together(page)
-        page["entry_conditions"] = [str(page["entry_condition"]).strip()] if str(page["entry_condition"]).strip() else ["TBD"]
-        page["exit_conditions"] = infer_exit_conditions(page)
-
-    children_by_parent: dict[str, list[dict[str, object]]] = {}
-    for page in pages:
-        parent_page_id = str(page.get("parent_page") or "").strip()
-        if parent_page_id and parent_page_id != "—":
-            children_by_parent.setdefault(parent_page_id, []).append(page)
-    for page in pages:
-        children = children_by_parent.get(str(page["page_id"]), [])
-        page["next_route_candidates"] = [str(child["route"]) for child in children] or ["—"]
-        page["canonical_page_id"] = infer_canonical_page_id(page)
-        page["surface_variant"] = infer_surface_variant(page)
-        page["audience_mode"] = infer_surface_audience_mode(page)
-        page["session_role_source"] = infer_session_role_source(page)
-        page["auth_entry_route"] = infer_auth_entry_route(page)
-        page["auth_entry_label"] = infer_auth_entry_label(page)
-        page["navigation_scope"] = infer_navigation_scope(page)
-        page["handoff_visibility"] = infer_handoff_visibility(page)
-        page["forbidden_exposure"] = infer_forbidden_exposure(page)
-    assign_workspace_entry_roles(pages)
-    for page in pages:
-        page["route_reachability_mode"] = infer_route_reachability_mode(page)
-        finalize_surface_readiness(page)
-    return mainline_pages
 
 
 def relevant_state_transitions(page: dict[str, object], state_machine: dict[str, dict[str, object]]) -> list[str]:
@@ -2659,169 +1948,6 @@ def build_route_entries(flow_steps: list[str], flow_pages: list[dict[str, object
     return entries
 
 
-def render_prototype_prompt_page_contract_lines(pages: list[dict[str, object]]) -> list[str]:
-    lines = ["", "Page contracts:"]
-    for index, page in enumerate(pages, start=1):
-        lines.extend(
-            [
-                f"- Page {index}: {page['page_name']}",
-                f"  - Product purpose: {synthesize_page_goal(page)}",
-                f"  - Primary actor: {page['primary_actor']}",
-                f"  - Entry condition: {page['entry_condition']}",
-                f"  - Page blueprint type: {page['page_blueprint_type']}",
-                f"  - Primary work region: {page['primary_work_region']}",
-                f"  - Dominant component pattern: {page['dominant_component_pattern']}",
-                f"  - Action model: {page['action_model']}",
-                "  - Secondary support regions:",
-            ]
-        )
-        for item in page["secondary_support_regions"]:
-            lines.append(f"    - {item}")
-        lines.extend(["  - Forbidden layout patterns:"])
-        for item in page["forbidden_layout_patterns"]:
-            lines.append(f"    - {item}")
-        lines.extend(["  - Must visibly show together:"])
-        for item in synthesize_context_contract(page):
-            lines.append(f"    - {item}")
-        lines.extend(["  - Required information blocks:"])
-        for item in page["required_information_objects"] or ["workflow context"]:
-            lines.append(f"    - {item}")
-        lines.extend(["  - Render blocks in order:"])
-        for item in page["render_blocks_in_order"]:
-            lines.append(f"    - {item}")
-        lines.extend(["  - Field groups that must exist on the page:"])
-        for item in page["field_groups"]:
-            lines.append(f"    - {item}")
-        lines.extend(["  - Input controls to materialize:"])
-        for item in page["input_controls"]:
-            lines.append(f"    - {item}")
-        lines.extend(["  - Summary cards or top-line badges to show:"])
-        for item in page["summary_cards"]:
-            lines.append(f"    - {item}")
-        lines.extend(["  - Detail fields in reading order:"])
-        for item in page["detail_fields_in_order"]:
-            lines.append(f"    - {item}")
-        lines.extend(["  - Table or list columns when tabular presentation is used:"])
-        for item in page["table_columns"]:
-            lines.append(f"    - {item}")
-        lines.extend(["  - Filters and selectors to expose:"])
-        for item in page["filters_and_selectors"]:
-            lines.append(f"    - {item}")
-        lines.extend(["  - Required user inputs / confirmations:"])
-        for item in synthesize_required_inputs(page):
-            lines.append(f"    - {item}")
-        lines.extend(
-            [
-                f"  - Primary CTA label: {page['primary_cta_label']}",
-                "  - Secondary CTAs:",
-            ]
-        )
-        for item in page["secondary_ctas"]:
-            lines.append(f"    - {item}")
-        lines.extend(["  - Primary actions the UI must make operable:"])
-        for action in page["exit_actions"]:
-            lines.append(f"    - {action}")
-        lines.extend(["  - Required status messages:"])
-        for item in page["required_status_messages"]:
-            lines.append(f"    - {item}")
-        lines.extend(["  - Submission feedback the UI must make explicit:"])
-        for item in page["submission_feedback"]:
-            lines.append(f"    - {item}")
-    return lines
-
-
-def render_prototype_prompt_product_truth_lines(
-    first_wave_scope: list[str],
-    deferred_items: list[str],
-    non_goals: list[str],
-    review_bound_lines: list[str],
-) -> list[str]:
-    lines = ["", "Non-negotiable product truths:"]
-    for item in first_wave_scope or ["first-wave workflow continuity"]:
-        lines.append(f"- In scope: {item}")
-    for item in deferred_items:
-        lines.append(f"- Deferred and must not appear as active product capability: {item}")
-    for item in non_goals:
-        lines.append(f"- Non-goal and must not be implied as supported: {item}")
-    for item in review_bound_lines[:5]:
-        lines.append(f"- Forbidden assumption: {item}")
-    return lines
-
-
-def render_prototype_prompt_workflow_backbone_lines(route_entries: list[dict[str, str]]) -> list[str]:
-    lines = ["", "Workflow backbone that must remain operable:"]
-    for index, entry in enumerate(route_entries, start=1):
-        lines.extend(
-            [
-                f"- Step {index}:",
-                f"  - From page: {entry['from_page']}",
-                f"  - User goal: {entry['user_goal']}",
-                f"  - System response: {entry['system_response']}",
-                f"  - To page: {entry['to_page']}",
-                f"  - Context continuity: {entry['context_that_must_survive_navigation']}",
-            ]
-        )
-    return lines
-
-
-def render_prototype_prompt_delivery_review_lines(
-    *,
-    product_name: str,
-    acceptance_lines: list[str],
-    output_contract_name: str,
-    persona_lines: list[str],
-    design_requirement_lines: list[str],
-    global_design_rules: list[str],
-    assumption_lines: list[str],
-) -> list[str]:
-    lines = [
-        "",
-        "Homepage / first screen requirements:",
-        f"- Present the product explicitly as `{product_name}`.",
-        "- Explain what workflow the product supports, who it serves, and where the operator should start.",
-        "- The first screen must expose a real entry into the workflow, not only explanatory copy.",
-        "- The first screen must feel like a product workbench or governed setup/dashboard, not a slideshow or demo launcher.",
-        "",
-        "Language and terminology:",
-        "- Keep upstream page names and domain nouns recognizable.",
-        "- Prefer business-facing copy over engineering copy.",
-        "- Do not replace product nouns with generic labels such as workspace, module, panel, console, playground, or explorer.",
-        "",
-        "Required deliverables from the external AI run:",
-        "- A clickable multi-page prototype or a small multi-file HTML site.",
-        "- One homepage / entry page plus the full first-wave workflow pages.",
-        "- Real form controls for the required inputs or confirmations.",
-        "- Empty, loading, blocked, and error states on the pages where those states matter.",
-        "- Visible carry-forward context when moving between dependent pages.",
-        "",
-        "Acceptance checklist before you stop:",
-    ]
-    for item in acceptance_lines or ["Acceptance criteria remain visible through the workflow pages."]:
-        lines.append(f"- {item}")
-    lines.extend(
-        [
-            "- Confirm that the output reads like a business product for operators, not a framework demo.",
-            "- Confirm that each workflow page exposes both required data and the next user action.",
-            "- Confirm that deferred and non-goal items are not silently promoted into the visible product.",
-            "```",
-            "",
-            "## 3. Human Review Notes",
-            "- Reviewers may iterate visual styling, hierarchy, and microcopy with the external AI.",
-            f"- Reviewers must not break the contract in `{output_contract_name}` while refining high-fidelity output.",
-            "- If external exploration reveals missing product truths, update the Phase-1/Phase-2 source artifacts rather than silently patching the prototype only.",
-            "",
-            "## 4. Upstream Signals Preserved",
-            "- persona_context_signal:",
-        ]
-    )
-    lines.extend(format_bullet_list(persona_lines or ["Primary persona context still centers on the business workflow operator."]))
-    lines.extend(["- design_requirement_signal:"])
-    lines.extend(format_bullet_list(design_requirement_lines or global_design_rules or ["Design remains workflow-first and action-chain preserving."]))
-    lines.extend(["- assumptions_to_watch:"])
-    lines.extend(format_bullet_list(assumption_lines or ["The first-wave workflow still depends on an honest handoff between pages."]))
-    return lines
-
-
 def build_prototype_prompt_pack_lines(
     *,
     version: str,
@@ -2890,16 +2016,18 @@ def build_prototype_prompt_pack_lines(
             "- The prototype must feel like a usable product for the named operator on day one, even if styling remains MVP-level.",
             "- Every primary page must let the user see the required business context and take the next workflow action directly on the page.",
             "- This prompt pack is derived supplementary guidance; when it conflicts with `prototype-spec.md`, the spec wins.",
+            "",
+            "Non-negotiable product truths:",
         ]
     )
-    lines.extend(
-        render_prototype_prompt_product_truth_lines(
-            first_wave_scope,
-            deferred_items,
-            non_goals,
-            review_bound_lines,
-        )
-    )
+    for item in first_wave_scope or ["first-wave workflow continuity"]:
+        lines.append(f"- In scope: {item}")
+    for item in deferred_items:
+        lines.append(f"- Deferred and must not appear as active product capability: {item}")
+    for item in non_goals:
+        lines.append(f"- Non-goal and must not be implied as supported: {item}")
+    for item in review_bound_lines[:5]:
+        lines.append(f"- Forbidden assumption: {item}")
     lines.extend(
         [
             "",
@@ -2913,21 +2041,139 @@ def build_prototype_prompt_pack_lines(
             "- No acceptance harness framing.",
             "- No homepage dominated by step cards, generic walkthrough cards, or engineering scaffolding language.",
             "- No page that only dumps contracts or instructions without giving the user an operable surface.",
+            "",
+            "Workflow backbone that must remain operable:",
         ]
     )
-    lines.extend(render_prototype_prompt_workflow_backbone_lines(route_entries))
-    lines.extend(render_prototype_prompt_page_contract_lines(pages))
-    lines.extend(
-        render_prototype_prompt_delivery_review_lines(
-            product_name=product_name,
-            acceptance_lines=acceptance_lines,
-            output_contract_name=output_contract_name,
-            persona_lines=persona_lines,
-            design_requirement_lines=design_requirement_lines,
-            global_design_rules=global_design_rules,
-            assumption_lines=assumption_lines,
+    for index, entry in enumerate(route_entries, start=1):
+        lines.extend(
+            [
+                f"- Step {index}:",
+                f"  - From page: {entry['from_page']}",
+                f"  - User goal: {entry['user_goal']}",
+                f"  - System response: {entry['system_response']}",
+                f"  - To page: {entry['to_page']}",
+                f"  - Context continuity: {entry['context_that_must_survive_navigation']}",
+            ]
         )
+    lines.extend(["", "Page contracts:"])
+    for index, page in enumerate(pages, start=1):
+        lines.extend(
+            [
+                f"- Page {index}: {page['page_name']}",
+                f"  - Product purpose: {synthesize_page_goal(page)}",
+                f"  - Primary actor: {page['primary_actor']}",
+                f"  - Entry condition: {page['entry_condition']}",
+                f"  - Page blueprint type: {page['page_blueprint_type']}",
+                f"  - Primary work region: {page['primary_work_region']}",
+                f"  - Dominant component pattern: {page['dominant_component_pattern']}",
+                f"  - Action model: {page['action_model']}",
+                "  - Secondary support regions:",
+            ]
+        )
+        for item in page["secondary_support_regions"]:
+            lines.append(f"    - {item}")
+        lines.extend(["  - Forbidden layout patterns:"])
+        for item in page["forbidden_layout_patterns"]:
+            lines.append(f"    - {item}")
+        lines.extend(["  - Must visibly show together:"])
+        for item in synthesize_context_contract(page):
+            lines.append(f"    - {item}")
+        lines.extend(["  - Required information blocks:"])
+        for item in page["required_information_objects"] or ["workflow context"]:
+            lines.append(f"    - {item}")
+        lines.extend(["  - Render blocks in order:"])
+        for item in page["render_blocks_in_order"]:
+            lines.append(f"    - {item}")
+        lines.extend(["  - Field groups that must exist on the page:"])
+        for item in page["field_groups"]:
+            lines.append(f"    - {item}")
+        lines.extend(["  - Input controls to materialize:"])
+        for item in page["input_controls"]:
+            lines.append(f"    - {item}")
+        lines.extend(["  - Summary cards or top-line badges to show:"])
+        for item in page["summary_cards"]:
+            lines.append(f"    - {item}")
+        lines.extend(["  - Detail fields in reading order:"])
+        for item in page["detail_fields_in_order"]:
+            lines.append(f"    - {item}")
+        lines.extend(["  - Table or list columns when tabular presentation is used:"])
+        for item in page["table_columns"]:
+            lines.append(f"    - {item}")
+        lines.extend(["  - Filters and selectors to expose:"])
+        for item in page["filters_and_selectors"]:
+            lines.append(f"    - {item}")
+        lines.extend(["  - Required user inputs / confirmations:"])
+        for item in synthesize_required_inputs(page):
+            lines.append(f"    - {item}")
+        lines.extend(
+            [
+                f"  - Primary CTA label: {page['primary_cta_label']}",
+                "  - Secondary CTAs:",
+            ]
+        )
+        for item in page["secondary_ctas"]:
+            lines.append(f"    - {item}")
+        lines.extend(["  - Primary actions the UI must make operable:"])
+        for action in page["exit_actions"]:
+            lines.append(f"    - {action}")
+        lines.extend(
+            [
+                "  - Required status messages:",
+            ]
+        )
+        for item in page["required_status_messages"]:
+            lines.append(f"    - {item}")
+        lines.extend(["  - Submission feedback the UI must make explicit:"])
+        for item in page["submission_feedback"]:
+            lines.append(f"    - {item}")
+    lines.extend(
+        [
+            "",
+            "Homepage / first screen requirements:",
+            f"- Present the product explicitly as `{product_name}`.",
+            "- Explain what workflow the product supports, who it serves, and where the operator should start.",
+            "- The first screen must expose a real entry into the workflow, not only explanatory copy.",
+            "- The first screen must feel like a product workbench or governed setup/dashboard, not a slideshow or demo launcher.",
+            "",
+            "Language and terminology:",
+            "- Keep upstream page names and domain nouns recognizable.",
+            "- Prefer business-facing copy over engineering copy.",
+            "- Do not replace product nouns with generic labels such as workspace, module, panel, console, playground, or explorer.",
+            "",
+            "Required deliverables from the external AI run:",
+            "- A clickable multi-page prototype or a small multi-file HTML site.",
+            "- One homepage / entry page plus the full first-wave workflow pages.",
+            "- Real form controls for the required inputs or confirmations.",
+            "- Empty, loading, blocked, and error states on the pages where those states matter.",
+            "- Visible carry-forward context when moving between dependent pages.",
+            "",
+            "Acceptance checklist before you stop:",
+        ]
     )
+    for item in acceptance_lines or ["Acceptance criteria remain visible through the workflow pages."]:
+        lines.append(f"- {item}")
+    lines.extend(
+        [
+            "- Confirm that the output reads like a business product for operators, not a framework demo.",
+            "- Confirm that each workflow page exposes both required data and the next user action.",
+            "- Confirm that deferred and non-goal items are not silently promoted into the visible product.",
+            "```",
+            "",
+            "## 3. Human Review Notes",
+            "- Reviewers may iterate visual styling, hierarchy, and microcopy with the external AI.",
+            f"- Reviewers must not break the contract in `{output_contract_name}` while refining high-fidelity output.",
+            "- If external exploration reveals missing product truths, update the Phase-1/Phase-2 source artifacts rather than silently patching the prototype only.",
+            "",
+            "## 4. Upstream Signals Preserved",
+            "- persona_context_signal:",
+        ]
+    )
+    lines.extend(format_bullet_list(persona_lines or ["Primary persona context still centers on the business workflow operator."]))
+    lines.extend(["- design_requirement_signal:"])
+    lines.extend(format_bullet_list(design_requirement_lines or global_design_rules or ["Design remains workflow-first and action-chain preserving."]))
+    lines.extend(["- assumptions_to_watch:"])
+    lines.extend(format_bullet_list(assumption_lines or ["The first-wave workflow still depends on an honest handoff between pages."]))
     return lines
 
 
@@ -2949,34 +2195,67 @@ def main() -> int:
 
     CURRENT_OUTPUT_LOCALE = resolve_output_locale(args.output_locale)
 
-    paths = resolve_prototype_spec_paths(args)
-    source_texts = read_prototype_spec_source_texts(paths)
-    source_sections = extract_prototype_spec_source_sections(source_texts)
-    artifact_ids = extract_prototype_spec_artifact_ids(source_texts)
-
-    module_matrix_rows = extract_module_rows_from_text(source_texts.prd_text, source_texts.stage_02b_text)
-    current_product_context_lines = first_nonempty_lines(source_sections.executive_summary, 3)
-    non_goals = parse_bullets(source_sections.out_of_scope_block)
-    review_bound_lines = parse_named_list(source_sections.review_bound_block, "must_not_assume") or first_nonempty_lines(
-        source_sections.review_bound_block,
-        6,
+    prd_path = Path(args.prd).resolve()
+    stage_02a_path = Path(args.stage_02a).resolve()
+    stage_03_path = Path(args.stage_03).resolve()
+    stage_04_path = Path(args.stage_04).resolve()
+    stage_02b_path = Path(args.stage_02b).resolve() if args.stage_02b else None
+    output_path = Path(args.output).resolve()
+    prompt_pack_output_path = (
+        Path(args.prompt_pack_output).resolve()
+        if args.prompt_pack_output
+        else output_path.with_name("prototype-prompt-pack.md")
     )
-    flow_steps = parse_numbered_steps(source_sections.business_flow_block)
-    state_machine = parse_state_machine(source_sections.state_machine_block)
-    acceptance_lines = parse_bullets(source_sections.acceptance_block)[:5]
-    design_start_rules = parse_bullets(source_sections.design_start_block)
-    carryover_lines = parse_carryover_summaries(source_sections.carryover_block, 3)
-    deferred_lines = parse_deferred_honesty_summaries(source_sections.deferred_block, 3)
-    assumption_lines = parse_assumption_statements(source_sections.assumptions_block)
-    persona_lines = parse_bullet_values(source_sections.persona_context_block, 3)
-    design_requirement_lines = parse_design_requirement_summaries(source_sections.design_requirements_block, 4)
-    supporting_use_cases = parse_supporting_use_cases(source_sections.use_cases_block)
-    use_case_evidence_map = build_use_case_evidence_map(source_sections.use_cases_block, supporting_use_cases, flow_steps)
-    deferred_items = parse_named_list(source_texts.stage_03_text, "deferred_items")
-    first_wave_scope = parse_named_list(source_texts.stage_03_text, "first_slice")
-    later_slices = parse_named_list(source_texts.stage_03_text, "later_slices")
+
+    prd_text = read_text(prd_path)
+    stage_02a_text = read_text(stage_02a_path)
+    stage_03_text = read_text(stage_03_path)
+    stage_04_text = read_text(stage_04_path)
+    stage_02b_text = read_text(stage_02b_path) if stage_02b_path and stage_02b_path.exists() else ""
+
+    executive_summary = section(prd_text, "executive_summary")
+    out_of_scope_block = section(prd_text, "out_of_scope")
+    review_bound_block = section(stage_04_text, "review_bound")
+    module_matrix_rows = extract_module_rows_from_text(prd_text, stage_02b_text)
+    business_flow_block = section(prd_text, "business_flows")
+    state_machine_block = section(prd_text, "state_machine")
+    acceptance_block = section(prd_text, "acceptance")
+    design_start_block = section(prd_text, "design_start")
+    carryover_block = section(stage_03_text, "carryover")
+    deferred_block = section(stage_03_text, "deferred")
+    assumptions_block = section(stage_03_text, "assumptions")
+    persona_context_block = section(stage_02a_text, "persona_context")
+    design_requirements_block = section(stage_02a_text, "design_requirements")
+    ia_alternatives_block = section(prd_text, "ia_alternatives")
+    core_objects_block = section(prd_text, "core_objects")
+    use_cases_block = section(prd_text, "use_cases")
+
+    artifact_ids = {
+        "stage_02a": extract_single_line_field(stage_02a_text, "artifact_id") or "P1-S02a-OUT-001",
+        "stage_02b": extract_single_line_field(stage_02b_text, "artifact_id") or "P1-S02b-OUT-001",
+        "stage_03": extract_single_line_field(stage_03_text, "artifact_id") or "P1-S03-OUT-001",
+        "stage_04": extract_single_line_field(stage_04_text, "artifact_id") or "P1-S04-OUT-001",
+    }
+
+    current_product_context_lines = first_nonempty_lines(executive_summary, 3)
+    non_goals = parse_bullets(out_of_scope_block)
+    review_bound_lines = parse_named_list(review_bound_block, "must_not_assume") or first_nonempty_lines(review_bound_block, 6)
+    flow_steps = parse_numbered_steps(business_flow_block)
+    state_machine = parse_state_machine(state_machine_block)
+    acceptance_lines = parse_bullets(acceptance_block)[:5]
+    design_start_rules = parse_bullets(design_start_block)
+    carryover_lines = parse_carryover_summaries(carryover_block, 3)
+    deferred_lines = parse_deferred_honesty_summaries(deferred_block, 3)
+    assumption_lines = parse_assumption_statements(assumptions_block)
+    persona_lines = parse_bullet_values(persona_context_block, 3)
+    design_requirement_lines = parse_design_requirement_summaries(design_requirements_block, 4)
+    supporting_use_cases = parse_supporting_use_cases(use_cases_block)
+    use_case_evidence_map = build_use_case_evidence_map(use_cases_block, supporting_use_cases, flow_steps)
+    deferred_items = parse_named_list(stage_03_text, "deferred_items")
+    first_wave_scope = parse_named_list(stage_03_text, "first_slice")
+    later_slices = parse_named_list(stage_03_text, "later_slices")
     global_design_rules = design_start_rules[:4]
-    core_objects = parse_core_business_objects(source_sections.core_objects_block)
+    core_objects = parse_core_business_objects(core_objects_block)
 
     if not module_matrix_rows:
         raise SystemExit("Prototype spec generation requires a Module Responsibility Matrix or equivalent Phase-1 module table")
@@ -2990,11 +2269,54 @@ def main() -> int:
         use_case_evidence_map=use_case_evidence_map,
         page_step_numbers=page_step_numbers,
     )
-    mainline_pages = apply_prototype_page_authority_contracts(pages, flow_pages)
+    mainline_pages = ensure_mainline_pages(flow_pages, pages)
+
+    page_by_id = {str(page["page_id"]): page for page in pages}
+    for index, page in enumerate(mainline_pages):
+        parent_page = mainline_pages[index - 1] if index > 0 else None
+        page["parent_page"] = str(parent_page["page_id"]) if parent_page else "—"
+        page["route_pattern"] = route_pattern_for_slug(str(page["slug"]), str(parent_page["slug"]) if parent_page else "")
+        page["page_role"] = "mainline" if page in flow_pages else "support"
+    for page in pages:
+        if "parent_page" not in page:
+            page["parent_page"] = "—"
+        if "route_pattern" not in page:
+            page["route_pattern"] = route_pattern_for_slug(str(page["slug"]), "")
+        if "page_role" not in page:
+            page["page_role"] = "support"
+        page["route"] = str(page["route_pattern"])
+        page["primary_user_goal"] = synthesize_page_goal(page)
+        page["bound_use_case_ids"] = infer_use_case_ids(page)
+        page["business_objects"] = [str(item) for item in page["required_information_objects"]]
+        page["must_show_together"] = infer_must_show_together(page)
+        page["entry_conditions"] = [str(page["entry_condition"]).strip()] if str(page["entry_condition"]).strip() else ["TBD"]
+        page["exit_conditions"] = infer_exit_conditions(page)
+
+    children_by_parent: dict[str, list[dict[str, object]]] = {}
+    for page in pages:
+        parent_page_id = str(page.get("parent_page") or "").strip()
+        if parent_page_id and parent_page_id != "—":
+            children_by_parent.setdefault(parent_page_id, []).append(page)
+    for page in pages:
+        children = children_by_parent.get(str(page["page_id"]), [])
+        page["next_route_candidates"] = [str(child["route"]) for child in children] or ["—"]
+        page["canonical_page_id"] = infer_canonical_page_id(page)
+        page["surface_variant"] = infer_surface_variant(page)
+        page["audience_mode"] = infer_surface_audience_mode(page)
+        page["session_role_source"] = infer_session_role_source(page)
+        page["auth_entry_route"] = infer_auth_entry_route(page)
+        page["auth_entry_label"] = infer_auth_entry_label(page)
+        page["navigation_scope"] = infer_navigation_scope(page)
+        page["handoff_visibility"] = infer_handoff_visibility(page)
+        page["forbidden_exposure"] = infer_forbidden_exposure(page)
+    assign_workspace_entry_roles(pages)
+    for page in pages:
+        page["route_reachability_mode"] = infer_route_reachability_mode(page)
+        finalize_surface_readiness(page)
 
     route_entries = build_route_entries(flow_steps, flow_pages or mainline_pages)
 
-    product_name = normalize_product_name(extract_document_title(source_texts.prd_text), paths.prd_path.stem)
+    product_name = normalize_product_name(extract_document_title(prd_text), prd_path.stem)
     product_promise = choose_product_value_promise(current_product_context_lines)
     primary_operator = persona_lines[0] if persona_lines else "primary workflow operator"
 
@@ -3002,6 +2324,11 @@ def main() -> int:
         "Stage-05 keeps the first-wave workflow bounded to the primary operating loop. "
         "Deferred and explicit out-of-scope items remain visible so the prototype does not create false completeness."
     )
+
+    object_pages: dict[str, list[str]] = {}
+    for page in pages:
+        for obj in page["required_information_objects"]:
+            object_pages.setdefault(str(obj), []).append(str(page["page_name"]))
 
     lines: list[str] = [
         "# Prototype Spec",
@@ -3026,11 +2353,11 @@ def main() -> int:
         f"  - `{artifact_ids['stage_03']}`",
         f"  - `{artifact_ids['stage_04']}`",
     ]
-    if source_texts.stage_02b_text:
+    if stage_02b_text:
         lines.append(f"  - `{artifact_ids['stage_02b']}`")
     lines.extend(
         [
-            f"  - `{paths.prd_path.name}`",
+            f"  - `{prd_path.name}`",
             "- feeds:",
             "  - `P1-S05-SURFACE-MATRIX-001 (expected)`",
             "  - `P2-DESIGN-INPUT-001 (expected)`",
@@ -3095,13 +2422,272 @@ def main() -> int:
         ]
     )
     lines.extend(format_bullet_list(review_bound_lines or ["Do not treat inferred UI detail as confirmed product truth."], 2))
-    lines.extend(render_prototype_page_map_lines(pages))
-    lines.extend(render_prototype_main_flow_lines(route_entries, pages))
-    lines.extend(render_prototype_page_brief_lines(pages, state_machine, global_design_rules))
-    lines.extend(render_prototype_object_state_matrix_lines(core_objects, pages, state_machine))
-    lines.extend(render_prototype_state_and_generation_constraint_lines(product_name))
     lines.extend(
         [
+            "",
+            "## 4. Page Map",
+            "- surface_matrix_authority_note:",
+            "  - The table below is the authoritative page-level Surface Matrix for Stage-05.",
+            "  - `route` is the authority field; `route_pattern` is retained as a compatibility mirror for existing downstream parsers.",
+            "  - `primary_action` and `parent_page` remain compatibility columns and do not replace the page-level contract fields.",
+            "  - `canonical_page_id / surface_variant / audience_mode / session_role_source / auth_entry_route / auth_entry_label / workspace_entry_roles / route_reachability_mode / navigation_scope / handoff_visibility / forbidden_exposure` freeze the audience-aware surface contract for downstream phases.",
+            "  - If `readiness_status` is not `ready`, `blocked_reason` must explain why the page-level contract is still constrained.",
+            "",
+            "| page_id | page_name | route | page_blueprint_type | primary_actor | allowed_roles | primary_user_goal | bound_use_case_ids | business_objects | must_show_together | required_regions | entry_conditions | exit_conditions | next_route_candidates | denied_behavior | readiness_status | blocked_reason | primary_action | route_pattern | parent_page | canonical_page_id | surface_variant | audience_mode | session_role_source | auth_entry_route | auth_entry_label | workspace_entry_roles | route_reachability_mode | navigation_scope | handoff_visibility | forbidden_exposure |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    for page in pages:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    required_value(str(page["page_id"])),
+                    required_value(str(page["page_name"])),
+                    required_value(str(page["route"])),
+                    required_value(str(page["page_blueprint_type"])),
+                    required_value(str(page["primary_actor"])),
+                    required_value(inline_table_value(list(page["allowed_roles"]))),
+                    required_value(str(page["primary_user_goal"])),
+                    required_value(inline_table_value(list(page["bound_use_case_ids"]))),
+                    required_value(inline_table_value(list(page["business_objects"]))),
+                    required_value(inline_table_value(list(page["must_show_together"]))),
+                    required_value(inline_table_value(list(page["required_regions"]))),
+                    required_value(inline_table_value(list(page["entry_conditions"]))),
+                    required_value(inline_table_value(list(page["exit_conditions"]))),
+                    required_value(inline_table_value(list(page["next_route_candidates"]))),
+                    required_value(str(page["denied_behavior"])),
+                    required_value(str(page["readiness_status"])),
+                    required_value(str(page.get("blocked_reason") or ""), "—"),
+                    required_value(str(page["primary_action"])),
+                    required_value(str(page["route_pattern"])),
+                    required_value(str(page["parent_page"]), "—"),
+                    required_value(str(page["canonical_page_id"])),
+                    required_value(str(page["surface_variant"])),
+                    required_value(str(page["audience_mode"])),
+                    required_value(str(page["session_role_source"]), "—"),
+                    required_value(str(page.get("auth_entry_route") or ""), "—"),
+                    required_value(str(page.get("auth_entry_label") or ""), "—"),
+                    required_value(inline_table_value(list(page["workspace_entry_roles"])), "—"),
+                    required_value(str(page["route_reachability_mode"]), "—"),
+                    required_value(str(page["navigation_scope"]), "—"),
+                    required_value(str(page["handoff_visibility"]), "—"),
+                    required_value(inline_table_value(list(page["forbidden_exposure"]))),
+                ]
+            )
+            + " |"
+        )
+    lines.extend(
+        [
+            "- navigation_structure_note:",
+            "  - Workflow-first organization remains primary; support pages stay secondary to the main operating backbone.",
+            "",
+            "## 5. Main Flow and Key Transitions",
+            "- main_flow:",
+        ]
+    )
+    for index, entry in enumerate(route_entries, start=1):
+        lines.extend(
+            [
+                f"  - step_{index}:",
+                f"    - from_page: `{entry['from_page']}`",
+                f"    - user_goal: {entry['user_goal']}",
+                f"    - system_response: {entry['system_response']}",
+                f"    - to_page: `{entry['to_page']}`",
+                f"    - context_that_must_survive_navigation: {entry['context_that_must_survive_navigation']}",
+            ]
+        )
+    lines.extend(
+        [
+            "- alternate_paths:",
+            "  - path_1:",
+            "    - trigger: `an upstream prerequisite is incomplete`",
+            "    - consequence: prototype must surface validation and blocked states instead of pretending the happy path always succeeds",
+            "    - visible_pages:",
+        ]
+    )
+    if pages:
+        lines.append(f"      - `{pages[0]['page_name']}`")
+    if len(pages) > 1:
+        lines.append(f"      - `{pages[1]['page_name']}`")
+    lines.extend(
+        [
+            "  - path_2:",
+            "    - trigger: `the current record set is empty, stale, or non-interpretable`",
+            "    - consequence: prototype must show failure, uncertainty, and recovery guidance instead of silently routing to a happy path",
+            "    - visible_pages:",
+        ]
+    )
+    for page in pages[:2]:
+        lines.append(f"      - `{page['page_name']}`")
+    lines.extend(
+        [
+            "  - path_3:",
+            "    - trigger: `a downstream action is returned for clarification before it can continue`",
+            "    - consequence: prototype must keep the handoff reversible and preserve the reason for the interruption",
+            "    - visible_pages:",
+        ]
+    )
+    for page in pages[1:3]:
+        lines.append(f"      - `{page['page_name']}`")
+    lines.extend(
+        [
+            "- route_graph_note:",
+            "  - The prototype should keep the mainline route walkable while preserving blocked or exception paths so review honesty is visible, not implied.",
+            "",
+            "## 6. Page Briefs",
+        ]
+    )
+    for page in pages:
+        parent_page = page_by_id.get(str(page["parent_page"])) if str(page["parent_page"]) != "—" else None
+        next_page = None
+        for candidate in pages:
+            if str(candidate["parent_page"]) == str(page["page_id"]):
+                next_page = candidate
+                break
+        lines.extend(
+            [
+                f"  - page_{str(page['page_id']).replace('P', '').lstrip('0') or '1'}:",
+                f"    - page_name: `{page['page_name']}`",
+                f"    - page_role: `{page['page_role']}`",
+                f"    - why_it_exists: {required_value(synthesize_page_goal(page))}",
+                f"    - dominant_interaction_pattern: `{page['dominant_interaction_pattern']}`",
+                f"    - key_data_objects: {required_value(', '.join(str(item) for item in page['required_information_objects']))}",
+                f"    - business_state_transitions: {required_value(infer_business_state_transitions(page, state_machine))}",
+                f"    - entry_condition: {required_value(str(page['entry_condition']))}",
+                f"    - page_blueprint_type: `{page['page_blueprint_type']}`",
+                f"    - primary_work_region: {page['primary_work_region']}",
+                "    - secondary_support_regions:",
+            ]
+        )
+        lines.extend(format_bullet_list(list(page["secondary_support_regions"]), 6))
+        lines.extend(
+            [
+                f"    - dominant_component_pattern: {page['dominant_component_pattern']}",
+                f"    - action_model: {page['action_model']}",
+                "    - forbidden_layout_patterns:",
+            ]
+        )
+        lines.extend(format_bullet_list(list(page["forbidden_layout_patterns"]), 6))
+        lines.extend(["    - page_specific_design_rules:"])
+        lines.extend(format_bullet_list(global_design_rules or ["preserve workflow continuity and required outcome honesty"], 6))
+        lines.extend(["    - must_show_together:"])
+        lines.extend(format_bullet_list(synthesize_context_contract(page), 6))
+        lines.extend(["    - core_information_blocks:"])
+        lines.extend(format_bullet_list([f"`{item}`" for item in page["required_information_objects"]] or ["workflow context"], 6))
+        lines.extend(["    - core_actions:"])
+        lines.extend(format_bullet_list([f"`{item}`" for item in page["exit_actions"]], 6))
+        lines.extend(["    - required_user_inputs_or_confirmations:"])
+        lines.extend(format_bullet_list(synthesize_required_inputs(page), 6))
+        lines.extend(["    - render_blocks_in_order:"])
+        lines.extend(format_bullet_list(list(page["render_blocks_in_order"]), 6))
+        lines.extend(["    - field_groups:"])
+        lines.extend(format_bullet_list(list(page["field_groups"]), 6))
+        lines.extend(["    - input_controls:"])
+        lines.extend(format_bullet_list(list(page["input_controls"]), 6))
+        lines.extend(["    - summary_cards:"])
+        lines.extend(format_bullet_list(list(page["summary_cards"]), 6))
+        lines.extend(["    - detail_fields_in_order:"])
+        lines.extend(format_bullet_list(list(page["detail_fields_in_order"]), 6))
+        lines.extend(["    - table_columns:"])
+        lines.extend(format_bullet_list(list(page["table_columns"]), 6))
+        lines.extend(["    - filters_and_selectors:"])
+        lines.extend(format_bullet_list(list(page["filters_and_selectors"]), 6))
+        lines.extend(["    - required_status_messages:"])
+        lines.extend(format_bullet_list(list(page["required_status_messages"]), 6))
+        lines.extend(["    - important_state_variants:"])
+        state_variants = ["normal", "loading", "empty", "error", "blocked"]
+        lines.extend(format_bullet_list([f"`{item}`" for item in state_variants], 6))
+        lines.extend(
+            [
+                f"    - primary_cta_label: `{page['primary_cta_label']}`",
+                "    - secondary_ctas:",
+            ]
+        )
+        lines.extend(format_bullet_list(list(page["secondary_ctas"]), 6))
+        lines.extend(["    - submission_feedback:"])
+        lines.extend(format_bullet_list(list(page["submission_feedback"]), 6))
+        lines.extend(
+            [
+                f"    - context_arrives_from: {synthesize_context_bridge(parent_page, page)}",
+                f"    - context_must_continue_to: {synthesize_context_bridge(page, next_page)}",
+                "    - executor_brief:",
+            ]
+        )
+        lines.extend(format_bullet_list(page_executor_brief(page, global_design_rules), 6))
+    lines.extend(["", "## 7. Core Objects and State Matrix", "- object_state_matrix:"])
+    ordered_objects = list(dict.fromkeys(core_objects + sorted(object_pages.keys())))
+    for index, obj in enumerate(ordered_objects, start=1):
+        states = state_machine.get(obj, {}).get("states", ["visible", "selected"])
+        lines.extend(
+            [
+                f"  - object_{index}:",
+                f"    - object_name: `{obj}`",
+                "    - visible_in_pages:",
+            ]
+        )
+        lines.extend(format_bullet_list(sorted(dict.fromkeys(object_pages.get(obj, []))) or ["(not directly named in a page contract)"], 6))
+        lines.extend(["    - required_states:"])
+        lines.extend(format_bullet_list([str(item) for item in states], 6))
+        lines.extend(["    - state_changing_actions:"])
+        action_candidates: list[str] = []
+        for page in pages:
+            if obj in page["required_information_objects"]:
+                action_candidates.extend(str(item) for item in page["exit_actions"])
+        lines.extend(format_bullet_list(sorted(dict.fromkeys(action_candidates)) or ["visible through workflow transitions"], 6))
+        lines.extend(["    - blocked_or_exception_notes: preserve blocked or exception context where the workflow can stop or degrade."])
+    lines.extend(
+        [
+            "- object_matrix_compilation_note:",
+            "  - Supporting detail blocks are folded into their parent workflow objects instead of being modeled as standalone state machines.",
+            "",
+            "## 8. Key State Coverage",
+            "- key_state_coverage:",
+            "  - loading_state:",
+            "    - where_visible: `core workflow pages`",
+            "    - why_required: data loading, generated views, or downstream dependencies must remain honest in the prototype.",
+            "  - empty_state:",
+            "    - where_visible: `record-centric and list-centric pages`",
+            "    - why_required: the prototype must show no-data and not-yet-generated states honestly.",
+            "  - error_state:",
+            "    - where_visible: `setup, dashboard, and execution pages`",
+            "    - why_required: failed retrieval or invalid submission paths must remain visible.",
+            "  - permission_state:",
+            "    - where_visible: `setup and decision pages`",
+            "    - why_required: ownership and governance boundaries are first-wave constraints, not late add-ons.",
+            "  - disabled_or_blocked_state:",
+            "    - where_visible: `pages with state-changing actions`",
+            "    - why_required: operations must show blocked behavior before they can be reviewed safely.",
+            "- state_gap_note:",
+            "  - Some secondary edge states may still need finer-grained treatment during HTML execution.",
+            "",
+            "## 9. Prototype Generation Constraints",
+            "- prototype_generation_constraints:",
+            "  - must_preserve_main_flow: `yes`",
+            "  - must_not_add_features_outside_scope: `yes`",
+            "  - must_cover_key_states: `yes`",
+            "  - must_keep_deferred_items_out_of_mainline_ui: `yes`",
+            "  - must_mark_inferred_content: `yes`",
+            "  - may_use_static_html_css_js_only: `yes`",
+            "  - must_render_page_specific_data_contracts: `yes`",
+            "  - must_render_real_input_controls_for_required_user_inputs: `yes`",
+            "  - must_preserve_context_carry_forward_between_pages: `yes`",
+            "  - must_use_upstream_page_names_or_domain_nouns: `yes`",
+            "  - must_present_as_business_product_not_demo_shell: `yes`",
+            "  - must_not_render_demo_console_or_api_explorer: `yes`",
+            "  - must_not_center_home_on_stepper_or_debug_cards: `yes`",
+            "  - must_not_replace_page_intent_with_generic_workspace_labels: `yes`",
+            "  - preferred_output_shape:",
+            "    - `small-multi-file`",
+            "- execution_handoff_note:",
+            "  - Any derived prototype executor may choose layout and styling, but must not invent new product capabilities, hidden states, or automation claims outside the first-wave boundary.",
+            "- external_executor_brief:",
+            f"  - treat the site as a business application named `{product_name}`, not as a demo artifact or acceptance harness",
+            "  - the first screen must explain what workflow the product supports, who it serves, and where the operator should start",
+            "  - every workflow page must expose the information needed to decide and the controls needed to continue, not just explanatory copy",
+            "  - when a later page depends on earlier context, show the carried-forward context on arrival instead of resetting to an empty shell",
+            "  - never use labels such as `API Explorer`, `Runtime Console`, `Acceptance Dashboard`, or `Demo Steps` as the dominant UX framing",
+            "  - treat `prototype-prompt-pack.md` as supplementary guidance only; `prototype-spec.md` remains the authority",
             "",
             "## 10. Provenance / Confidence / Verification",
             "- source:",
@@ -3123,28 +2709,213 @@ def main() -> int:
             "    - what_breaks_if_wrong: empty, error, or blocked review may look cleaner than the product truth.",
             "- ai_inferred_marker:",
             "  - `AI-INFERRED DRAFT -- UNVERIFIED`",
+            "",
+            "## 11. Reasoning Evidence",
+            "",
+            "This section is REQUIRED, not optional.",
+            "",
+            "### Page-Map Construction Reasoning",
+            "- page_candidates_considered:",
         ]
     )
-    lines.extend(
-        render_prototype_reasoning_evidence_lines(
-            ia_alternatives_block=source_sections.ia_alternatives_block,
-            mainline_pages=mainline_pages,
-            state_machine=state_machine,
-            deferred_items=deferred_items,
-            non_goals=non_goals,
+    ia_alternatives = parse_markdown_table(ia_alternatives_block)
+    if ia_alternatives:
+        for index, row in enumerate(ia_alternatives[:3], start=1):
+            lines.extend(
+                [
+                    f"  - candidate_{index}:",
+                    f"    - name: `{row_value(row, 'alternative')}`",
+                    f"    - why_considered: {row_value(row, 'strength') or row_value(row, 'organizing axis')}",
+                    f"    - why_rejected_or_kept: {row_value(row, 'verdict')} / {row_value(row, 'failure risk')}",
+                ]
+            )
+    else:
+        lines.extend(
+            [
+                "  - candidate_1:",
+                "    - name: `workflow-first`",
+                "    - why_considered: closest to the first-wave operating loop",
+                "    - why_rejected_or_kept: kept",
+            ]
         )
-    )
-    lines.extend(render_prototype_diagram_and_acceptance_lines(mainline_pages))
     lines.extend(
-        render_prototype_reference_and_source_note_lines(
-            paths=paths,
-            persona_lines=persona_lines,
-            design_requirement_lines=design_requirement_lines,
-            carryover_lines=carryover_lines,
-            deferred_lines=deferred_lines,
-            acceptance_lines=acceptance_lines,
-        )
+        [
+            "- chosen_page_map_logic: workflow-first page grouping remains primary because it preserves the main operating sequence without hiding the object model.",
+            "- why_this_page_map_not_that: entity-first is clearer for pure domain review but weaker for first-wave route comprehension; role-first fragments the loop.",
+            "",
+            "### Flow Preservation Reasoning",
+            "- workflow_backbone_used:",
+        ]
     )
+    for page in mainline_pages:
+        lines.append(f"  - `{page['page_name']}`")
+    lines.extend(
+        [
+            "- what_must_not_break_across_pages:",
+            "  - dependent records must carry forward without a blind reset",
+            "  - the next action must remain operable on every primary page",
+            "  - object continuity must stay visible across the mainline route",
+            "- where_route_simplification_was_allowed:",
+            "  - secondary support pages may stay outside the mainline route",
+            "- where_route_simplification_was_forbidden:",
+            "  - prerequisite setup cannot be skipped",
+            "  - a downstream action cannot skip the page that provides its required context",
+            "  - final review cannot detach from the records and states it is judging",
+            "",
+            "### State Coverage Honesty",
+            "- explicit_states_preserved_from_upstream:",
+        ]
+    )
+    for subject, meta in state_machine.items():
+        if "states" in meta:
+            lines.append(f"  - `{subject}: {' -> '.join(str(item) for item in meta['states'])}`")
+    lines.extend(
+        [
+            "- states_inferred_for_prototype_usability:",
+            "  - page-level loading surfaces",
+            "  - permission-limited variants",
+            "  - disabled action treatments where operations are blocked",
+            "- states_still_missing:",
+            "  - some secondary edge variants may still need deeper HTML treatment",
+            "- downstream_risk_if_missing:",
+            "  - HTML execution may over-polish the prototype and hide the operational friction that the product actually depends on.",
+            "",
+            "### Deferred / Non-Goal Preservation",
+            "- deferred_items_that_must_remain_hidden_from_mainline:",
+        ]
+    )
+    for item in deferred_items:
+        lines.append(f"  - `{item}`")
+    lines.extend(["- non_goals_that_must_not_reappear_as_ui:"])
+    for item in non_goals:
+        lines.append(f"  - `{item}`")
+    lines.extend(
+        [
+            "- prototype_risk_if_boundary_is_blurred:",
+            "  - reviewers may mistake a high-fidelity shell for a stronger product commitment than the PRD actually allows.",
+            "",
+            "### Deepening Loop Log",
+            "- loop_state:",
+            "  - `S-review-bound-freeze`",
+            "- rounds_executed:",
+            "  - 1",
+            "- round_log:",
+            "  - round_1:",
+            "    - trigger: `recompile PRD and late-stage outputs into page-level Surface Matrix authority`",
+            "    - artifact_unit_improved: `surface matrix + route graph + state coverage`",
+            "    - what_was_refined: `workflow-first page grouping and downstream prototype guardrails`",
+            "    - outcome:",
+            "      - `freeze`",
+            "- freeze_rationale:",
+            "  - Stage-05 is a page-level authority artifact; deeper interaction and binding detail should move into later stages, not back into informal page-map prose.",
+            "",
+            "### Method-Family Usage Evidence",
+            "- method_family_1:",
+            "  - name: `workflow-to-page-map recompilation`",
+            "  - visible_effect: `mainline route stays anchored in the primary operating loop rather than page-shell sprawl`",
+            "- method_family_2:",
+            "  - name: `module-driven page grouping`",
+            "  - visible_effect: `each module contributes at least one concrete page contract`",
+            "- method_family_3:",
+            "  - name: `object and state context discipline`",
+            "  - visible_effect: `core business objects remain explicit across pages and state coverage`",
+            "- method_family_4:",
+            "  - name: `deferred and non-goal preservation`",
+            "  - visible_effect: `deferred items remain outside the prototype mainline with explicit boundary notes`",
+            "",
+            "## 12. Diagram / Structured Representation",
+            "- requires_uml_or_mermaid:",
+            "  - `yes`",
+            "- diagram_type:",
+            "  - `page-map-and-route-graph`",
+            "- diagram_obligation:",
+            "  - `required`",
+            "- diagram_minimum_elements:",
+            "  - major pages",
+            "  - main flow transitions",
+            "  - at least one alternate or exception path",
+            "  - explicit start and end points",
+            "- fail_action:",
+            "  - return to page-map and route clarification if no coherent route graph exists",
+            "- route_graph_mermaid:",
+        ]
+    )
+    lines.extend(build_mermaid_route_graph(mainline_pages))
+    lines.extend(
+        [
+            "",
+            "## 13. Acceptance and Flow",
+            "- minimum_acceptance:",
+            "  - page-level Surface Matrix authority exists",
+            "  - page map compatibility view exists",
+            "  - main flow exists",
+            "  - page briefs exist",
+            "  - object / state matrix exists",
+            "  - key state coverage exists",
+            "  - prototype generation constraints exist",
+            "  - derived supplementary prompt guidance exists",
+            "- handoff_to:",
+            "  - `Phase-2 engineering alignment`",
+            "  - `derived prototype prompt-pack generation`",
+            "- handoff_package:",
+            "  - `prototype-spec.md`",
+            "  - authoritative surface matrix / page map",
+            "  - route graph",
+            "  - page briefs",
+            "  - object / state matrix",
+            "  - key state coverage",
+            "  - deferred / non-goal boundary note",
+            "  - prototype generation constraints",
+            "- downstream_usage_rule:",
+            "  - downstream may consume provisional content only as explicitly marked prototype inference",
+            "  - downstream must not treat inferred UI detail as confirmed product truth",
+            "  - `prototype-prompt-pack.md` may supplement visual generation, but it must not add or mutate page authority fields",
+            "",
+            "## 14. Referenced Upstream Artifacts",
+            f"- referenced_prd: `{prd_path.name}`",
+            "- referenced_stage_outputs:",
+            f"  - Stage-02a: `{stage_02a_path.name}`",
+        ]
+    )
+    if stage_02b_path and stage_02b_path.exists():
+        lines.append(f"  - Stage-02b: `{stage_02b_path.name}`")
+    else:
+        lines.append("  - Stage-02b: `(not provided)`")
+    lines.extend(
+        [
+            f"  - Stage-03: `{stage_03_path.name}`",
+            f"  - Stage-04: `{stage_04_path.name}`",
+            "- referenced_sections:",
+            "  - `PRD Executive Summary`",
+            "  - `PRD Module Responsibility Matrix`",
+            "  - `PRD Key Business Flows`",
+            "  - `PRD State Machine and Transition Rules`",
+            "  - `Stage-03 Source Feature Carryover Ledger`",
+            "  - `Stage-03 Deferred Items Honesty Check`",
+            "  - `Stage-04 Review-Bound Carryover and Forbidden Assumptions`",
+            "",
+            "## 15. Surface Authority Downstream Mapping",
+            "- this_artifact_feeds:",
+            "  - surface_matrix / page_map -> downstream page-level authority alignment",
+            "  - main_flow -> route and handoff planning",
+            "  - page_briefs -> page content / module scaffolding",
+            "  - object_state_matrix -> stateful UI representation",
+            "  - key_state_coverage -> empty / error / loading / permission page variants",
+            "  - prototype_generation_constraints -> supplementary prototype guardrails",
+            "",
+            "## 16. Source Notes",
+            "- persona_context_signal:",
+        ]
+    )
+    lines.extend(format_bullet_list(persona_lines or ["Primary persona context still centers on the business workflow operator."]))
+    lines.extend(["- design_requirement_signal:"])
+    lines.extend(format_bullet_list(design_requirement_lines or ["Design requirements remain workflow-first and action-chain preserving."]))
+    lines.extend(["- carryover_signal:"])
+    lines.extend(format_bullet_list(carryover_lines or ["Deferred and non-goal boundaries remain explicit and must not be hidden in the prototype."]))
+    lines.extend(["- deferred_honesty_signal:"])
+    lines.extend(format_bullet_list(deferred_lines or ["Deferred items remain review-bound rather than silently promoted into the first-wave UI."]))
+    lines.extend(["- acceptance_signal:"])
+    lines.extend(format_bullet_list(acceptance_lines or ["Acceptance criteria already require workflow continuity and explicit state honesty."]))
 
     prompt_pack_lines = build_prototype_prompt_pack_lines(
         version=args.version,
@@ -3164,26 +2935,22 @@ def main() -> int:
         persona_lines=persona_lines,
         design_requirement_lines=design_requirement_lines,
         acceptance_lines=acceptance_lines,
-        output_contract_name=paths.output_path.name,
+        output_contract_name=output_path.name,
     )
 
     spec_lines = render_primary_locale_lines(
         lines,
-        paths.output_path.name,
+        output_path.name,
         CURRENT_OUTPUT_LOCALE,
         preserve_table_body_literals=True,
     )
-    prompt_pack_lines = render_primary_locale_lines(
-        prompt_pack_lines,
-        paths.prompt_pack_output_path.name,
-        CURRENT_OUTPUT_LOCALE,
-    )
+    prompt_pack_lines = render_primary_locale_lines(prompt_pack_lines, prompt_pack_output_path.name, CURRENT_OUTPUT_LOCALE)
 
-    paths.output_path.write_text("\n".join(spec_lines).rstrip() + "\n", encoding="utf-8")
-    paths.prompt_pack_output_path.write_text("\n".join(prompt_pack_lines).rstrip() + "\n", encoding="utf-8")
-    print(f"prototype_spec: {paths.output_path}")
-    print(f"prototype_prompt_pack: {paths.prompt_pack_output_path}")
-    print(f"prd: {paths.prd_path}")
+    output_path.write_text("\n".join(spec_lines).rstrip() + "\n", encoding="utf-8")
+    prompt_pack_output_path.write_text("\n".join(prompt_pack_lines).rstrip() + "\n", encoding="utf-8")
+    print(f"prototype_spec: {output_path}")
+    print(f"prototype_prompt_pack: {prompt_pack_output_path}")
+    print(f"prd: {prd_path}")
     print("FINAL: PASS")
     return 0
 

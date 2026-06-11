@@ -9,132 +9,9 @@ that downstream Phase-2 artifacts can reference directly.
 from __future__ import annotations
 
 import re
-from typing import Any, Mapping, Sequence, Union
+from typing import Any, Sequence
 
-from common.markdown_table_tools import (
-    markdown_tables,
-    normalize_table_header,
-    table_rows_with_required_headers,
-)
-
-
-NON_GROWTH_DOMAIN_CONTAMINATION_REPLACEMENTS: list[tuple[str, str]] = [
-    (r"\bSEO dashboard\b", "single-view dashboard"),
-    (r"\bpage-level tracking\b", "surface-level event logging"),
-    (r"\bcompetitor snapshot\b", "peer comparison snapshot"),
-    (r"\bcompetitor context\b", "peer comparison context"),
-    (r"\brecommendation-first\b", "guidance-first"),
-    (r"\brecommendation-only\b", "guidance-only"),
-    (r"\bRecommendation Payload Contract\b", "Module Interface Payload Contract"),
-    (r"\brecommendation payload contract\b", "module interface payload contract"),
-    (r"\bsource-level recommendation detail\b", "source-level structured capability detail"),
-    (r"\brecommendation detail\b", "structured capability detail"),
-    (r"\bdetailed recommendation outputs\b", "detailed structured outputs"),
-    (r"\bdetailed recommendation capability\b", "detailed structured capability"),
-    (r"\baction recommendation payload\b", "structured action payload"),
-    (r"\brecommendation capability\b", "structured capability"),
-    (r"\brecommendation outputs\b", "structured outputs"),
-    (r"\brecommendation trust\b", "next-step guidance trust"),
-    (r"\brecommendation-to-task bridge\b", "next-step-guidance-to-task bridge"),
-    (r"\brecommendation\s*/\s*task\s*/\s*review\b", "evidence / next action / result judgment"),
-    (r"\brecommendation\s+与\s+task\b", "next-step guidance 与 downstream execution"),
-    (r"\brecommendation/task\b", "next-step-guidance/downstream-execution"),
-    (r"\bDeferred Attribution and Conversion Seam\b", "Deferred Capability Seam"),
-    (r"\bdeferred attribution / conversion seam\b", "deferred capability seam"),
-    (r"\battribution\s*/\s*conversion\b", "future measurement / downstream outcome"),
-    (r"\bfuture measurement seam\s*/\s*conversion\b", "future measurement seam / downstream outcome"),
-    (r"\battribution\b", "future measurement seam"),
-    (r"\bUTM\b", "source tag"),
-    (r"\bfunnel\b", "journey stage"),
-    (r"\bcross-device\b", "multi-entry"),
-]
-
-
-def _semantic_guard_role_labels(context: dict[str, Any] | None) -> dict[str, str]:
-    if not isinstance(context, dict):
-        return {
-            "primary_segment": "primary operator",
-            "supporting_role": "supporting operator",
-            "decision_role": "decision reviewer",
-        }
-    roles = [str(item).strip() for item in context.get("role_labels", []) if str(item).strip()]
-    primary_segment = str(context.get("primary_segment", "")).strip() or (roles[0] if roles else "primary operator")
-    supporting_role = (
-        str(context.get("supporting_role_label", "")).strip()
-        or (roles[1] if len(roles) > 1 else "")
-        or "supporting operator"
-    )
-    decision_role = (
-        str(context.get("decision_role_label", "")).strip()
-        or (roles[-1] if roles else "")
-        or primary_segment
-        or "decision reviewer"
-    )
-    return {
-        "primary_segment": primary_segment,
-        "supporting_role": supporting_role,
-        "decision_role": decision_role,
-    }
-
-
-def _non_growth_domain_contamination_replacements(context: dict[str, Any] | None) -> list[tuple[str, str]]:
-    labels = _semantic_guard_role_labels(context)
-    return [
-        (r"\bmarketing owner\b", labels["primary_segment"]),
-        (r"\bMarketing Owner\b", labels["primary_segment"]),
-        (r"\bcontent operator\b", labels["supporting_role"]),
-        (r"\bContent Operator\b", labels["supporting_role"]),
-        (r"\bbusiness owner\b", labels["decision_role"]),
-        (r"\bBusiness Owner\b", labels["decision_role"]),
-        *NON_GROWTH_DOMAIN_CONTAMINATION_REPLACEMENTS,
-    ]
-
-
-def _contextual_domain_purity_replacements(context: dict[str, Any] | None) -> list[tuple[str, str]]:
-    if not isinstance(context, dict):
-        return []
-    if str(context.get("domain_posture", "")).strip() == "growth-observation":
-        return []
-    mainline_surface_catalog = str(context.get("mainline_surface_catalog", "")).strip() or "mainline workflow surfaces"
-    mainline_subsystem_catalog = str(context.get("mainline_subsystem_catalog", "")).strip() or mainline_surface_catalog
-    upstream_downstream_boundary_label = str(context.get("upstream_downstream_boundary_label", "")).strip() or "上游记录与下游动作"
-    object_dependency_chain = str(context.get("object_dependency_chain", "")).strip() or "source-defined workflow chain"
-    workflow_entry_and_detail = str(context.get("workflow_entry_and_detail_label", "")).strip() or "关键工作入口与记录详情"
-    supporting_context_label = str(context.get("supporting_context_label", "")).strip() or "secondary supporting context"
-    return [
-        (r"overview\s*/\s*findings\s*/\s*tasks\s*/\s*competitors\s*/\s*reports\s*/\s*settings", mainline_surface_catalog),
-        (r"\boverview 与 findings\b", workflow_entry_and_detail),
-        (r"scope\s*->\s*observation.*?review chain", object_dependency_chain),
-        (
-            r"Scope Definition\s*->\s*Analysis Cycle\s*->\s*Insight Record\s*->\s*next-step action\s*->\s*Execution Task\s*->\s*Review Summary",
-            object_dependency_chain,
-        ),
-        (
-            r"Scope\s*&\s*Governance、Observation\s*&\s*Scoring、next-step guidance\s*&\s*Tasking、Review\s*&\s*Reporting",
-            mainline_subsystem_catalog,
-        ),
-        (r"governance\s*/\s*observation\s*/\s*next-step guidance\s*/\s*review split", mainline_subsystem_catalog),
-        (r"Observation 与 next-step guidance", upstream_downstream_boundary_label),
-        (r"\bcompetitor context\b", supporting_context_label),
-        (r"\bdashboard-only\b", "summary-only"),
-    ]
-
-
-def sanitize_domain_default_truth(value: Any, context: dict[str, Any] | None = None) -> Any:
-    if isinstance(value, str):
-        sanitized = value
-        replacements: list[tuple[str, str]] = []
-        if isinstance(context, dict) and str(context.get("domain_posture", "")).strip() != "growth-observation":
-            replacements.extend(_non_growth_domain_contamination_replacements(context))
-            replacements.extend(_contextual_domain_purity_replacements(context))
-        for pattern, replacement in replacements:
-            sanitized = re.sub(pattern, replacement, sanitized, flags=re.IGNORECASE)
-        return sanitized
-    if isinstance(value, dict):
-        return {key: sanitize_domain_default_truth(item, context=context) for key, item in value.items()}
-    if isinstance(value, list):
-        return [sanitize_domain_default_truth(item, context=context) for item in value]
-    return value
+from phase1.phase1_reasoning_runtime import sanitize_domain_default_truth
 
 
 PHASE1_PRD_ARTIFACT_ID = "P1-PRD-MAIN-0001"
@@ -322,58 +199,29 @@ def build_requirement_trace_rows() -> list[dict[str, str]]:
     return rows
 
 
-AcceptanceSummaryInput = Union[Sequence[tuple[str, str]], Mapping[str, str], None]
-
-
-def ordered_acceptance_trace_summaries(acceptance_summaries: AcceptanceSummaryInput = None) -> list[tuple[str, str]]:
-    if acceptance_summaries is None:
-        return list(ACCEPTANCE_CRITERIA)
-    if isinstance(acceptance_summaries, Mapping):
-        return [
-            (source_id, str(acceptance_summaries[source_id]))
-            for source_id, _default_summary in ACCEPTANCE_CRITERIA
-            if source_id in acceptance_summaries
-        ]
-    return [
-        (str(source_id).strip(), str(summary).strip())
-        for source_id, summary in acceptance_summaries
-        if str(source_id).strip()
-    ]
-
-
-def build_acceptance_trace_rows(acceptance_summaries: AcceptanceSummaryInput = None) -> list[dict[str, str]]:
+def build_acceptance_trace_rows() -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    for idx, (source_id, text) in enumerate(ordered_acceptance_trace_summaries(acceptance_summaries), start=1):
+    for idx, (source_id, text) in enumerate(ACCEPTANCE_CRITERIA, start=1):
         rows.append(
             enrich_phase1_trace_row(
                 {
-                    "trace_id": _trace_id("P1-AC", idx),
-                    "source_id": source_id,
-                    "unit_type": "acceptance-criteria",
-                    "summary": text,
-                    "source_anchor": source_id.lower(),
+                "trace_id": _trace_id("P1-AC", idx),
+                "source_id": source_id,
+                "unit_type": "acceptance-criteria",
+                "summary": text,
+                "source_anchor": source_id.lower(),
                 }
             )
         )
     return rows
 
 
-def build_phase1_trace_units(acceptance_summaries: AcceptanceSummaryInput = None) -> dict[str, list[dict[str, str]]]:
-    return {
-        "epic_trace_units": build_epic_trace_rows(),
-        "use_case_trace_units": build_use_case_trace_rows(),
-        "requirement_trace_units": build_requirement_trace_rows(),
-        "acceptance_trace_units": build_acceptance_trace_rows(acceptance_summaries),
-    }
-
-
 def phase1_trace_unit_counts() -> dict[str, int]:
-    units = build_phase1_trace_units()
     return {
-        "epic_units": len(units["epic_trace_units"]),
-        "use_case_units": len(units["use_case_trace_units"]),
-        "requirement_units": len(units["requirement_trace_units"]),
-        "acceptance_units": len(units["acceptance_trace_units"]),
+        "epic_units": len(build_epic_trace_rows()),
+        "use_case_units": len(build_use_case_trace_rows()),
+        "requirement_units": len(build_requirement_trace_rows()),
+        "acceptance_units": len(build_acceptance_trace_rows()),
     }
 
 
@@ -392,50 +240,24 @@ def enrich_phase1_trace_row(row: dict[str, str]) -> dict[str, str]:
     }
 
 
-def _compact_reader_table_value(value: str, *, max_chars: int) -> str:
-    text = _escape_table_value(value)
-    text = re.sub(r"\s+", " ", text).strip()
-    if len(text) <= max_chars:
-        return text
-    return text[: max_chars - 3].rstrip(" ,;:") + "..."
-
-
-def _reader_table_cell_limit(header: str, column_count: int, index: int) -> int:
-    normalized = re.sub(r"[^a-z0-9]+", "_", header.strip().lower()).strip("_")
-    if normalized in {"trace_id", "source_id", "unit_type"} or normalized.endswith("_id") or index <= 1:
-        return 42
-    if column_count >= 8:
-        return 20
-    if column_count >= 6:
-        return 30
-    return 48
-
-
-def render_table(headers: Sequence[str], rows: Sequence[dict[str, str]], *, compact_reader: bool = False) -> str:
+def render_table(headers: Sequence[str], rows: Sequence[dict[str, str]]) -> str:
     lines = [
         "| " + " | ".join(headers) + " |",
         "| " + " | ".join(["---"] * len(headers)) + " |",
     ]
     for row in rows:
-        cells = []
-        for index, header in enumerate(headers):
-            value = str(row.get(header, ""))
-            if compact_reader:
-                cells.append(
-                    _compact_reader_table_value(
-                        value,
-                        max_chars=_reader_table_cell_limit(header, len(headers), index),
-                    )
-                )
-            else:
-                cells.append(_escape_table_value(value))
-        lines.append("| " + " | ".join(cells) + " |")
+        lines.append("| " + " | ".join(_escape_table_value(row.get(header, "")) for header in headers) + " |")
     return "\n".join(lines)
 
 
 def phase1_phase2_design_contract_rows(units: dict[str, list[dict[str, str]]] | None = None) -> list[dict[str, str]]:
     if units is None:
-        units = build_phase1_trace_units()
+        units = {
+            "epic_trace_units": build_epic_trace_rows(),
+            "use_case_trace_units": build_use_case_trace_rows(),
+            "requirement_trace_units": build_requirement_trace_rows(),
+            "acceptance_trace_units": build_acceptance_trace_rows(),
+        }
     rows: list[dict[str, str]] = []
     for group in PHASE1_TRACE_UNIT_GROUP_ORDER:
         for row in units.get(group, []):
@@ -466,7 +288,6 @@ def render_phase1_phase2_design_input_contract(units: dict[str, list[dict[str, s
             "binding_guidance",
         ],
         phase1_phase2_design_contract_rows(units),
-        compact_reader=True,
     )
 
 
@@ -515,7 +336,6 @@ def render_phase1_fine_grained_trace_registry(overrides: dict[str, list[dict[str
                 "binding_guidance",
             ],
             overrides.get("epic_trace_units") or build_epic_trace_rows(),
-            compact_reader=True,
         ),
         "",
         "- use_case_trace_registry:",
@@ -531,7 +351,6 @@ def render_phase1_fine_grained_trace_registry(overrides: dict[str, list[dict[str
                 "binding_guidance",
             ],
             overrides.get("use_case_trace_units") or build_use_case_trace_rows(),
-            compact_reader=True,
         ),
         "",
         "- requirement_trace_registry:",
@@ -547,7 +366,6 @@ def render_phase1_fine_grained_trace_registry(overrides: dict[str, list[dict[str
                 "binding_guidance",
             ],
             overrides.get("requirement_trace_units") or build_requirement_trace_rows(),
-            compact_reader=True,
         ),
         "",
         "- acceptance_trace_registry:",
@@ -563,7 +381,6 @@ def render_phase1_fine_grained_trace_registry(overrides: dict[str, list[dict[str
                 "binding_guidance",
             ],
             overrides.get("acceptance_trace_units") or build_acceptance_trace_rows(),
-            compact_reader=True,
         ),
     ]
     return "\n".join(sections)
@@ -745,8 +562,42 @@ def block_text(text: str, block_name: str) -> str:
     return "\n".join(block_lines(text, block_name)).strip()
 
 
+def normalize_table_header(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip().strip("`").lower())
+
+
+def markdown_tables(text: str) -> list[dict[str, Any]]:
+    tables: list[dict[str, Any]] = []
+    lines = text.splitlines()
+    idx = 0
+    while idx < len(lines):
+        if not lines[idx].lstrip().startswith("|"):
+            idx += 1
+            continue
+        group: list[str] = []
+        while idx < len(lines) and lines[idx].lstrip().startswith("|"):
+            group.append(lines[idx].strip())
+            idx += 1
+        if len(group) < 2 or "---" not in group[1]:
+            continue
+        headers = [normalize_table_header(part) for part in group[0].strip("|").split("|")]
+        rows: list[dict[str, str]] = []
+        for row_line in group[2:]:
+            parts = [part.strip().strip("`") for part in row_line.strip("|").split("|")]
+            if len(parts) < len(headers):
+                parts.extend([""] * (len(headers) - len(parts)))
+            rows.append(dict(zip(headers, parts)))
+        tables.append({"headers": headers, "rows": rows})
+    return tables
+
+
 def table_rows_from_block(text: str, block_name: str, required_headers: set[str]) -> list[dict[str, str]]:
-    return table_rows_with_required_headers(block_text(text, block_name), required_headers)
+    for table in markdown_tables(block_text(text, block_name)):
+        headers = set(table["headers"])
+        if not required_headers.issubset(headers):
+            continue
+        return [row for row in table["rows"] if all(row.get(header, "").strip() for header in required_headers)]
+    return []
 
 
 def extract_phase1_trace_units(text: str) -> dict[str, list[dict[str, str]]]:

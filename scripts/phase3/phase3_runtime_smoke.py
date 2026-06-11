@@ -30,8 +30,6 @@ from urllib.parse import urlparse, urlunparse
 from common.host_port_allocator import allocate_host_ports, host_port_in_use
 from common.output_language import localize_phase3_runtime_smoke_report, resolve_output_locale
 from phase3.phase3_started_service_smoke import run_phase3_started_service_smoke
-from phase3.renderer_common import ascii_slug
-from phase3.review_support import support_gate_exit_code, write_json_report
 
 
 def write_text(path: Path, content: str) -> None:
@@ -39,10 +37,14 @@ def write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def slugify(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-") or "phase3-runtime-smoke"
+
+
 def workspace_identity_slug(workspace_root: Path) -> str:
     resolved = str(workspace_root.resolve())
     digest = hashlib.sha1(resolved.encode("utf-8")).hexdigest()[:8]
-    return f"{ascii_slug(workspace_root.name, fallback='phase3-runtime-smoke')}-{digest}"
+    return f"{slugify(workspace_root.name)}-{digest}"
 
 
 def completed_payload(command: list[str], completed: subprocess.CompletedProcess[str]) -> dict[str, Any]:
@@ -433,18 +435,6 @@ def run_phase3_runtime_smoke(
                 failures.append("docker_image_build_failed")
 
             if image_build_passed:
-                commands["migration"] = run_command(
-                    [*compose_command, "-p", project_name, "-f", str(compose_prod_path), "run", "--rm", "api", "pnpm", "migrate"],
-                    workspace_root,
-                    command_timeout_seconds,
-                    runtime_smoke_env,
-                )
-                migration_passed = bool(commands["migration"].get("passed"))
-                compose_started = True
-                if not migration_passed:
-                    failures.append("docker_migration_failed")
-
-            if migration_passed:
                 commands["compose_up"] = run_command(
                     [*compose_command, "-p", project_name, "-f", str(compose_prod_path), "up", "-d", "api"],
                     workspace_root,
@@ -452,8 +442,20 @@ def run_phase3_runtime_smoke(
                     runtime_smoke_env,
                 )
                 compose_up_passed = bool(commands["compose_up"].get("passed"))
+                compose_started = compose_up_passed
                 if not compose_up_passed:
                     failures.append("docker_compose_up_failed")
+
+            if compose_up_passed:
+                commands["migration"] = run_command(
+                    [*compose_command, "-p", project_name, "-f", str(compose_prod_path), "run", "--rm", "api", "pnpm", "migrate"],
+                    workspace_root,
+                    command_timeout_seconds,
+                    runtime_smoke_env,
+                )
+                migration_passed = bool(commands["migration"].get("passed"))
+                if not migration_passed:
+                    failures.append("docker_migration_failed")
 
             if compose_up_passed:
                 probes["healthz"] = wait_for_probe(
@@ -548,7 +550,7 @@ def run_phase3_runtime_smoke(
 
     if output_path is not None:
         output_path = output_path.resolve()
-        write_json_report(output_path, report)
+        write_text(output_path, json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
         write_text(output_path.with_suffix(".md"), build_markdown(report, output_locale))
     return report
 
@@ -587,7 +589,7 @@ def main() -> int:
     )
     terminal_payload = report if args.show_full_report else compact_terminal_summary(report, Path(args.output))
     print(json.dumps(terminal_payload, ensure_ascii=False))
-    return support_gate_exit_code("verdict", report)
+    return 0 if report["verdict"] == "pass" else 1
 
 
 if __name__ == "__main__":

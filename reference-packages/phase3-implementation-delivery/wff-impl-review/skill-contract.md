@@ -25,4 +25,4 @@ Review implementation structure, naming, consistency, and delivery readiness sig
 
 ## Runtime
 
-Use the review playbook to produce review evidence in slim profiles; optional code-review support generation is full-pack/source-tree only.
+Use `scripts/phase3/phase3_delivery_gate.py --mode code-review`.

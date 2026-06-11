@@ -1,59 +1,15 @@
 from __future__ import annotations
 
-import importlib
 from pathlib import Path
 from typing import Any
 
 from phase3.contract_test_scaffolder import scaffold_contract_tests
 from phase3.contract_tools import build_openapi_spec, parse_api_endpoint_rows
 from phase3.impl_context import load_phase2_source_texts, write_json
+from phase3.replay_test_scaffolder import scaffold_replay_tests
+from phase3.scenario_test_scaffolder import scaffold_scenario_tests
 from phase3.schema_test_scaffolder import scaffold_schema_tests
 from phase3.sql_test_scaffolder import scaffold_sql_tests
-
-
-def _optional_test_scaffolder_module(module_name: str):
-    try:
-        return importlib.import_module(f"phase3.{module_name}")
-    except ModuleNotFoundError as exc:
-        if exc.name == f"phase3.{module_name}":
-            return None
-        raise
-
-
-def _test_scaffolder_output_dir(args: tuple[object, ...], kwargs: dict[str, object]) -> Path:
-    raw = kwargs.get("output_dir") if "output_dir" in kwargs else (args[1] if len(args) > 1 else ".")
-    return Path(raw)
-
-
-def _test_scaffolder_unavailable_summary(output_dir: Path, sidecar_id: str) -> dict[str, object]:
-    return {
-        "output_dir": str(output_dir),
-        "files_created": [],
-        "count": 0,
-        "mode": "unavailable",
-        "sidecar_id": sidecar_id,
-        "reason": f"{sidecar_id}_sidecar_not_packaged",
-    }
-
-
-def scaffold_scenario_tests(*args: object, **kwargs: object) -> dict[str, object]:
-    module = _optional_test_scaffolder_module("scenario_test_scaffolder")
-    if module is None:
-        return _test_scaffolder_unavailable_summary(
-            _test_scaffolder_output_dir(args, kwargs),
-            "scenario_test_scaffolder",
-        )
-    return module.scaffold_scenario_tests(*args, **kwargs)
-
-
-def scaffold_replay_tests(*args: object, **kwargs: object) -> dict[str, object]:
-    module = _optional_test_scaffolder_module("replay_test_scaffolder")
-    if module is None:
-        return _test_scaffolder_unavailable_summary(
-            _test_scaffolder_output_dir(args, kwargs),
-            "replay_test_scaffolder",
-        )
-    return module.scaffold_replay_tests(*args, **kwargs)
 
 
 def run_impl_verification(

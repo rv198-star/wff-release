@@ -78,10 +78,10 @@ describe("phase3 api foundation unit", () => {
     expect(normalized.auth_context).toEqual({ tenant_id: "tenant-001" });
     const annotated = annotateRuntimePayload(
       { body: { appointmentId: "appointment-001" } },
-      { appointmentId: "keep-explicit", invalid_query: true },
+      { appointmentId: "keep-explicit", force_error_code: "validation_failed" },
     );
     expect(annotated.appointmentId).toBe("appointment-001");
-    expect(annotated.invalid_query).toBe(true);
+    expect(annotated.force_error_code).toBe("validation_failed");
     const envelope = appendEnvelopeMeta({ data: { ok: true }, meta: { traceId: "trace-001" } }, { traceId: "trace-override", requestId: "req-001" });
     expect(envelope.meta).toEqual({ traceId: "trace-001", requestId: "req-001" });
   });

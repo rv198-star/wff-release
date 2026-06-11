@@ -20,7 +20,6 @@ from phase3.phase3_behavior_card_consumption import (
     render_service_implementation_plan,
 )
 from phase3.renderer_common import camel_case, lower_camel, runtime_spec_for_operation, snake_case
-from phase3.test_scaffolder_common import failure_condition_signal_lines, normalized_semantic_owner
 
 
 WFF_SCRIPT_DATA_ASSETS = (
@@ -293,7 +292,6 @@ def render_action_card_trace_comment_lines(action_card_entry: dict[str, Any] | N
 def collapse_service_mechanical_helpers(source: str) -> str:
     source = re.sub(r"this\.resolve[A-Za-z0-9]+ContextValue\(", "this.resolveContextValue(", source)
     source = re.sub(r"this\.merge[A-Za-z0-9]+RepositoryResult\(", "this.mergeRepositoryResult(", source)
-    source = re.sub(r"this\.project[A-Za-z0-9]+ResponseField\(", "this.projectResponseField(", source)
     source = re.sub(
         r"\n  private resolve[A-Za-z0-9]+ContextValue\(context: Record<string, unknown>, key: string\): unknown \{\n"
         r"    const requestedSnake = key\.replace\(/\(\[a-z0-9\]\)\(\[A-Z\]\)/g, \"\$1_\$2\"\)\.toLowerCase\(\);\n"
@@ -322,67 +320,9 @@ def collapse_service_mechanical_helpers(source: str) -> str:
         r"    const resultRecord = repositoryResult as Record<string, unknown>;\n"
         r"    const data = resultRecord\.data;\n"
         r"    if \(data && typeof data === \"object\" && !Array\.isArray\(data\)\) \{\n"
-        r"      return \{ \.\.\.nextState, \.\.\.resultRecord, \.\.\.\(data as Record<string, unknown>\) \};\n"
+        r"      return \{ \.\.\.nextState, \.\.\.\(data as Record<string, unknown>\) \};\n"
         r"    \}\n"
         r"    return \{ \.\.\.nextState, \.\.\.resultRecord \};\n"
-        r"  \n?\}\n?",
-        "",
-        source,
-    )
-    source = re.sub(
-        r"\n  private project[A-Za-z0-9]+ResponseField\(\n"
-        r"    field: string,\n"
-        r"    context: Record<string, unknown>,\n"
-        r"    nextState: Record<string, unknown>,\n"
-        r"    responseSource: Record<string, unknown>,\n"
-        r"    valueKind: \"boolean\" \| \"id\" \| \"number\" \| \"request\" \| \"status\" \| \"string\" \| \"trace\",\n"
-        r"    operationId: string,\n"
-        r"  \): unknown \{\n"
-        r"    const requestedSnake = field\.replace\(/\(\[a-z0-9\]\)\(\[A-Z\]\)/g, \"\$1_\$2\"\)\.replace\(/\[\^A-Za-z0-9\]\+/g, \"_\"\)\.replace\(/\^_\+\|_\+\$/g, \"\"\)\.toLowerCase\(\);\n"
-        r"    const requestedCamel = requestedSnake\.replace\(/_\(\[a-z0-9\]\)/g, \(_, char: string\) => char\.toUpperCase\(\)\);\n"
-        r"    const aliases = Array\.from\(new Set\(\[field, requestedSnake, requestedCamel\]\.filter\(Boolean\)\)\);\n"
-        r"    for \(const source of \[responseSource, nextState, context\]\) \{\n"
-        r"      if \(!source \|\| typeof source !== \"object\" \|\| Array\.isArray\(source\)\) \{\n"
-        r"        continue;\n"
-        r"      \}\n"
-        r"      for \(const alias of aliases\) \{\n"
-        r"        const value = source\[alias\];\n"
-        r"        if \(value !== undefined && value !== null && value !== \"\"\) \{\n"
-        r"          return value;\n"
-        r"        \}\n"
-        r"      \}\n"
-        r"    \}\n"
-        r"    if \(valueKind === \"boolean\"\) \{\n"
-        r"      throw createApiError\(400, \"business_error\", \"invalid_request\", \"never\", `\$\{operationId\} requires \$\{field\} response evidence`\);\n"
-        r"    \}\n"
-        r"    if \(valueKind === \"number\"\) \{\n"
-        r"      throw createApiError\(400, \"business_error\", \"invalid_request\", \"never\", `\$\{operationId\} requires \$\{field\} response evidence`\);\n"
-        r"    \}\n"
-        r"    if \(valueKind === \"status\"\) \{\n"
-        r"      const stateValue = nextState\.state \?\? context\.state;\n"
-        r"      if \(stateValue === undefined \|\| stateValue === null \|\| stateValue === \"\"\) \{\n"
-        r"        throw createApiError\(400, \"business_error\", \"invalid_request\", \"never\", `\$\{operationId\} requires \$\{field\} response evidence`\);\n"
-        r"      \}\n"
-        r"      return String\(stateValue\);\n"
-        r"    \}\n"
-        r"    if \(valueKind === \"trace\"\) \{\n"
-        r"      const traceValue = nextState\.trace_id \?\? nextState\.traceId \?\? context\.trace_id \?\? context\.traceId;\n"
-        r"      if \(traceValue === undefined \|\| traceValue === null \|\| traceValue === \"\"\) \{\n"
-        r"        throw createApiError\(400, \"business_error\", \"invalid_request\", \"never\", `\$\{operationId\} requires trace evidence`\);\n"
-        r"      \}\n"
-        r"      return String\(traceValue\);\n"
-        r"    \}\n"
-        r"    if \(valueKind === \"request\"\) \{\n"
-        r"      const requestValue = nextState\.request_id \?\? nextState\.requestId \?\? context\.request_id \?\? context\.requestId;\n"
-        r"      if \(requestValue === undefined \|\| requestValue === null \|\| requestValue === \"\"\) \{\n"
-        r"        throw createApiError\(400, \"business_error\", \"invalid_request\", \"never\", `\$\{operationId\} requires request evidence`\);\n"
-        r"      \}\n"
-        r"      return String\(requestValue\);\n"
-        r"    \}\n"
-        r"    if \(valueKind === \"id\"\) \{\n"
-        r"      throw createApiError\(400, \"business_error\", \"invalid_request\", \"never\", `\$\{operationId\} requires \$\{field\} response evidence`\);\n"
-        r"    \}\n"
-        r"    throw createApiError\(400, \"business_error\", \"invalid_request\", \"never\", `\$\{operationId\} requires \$\{field\} response evidence`\);\n"
         r"  \n?\}\n?",
         "",
         source,
@@ -412,67 +352,12 @@ def collapse_service_mechanical_helpers(source: str) -> str:
     const resultRecord = repositoryResult as Record<string, unknown>;
     const data = resultRecord.data;
     if (data && typeof data === "object" && !Array.isArray(data)) {
-      return { ...nextState, ...resultRecord, ...(data as Record<string, unknown>) };
+      return { ...nextState, ...(data as Record<string, unknown>) };
     }
     return { ...nextState, ...resultRecord };
   }
-
-  private projectResponseField(
-    field: string,
-    context: Record<string, unknown>,
-    nextState: Record<string, unknown>,
-    responseSource: Record<string, unknown>,
-    valueKind: "boolean" | "id" | "number" | "request" | "status" | "string" | "trace",
-    operationId: string,
-  ): unknown {
-    const requestedSnake = field.replace(/([a-z0-9])([A-Z])/g, "$1_$2").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
-    const requestedCamel = requestedSnake.replace(/_([a-z0-9])/g, (_, char: string) => char.toUpperCase());
-    const aliases = Array.from(new Set([field, requestedSnake, requestedCamel].filter(Boolean)));
-    for (const source of [responseSource, nextState, context]) {
-      if (!source || typeof source !== "object" || Array.isArray(source)) {
-        continue;
-      }
-      for (const alias of aliases) {
-        const value = source[alias];
-        if (value !== undefined && value !== null && value !== "") {
-          return value;
-        }
-      }
-    }
-    if (valueKind === "boolean") {
-      throw createApiError(400, "business_error", "invalid_request", "never", `${operationId} requires ${field} response evidence`);
-    }
-    if (valueKind === "number") {
-      throw createApiError(400, "business_error", "invalid_request", "never", `${operationId} requires ${field} response evidence`);
-    }
-    if (valueKind === "status") {
-      const stateValue = nextState.state ?? context.state;
-      if (stateValue === undefined || stateValue === null || stateValue === "") {
-        throw createApiError(400, "business_error", "invalid_request", "never", `${operationId} requires ${field} response evidence`);
-      }
-      return String(stateValue);
-    }
-    if (valueKind === "trace") {
-      const traceValue = nextState.trace_id ?? nextState.traceId ?? context.trace_id ?? context.traceId;
-      if (traceValue === undefined || traceValue === null || traceValue === "") {
-        throw createApiError(400, "business_error", "invalid_request", "never", `${operationId} requires trace evidence`);
-      }
-      return String(traceValue);
-    }
-    if (valueKind === "request") {
-      const requestValue = nextState.request_id ?? nextState.requestId ?? context.request_id ?? context.requestId;
-      if (requestValue === undefined || requestValue === null || requestValue === "") {
-        throw createApiError(400, "business_error", "invalid_request", "never", `${operationId} requires request evidence`);
-      }
-      return String(requestValue);
-    }
-    if (valueKind === "id") {
-      throw createApiError(400, "business_error", "invalid_request", "never", `${operationId} requires ${field} response evidence`);
-    }
-    throw createApiError(400, "business_error", "invalid_request", "never", `${operationId} requires ${field} response evidence`);
-  }
 """
-    if "this.resolveContextValue(" in source or "this.mergeRepositoryResult(" in source or "this.projectResponseField(" in source:
+    if "this.resolveContextValue(" in source or "this.mergeRepositoryResult(" in source:
         source = source.rstrip()
         if source.endswith("\n}"):
             source = source[:-2].rstrip() + "\n" + helper_block + "\n}\n"
@@ -556,23 +441,6 @@ def response_example_data(spec: dict[str, Any]) -> Any:
 
 def response_data_is_array(spec: dict[str, Any]) -> bool:
     return isinstance(response_example_data(spec), list)
-
-
-def unit_repository_decision_return_expression(spec: dict[str, Any]) -> str:
-    version_expr = "context.expectedVersion ?? context.expected_version"
-    response_example = spec.get("responseExample", {})
-    if not isinstance(response_example, dict):
-        return f"{{ ...context, expectedVersion: {version_expr} }}"
-    fragments = ["...context"]
-    if "data" in response_example:
-        fragments.append(f"data: {json.dumps(response_example.get('data'), ensure_ascii=False)}")
-    if isinstance(response_example.get("meta"), dict):
-        fragments.append(f"meta: {json.dumps(response_example.get('meta'), ensure_ascii=False)}")
-    for envelope_key in ("request_id", "requestId", "trace_id", "traceId"):
-        if response_example.get(envelope_key) is not None:
-            fragments.append(f"{envelope_key}: {json.dumps(response_example.get(envelope_key), ensure_ascii=False)}")
-    fragments.append(f"expectedVersion: {version_expr}")
-    return "{ " + ", ".join(fragments) + " }"
 
 
 def response_id_fields(spec: dict[str, Any]) -> list[str]:
@@ -738,8 +606,8 @@ def unit_business_literal_fields(spec: dict[str, Any]) -> dict[str, Any]:
 
 def unit_business_assertion_lines(data_expr: str, spec: dict[str, Any]) -> list[str]:
     return [
-        f"    expect({data_expr}{ts_property_access(field_name)}).toBeTruthy();"
-        for field_name in unit_business_literal_fields(spec)
+        f"    expect({data_expr}{ts_property_access(field_name)}).toBe({json.dumps(value, ensure_ascii=False)});"
+        for field_name, value in unit_business_literal_fields(spec).items()
     ]
 
 
@@ -772,36 +640,6 @@ def matching_failure_case(
         if lowered_tokens and any(token in code for token in lowered_tokens):
             return failure
     return {}
-
-
-def runtime_signal_failure_cases(
-    spec: dict[str, Any],
-    *,
-    is_read_operation: bool,
-) -> list[dict[str, Any]]:
-    cases: list[dict[str, Any]] = []
-    validation_case = (
-        {}
-        if is_read_operation
-        else matching_failure_case(
-            spec,
-            status_prefixes=("400",),
-            code_tokens=("invalid", "validation", "missing", "required"),
-        )
-    )
-    conflict_case = matching_failure_case(spec, status_prefixes=("409",), code_tokens=("conflict", "duplicate", "version"))
-    dependency_case = matching_failure_case(
-        spec,
-        status_prefixes=("5",),
-        code_tokens=("db", "database", "dependency", "unavailable", "timeout"),
-    )
-    for candidate in (validation_case, conflict_case, dependency_case):
-        if not candidate:
-            continue
-        if is_read_operation and str(candidate.get("status", "")).strip().startswith(("409", "5")):
-            continue
-        cases.append(candidate)
-    return cases
 
 
 def operation_uniqueness_hint_fields(spec: dict[str, Any]) -> list[str]:
@@ -998,7 +836,7 @@ def render_backend_module_unit_test(
                 "",
                 f'  it("{operation_id} service executes typed backend flow", async () => {{',
                 "    const repository = {",
-                f"      load{camel_case(operation_id)}ForDecision: vi.fn(async (context: Record<string, unknown>) => ({unit_repository_decision_return_expression(spec)})),",
+                f"      load{camel_case(operation_id)}ForDecision: vi.fn(async (context: Record<string, unknown>) => ({{ ...context, expectedVersion: context.expectedVersion ?? context.expected_version }})),",
                 *([] if is_read_operation else [
                     f"      persist{camel_case(operation_id)}WithInvariants: vi.fn(async () => undefined),",
                     f"      append{camel_case(operation_id)}AuditEffect: vi.fn(async () => undefined),",
@@ -1131,12 +969,23 @@ def render_backend_module_unit_test(
         if permission_case:
             permission_code = str(permission_case.get("error_code", "")).strip()
             permission_status = str(permission_case.get("status", "")).strip() or "403"
+            lines.extend(
+                [
+                    f'  it("{operation_id} service enforces permission and tenant boundary", async () => {{',
+                    f"    const service = new {service_class}();",
+                    f'    const error = await captureApiError(service.{method_name}(buildFailurePayload("{operation_id}", "{permission_code}")));',
+                    f"    expect(error.status).toBe({permission_status});",
+                    f'    expect(error.envelope.error_code).toBe("{permission_code}");',
+                    "  });",
+                    "",
+                ]
+            )
             operation_semantics = (
                 behavior_model.get("operation_semantics", {})
                 if isinstance(behavior_model, dict) and isinstance(behavior_model.get("operation_semantics"), dict)
                 else {}
             )
-            owner_service = normalized_semantic_owner(operation_semantics.get("owner_service"))
+            owner_service = str(operation_semantics.get("owner_service") or "").strip()
             semantic_status = str(operation_semantics.get("status") or "").strip()
             if owner_service and semantic_status in {"resolved", ""}:
                 lines.extend(
@@ -1189,7 +1038,7 @@ def render_backend_module_unit_test(
                 [
                     f'  it("{operation_id} service preserves state transition", async () => {{',
                     "    const repository = {",
-                    f"      load{camel_case(operation_id)}ForDecision: vi.fn(async (context: Record<string, unknown>) => ({unit_repository_decision_return_expression(spec)})),",
+                    f"      load{camel_case(operation_id)}ForDecision: vi.fn(async (context: Record<string, unknown>) => ({{ ...context, expectedVersion: context.expectedVersion ?? context.expected_version }})),",
                     *([] if is_read_operation else [
                         f"      persist{camel_case(operation_id)}WithInvariants: vi.fn(async () => undefined),",
                         f"      append{camel_case(operation_id)}AuditEffect: vi.fn(async () => undefined),",
@@ -1208,27 +1057,54 @@ def render_backend_module_unit_test(
                     "",
                 ]
             )
+        error_mapping_case = conflict_case or first_failure_case(spec)
+        if error_mapping_case:
+            error_code = str(error_mapping_case.get("error_code", "")).strip()
+            error_status = str(error_mapping_case.get("status", "")).strip() or "400"
+            lines.extend(
+                [
+                    f'  it("{operation_id} service maps errors to envelope semantics", async () => {{',
+                    f"    const service = new {service_class}();",
+                    f'    const error = await captureApiError(service.{method_name}(buildFailurePayload("{operation_id}", "{error_code}")));',
+                    f"    expect(error.status).toBe({error_status});",
+                    f'    expect(error.envelope.error_code).toBe("{error_code}");',
+                    "  });",
+                    "",
+                ]
+            )
+        failure_case = first_failure_case(spec)
+        if failure_case:
+            failure_code = str(failure_case.get("error_code", "")).strip()
+            failure_status = str(failure_case.get("status", "")).strip()
+            lines.extend(
+                [
+                    f'  it("{operation_id} service surfaces business error semantics", async () => {{',
+                    f"    const service = new {service_class}();",
+                    f'    const error = await captureApiError(service.{method_name}(buildFailurePayload("{operation_id}", "{failure_code}")));',
+                    f"    expect(error.status).toBe({failure_status or '400'});",
+                    f'    expect(error.envelope.error_code).toBe("{failure_code}");',
+                    "  });",
+                    "",
+                ]
+            )
         repository_error_cases = [
             failure
-            for failure in runtime_signal_failure_cases(spec, is_read_operation=is_read_operation)
-            if str(failure.get("error_code", "")).strip()
+            for failure in (not_found_case, conflict_case, db_error_case)
+            if failure and str(failure.get("error_code", "")).strip()
         ]
         if repository_error_cases:
             lines.extend(
                 [
-                    f'  it("{operation_id} repository covers runtime-signaled error translation", async () => {{',
+                    f'  it("{operation_id} repository covers not-found, duplicate, and db error translation", async () => {{',
                     f"    const repository = new {repository_class}();",
                 ]
             )
             for failure in repository_error_cases:
                 failure_code = str(failure.get("error_code", "")).strip()
                 failure_status = str(failure.get("status", "")).strip() or "400"
-                payload_name = f"{lower_camel(failure_code)}Payload"
                 lines.extend(
                     [
-                        f'    const {payload_name} = buildFailurePayload("{operation_id}", "{failure_code}");',
-                        *failure_condition_signal_lines(failure_code, payload_name),
-                        f"    const {lower_camel(failure_code)} = await captureApiError(repository.{method_name}({payload_name}));",
+                        f'    const {lower_camel(failure_code)} = await captureApiError(repository.{method_name}(buildFailurePayload("{operation_id}", "{failure_code}")));',
                         f"    expect({lower_camel(failure_code)}.status).toBe({failure_status});",
                         f'    expect({lower_camel(failure_code)}.envelope.error_code).toBe("{failure_code}");',
                     ]
@@ -1741,11 +1617,6 @@ def render_repository_runtime_bridge(
         f'  private async execute{camel_case(operation_id)}RuntimeBridge(context: Record<string, unknown>, nextState: Record<string, unknown> = {{}}): Promise<Record<string, unknown>> {{',
         f'    const spec = getOperationSpec("{operation_id}");',
         '    const normalized: Record<string, unknown> = { ...context, ...nextState };',
-        '    const semanticEvidence = normalized.semantic_evidence;',
-        '    if (semanticEvidence && typeof semanticEvidence === "object" && !Array.isArray(semanticEvidence)) {',
-        '      const existingAuditEvidence = normalized.audit_evidence && typeof normalized.audit_evidence === "object" && !Array.isArray(normalized.audit_evidence) ? normalized.audit_evidence as Record<string, unknown> : {};',
-        '      normalized.audit_evidence = { ...existingAuditEvidence, ...(semanticEvidence as Record<string, unknown>) };',
-        '    }',
         f'    const primaryRecordKey = "{record_hint}";',
         '    if (primaryRecordKey && normalized[primaryRecordKey] === undefined) {',
         '      for (const [candidate, value] of Object.entries(normalized)) {',
@@ -1758,38 +1629,6 @@ def render_repository_runtime_bridge(
         '    }',
         f'    normalized.execution_plan = buildOperationPlan({{ execution_mode: "{execution_mode}", module_slug: "{module_slug}", operation_id: "{operation_id}", uniqueness_hint_fields: {uniqueness_blob}, primary_record_key_hint: "{record_hint}" }});',
         f'    const result = await Promise.resolve({handler_name}(spec, normalized));',
-        '    return result as Record<string, unknown>;',
-        '  }',
-    ])
-
-
-def render_repository_read_snapshot_bridge(
-    *,
-    operation_id: str,
-    module_slug: str,
-    record_hint: str,
-) -> str:
-    return "\n".join([
-        f'  private async read{camel_case(operation_id)}RuntimeSnapshot(context: Record<string, unknown>): Promise<Record<string, unknown>> {{',
-        f'    const spec = getOperationSpec("{operation_id}");',
-        '    const normalized: Record<string, unknown> = { ...context };',
-        '    const semanticEvidence = normalized.semantic_evidence;',
-        '    if (semanticEvidence && typeof semanticEvidence === "object" && !Array.isArray(semanticEvidence)) {',
-        '      const existingAuditEvidence = normalized.audit_evidence && typeof normalized.audit_evidence === "object" && !Array.isArray(normalized.audit_evidence) ? normalized.audit_evidence as Record<string, unknown> : {};',
-        '      normalized.audit_evidence = { ...existingAuditEvidence, ...(semanticEvidence as Record<string, unknown>) };',
-        '    }',
-        f'    const primaryRecordKey = "{record_hint}";',
-        '    if (primaryRecordKey && normalized[primaryRecordKey] === undefined) {',
-        '      for (const [candidate, value] of Object.entries(normalized)) {',
-        '        const candidateSnake = candidate.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();',
-        '        if (candidateSnake.endsWith(`_${primaryRecordKey}`) && value !== undefined) {',
-        '          normalized[primaryRecordKey] = value;',
-        '          break;',
-        '        }',
-        '      }',
-        '    }',
-        f'    normalized.execution_plan = buildOperationPlan({{ execution_mode: "read-snapshot", module_slug: "{module_slug}", operation_id: "{operation_id}", uniqueness_hint_fields: [], primary_record_key_hint: "{record_hint}" }});',
-        '    const result = await Promise.resolve(executeReadSnapshotOperation(spec, normalized));',
         '    return result as Record<string, unknown>;',
         '  }',
     ])
@@ -1843,25 +1682,7 @@ def render_repository_module(
             for operation in runtime_bound_operations
         )
     ]
-    has_write_operations = any(
-        operation_execution_mode(
-            planned_operation_specs.get(
-                operation["operation_id"] or f"{operation['method']}-{operation['path']}",
-                runtime_spec_for_operation(operation, operation_specs),
-            )
-        )
-        not in {"detail-read", "list-read"}
-        for operation in runtime_bound_operations
-    )
-    operation_support_import_names = _unique_nonempty_strings([
-        "buildOperationPlan",
-        *used_handlers,
-        *(["executeReadSnapshotOperation"] if has_write_operations else []),
-        "getOperationSpec",
-    ])
-    if has_write_operations:
-        operation_support_import_names.append("recordGeneratedAuditEvent")
-    operation_support_imports = ", ".join(operation_support_import_names) if runtime_bound_operations else ""
+    operation_support_imports = ", ".join(["buildOperationPlan", *used_handlers, "getOperationSpec"]) if runtime_bound_operations else ""
     module_implementation_brief = module_implementation_brief_for_module(module_implementation_briefs, module_slug)
     lines = []
     if fallback_operations:
@@ -1913,24 +1734,7 @@ def render_repository_module(
                 record_hint=record_hint,
                 uniqueness_hint_fields=operation_uniqueness_hint_fields(spec),
             )
-            read_snapshot_bridge = render_repository_read_snapshot_bridge(
-                operation_id=operation_id,
-                module_slug=module_slug,
-                record_hint=record_hint,
-            )
             operation_facade = render_repository_operation_facade(operation_id, method_name)
-            operation_body = operation_body.replace(
-                f"return this.readBack{camel_case(operation_id)}(context);",
-                f"return this.read{camel_case(operation_id)}RuntimeSnapshot(context);",
-            )
-            operation_body = operation_body.replace(
-                f"return this.execute{camel_case(operation_id)}RuntimeBridge(context);",
-                f"return this.read{camel_case(operation_id)}RuntimeSnapshot(context);",
-            )
-            operation_body = operation_body.replace(
-                "return { ...context };",
-                f"return this.read{camel_case(operation_id)}RuntimeSnapshot(context);",
-            )
             write_body = write_body.replace(
                 "void context;\n    void nextState;\n    return { ...context, ...nextState };",
                 f"return this.execute{camel_case(operation_id)}RuntimeBridge(context, nextState);",
@@ -1945,7 +1749,6 @@ def render_repository_module(
                 lines.extend(action_card_direct_lines)
             lines.extend([operation_body, ""])
             lines.extend([operation_facade, ""])
-            lines.extend([read_snapshot_bridge, ""])
             lines.extend([runtime_bridge, ""])
             if "private async transaction(" not in "\n".join(lines):
                 lines.extend([transaction_body, ""])

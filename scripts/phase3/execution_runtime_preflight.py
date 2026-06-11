@@ -67,13 +67,6 @@ def parse_env_file(path: Path) -> dict[str, str]:
     return values
 
 
-def parse_optional_int(value: Any) -> int | None:
-    try:
-        return int(str(value).strip())
-    except (TypeError, ValueError):
-        return None
-
-
 def choose_postgres_host_port(
     *,
     workspace_root: Path,
@@ -239,14 +232,9 @@ def ensure_backend_runtime_preflight(
     attempted_ports: set[int] = set()
     combined_stdout = ""
     combined_stderr = ""
-    requested_preflight_port = parse_optional_int(
-        execution_env.get("POSTGRES_HOST_PORT")
-        or execution_env.get("PHASE3_RUNTIME_SMOKE_POSTGRES_HOST_PORT")
-    )
     postgres_port = choose_postgres_host_port(
         workspace_root=workspace_root,
         packet_id_value=port_seed_value,
-        starting_port=requested_preflight_port,
         port_in_use_probe=probe,
     )
     command = ""

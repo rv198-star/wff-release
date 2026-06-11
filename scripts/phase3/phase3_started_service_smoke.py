@@ -18,7 +18,6 @@ import base64
 import hashlib
 import hmac
 import json
-import re
 import time
 import urllib.error
 import urllib.parse
@@ -147,79 +146,6 @@ def required_query_parameters(operation: dict[str, Any]) -> dict[str, str]:
     return query
 
 
-def normalized_role_list(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, list):
-        raw_values = value
-    else:
-        raw_values = [value]
-    roles: list[str] = []
-    for raw in raw_values:
-        role = str(raw or "").strip()
-        if role and role not in roles:
-            roles.append(role)
-    return roles
-
-
-def extract_operation_support_block(text: str, operation_id: str) -> str:
-    marker = json.dumps(str(operation_id), ensure_ascii=False) + ":"
-    start = text.find(marker)
-    if start < 0:
-        return ""
-    brace_start = text.find("{", start + len(marker))
-    if brace_start < 0:
-        return ""
-    depth = 0
-    in_string = False
-    escaped = False
-    for index in range(brace_start, len(text)):
-        char = text[index]
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
-        if char == '"':
-            in_string = True
-            continue
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return text[brace_start : index + 1]
-    return ""
-
-
-def extract_rbac_policies_from_operation_support(workspace_root: Path, operation_id: str) -> list[str]:
-    if not operation_id:
-        return []
-    support_path = workspace_root / "apps" / "api" / "src" / "common" / "operation-support.ts"
-    if not support_path.exists():
-        return []
-    block = extract_operation_support_block(support_path.read_text(encoding="utf-8", errors="ignore"), operation_id)
-    if not block:
-        return []
-    match = re.search(r'"rbacPolicies"\s*:\s*\[(.*?)\]', block, flags=re.DOTALL)
-    if not match:
-        return []
-    return normalized_role_list(re.findall(r'"([^"]+)"', match.group(1)))
-
-
-def operation_rbac_policies_from_workspace(workspace_root: Path, selected: dict[str, Any]) -> list[str]:
-    operation = selected.get("operation", {})
-    roles = []
-    if isinstance(operation, dict):
-        roles = normalized_role_list(operation.get("x-rbac-policies"))
-    if roles:
-        return roles
-    return extract_rbac_policies_from_operation_support(workspace_root, str(selected.get("operation_id") or ""))
-
-
 def select_smoke_operation(openapi_spec: dict[str, Any]) -> dict[str, Any]:
     paths = openapi_spec.get("paths", {})
     if not isinstance(paths, dict):
@@ -236,7 +162,6 @@ def select_smoke_operation(openapi_spec: dict[str, Any]) -> dict[str, Any]:
             candidates.append(
                 {
                     "operation_id": str(operation.get("operationId", f"{method.upper()} {path_template}")),
-                    "operation": operation,
                     "method": method.upper(),
                     "path": str(path_template),
                     "resolved_path": inject_path_parameters(str(path_template), operation),
@@ -312,22 +237,13 @@ def safe_response(response: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def report_selected_operation(selected: dict[str, Any], rbac_policies: list[str]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in selected.items()
-        if key in {"operation_id", "method", "path", "resolved_path", "query", "body", "is_write"}
-    } | {"rbac_policies": rbac_policies}
-
-
-def build_smoke_claims(*, role: str = "", roles: list[str] | None = None, suffix: str) -> dict[str, Any]:
-    resolved_roles = normalized_role_list(roles if roles is not None else [role])
+def build_smoke_claims(*, role: str, suffix: str) -> dict[str, Any]:
     return {
         "sub": f"phase3-smoke-{suffix}",
         "subject_id": f"phase3-smoke-{suffix}",
         "tenant_id": "tenant-001",
         "session_id": f"phase3-smoke-session-{suffix}",
-        "roles": resolved_roles or ["authenticated"],
+        "roles": [role],
         "iat": int(time.time()),
     }
 
@@ -381,9 +297,8 @@ def run_phase3_started_service_smoke(
     method = str(selected["method"])
     body = selected.get("body", {}) if method in {"POST", "PUT", "PATCH"} else None
     suffix = str(int(time.time()))
-    valid_roles = operation_rbac_policies_from_workspace(workspace_root, selected) or ["authenticated"]
     forbidden_token = build_hs256_jwt(build_smoke_claims(role="phase3-forbidden-smoke-role", suffix=f"forbidden-{suffix}"), auth_secret)
-    valid_token = build_hs256_jwt(build_smoke_claims(roles=valid_roles, suffix=f"valid-{suffix}"), auth_secret)
+    valid_token = build_hs256_jwt(build_smoke_claims(role="authenticated", suffix=f"valid-{suffix}"), auth_secret)
 
     missing_response = request_fn(method=method, url=url, headers={}, body=body, timeout_seconds=timeout_seconds)
     invalid_response = request_fn(
@@ -440,7 +355,7 @@ def run_phase3_started_service_smoke(
             "valid_bearer_passed": valid_bearer_passed,
             "raw_bearer_token_exposed": False,
         },
-        "selected_operation": report_selected_operation(selected, valid_roles),
+        "selected_operation": selected,
         "requests": requests,
         "failures": failures,
         "warnings": warnings,

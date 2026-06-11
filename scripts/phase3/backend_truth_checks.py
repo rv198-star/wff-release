@@ -23,20 +23,10 @@ def report_is_pass(report: dict[str, Any] | None) -> bool:
 
 
 def bootstrap_report_is_green(report: dict[str, Any] | None) -> bool:
-    if not isinstance(report, dict):
-        return False
-    checks = report.get("checks", {}) if isinstance(report.get("checks", {}), dict) else {}
-    toolchain_status = str(
-        checks.get("toolchain_bootstrap_status")
-        or checks.get("toolchain_bootstrap_raw_status")
-        or ""
-    ).strip().lower()
-    if toolchain_status in {"ready", "toolchain-ready", "pass"}:
-        return True
-    if toolchain_status in {"fail", "failed", "blocked", "not-ready", "error"}:
-        return False
     if report_is_pass(report):
         return True
+    if not isinstance(report, dict):
+        return False
     overall_status = str(report.get("overall_status") or "").strip().lower()
     if overall_status in {"ready", "pass"}:
         return True

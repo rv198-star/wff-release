@@ -7,10 +7,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from common.human_review_surface import emit_human_review_surface
 from phase3.delivery_closure import finalize_phase3_delivery_closure
 from phase3.timing_report import record_timing_segment, set_timing_segment, start_timer
-from phase3.trace_registry import finalize_trace_registry, project_phase3_trace_registry_to_trace_db
+from phase3.trace_registry import finalize_trace_registry
 from phase3.review_support import load_json, load_json_if_exists
 
 
@@ -47,33 +46,6 @@ def sidecar_unavailable_summary(sidecar_id: str) -> dict[str, Any]:
         "summary": {"critical_findings": 0, "high_findings": 0},
         "claim_ceiling": "support sidecar was not installed in this profile",
     }
-
-
-def preserve_trace_identity_source(
-    trace_registry_final: dict[str, Any],
-    *,
-    previous_trace_registry_final: dict[str, Any] | None,
-    output_dir: Path,
-) -> dict[str, Any]:
-    updated = dict(trace_registry_final)
-    previous = previous_trace_registry_final if isinstance(previous_trace_registry_final, dict) else {}
-    previous_identity = previous.get("trace_identity_source", {})
-    previous_identity = previous_identity if isinstance(previous_identity, dict) else {}
-    trace_db_path = output_dir / ".trace" / "trace.db"
-    trace_db_present = bool(
-        previous.get("trace_db_present")
-        or previous_identity.get("trace_db_present")
-        or trace_db_path.exists()
-    )
-    updated["trace_db_present"] = trace_db_present
-    if previous_identity:
-        updated["trace_identity_source"] = previous_identity
-    elif trace_db_present:
-        updated["trace_identity_source"] = {
-            "trace_db_present": True,
-            "trace_db_path": str(trace_db_path),
-        }
-    return updated
 
 
 def sync_json_report_if_provided(source_path: Path | None, destination_path: Path) -> Path | None:
@@ -180,16 +152,6 @@ def refresh_phase3_post_execution(
             test_trace_matrix=trace_matrix,
             implementation_bindings=implementation_bindings,
         )
-        trace_registry_final = preserve_trace_identity_source(
-            trace_registry_final,
-            previous_trace_registry_final=load_json_if_exists(trace_registry_final_path),
-            output_dir=output_dir,
-        )
-        trace_registry_final["trace_db_projection"] = project_phase3_trace_registry_to_trace_db(
-            trace_db_path=output_dir / ".trace" / "trace.db",
-            trace_registry_final=trace_registry_final,
-            source_path=trace_registry_final_path,
-        )
         write_text(
             trace_registry_final_path,
             json.dumps(trace_registry_final, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -204,38 +166,30 @@ def refresh_phase3_post_execution(
     tech_stack_text = tech_stack_decision_path.read_text(encoding="utf-8") if tech_stack_decision_path.exists() else ""
 
     canonical_coverage_gate_report_path = output_dir / "phase3-coverage-gate.json"
-    provided_coverage_gate_report_path = (
-        coverage_gate_report_path.resolve()
-        if coverage_gate_report_path is not None and coverage_gate_report_path.exists()
-        else None
-    )
     coverage_started = start_timer()
     if skip_coverage_collection:
-        if provided_coverage_gate_report_path is not None:
-            record_timing_segment(timing_segments, "coverage_collection", coverage_started, status="reused")
-        else:
-            write_text(
-                canonical_coverage_gate_report_path,
-                json.dumps(
-                    {
-                        "collected": False,
-                        "collection_status": coverage_collection_skip_reason or "skipped",
-                        "collection_command": "",
-                        "command_exit_code": 0,
-                        "coverage_summary_path": "",
-                        "stdout_log_path": "",
-                        "stderr_log_path": "",
-                        "overall_quality_gate": "fail",
-                        "checks": {},
-                        "failures": ["coverage_collection_skipped"],
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                    sort_keys=True,
-                )
-                + "\n",
+        write_text(
+            canonical_coverage_gate_report_path,
+            json.dumps(
+                {
+                    "collected": False,
+                    "collection_status": coverage_collection_skip_reason or "skipped",
+                    "collection_command": "",
+                    "command_exit_code": 0,
+                    "coverage_summary_path": "",
+                    "stdout_log_path": "",
+                    "stderr_log_path": "",
+                    "overall_quality_gate": "fail",
+                    "checks": {},
+                    "failures": ["coverage_collection_skipped"],
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
             )
-            record_timing_segment(timing_segments, "coverage_collection", coverage_started, status="skipped")
+            + "\n",
+        )
+        record_timing_segment(timing_segments, "coverage_collection", coverage_started, status="skipped")
     else:
         coverage_module = optional_phase3_sidecar("phase3.coverage_collection")
         if coverage_module is None:
@@ -461,9 +415,6 @@ def refresh_phase3_post_execution(
         metadata_path=metadata_path,
     )
     record_timing_segment(timing_segments, "delivery_gate", delivery_gate_started)
-    human_review_started = start_timer()
-    emit_human_review_surface(output_dir, "phase3")
-    record_timing_segment(timing_segments, "human_review_surface", human_review_started)
 
     return {
         "trace_registry_final_path": str(trace_registry_final_path) if trace_registry_final_path.exists() else "",

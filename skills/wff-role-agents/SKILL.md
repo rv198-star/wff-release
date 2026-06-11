@@ -34,7 +34,7 @@ Role agents are profession-shaped entry surfaces over existing WFF skills and pr
 - `WFF Refactor Architect`
 - `WFF Reviewer`
 
-There is no `WFF Guide` role. General WFF entry routing is owned by `using-wff`; project initialization compatibility remains with deprecated `wff-help`.
+There is no `WFF Guide` role. Entry help remains owned by `wff-help`.
 
 ## Source Of Truth
 

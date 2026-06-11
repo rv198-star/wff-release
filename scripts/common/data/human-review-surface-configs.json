@@ -1,13 +1,13 @@
 {
   "category_labels": {
-    "primary": "primary review read",
+    "primary": "human primary read",
     "gate": "gate / verdict",
     "review": "review / trace support"
   },
   "surface_configs": {
     "phase1": {
       "phase": "phase1",
-      "title": "Phase-1 AI / External Red-Team Review",
+      "title": "Phase-1 Human Review",
       "primary_instruction": "Start with the PRD and phase verdict, then inspect review-bound gaps before downstream design.",
       "artifact_rules": [
         {
@@ -79,7 +79,7 @@
     },
     "phase2": {
       "phase": "phase2",
-      "title": "Phase-2 AI / External Red-Team Review",
+      "title": "Phase-2 Human Review",
       "primary_instruction": "Start with Engineering Spec Pack section 2.0 and the Phase-3 implementation entry, then inspect gates and review-bound architecture gaps.",
       "artifact_rules": [
         {
@@ -151,8 +151,8 @@
     },
     "phase3": {
       "phase": "phase3",
-      "title": "Phase-3 AI / External Red-Team Review",
-      "primary_instruction": "Start by trying to disprove the implementation: inspect service semantics, trace causality, negative tests, and the claim ceiling before reading scores.",
+      "title": "Phase-3 Human Review",
+      "primary_instruction": "Start with action cards, execution/acceptance reports, and delivery gates before reading code or raw evidence.",
       "artifact_rules": [
         {
           "label": "Action cards",
@@ -257,14 +257,13 @@
       ],
       "claim_ceiling_notes": [
         "P3 delivery-ready is bounded by development / pre-production runtime evidence.",
-        "P3 does not prove production readiness, real UAT, owner sign-off, capacity proof, or production risk acceptance.",
-        "Human review may confirm or lower the machine claim ceiling; it must not upgrade review-bound / suggested / unknown evidence."
+        "P3 does not prove production readiness, real UAT, owner sign-off, capacity proof, or production risk acceptance."
       ]
     },
     "phase4": {
       "phase": "phase4",
-      "title": "Phase-4 AI / External Red-Team Review",
-      "primary_instruction": "Start with upstream/P4 claim ceilings and residual review-bound records before reading closure scores or downstream boundary notes.",
+      "title": "Phase-4 Human Review",
+      "primary_instruction": "Start with closure judgment, delivery gate, and downstream boundary notes before raw evidence details.",
       "artifact_rules": [
         {
           "label": "Validation closure judgment",
@@ -353,13 +352,12 @@
       ],
       "claim_ceiling_notes": [
         "P4 judges evidence sufficiency and routing under a claim ceiling; it is not production approval.",
-        "Missing external owner / UAT / production evidence must remain explicit instead of being inferred from green gates.",
-        "P4 may not upgrade a capped P3 claim ceiling; review-bound closure is not release-ready PASS."
+        "Missing external owner / UAT / production evidence must remain explicit instead of being inferred from green gates."
       ]
     },
     "phasex": {
       "phase": "phasex",
-      "title": "PhaseX AI / External Red-Team Review",
+      "title": "PhaseX Human Review",
       "primary_instruction": "Start with the Wave-1 manifest, then read the selected scan / health / handoff outputs for facts, inferences, unknowns, and route decisions.",
       "artifact_rules": [
         {

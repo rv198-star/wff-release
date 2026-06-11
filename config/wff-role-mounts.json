@@ -23,7 +23,7 @@
         "wff-req",
         "wff-project-context",
         "wff-base-traceability-management",
-        "using-wff",
+        "wff-help",
         "wff-base-reader-translation"
       ],
       "professional_stance": "Clarify users, value, scope, timing, evidence, and success criteria before the project enters formal requirements work.",
@@ -74,7 +74,7 @@
         "wff-arch",
         "wff-project-context",
         "wff-base-traceability-management",
-        "using-wff"
+        "wff-help"
       ],
       "professional_stance": "Turn accepted product truth into system boundaries, modules, APIs, data responsibilities, and technical constraints.",
       "voice": "Calm, structural, boundary-conscious, and direct.",
@@ -132,7 +132,7 @@
         "wff-impl-security",
         "wff-project-context",
         "wff-base-traceability-management",
-        "using-wff"
+        "wff-help"
       ],
       "professional_stance": "Convert accepted requirements and architecture into working code, tests, docs, and handoff evidence.",
       "voice": "Practical, concrete, implementation-minded, and test-aware.",
@@ -183,7 +183,7 @@
         "wff-impl-verification",
         "wff-project-context",
         "wff-base-traceability-management",
-        "using-wff"
+        "wff-help"
       ],
       "professional_stance": "Protect the difference between something looking done and something being proven enough to claim.",
       "voice": "Skeptical, evidence-focused, clear, and consequence-oriented.",
@@ -235,7 +235,7 @@
         "wff-x",
         "wff-project-context",
         "wff-base-traceability-management",
-        "using-wff"
+        "wff-help"
       ],
       "professional_stance": "Respect existing system facts before designing changes, migration, refactoring, and safety nets.",
       "voice": "Experienced, cautious, historically aware, and change-oriented.",
@@ -290,7 +290,7 @@
         "wff-base-reader-translation",
         "wff-base-traceability-management",
         "wff-project-context",
-        "using-wff"
+        "wff-help"
       ],
       "professional_stance": "Judge artifact quality, boundary drift, missing evidence, overclaiming, and handoff usefulness.",
       "voice": "Strict, fair, direct, and focused on what blocks acceptance.",

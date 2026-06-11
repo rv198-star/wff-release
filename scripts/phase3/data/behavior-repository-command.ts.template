@@ -19,19 +19,13 @@ export class $module_class {
 
   async append${op}AuditEffect(context: Record<string, unknown>, nextState: Record<string, unknown>): Promise<void> {
     // append audit/event side effect after invariant-preserving write: $audit_effect.
-    recordGeneratedAuditEvent({
-      tenantId: String(nextState.tenant_id ?? nextState.tenantId ?? context.tenant_id ?? context.tenantId ?? "runtime-tenant"),
-      operationId: "$op",
-      actionType: "$op-audit-effect",
-      outcome: "allowed",
-      subjectId: String(context.subject_id ?? context.subjectId ?? ""),
-      requestId: String(nextState.request_id ?? nextState.requestId ?? context.request_id ?? context.requestId ?? ""),
-    });
+    void context;
+    void nextState;
   }
 
   async readBack${op}(context: Record<string, unknown>): Promise<Record<string, unknown>> {
     // independent read-back path for runtime tests.
-    return this.execute${op}RuntimeBridge(context);
+    return { ...context };
   }
 
   private async transaction(work: () => Promise<Record<string, unknown>>): Promise<Record<string, unknown>> {

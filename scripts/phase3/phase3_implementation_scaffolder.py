@@ -141,10 +141,6 @@ def load_ui_pages(*args: Any, **kwargs: Any) -> Any:
     return _frontend_scaffold_renderer().load_ui_pages(*args, **kwargs)
 
 
-def frontend_route_file_segment(*args: Any, **kwargs: Any) -> str:
-    return _frontend_scaffold_renderer().frontend_route_file_segment(*args, **kwargs)
-
-
 def merge_preferred_ui_sections(*args: Any, **kwargs: Any) -> Any:
     return _frontend_scaffold_renderer().merge_preferred_ui_sections(*args, **kwargs)
 
@@ -375,10 +371,7 @@ def scaffold_phase3_implementation(
         route_guard_policy = app_context.get("route_guard_policy") if isinstance(app_context.get("route_guard_policy"), dict) else {}
         auth_entry_route = frontend_renderer.normalize_ui_route((route_guard_policy or {}).get("auth_entry_route") or "")
         if auth_entry_route and auth_entry_route != "/":
-            write_text(
-                output_dir / "apps" / "web" / "app" / frontend_renderer.frontend_route_file_segment(auth_entry_route.strip("/")) / "page.tsx",
-                frontend_renderer.render_auth_entry_page(ui_pages),
-            )
+            write_text(output_dir / "apps" / "web" / "app" / auth_entry_route.strip("/") / "page.tsx", frontend_renderer.render_auth_entry_page(ui_pages))
         write_text(output_dir / "apps" / "web" / "app" / "workflow-storage.ts", frontend_renderer.render_workflow_storage_module())
         write_text(output_dir / "apps" / "web" / "app" / "role-session-storage.ts", frontend_renderer.render_role_session_storage_module())
         write_text(output_dir / "apps" / "web" / "app" / "workflow-progress-storage.ts", frontend_renderer.render_workflow_progress_storage_module())
@@ -488,8 +481,7 @@ def scaffold_phase3_implementation(
             continue
         assert frontend_renderer is not None
         route = frontend_renderer.ui_page_route_segment(page, surface)
-        route_file_segment = frontend_renderer.frontend_route_file_segment(route)
-        page_path = output_dir / "apps" / "web" / "app" / route_file_segment / "page.tsx"
+        page_path = output_dir / "apps" / "web" / "app" / route / "page.tsx"
         unit_test_path = output_dir / frontend_surface_unit_test_path(route)
         write_text(
             page_path,

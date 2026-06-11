@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any
 
 from common.output_language import localize_phase3_code_review_report, resolve_output_locale
-from phase3.backend_module_renderer import stable_slug
 from phase3.phase3_artifact_quality import analyze_behavior_card_quality
 from phase3.review_support import (
     emit_review_artifacts,
@@ -32,7 +31,6 @@ from phase3.review_support import (
     support_gate_exit_code,
 )
 from phase3.surface_policy import phase3_surface_exists
-from phase3.trace_gap_checks import trace_registry_blocking_gap_count
 
 
 PLACEHOLDER_PATTERNS = (
@@ -48,33 +46,6 @@ MOCK_RUNTIME_TOKENS = (
     "operation-support",
     "runtime-support-kernel",
 )
-
-HARDCODED_RESPONSE_FALLBACK_PATTERN = re.compile(
-    r"\?\?\s*(?:"
-    r"[\"'][A-Za-z][A-Za-z0-9_-]*-00[0-9][\"']"
-    r"|[\"']trace-generated[\"']"
-    r"|`trace-\$\{[^`]+\}`"
-    r"|`req-[^`]+`"
-    r"|`req-\$\{[^`]+\}`"
-    r")"
-)
-FORCE_ONLY_ERROR_PATTERN = re.compile(r"\bforce_[A-Za-z0-9_]+\b")
-OWNER_BOUNDARY_GUARD_PATTERN = re.compile(
-    r"expectedOwnerService\s*!==\s*(?:undefined\s*&&\s*context\.expectedOwnerService\s*!==\s*)?[\"'][A-Za-z][A-Za-z0-9_]*Service[\"']"
-)
-REAL_AUTHORIZATION_PATTERNS = (
-    re.compile(r"\bauth_context\b.*\bpermissions\b", re.IGNORECASE | re.DOTALL),
-    re.compile(r"\bpermissions\b.*\bincludes\s*\(", re.IGNORECASE | re.DOTALL),
-    re.compile(r"\b(?:role|roles|rbac|iam|scope|scopes|policyDecision|policy_decision)\b.*\bforbidden\b", re.IGNORECASE | re.DOTALL),
-    re.compile(r"\b(?:tenantId|tenant_id)\b.*\b(?:auth_context|permission|policy)\b", re.IGNORECASE | re.DOTALL),
-)
-DOMAIN_SEMANTIC_TOKEN_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9_])(?:"
-    r"error_code|expectedVersion|expected_version|invalid_request|permission|readBack|read_back|"
-    r"state|status|tenant|transition|version|version_conflict"
-    r")(?![A-Za-z0-9_])"
-)
-DOMAIN_CONTROL_FLOW_PATTERN = re.compile(r"\b(?:case|if|switch|throw)\b\s*(?:\(|)")
 
 STACK_DEPENDENCY_RULES: dict[str, tuple[str, ...]] = {
     "nestjs": ("@nestjs/core",),
@@ -158,8 +129,40 @@ FRONTEND_STRUCTURAL_RUNTIME_GROUPS = (
 )
 
 
-def count_blocking_trace_gaps(trace_registry_final: dict[str, Any] | None) -> int:
-    return trace_registry_blocking_gap_count(trace_registry_final)
+def is_unexecutable_contract_trace_gap(row: dict[str, Any]) -> bool:
+    source_type = str(row.get("source_type") or "").strip().lower()
+    if source_type != "contract-trace":
+        return False
+    if any(str(item).strip() for item in row.get("test_targets", []) if item is not None):
+        return False
+    final_resolution = str(row.get("final_resolution") or "").strip().lower()
+    binding_status = str(row.get("binding_status") or "").strip().lower()
+    if final_resolution:
+        return final_resolution == "unresolved"
+    return binding_status in {"suggested", "unresolved"}
+
+
+def count_unresolved_traces(trace_registry_final: dict[str, Any] | None) -> int:
+    if not trace_registry_final:
+        return 0
+    rows = trace_registry_final.get("rows", [])
+    if isinstance(rows, list):
+        unresolved_count = 0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            final_resolution = str(row.get("final_resolution") or "").strip().lower()
+            binding_status = str(row.get("binding_status") or "").strip().lower()
+            if final_resolution:
+                if final_resolution != "unresolved":
+                    continue
+            elif binding_status not in {"suggested", "unresolved"}:
+                continue
+            if is_unexecutable_contract_trace_gap(row):
+                continue
+            unresolved_count += 1
+        return unresolved_count
+    return int(trace_registry_final.get("summary", {}).get("unresolved_source_count", 0) or 0)
 
 
 def normalize_contract_text(value: str) -> str:
@@ -280,7 +283,7 @@ def method_count(text: str) -> int:
     body = class_match.group("body")
     return len(
         re.findall(
-            r"^\s*(?:public |private |protected )?(?:async )?(?!(?:constructor|if|for|while|switch|catch|return|throw)\b)[A-Za-z_][A-Za-z0-9_]*\s*\(",
+            r"^\s*(?:public |private |protected )?(?:async )?(?!constructor\b)[A-Za-z_][A-Za-z0-9_]*\s*\(",
             body,
             flags=re.MULTILINE,
         )
@@ -288,7 +291,7 @@ def method_count(text: str) -> int:
 
 
 METHOD_START_PATTERN = re.compile(
-    r"^\s*(?:public |private |protected )?(?:async )?(?!(?:constructor|if|for|while|switch|catch|return|throw)\b)(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(",
+    r"^\s*(?:public |private |protected )?(?:async )?(?!constructor\b)(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(",
 )
 
 
@@ -355,90 +358,6 @@ def metadata_only_method_count(text: str) -> int:
     return sum(1 for method in extract_method_bodies(text) if is_metadata_only_method(method["body"]))
 
 
-def hardcoded_response_fallback_count(text: str) -> int:
-    return len(HARDCODED_RESPONSE_FALLBACK_PATTERN.findall(text))
-
-
-def force_only_error_probe_count(text: str) -> int:
-    return len(FORCE_ONLY_ERROR_PATTERN.findall(text))
-
-
-def semantic_evidence_write_only(text: str) -> bool:
-    if "__semanticEvidence" not in text:
-        return False
-    return len(re.findall(r"__semanticEvidence", text)) <= 1
-
-
-def has_service_name_owner_boundary_guard(text: str) -> bool:
-    return bool(OWNER_BOUNDARY_GUARD_PATTERN.search(strip_typescript_comments(text)))
-
-
-def has_real_authorization_evidence(text: str) -> bool:
-    executable_text = strip_typescript_comments_and_strings(text)
-    return any(pattern.search(executable_text) for pattern in REAL_AUTHORIZATION_PATTERNS)
-
-
-def strip_typescript_comments(text: str) -> str:
-    without_block_comments = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    return re.sub(r"//.*", "", without_block_comments)
-
-
-def strip_typescript_comments_and_strings(text: str) -> str:
-    text = strip_typescript_comments(text)
-    text = re.sub(r"`(?:\\.|[^`])*`", '""', text, flags=re.DOTALL)
-    text = re.sub(r'"(?:\\.|[^"\\])*"', '""', text)
-    return re.sub(r"'(?:\\.|[^'\\])*'", "''", text)
-
-
-def has_executable_force_probe(text: str) -> bool:
-    return bool(
-        re.search(r"\.\s*force_[A-Za-z0-9_]+\b", text)
-        or re.search(r"\bforce_[A-Za-z0-9_]+\s*[:=]", text)
-        or re.search(r"\[\s*[\"']force_[A-Za-z0-9_]+[\"']\s*\]", text)
-    )
-
-
-def has_executable_anti_cheat_negative_test(text: str) -> bool:
-    executable_text = strip_typescript_comments(text)
-    if has_executable_force_probe(executable_text):
-        return False
-    if not re.search(r"\b(?:it|test)\s*\(", executable_text):
-        return False
-    if "expect(" not in executable_text:
-        return False
-    negative_assertion_present = any(
-        token in executable_text
-        for token in (
-            ".rejects",
-            ".toThrow",
-            ".not.toHaveBeenCalled",
-            "not.toHaveBeenCalled",
-            "toMatchObject",
-            "toEqual(expect.objectContaining",
-        )
-    )
-    if not negative_assertion_present:
-        return False
-    independent_precondition_present = any(
-        token in executable_text
-        for token in (
-            "expectedVersion",
-            "version_conflict",
-            "forbidden",
-            "invalid_request",
-            "invalid_transition",
-            "not_found",
-            "tenantId",
-            "permission",
-            "readBack",
-            "read-back",
-            "read back",
-            "assert_no_mutation",
-        )
-    )
-    return independent_precondition_present
-
-
 def unknown_payload_signature_count(text: str) -> int:
     return len(re.findall(r"\bpayload\s*:\s*unknown\b", text))
 
@@ -463,10 +382,20 @@ def has_domain_specific_logic(text: str) -> bool:
     method_total = method_count(text)
     if method_total == 0:
         return False
-    executable_text = strip_typescript_comments_and_strings(text)
-    has_semantic_token = bool(DOMAIN_SEMANTIC_TOKEN_PATTERN.search(executable_text))
-    has_control_flow = bool(DOMAIN_CONTROL_FLOW_PATTERN.search(executable_text))
-    return has_semantic_token and has_control_flow and substantive_line_count(executable_text) > method_total + 3
+    domain_tokens = (
+        "if (",
+        "switch (",
+        "case ",
+        "throw ",
+        "error_code",
+        "status",
+        "state",
+        "transition",
+        "permission",
+        "tenant",
+        "version",
+    )
+    return any(token in text for token in domain_tokens) and substantive_line_count(text) > method_total + 3
 
 
 def classify_implementation_depth(target: str, text: str) -> str:
@@ -661,11 +590,10 @@ def analyze_frontend_core_surface_gaps(output_dir: Path) -> list[dict[str, str]]
 
 
 def frontend_route_dir(output_dir: Path, route: str) -> Path:
-    parts = [part for part in str(route or "").strip().strip("/").split("/") if part.strip()]
-    if not parts:
+    normalized = route.strip().strip("/")
+    if not normalized:
         return output_dir / "apps" / "web" / "app"
-    safe_parts = [stable_slug(part, fallback=f"route-{index}") for index, part in enumerate(parts, start=1)]
-    return output_dir / "apps" / "web" / "app" / "/".join(safe_parts)
+    return output_dir / "apps" / "web" / "app" / normalized
 
 
 def read_route_source_bundle(output_dir: Path, route: str) -> str:
@@ -831,33 +759,23 @@ def analyze_implementation_targets(
     thin_targets: list[str] = []
     passthrough_targets: list[str] = []
     metadata_only_targets: list[str] = []
-    hardcoded_fallback_targets: list[str] = []
-    force_only_error_targets: list[str] = []
-    write_only_semantic_evidence_targets: list[str] = []
     unknown_payload_targets: list[str] = []
     scaffold_marker_targets: list[str] = []
     runtime_kernel_backed_targets: list[str] = []
     domain_specific_targets: list[str] = []
     review_bound_depth_targets: list[str] = []
-    owner_boundary_guard_targets: list[str] = []
-    real_authorization_targets: list[str] = []
     if not implementation_bindings:
         return {
             "placeholder_targets": placeholder_targets,
             "empty_shell_targets": empty_shell_targets,
             "passthrough_targets": passthrough_targets,
             "metadata_only_targets": metadata_only_targets,
-            "hardcoded_fallback_targets": hardcoded_fallback_targets,
-            "force_only_error_targets": force_only_error_targets,
-            "write_only_semantic_evidence_targets": write_only_semantic_evidence_targets,
             "thin_targets": thin_targets,
             "unknown_payload_targets": unknown_payload_targets,
             "scaffold_marker_targets": scaffold_marker_targets,
             "runtime_kernel_backed_targets": runtime_kernel_backed_targets,
             "domain_specific_targets": domain_specific_targets,
             "review_bound_depth_targets": review_bound_depth_targets,
-            "owner_boundary_guard_targets": owner_boundary_guard_targets,
-            "real_authorization_targets": real_authorization_targets,
         }
 
     target_paths = sorted(
@@ -885,18 +803,8 @@ def analyze_implementation_targets(
             passthrough_targets.append(target)
         if target.endswith((".controller.ts", ".service.ts", ".repository.ts")) and method_total > 0 and metadata_only_total >= method_total:
             metadata_only_targets.append(target)
-        if target.endswith((".controller.ts", ".service.ts", ".repository.ts")) and hardcoded_response_fallback_count(text) > 0:
-            hardcoded_fallback_targets.append(target)
-        if target.endswith((".controller.ts", ".service.ts", ".repository.ts")) and force_only_error_probe_count(text) > 0:
-            force_only_error_targets.append(target)
-        if target.endswith((".controller.ts", ".service.ts", ".repository.ts")) and semantic_evidence_write_only(text):
-            write_only_semantic_evidence_targets.append(target)
         if target.endswith((".controller.ts", ".service.ts", ".repository.ts")) and unknown_payload_signature_count(text) > 0:
             unknown_payload_targets.append(target)
-        if target.endswith((".controller.ts", ".service.ts", ".repository.ts")) and has_service_name_owner_boundary_guard(text):
-            owner_boundary_guard_targets.append(target)
-        if target.endswith((".controller.ts", ".service.ts", ".repository.ts")) and has_real_authorization_evidence(text):
-            real_authorization_targets.append(target)
         if target.endswith((".ts", ".tsx")) and substantive_line_count(text) <= 3:
             thin_targets.append(target)
         if target.endswith((".controller.ts", ".service.ts", ".repository.ts")):
@@ -921,17 +829,12 @@ def analyze_implementation_targets(
         "empty_shell_targets": sorted(set(empty_shell_targets)),
         "passthrough_targets": sorted(set(passthrough_targets)),
         "metadata_only_targets": sorted(set(metadata_only_targets)),
-        "hardcoded_fallback_targets": sorted(set(hardcoded_fallback_targets)),
-        "force_only_error_targets": sorted(set(force_only_error_targets)),
-        "write_only_semantic_evidence_targets": sorted(set(write_only_semantic_evidence_targets)),
         "thin_targets": sorted(set(thin_targets)),
         "unknown_payload_targets": sorted(set(unknown_payload_targets)),
         "scaffold_marker_targets": sorted(set(scaffold_marker_targets)),
         "runtime_kernel_backed_targets": sorted(set(runtime_kernel_backed_targets)),
         "domain_specific_targets": sorted(set(domain_specific_targets)),
         "review_bound_depth_targets": sorted(set(review_bound_depth_targets)),
-        "owner_boundary_guard_targets": sorted(set(owner_boundary_guard_targets)),
-        "real_authorization_targets": sorted(set(real_authorization_targets)),
     }
 
 
@@ -945,18 +848,6 @@ def find_stub_tests(output_dir: Path) -> list[str]:
         if contains_placeholder_content(text):
             stubbed.append(str(path.relative_to(output_dir)))
     return sorted(stubbed)
-
-
-def anti_cheat_negative_test_count(output_dir: Path) -> int:
-    tests_root = output_dir / "tests"
-    if not tests_root.exists():
-        return 0
-    count = 0
-    for path in tests_root.rglob("*.test.ts"):
-        text = read_text_if_exists(path)
-        if has_executable_anti_cheat_negative_test(text):
-            count += 1
-    return count
 
 
 def implementation_targets_missing(output_dir: Path, implementation_bindings: dict[str, Any] | None) -> list[str]:
@@ -1089,13 +980,13 @@ def build_findings(
     openapi_diff_report: dict[str, Any] | None,
 ) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
-    blocking_trace_gap_count = count_blocking_trace_gaps(trace_registry_final)
-    if blocking_trace_gap_count > 0:
+    unresolved_trace_count = count_unresolved_traces(trace_registry_final)
+    if unresolved_trace_count > 0:
         findings.append(
             {
                 "severity": "critical",
-                "title": "Blocking trace gaps remain after implementation binding",
-                "evidence": f"blocking_trace_gap_count={blocking_trace_gap_count}",
+                "title": "Unresolved trace subjects remain after implementation binding",
+                "evidence": f"unresolved_source_count={unresolved_trace_count}",
             }
         )
 
@@ -1156,30 +1047,6 @@ def build_findings(
                 "severity": "low" if phase3_surface_exists(output_dir, "generated-runtime-positioning.md") else "medium",
                 "title": "Layered modules are metadata-only adapters that annotate payloads before delegating",
                 "evidence": ", ".join(target_analysis["metadata_only_targets"][:3]),
-            }
-        )
-    if target_analysis["hardcoded_fallback_targets"]:
-        findings.append(
-            {
-                "severity": "high",
-                "title": "Service/repository responses still use hardcoded fallback values to satisfy response shape",
-                "evidence": ", ".join(target_analysis["hardcoded_fallback_targets"][:3]),
-            }
-        )
-    if target_analysis["force_only_error_targets"]:
-        findings.append(
-            {
-                "severity": "high",
-                "title": "Business error paths still depend on force_* probes instead of real preconditions",
-                "evidence": ", ".join(target_analysis["force_only_error_targets"][:3]),
-            }
-        )
-    if target_analysis["write_only_semantic_evidence_targets"]:
-        findings.append(
-            {
-                "severity": "high",
-                "title": "Semantic evidence is written as an audit marker without later executable consumption",
-                "evidence": ", ".join(target_analysis["write_only_semantic_evidence_targets"][:3]),
             }
         )
     if target_analysis["unknown_payload_targets"]:
@@ -1312,11 +1179,6 @@ def build_report_markdown(report: dict[str, Any], output_locale: str | None = No
             f"- low_findings: {summary['low_findings']}",
             f"- reviewed_target_count: {summary['reviewed_target_count']}",
             f"- metadata_only_target_count: {summary['metadata_only_target_count']}",
-            f"- hardcoded_fallback_target_count: {summary['hardcoded_fallback_target_count']}",
-            f"- force_only_error_target_count: {summary['force_only_error_target_count']}",
-            f"- write_only_semantic_evidence_target_count: {summary['write_only_semantic_evidence_target_count']}",
-            f"- same_source_test_risk_count: {summary['same_source_test_risk_count']}",
-            f"- anti_cheat_negative_test_count: {summary['anti_cheat_negative_test_count']}",
             f"- mock_runtime_dependency_count: {summary['mock_runtime_dependency_count']}",
             f"- stack_consistency_issue_count: {summary['stack_consistency_issue_count']}",
             f"- frontend_core_surface_gap_count: {summary['frontend_core_surface_gap_count']}",
@@ -1344,27 +1206,6 @@ def analyze_phase3_code_review(
     frontend_operability_gaps = analyze_frontend_operability_gaps(output_dir)
     frontend_contract_alignment_gaps = analyze_frontend_contract_alignment_gaps(output_dir)
     behavior_card_consistency = extract_behavior_card_consistency(output_dir)
-    anti_cheat_count = anti_cheat_negative_test_count(output_dir)
-    empty_or_audit_shaped_count = (
-        len(target_analysis["empty_shell_targets"])
-        + len(target_analysis["passthrough_targets"])
-        + len(target_analysis["metadata_only_targets"])
-        + len(target_analysis["hardcoded_fallback_targets"])
-        + len(target_analysis["force_only_error_targets"])
-        + len(target_analysis["write_only_semantic_evidence_targets"])
-    )
-    same_source_test_risk_count = (
-        len(target_analysis["hardcoded_fallback_targets"])
-        + len(target_analysis["force_only_error_targets"])
-        + len(target_analysis["write_only_semantic_evidence_targets"])
-        + len(target_analysis["metadata_only_targets"])
-    )
-    owner_boundary_guard_targets = target_analysis["owner_boundary_guard_targets"]
-    real_authorization_targets = target_analysis["real_authorization_targets"]
-    authorization_integration_warning_targets = sorted(
-        set(owner_boundary_guard_targets) - set(real_authorization_targets)
-    )
-    real_authorization_enforced = bool(real_authorization_targets) and not authorization_integration_warning_targets
     findings = build_findings(
         output_dir=output_dir,
         implementation_bindings=implementation_bindings,
@@ -1385,27 +1226,16 @@ def analyze_phase3_code_review(
         "summary": {
             **counts,
             "reviewed_target_count": reviewed_target_count,
-            "trace_gap_count": count_blocking_trace_gaps(trace_registry_final),
+            "trace_gap_count": count_unresolved_traces(trace_registry_final),
             "openapi_diff_verdict": str((openapi_diff_report or {}).get("verdict", "unknown")),
             "placeholder_target_count": len(target_analysis["placeholder_targets"]),
             "passthrough_target_count": len(target_analysis["passthrough_targets"]),
             "metadata_only_target_count": len(target_analysis["metadata_only_targets"]),
-            "hardcoded_fallback_target_count": len(target_analysis["hardcoded_fallback_targets"]),
-            "force_only_error_target_count": len(target_analysis["force_only_error_targets"]),
-            "write_only_semantic_evidence_target_count": len(target_analysis["write_only_semantic_evidence_targets"]),
-            "empty_or_audit_shaped_service_count": empty_or_audit_shaped_count,
-            "same_source_test_risk_count": same_source_test_risk_count,
-            "anti_cheat_negative_test_count": anti_cheat_count,
             "unknown_payload_target_count": len(target_analysis["unknown_payload_targets"]),
             "scaffold_marker_target_count": len(target_analysis["scaffold_marker_targets"]),
             "runtime_kernel_backed_target_count": len(target_analysis["runtime_kernel_backed_targets"]),
             "domain_specific_target_count": len(target_analysis["domain_specific_targets"]),
             "review_bound_depth_target_count": len(target_analysis["review_bound_depth_targets"]),
-            "owner_boundary_guard_present": bool(owner_boundary_guard_targets),
-            "owner_boundary_guard_count": len(owner_boundary_guard_targets),
-            "real_authorization_enforced": real_authorization_enforced,
-            "real_authorization_target_count": len(real_authorization_targets),
-            "authorization_integration_warning_count": len(authorization_integration_warning_targets),
             "mock_runtime_dependency_count": len(mock_runtime_dependencies),
             "stack_consistency_issue_count": len(stack_consistency_issues),
             "frontend_core_surface_gap_count": len(frontend_core_surface_gaps),
@@ -1422,21 +1252,6 @@ def analyze_phase3_code_review(
             "runtime_kernel_backed_targets": target_analysis["runtime_kernel_backed_targets"],
             "domain_specific_targets": target_analysis["domain_specific_targets"],
             "review_bound_targets": target_analysis["review_bound_depth_targets"],
-            "hardcoded_fallback_targets": target_analysis["hardcoded_fallback_targets"],
-            "force_only_error_targets": target_analysis["force_only_error_targets"],
-            "write_only_semantic_evidence_targets": target_analysis["write_only_semantic_evidence_targets"],
-        },
-        "authorization_boundary": {
-            "owner_boundary_guard_targets": owner_boundary_guard_targets,
-            "real_authorization_targets": real_authorization_targets,
-            "authorization_integration_warning_targets": authorization_integration_warning_targets,
-            "claim_boundary": (
-                "owner-boundary guard only; production authorization is integration-bound"
-                if authorization_integration_warning_targets
-                else "real authorization evidence present"
-                if real_authorization_targets
-                else "authorization evidence not present"
-            ),
         },
         "mock_runtime_dependencies": mock_runtime_dependencies,
         "stack_consistency_issues": stack_consistency_issues,

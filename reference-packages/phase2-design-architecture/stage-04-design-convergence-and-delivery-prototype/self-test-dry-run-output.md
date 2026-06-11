@@ -1,0 +1,180 @@
+# Stage-04 Dry-Run Output — converged meeting assistant design package
+
+## 1. Document Metadata
+- document_name:
+  - ai-meeting-assistant-stage-04-dry-run
+- stage:
+  - design-convergence-and-delivery-prototype
+- version:
+  - v0.1-dry-run
+- status:
+  - `provisional`
+- source_status:
+  - `mixed`
+- artifact_id:
+  - `ARCH-STG04-OUTPUT-0001`
+- artifact_type:
+  - `HANDOFF`
+- depends_on:
+  - `ARCH-STG03-OUTPUT-0001`
+- feeds:
+  - `IMPL-STG00-INPUT-0001`
+- source_path:
+  - `reference-packages/phase2-design-architecture/stage-04-design-convergence-and-delivery-prototype/self-test-dry-run-output.md`
+- source_anchor:
+  - `#arch-stg04-output-0001`
+- traceability_managed_by:
+  - `wff-base-traceability-management`
+
+## 2. Context and Objective {#arch-stg04-output-0001}
+- convergence_objective:
+  - converge Stage-01~03 into one implementation-facing design package
+- upstream_summary:
+  - boundary, decomposition, scenario coverage, and data/interface design already exist
+- upstream_declaration_states:
+  - `present | unknown | deferred`
+- assumptions:
+  - unresolved vendor-specific CRM feasibility and retention thresholds should be carried into downstream implementation planning
+- open_questions:
+  - whether prototype expression needs higher-fidelity UI detail outside the current package scope
+
+## 3. Core Structured Output
+- architecture_convergence_summary:
+  - modular meeting-assistant architecture with explicit capture, processing, review, CRM sync, and audit boundaries
+- prototype_or_structured_delivery_expression:
+  - structured delivery-facing view of ingestion, review, outbound sync, and audit/reporting slices
+- critical_interaction_sequence_set:
+  - sequence_a:
+    - reviewer approves summary
+    - review decision snapshot is written
+    - sync job is enqueued
+    - CRM adapter attempts outbound push
+    - sync attempt status is recorded without mutating review truth
+  - sequence_b:
+    - reviewer rejects summary
+    - rework note is sent back to summarization
+    - new draft replaces prior draft candidate
+    - prior rejection remains in review history
+- optimality_review:
+  - dominant_bottleneck:
+    - review integrity and auditability dominate over raw throughput
+  - alternatives_considered:
+    - synchronous CRUD baseline
+    - relational primary truth plus queue-backed sync
+    - append-only event-first core
+  - baseline_insufficiency:
+    - synchronous push makes reviewer flow hostage to CRM availability and weakens explicit retry/audit expression
+  - chosen_candidate_strength:
+    - relational primary truth plus queue-backed outbound sync preserves review truth, isolates integration failure, and stays simpler than event-first replay machinery
+- design_verification_notes:
+  - all known scenarios remain covered through Stage-03 matrix; only reviewer approval/rejection and outbound sync are expanded as critical sequences here
+  - Stage-03 lifecycle ownership, command boundary, and public-name closure checks are carried forward unchanged
+- unresolved_risks_and_review_bound_items:
+  - vendor-specific CRM API quota/credential posture
+  - exact retention/audit guarantee thresholds
+  - future multi-CRM scaling posture
+- implementation_handoff_package:
+  - boundary and decomposition summary
+  - Stage-03 schema/API/security/tech-selection references
+  - critical public-boundary sequences
+  - optimality review
+  - structural consistency gate result
+  - readiness claim calibration
+  - unresolved-item and downstream-usage notes
+- implementation_task_sketch:
+  - granularity_rule:
+    - `slice | module | work-package only`
+  - recommended_execution_slices:
+    - slice_a:
+      - stabilize review truth ownership and approval history
+    - slice_b:
+      - implement outbound CRM sync adapter with retry/audit trail
+    - slice_c:
+      - add retention-policy hooks and artifact-store lifecycle controls
+  - sequencing_notes:
+    - slice_a before slice_b because outbound sync depends on stable review snapshots
+  - dependency_notes:
+    - CRM adapter realism remains constrained by vendor credential and quota posture
+  - explicit_non_goals:
+    - no repository/class/method/file breakdown
+
+## 3.1 Provenance / Confidence / Verification
+- source:
+  - `mixed`
+- confidence_profile:
+  - input_confidence:
+    - `partially-confirmed`
+  - evidence_strength:
+    - `evidence-needed`
+  - design_stability:
+    - `review-bound`
+  - optimality_confidence:
+    - `acceptable-only`
+- verification:
+  - `required`
+- assumptions_to_validate:
+  - whether constrained/manual CRM fallback is needed for first-pass realization
+- what_changes_if_wrong:
+  - implementation slicing and external-boundary realism may need re-ordering
+
+## 4. Key Judgments and Constraints
+- key_judgments:
+  - only critical public-boundary interactions are frozen as detailed sequences
+  - stronger candidate selection remains explicit rather than implied
+- key_constraints:
+  - review truth must remain internally owned
+  - CRM availability must not redefine review completion semantics
+  - unresolved external feasibility must stay visible
+- nfr_and_quality_state:
+  - `present | unknown | deferred`
+- boundary_visibility_scope:
+  - `public-boundary-only`
+- deferred_private_implementation_notes:
+  - internal application services, repositories, and worker choreography remain implementation-stage choices
+- explicit_exclusions:
+  - no claim that all internal sequence detail is complete
+
+## 4.1 Realizability Review
+- dependency_realizability:
+  - CRM API: `available but constrained`
+  - speech-to-text provider: `unknown / unverified`
+- structural_consistency_gate:
+  - lifecycle ownership contradictions: `none`
+  - command boundary overlaps: `none`
+  - public-boundary name closure gaps: `none`
+- delivery_path_realism:
+  - `constrained`
+- substitute_boundary_if_needed:
+  - allow manual export/import or constrained adapter mode if direct CRM access is blocked
+- realizability_judgment:
+  - `realizable only with constrained/simulated boundary`
+- readiness_claim_calibration:
+  - strongest_supported_readiness_label:
+    - `pass-with-review-bound-items`
+  - why:
+    - external integration realism remains constrained and evidence strength is not yet strong enough for `ready-to-implement`
+  - forbidden_stronger_labels:
+    - `ready-to-implement`
+    - any wording that implies external dependency certainty
+- downstream_must_not_assume_from_realizability_review:
+  - CRM direct-connect path is already production-safe
+  - speech-to-text dependency is fully validated
+  - retention thresholds are finalized
+- review_round:
+  - `initial`
+- latest_revision_summary:
+  - convergence keeps Stage-03 structure intact while downgrading final readiness to match constrained realizability
+- blockers_resolved_this_round:
+  - command-boundary and public-name consistency gaps were resolved upstream in Stage-03
+- blockers_remaining:
+  - external provider realism and retention threshold confirmation
+
+## 5. Acceptance and Flow
+- handoff_to:
+  - `implementation-phase`
+- engineering_spec_pack_status:
+  - `partial`
+- engineering_spec_pack_reference:
+  - Stage-03 schema/API package plus this Stage-04 convergence artifact
+- downstream_usage_rule:
+  - review-bound content may be consumed only as explicitly marked assumptions, never as silently approved truth

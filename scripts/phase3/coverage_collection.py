@@ -56,13 +56,11 @@ def package_script(workspace_root: Path, script_name: str) -> str:
     return str(scripts.get(script_name, "")).strip()
 
 
-def preferred_coverage_script(workspace_root: Path, *, runtime_preflight_packet: dict[str, Any] | None = None) -> tuple[str, bool]:
-    if runtime_preflight_packet is not None and package_script(workspace_root, "test:coverage"):
-        return "test:coverage", True
+def preferred_coverage_script(workspace_root: Path) -> tuple[str, bool]:
     if package_script(workspace_root, "test:coverage:unit"):
         return "test:coverage:unit", False
     if package_script(workspace_root, "test:coverage"):
-        return "test:coverage", runtime_preflight_packet is not None
+        return "test:coverage", True
     return "", False
 
 
@@ -138,30 +136,11 @@ def analyze_phase3_coverage(
             for name, metric in metrics.items()
         }
 
-    def is_api_runtime_path(normalized_path: str) -> bool:
-        return "/apps/api/" in normalized_path or normalized_path.startswith("apps/api/")
-
-    def is_api_business_runtime_path(normalized_path: str) -> bool:
-        if "/apps/api/src/common/" in normalized_path or normalized_path.startswith("apps/api/src/common/"):
-            return True
-        in_api_module = "/apps/api/src/modules/" in normalized_path or normalized_path.startswith(
-            "apps/api/src/modules/"
-        )
-        if not in_api_module:
-            return False
-        return not normalized_path.endswith(".repository.ts")
-
-    api_runtime_scope = aggregate_scope(is_api_runtime_path)
-    api_business_runtime_scope = aggregate_scope(is_api_business_runtime_path)
-    if api_business_runtime_scope is not None:
-        totals = api_business_runtime_scope
-        coverage_scope_basis = "api-business-runtime-files"
-    elif api_runtime_scope is not None:
-        totals = api_runtime_scope
-        coverage_scope_basis = "api-runtime-files"
-    else:
-        totals = workspace_totals
-        coverage_scope_basis = "workspace-total"
+    api_runtime_scope = aggregate_scope(
+        lambda normalized_path: "/apps/api/" in normalized_path or normalized_path.startswith("apps/api/")
+    )
+    totals = api_runtime_scope or workspace_totals
+    coverage_scope_basis = "api-runtime-files" if api_runtime_scope is not None else "workspace-total"
 
     def pct(name: str) -> float:
         metric = totals.get(name, {})
@@ -209,7 +188,6 @@ def analyze_phase3_coverage(
             "coverage_scope_basis": coverage_scope_basis,
             "workspace_total": summary_from(workspace_totals),
             "api_runtime_scope": summary_from(api_runtime_scope),
-            "api_business_runtime_scope": summary_from(api_business_runtime_scope),
         },
         "failures": failures,
     }
@@ -230,18 +208,14 @@ def collect_phase3_coverage(
     stderr_log_path = ""
 
     if coverage_summary_path is None:
-        runtime_preflight_packet = coverage_runtime_preflight_packet(workspace_root)
-        script_name, runtime_coupled_coverage = preferred_coverage_script(
-            workspace_root,
-            runtime_preflight_packet=runtime_preflight_packet,
-        )
+        script_name, runtime_coupled_coverage = preferred_coverage_script(workspace_root)
         node_modules_ready = (workspace_root / "node_modules").exists()
         if script_name and node_modules_ready:
             reports_root = workspace_root / ".phase3-reports" / "coverage"
             execution_env = build_execution_env(workspace_root=workspace_root, run_dir=reports_root)
             stdout_path = reports_root / "coverage.stdout.log"
             stderr_path = reports_root / "coverage.stderr.log"
-            runtime_preflight_packet = runtime_preflight_packet if runtime_coupled_coverage else None
+            runtime_preflight_packet = coverage_runtime_preflight_packet(workspace_root) if runtime_coupled_coverage else None
             runtime_preflight = {"required": False, "ready": True, "started": False}
             if runtime_preflight_packet is not None:
                 runtime_preflight = ensure_backend_runtime_preflight(

@@ -20,21 +20,6 @@ GENERIC_SUBSYSTEM_FIELD_KEYS = {
 }
 
 
-def _safe_description_alias(raw: str) -> str:
-    cleaned = str(raw or "").strip().strip("`")
-    if not cleaned or any(ord(char) > 127 for char in cleaned):
-        return ""
-    if len(cleaned) > 48 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 -]*", cleaned):
-        return ""
-    words = re.findall(r"[A-Za-z0-9]+", cleaned)
-    if not 1 <= len(words) <= 5:
-        return ""
-    lowered = cleaned.lower()
-    if re.search(r"\b(?:primary|supporting)\b.*\bobject\b.*\bfor\b", lowered):
-        return ""
-    return cleaned
-
-
 def _heading_block(text: str, heading: str) -> str:
     pattern = re.compile(
         rf"^###\s+(?:.+\(\s*)?{re.escape(heading)}(?:\s*\).*)?\s*$",
@@ -198,10 +183,10 @@ def extract_object_alias_hints(prd_text: str) -> dict[str, list[str]]:
                 _split_values(
                     " / ".join(
                         [
+                            row.get("description", ""),
                             row.get("alias", ""),
                             row.get("english_name", ""),
                             row.get("technical_name", ""),
-                            _safe_description_alias(row.get("description", "")),
                         ]
                     )
                 )

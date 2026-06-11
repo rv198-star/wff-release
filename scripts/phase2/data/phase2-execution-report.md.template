@@ -1,0 +1,360 @@
+# Phase-2 Execution Report
+
+## 1. Run Metadata
+- case_name:
+  - `__case_name__`
+- input_source_prd:
+  - `__phase1_prd__`
+- run_owner:
+  - `__run_owner__`
+- run_date:
+  - `__run_date__`
+- report_version:
+  - `__version__`
+- delivery_profile:
+  - `__profile__`
+- case_complexity_profile:
+  - `__complexity_profile__`
+- complexity_classifier_reference:
+  - `__complexity_classification_path.name__`
+- complexity_profile_suggested:
+  - `__classification_suggested_profile__`
+- complexity_profile_selection_mode:
+  - `__classification_selection_mode__`
+- complexity_profile_selection_confidence:
+  - `__classification_confidence__`
+- complexity_profile_override_justification:
+  - `__classification_override_reason__`
+- deployment_posture_suggested:
+  - `__deployment_posture.suggested__`
+- deployment_posture_selected:
+  - `__deployment_posture.selected__`
+- deployment_posture_selection_mode:
+  - `__deployment_posture.selection_mode__`
+- deployment_posture_warning_class:
+  - `__deployment_posture.warning_class__`
+- deployment_posture_override_source:
+  - `__deployment_posture.override_source__`
+- deployment_posture_override_reason:
+  - `__deployment_posture.override_reason__`
+- deployment_posture_added_risks:
+  - `__deployment_posture.added_risks__`
+- current_overall_status:
+  - `__formal_state__`
+- rerun_mode:
+  - `rerun`
+- baseline_reference:
+  - `__baseline_reference__`
+- engineering_spec_pack_reference:
+  - `__engineering_spec_pack.name__`
+
+## 1.1 Complexity Classification Basis
+__classification_indicator_lines__
+
+## 1.2 Deployment / Infrastructure Posture Basis
+- design_discipline_policy:
+  - `high-spec design discipline stays fixed; deployment/infrastructure weight scales by need`
+- deployment_posture_summary:
+  - `__P2_EXEC_EXPR_001__`
+
+## 2. Stage Output Inventory
+- stage_01_output:
+  - `__stage_01.name__`
+- stage_02_output:
+  - `__stage_02.name__`
+- stage_02_5_output:
+  - `__optional_stage_file_name__`
+- stage_02_5_expected_from_phase1:
+  - `__P2_EXEC_EXPR_002__`
+- stage_02_5_decision_status:
+  - `__optional_stage_decision_status__`
+- stage_03_output:
+  - `__stage_03.name__`
+- stage_04_output:
+  - `__stage_04.name__`
+- phase_2_execution_report:
+  - `__output.name__`
+- engineering_spec_pack:
+  - `__engineering_spec_pack.name__`
+- phase_3_implementation_entry:
+  - `__implementation_entry.name__`
+- first_pass_audit_report:
+  - `__first_pass_audit_path.name__`
+- architecture_traceability_report:
+  - `__trace_report_text.name__`
+- trace_registry_validation_result:
+  - `__trace_validation.name__`
+- phase1_phase2_coverage_report:
+  - `__phase1_phase2_coverage_path.name__`
+- baseline_lock:
+  - `baseline-lock.json`
+- quality_check_report:
+  - `quality-check-report.json`
+- mermaid_validation_report:
+  - `__mermaid_report_path.name__`
+- cross_stage_consistency_report:
+  - `__cross_stage_report_path.name__`
+
+### 2.1 Fresh First-Pass Audit Snapshot
+- audit_status:
+  - `__first_pass_status__`
+- audit_passed:
+  - `__P2_EXEC_EXPR_003__`
+- audit_interpretation:
+  - __first_pass_summary__
+- audit_issues:
+__first_pass_issues_md__
+
+## 3. Deliverable Judgment Matrix
+
+### 3.1 Mandatory Deliverables
+
+__mandatory_matrix_md__
+
+### 3.2 Triggered Conditional Deliverables
+
+__conditional_matrix_md__
+
+### 3.3 Not-Triggered Conditional Deliverables
+
+__conditional_not_triggered_md__
+
+## 3.4 Checklist Mapping Closure
+
+- checklist_reference:
+  - `docs/phases/phase-2/stage-2-core-business-deliverables-checklist-v0.1.md`
+- mandatory_row_count:
+  - `__P2_EXEC_EXPR_004__`
+- triggered_conditional_row_count:
+  - `__P2_EXEC_EXPR_005__`
+- not_triggered_conditional_row_count:
+  - `__P2_EXEC_EXPR_006__`
+- checklist_rows_expected_for_this_run:
+  - `__P2_EXEC_EXPR_007__`
+- judgment_matrix_row_count_actual:
+  - `__P2_EXEC_EXPR_008__`
+- mapping_status:
+  - `__P2_EXEC_EXPR_009__`
+
+__checklist_mapping_md__
+
+## 4. Baseline Lock Scorecard
+
+__baseline_md__
+
+## 5. Regression Gate Result
+
+__regression_md__
+
+- overall_regression_gate:
+  - `__quality_report.baseline_lock.overall_regression_gate__`
+- regression_gate_reasoning:
+  - compare against the preserved baseline lock; any negative delta requires explicit justification before the run can be treated as a stronger rerun
+
+## 6.1 vs-Baseline Mandatory Diff Table (Legacy Compatibility)
+
+__regression_md__
+
+## 7. Review-Bound Ratio Report
+- total_structured_items:
+  - `__review_bound.total_structured_items__`
+- review_bound_or_unknown_or_deferred_items:
+  - `__review_bound.review_bound_or_unknown_or_deferred_items__`
+- ratio:
+  - `__review_bound.ratio__%`
+- ceiling:
+  - `30%`
+- verdict:
+  - `__review_bound.verdict__`
+- computation_method:
+  - `__review_bound.computation_method__`
+- top_3_resolution_attempts_or_block_reasons:
+  - preserve the highest-impact unresolved items in Stage-04 risk summary and do not silently upgrade them downstream
+
+## 8. Traceability Runtime
+- trace_registry_root:
+  - `__trace_registry_root__`
+- trace_db_path:
+  - `__trace_db_path__`
+- allocation_mode:
+  - `wff-base-traceability-management`
+- canonical_artifacts_bound:
+  - `__canonical_artifact_ids__`
+- zh_audit_mirrors_bound:
+  - `not-bound`
+- coarse_link_chain_registered:
+  - `yes`
+- validation_result:
+  - `__validation_result__`
+- runtime_contract_verdict:
+  - `__trace_runtime_contract_verdict__`
+- runtime_contract_issues:
+__trace_runtime_issues_md__
+- validation_reference:
+  - `__trace_validation.name__`
+- registry_report_reference:
+  - `__trace_report_text.name__`
+
+### 8.1 Fine-Grained Trace Units
+__fine_grained_trace_md__
+
+### 8.2 Phase-1 to Phase-2 Coverage Contract
+- total_phase1_trace_units:
+  - `__P2_EXEC_EXPR_010__`
+- explicit_binding_rows:
+  - `__P2_EXEC_EXPR_011__`
+- inferred_only_rows:
+  - `__P2_EXEC_EXPR_012__`
+- missing_rows:
+  - `__P2_EXEC_EXPR_013__`
+- overall_verdict:
+  - `__P2_EXEC_EXPR_014__`
+- report_reference:
+  - `__phase1_phase2_coverage_path.name__`
+
+__coverage_table_md__
+
+## 9. Stage Summaries
+
+### Stage-01 Summary
+- outcome:
+  - `present and evaluated`
+- strongest_output:
+  - __stage_summaries.stage_01.strongest_output__
+- weakest_output:
+  - __stage_summaries.stage_01.weakest_output__
+- dependency_realizability_scan_status:
+  - `see Stage-01 critical_dependency_realizability_scan`
+- quality_gate_result:
+  - `__stage_summaries.stage_01.quality_gate_result__`
+- progression_judgment:
+  - `carry Stage-01 boundary/decision truth forward without semantic weakening`
+
+### Stage-02 Summary
+- outcome:
+  - `present and evaluated`
+- strongest_output:
+  - __stage_summaries.stage_02.strongest_output__
+- weakest_output:
+  - __stage_summaries.stage_02.weakest_output__
+- event_direct_driver_status:
+  - `active` when `p2_architecture_event_model_driver` is present in Stage-02
+- event_vocabulary_refs:
+  - `stage-02-domain-module-service-decomposition.md#p2_architecture_event_model_driver`
+- event_model_catalog_refs:
+  - `stage-02-domain-module-service-decomposition.md#p2_architecture_event_model_driver`
+- p3_event_handoff_status:
+  - `ready-for-implementation-consumption` when Stage-03 carries `event_model_direct_consumption`
+- review_bound_event_gaps:
+  - see Stage-02 `review_bound_event_gaps`; unresolved event claims remain capped by P3/P4 evidence
+- brownfield_or_ownership_conflict_status:
+  - `see Stage-02 responsibility_matrix and dependency_collaboration_map`
+- quality_gate_result:
+  - `__stage_summaries.stage_02.quality_gate_result__`
+- progression_judgment:
+  - `use Stage-02 ownership and event semantics as the Stage-03 baseline`
+
+### Stage-02.5 Optional Lane Summary
+- outcome:
+  - `__P2_EXEC_EXPR_015__`
+- activation_state:
+  - `__optional_stage_activation_state__`
+- expected_from_phase1:
+  - `__P2_EXEC_EXPR_016__`
+- expectation_reason:
+  - __optional_stage_expected_reason__
+- decision_status:
+  - `__optional_stage_decision_status__`
+- quality_gate_result:
+  - `__optional_stage_quality_display__`
+- progression_judgment:
+  - `__P2_EXEC_EXPR_017__`
+
+### Stage-03 Summary
+- outcome:
+  - `present and evaluated`
+- strongest_output:
+  - __stage_summaries.stage_03.strongest_output__
+- weakest_output:
+  - __stage_summaries.stage_03.weakest_output__
+- substitute_boundary_and_dependency_realizability_status:
+  - `see Stage-03 critical_external_dependency_realizability and substitute_boundary_plan`
+- quality_gate_result:
+  - `__stage_summaries.stage_03.quality_gate_result__`
+- progression_judgment:
+  - `use Stage-03 schema/API/contracts as the implementation-facing L3 baseline`
+
+### Stage-04 Summary
+- outcome:
+  - `present and evaluated`
+- strongest_output:
+  - __stage_summaries.stage_04.strongest_output__
+- weakest_output:
+  - __stage_summaries.stage_04.weakest_output__
+- readiness_calibration_and_review_reentry_status:
+  - `see Stage-04 §4.1 Realizability Review`
+- quality_gate_result:
+  - `__stage_summaries.stage_04.quality_gate_result__`
+- progression_judgment:
+  - `use Stage-04 for realizability calibration, handoff usage rules, and work-package sequencing`
+
+## 9.1 Cross-Stage Consistency Check Result
+
+__P2_EXEC_EXPR_018__
+
+- overall_consistency_verdict:
+  - `__cross_stage_report.overall_consistency_verdict__`
+
+## 9.2 Quality Self-Assessment
+
+| dimension | score (0-10) | evidence | gap_to_9.5 |
+|---|---|---|---|
+| architecture_decision_depth | __architecture_decision_depth_score__ | `architecture_decisions_count=__current_metrics.architecture_decisions_count__, structured_adr_multi_alt_count=__P2_EXEC_EXPR_019__` | strengthen ADR alternatives depth and C4 context if below the active profile gate |
+| domain_decomposition_clarity | __domain_decomposition_clarity_score__ | `domain_count=__current_metrics.domain_count__, domain_event_count=__current_metrics.domain_event_count__` | add state diagrams and richer event detail where missing |
+| specification_completeness | __specification_completeness_score__ | `schema_table_count=__current_metrics.schema_table_count__, api_endpoint_count=__current_metrics.api_endpoint_count__` | close scenario/failure-semantic/storage-summary gaps |
+| visual_representation_quality | __visual_representation_quality_score__ | `diagram counts captured in baseline lock` | reach C4/state/gantt standards consistently |
+| process_governance_rigor | __process_governance_rigor_score__ | `baseline lock + regression rows + computed review-bound ratio` | complete standalone cross-stage and mermaid validation tooling |
+| traceability_integrity | `__traceability_integrity_score__` | `__traceability_integrity_evidence__` | __traceability_integrity_gap__ |
+
+- aggregate_score:
+  - `__P2_EXEC_EXPR_020__`
+- gap_analysis_to_9.5:
+  - __gap_analysis_to_95__
+- top_3_improvement_actions:
+__top_3_improvement_actions__
+
+## 10. Warnings
+__warning_lines__
+
+## 11. Blockers
+- __P2_EXEC_EXPR_021__
+
+## 12. Admission Recommendation
+- recommended_formal_state:
+  - `__formal_state__`
+- stage_04_readiness_alignment:
+  - stage_04_label = `__P2_EXEC_EXPR_022__`
+  - quality_based_label = `__P2_EXEC_EXPR_023__`
+  - final_label = `__P2_EXEC_EXPR_024__`
+  - verdict = `__P2_EXEC_EXPR_025__`
+- reasoning:
+  - quality gates, baseline diff, traceability validation, and Engineering Spec Pack self-containment were evaluated together before recommending intake state
+- closure_adjustment_reasons:
+__P2_EXEC_EXPR_026__
+- implementation_forbidden_assumptions:
+  - downstream must not silently upgrade unresolved review-bound items to confirmed implementation truth
+- unresolved_truth_to_preserve:
+  - preserve all unresolved / review-bound items explicitly stated in the Phase-2 Stage outputs
+
+## 13. Convergence Conclusion
+- design_package_assembled:
+  - `yes`
+- engineering_spec_pack_converged:
+  - `__P2_EXEC_EXPR_027__`
+- realizability_judgment:
+  - `__realizability_judgment__`
+- strongest_supported_readiness_label:
+  - `__formal_state__`
+- next_round_focus:
+__next_round_focus__
+    

@@ -315,11 +315,7 @@ def detect_commercial_decision_domain(text: str) -> bool:
         text,
         r"营销|增长|租户|范围|观察|建议|可见性|竞品|预算|定价|付费|采纳|继续投入|调整|暂停|决策",
     )
-    strong_anchor = has_signal(
-        text,
-        r"roi|attribution|budget|pricing|willingness[- ]to[- ]pay|adoption|sponsor|continue investing|revise|pause|decision grade",
-        r"ROI|归因|预算|定价|付费|采纳|继续投入|调整|暂停|决策",
-    )
+    strong_anchor = has_signal(text, r"geo|seo|roi|attribution|budget|pricing", r"GEO|SEO|ROI|归因|预算|定价")
     return strong_anchor or sum(int(flag) for flag in (growth_signal, commercial_signal, zh_signal)) >= 2
 
 

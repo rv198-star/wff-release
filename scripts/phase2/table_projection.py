@@ -6,7 +6,6 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
-import re
 
 from common.script_data_assets import load_script_json_asset
 from phase2.projection_utils import to_snake, unique_preserve

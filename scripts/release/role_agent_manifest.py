@@ -143,7 +143,7 @@ def validate_role_agent_manifest(
     if role_ids != EXPECTED_ROLE_IDS:
         errors.append(f"role ids must equal {sorted(EXPECTED_ROLE_IDS)}")
     if "wff-guide" in role_ids:
-        errors.append("wff-guide must not be defined; using-wff owns entry guidance")
+        errors.append("wff-guide must not be defined; wff-help owns entry guidance")
 
     programmer = next((role for role in roles if role.get("id") == "wff-programmer"), {})
     forbidden = set(programmer.get("forbidden_overreach", []))

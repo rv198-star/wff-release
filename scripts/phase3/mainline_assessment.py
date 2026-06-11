@@ -10,7 +10,6 @@ from phase3.agentic_repair_interrupt import (
     render_agentic_repair_interrupt_json,
     render_agentic_repair_interrupt_markdown,
 )
-from phase3.claim_ceiling_resolver import build_phase3_claim_ceiling_report
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -98,18 +97,9 @@ def phase3_scope_states(delivery_gate_report: dict[str, Any], checks: dict[str, 
     domain_specific_count = int(checks.get("code_review_domain_specific_target_count", 0) or 0)
     runtime_kernel_count = int(checks.get("code_review_runtime_kernel_backed_target_count", 0) or 0)
     review_bound_depth_count = int(checks.get("code_review_review_bound_depth_target_count", 0) or 0)
-    runtime_kernel_truth_present = (
-        bool(checks.get("backend_interface_signal_present"))
-        and bool(checks.get("backend_interface_gate"))
-        and (
-            bool(checks.get("backend_packet_truth_present"))
-            or bool(checks.get("backend_layered_api_gate"))
-            or bool(checks.get("strict_runtime_backend_gate"))
-        )
-    )
     if domain_specific_count > 0:
         implementation_depth_state = "domain-specific"
-    elif runtime_kernel_count > 0 or runtime_kernel_truth_present:
+    elif runtime_kernel_count > 0:
         implementation_depth_state = "runtime-kernel-backed"
     elif review_bound_depth_count > 0:
         implementation_depth_state = "review-bound"
@@ -162,18 +152,6 @@ def build_phase3_mainline_assessment(*, delivery_gate_report: dict[str, Any]) ->
     effective_recommended_formal_state = str(delivery_gate_report.get("recommended_formal_state", ""))
     if scope_states["artifact_quality_state"] != "pass" and effective_recommended_formal_state == "delivery-ready":
         effective_recommended_formal_state = "artifact-quality-review-bound"
-    claim_ceiling_report = delivery_gate_report.get("claim_ceiling_report")
-    if not isinstance(claim_ceiling_report, dict):
-        claim_ceiling_report = build_phase3_claim_ceiling_report(
-            requested_formal_state=effective_recommended_formal_state,
-            checks=checks,
-            failures=failures,
-            warnings=warnings,
-            scope_states=scope_states,
-        )
-    resolved_claim_state = str(claim_ceiling_report.get("resolved_formal_state") or "").strip()
-    if resolved_claim_state and resolved_claim_state != effective_recommended_formal_state:
-        effective_recommended_formal_state = resolved_claim_state
 
     verification_truth_green = (
         bool(checks.get("unit_test_gate"))
@@ -496,16 +474,6 @@ def build_phase3_mainline_assessment(*, delivery_gate_report: dict[str, Any]) ->
             "status": frontend_status,
             "why": frontend_why,
         },
-        {
-            "key": "claim_ceiling_authoritative",
-            "label": "统一 claim ceiling 已裁决 formal state",
-            "status": "PASS" if not claim_ceiling_report.get("reasons") else "REVIEW-BOUND",
-            "why": (
-                "formal state is not capped by unresolved evidence"
-                if not claim_ceiling_report.get("reasons")
-                else "; ".join(str(row.get("reason")) for row in claim_ceiling_report.get("reasons", [])[:3])
-            ),
-        },
     ]
 
     total_score = round(sum((row["score"] / 5) * row["weight"] for row in dimension_rows), 1)
@@ -539,7 +507,6 @@ def build_phase3_mainline_assessment(*, delivery_gate_report: dict[str, Any]) ->
         "phase_complete": bool(delivery_gate_report.get("phase_complete", False)),
         "implementation_complete": bool(delivery_gate_report.get("implementation_complete", False)),
         "formal_state_consistent": formal_state_consistent,
-        "claim_ceiling_report": claim_ceiling_report,
     }
 
 
@@ -607,13 +574,6 @@ def build_phase3_mainline_assessment_summary(
         "failure_count": int(assessment.get("failure_count", 0) or 0),
         "phase_complete": bool(assessment.get("phase_complete", False)),
         "implementation_complete": bool(assessment.get("implementation_complete", False)),
-        "claim_ceiling_report": assessment.get("claim_ceiling_report", {}),
-        "claim_ceiling": str(
-            (assessment.get("claim_ceiling_report", {}) if isinstance(assessment.get("claim_ceiling_report"), dict) else {}).get(
-                "claim_ceiling",
-                assessment.get("recommended_formal_state", ""),
-            )
-        ).strip(),
         "phase_scorecard_path": str(artifact_paths.get("scorecard_path", "")).strip(),
         "phase_acceptance_matrix_path": str(artifact_paths.get("acceptance_matrix_path", "")).strip(),
         "phase_verdict_path": str(artifact_paths.get("verdict_path", "")).strip(),

@@ -29,7 +29,6 @@ from phase4.phase4_common import (
     dedupe_preserve_order,
     discover_openapi_path,
     ensure_list,
-    extract_phase3_surface_markers_from_file,
     extract_operation_ids_from_file,
     extract_structured_field,
     load_frontend_packets,
@@ -157,7 +156,7 @@ def is_unexecutable_contract_trace_gap(row: dict[str, Any]) -> bool:
         return False
     final_resolution = str(row.get("final_resolution") or "").strip().lower()
     binding_status = str(row.get("binding_status") or "").strip().lower()
-    return final_resolution in {"review", "unresolved"} or binding_status in {"suggested", "review", "unresolved"}
+    return final_resolution == "unresolved" or binding_status in {"suggested", "unresolved"}
 
 
 def functional_item_has_requirement_anchor(item: dict[str, Any]) -> bool:
@@ -599,18 +598,9 @@ def build_source_to_api_ids(worker_packets: list[dict[str, Any]]) -> dict[str, l
     return mapping
 
 
-def select_surface_targets(surface_name: str, packet_targets: list[str], *, phase3_root: Path | None = None) -> list[str]:
+def select_surface_targets(surface_name: str, packet_targets: list[str]) -> list[str]:
     if len(packet_targets) <= 1:
         return packet_targets
-    expected_route = f"/{str(surface_name).strip()}".replace("//", "/")
-    if phase3_root is not None and surface_name.strip():
-        marker_matches: list[str] = []
-        for target in packet_targets:
-            markers = extract_phase3_surface_markers_from_file(phase3_root / target)
-            if expected_route in markers:
-                marker_matches.append(target)
-        if marker_matches:
-            return dedupe_preserve_order(marker_matches)
     surface_token = compact_token(surface_name)
     ordered_matches: list[str] = []
     for target in packet_targets:
@@ -646,7 +636,7 @@ def build_surface_records(
             if len(surface_names) == len(packet_targets) and packet_targets:
                 selected_targets = [packet_targets[surface_index]]
             else:
-                selected_targets = select_surface_targets(surface_name, packet_targets, phase3_root=phase3_root)
+                selected_targets = select_surface_targets(surface_name, packet_targets)
             file_api_ids: list[str] = []
             for target in selected_targets:
                 for operation_id in extract_operation_ids_from_file(phase3_root / target):
@@ -1553,11 +1543,6 @@ def build_phase4_stage1_planning(
         or delivery_gate.get("recommended_formal_state")
         or "unknown"
     )
-    phase3_claim_ceiling_report = (
-        phase3_mainline_summary.get("claim_ceiling_report")
-        if isinstance(phase3_mainline_summary.get("claim_ceiling_report"), dict)
-        else {}
-    )
     contract_registry_approved = delivery_state == "delivery-ready" and str(
         phase3_mainline_summary.get("phase_verdict") or ""
     ).strip() not in {"BLOCKED", "RETURN-REMEDIATE"}
@@ -1728,11 +1713,6 @@ def build_phase4_stage1_planning(
         "phase3_mainline_verdict": str(phase3_mainline_summary.get("phase_verdict") or ""),
         "phase3_mainline_total_score": phase3_mainline_summary.get("phase_total_score"),
         "phase3_delivery_state": delivery_state,
-        "phase3_claim_ceiling_report": phase3_claim_ceiling_report,
-        "phase3_claim_ceiling_resolved_formal_state": str(
-            phase3_mainline_summary.get("claim_ceiling_resolved_formal_state") or "unknown"
-        ),
-        "phase3_claim_ceiling_blocks_ready": bool(phase3_mainline_summary.get("claim_ceiling_blocks_ready")),
         "trace_mapping_complete": trace_mapping_complete,
         "functional_api_mapping_complete": functional_api_mapping_complete,
         "functional_req_mapping_complete": functional_req_mapping_complete,

@@ -102,16 +102,6 @@ function deepClone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function encodeQueryValue(value: unknown): string {
-  if (typeof value === 'string') {
-    return value;
-  }
-  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
-    return String(value);
-  }
-  return JSON.stringify(value);
-}
-
 function baseDatabaseUrl(): string {
   const hostPort = process.env.POSTGRES_HOST_PORT || '55432';
   const connectionString = process.env.PHASE3_BASE_DATABASE_URL || process.env.DATABASE_URL || `postgresql://postgres:postgres@127.0.0.1:${hostPort}/app`;
@@ -828,10 +818,13 @@ function applyPayloadToHttpRequest(spec: Record<string, unknown>, payload: Recor
   if (Object.keys(authContext).length > 0) {
     headers.authorization = `Bearer ${issueAuthToken(authContext)}`;
   }
+  if (typeof payload.force_error_code === 'string' && payload.force_error_code) {
+    headers['x-phase3-force-error-code'] = String(payload.force_error_code);
+  }
   if (method === 'GET' || method === 'HEAD') {
     for (const [key, value] of Object.entries(requestBody)) {
       if (value !== undefined && value !== null && value !== '') {
-        url.searchParams.set(key, encodeQueryValue(value));
+        url.searchParams.set(key, String(value));
       }
     }
     return { url: url.toString(), init: { method, headers } };

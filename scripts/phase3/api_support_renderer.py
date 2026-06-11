@@ -173,15 +173,6 @@ def render_runtime_test_kit(
     )
 
 
-def _route_specificity_key(route: dict[str, Any]) -> tuple[int, int, int, str, int]:
-    path = str(route.get("path") or "").strip()
-    segments = [segment for segment in path.split("/") if segment]
-    dynamic_count = sum(1 for segment in segments if segment.startswith("{") and segment.endswith("}"))
-    static_count = len(segments) - dynamic_count
-    ordinal = int(route.get("_ordinal", 0) or 0)
-    return (-static_count, dynamic_count, -len(segments), path, ordinal)
-
-
 def render_generated_api_router(
     *,
     operations_by_tag: dict[str, list[dict[str, str]]],
@@ -197,8 +188,6 @@ def render_generated_api_router(
     ]
     binding_index = index_compiled_bindings_by_endpoint(compiled_bindings)
     route_rows: list[str] = []
-    route_entries: list[dict[str, Any]] = []
-    ordinal = 0
     for module_slug, grouped_operations in operations_by_tag.items():
         controller_class = f"{camel_case(module_slug)}Controller"
         import_lines.append(f'import {{ {controller_class} }} from "./modules/{module_slug}/{module_slug}.controller.js";')
@@ -227,38 +216,21 @@ def render_generated_api_router(
                     if str(row.get("failure_codes") or "").strip()
                 }
             )
-            route_entries.append(
-                {
-                    "_ordinal": ordinal,
-                    "operation_id": operation_id,
-                    "method": str(operation["method"]).upper(),
-                    "path": str(operation["path"]),
-                    "success_status": success_status,
-                    "binding_sources": binding_sources,
-                    "binding_modes": binding_modes,
-                    "rbac_policies": rbac_policies,
-                    "failure_semantics": failure_semantics,
-                    "controller_class": controller_class,
-                    "method_name": lower_camel(operation_id),
-                }
+            route_rows.extend(
+                [
+                    "  {",
+                    f'    operationId: "{operation_id}",',
+                    f'    method: "{str(operation["method"]).upper()}",',
+                    f'    pathTemplate: "{operation["path"]}",',
+                    f"    successStatus: {success_status},",
+                    f"    bindingSources: {json.dumps(binding_sources, ensure_ascii=False)},",
+                    f"    bindingModes: {json.dumps(binding_modes, ensure_ascii=False)},",
+                    f"    rbacPolicies: {json.dumps(rbac_policies, ensure_ascii=False)},",
+                    f"    failureSemantics: {json.dumps(failure_semantics, ensure_ascii=False)},",
+                    f"    handler: (payload) => new {controller_class}().{lower_camel(operation_id)}(payload),",
+                    "  },",
+                ]
             )
-            ordinal += 1
-    for route in sorted(route_entries, key=_route_specificity_key):
-        route_rows.extend(
-            [
-                "  {",
-                f'    operationId: "{route["operation_id"]}",',
-                f'    method: "{route["method"]}",',
-                f'    pathTemplate: "{route["path"]}",',
-                f"    successStatus: {route['success_status']},",
-                f"    bindingSources: {json.dumps(route['binding_sources'], ensure_ascii=False)},",
-                f"    bindingModes: {json.dumps(route['binding_modes'], ensure_ascii=False)},",
-                f"    rbacPolicies: {json.dumps(route['rbac_policies'], ensure_ascii=False)},",
-                f"    failureSemantics: {json.dumps(route['failure_semantics'], ensure_ascii=False)},",
-                f"    handler: (payload) => new {route['controller_class']}().{route['method_name']}(payload),",
-                "  },",
-            ]
-        )
     route_rows_text = "\n".join(route_rows)
     return (
         load_api_support_template("api-generated-router.ts.template")

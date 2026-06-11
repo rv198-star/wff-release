@@ -26,7 +26,6 @@ from pathlib import Path
 
 from phase1.phase1_source_text_normalization import normalize_source_handoff_phrases
 from phase1.phase1_generation_kernel import (
-    build_source_semantic_profile,
     compact_signal_line,
     is_generic_flow_container_title,
     normalize_signal_candidate,
@@ -34,7 +33,6 @@ from phase1.phase1_generation_kernel import (
     signal_intent_match,
     signal_priority_score,
     source_fact_text,
-    title_case_token,
 )
 
 from common.output_language import resolve_output_locale
@@ -573,13 +571,14 @@ def normalized_match_key(value: str) -> str:
 
 
 ROLE_LIKE_SURFACE_PATTERN = re.compile(
-    r"owner|manager|operator|assistant|reviewer|lead|director|"
-    r"负责人|经理|主管|运营|评审者",
+    r"owner|manager|operator|receptionist|veterinarian|assistant|reviewer|lead|director|"
+    r"负责人|经理|主管|运营|医生|前台|评审者|院长|店长",
     flags=re.IGNORECASE,
 )
 OBJECT_LIKE_SURFACE_PATTERN = re.compile(
-    r"record|task|scope|workspace|run|summary|ledger|order|report|audit|profile|state|"
-    r"记录|任务|范围|对象|档案|报告|状态",
+    r"record|task|scope|workspace|run|summary|ledger|order|report|finding|recommendation|"
+    r"visit|treatment|followup|baseline|audit|profile|state|"
+    r"记录|任务|范围|对象|档案|账单|病历|报告|状态|复诊|检查|治疗",
     flags=re.IGNORECASE,
 )
 
@@ -1030,7 +1029,7 @@ def extract_core_business_objects_from_brief(source_text: str, stage_02b_text: s
     normalized: list[dict[str, str]] = []
     seen: set[str] = set()
     for row in rows:
-        name = table_row_value(row, "object", "entity", "name", "core_object")
+        name = row.get("object") or row.get("entity") or row.get("name") or row.get("core_object") or ""
         if not name:
             continue
         match_key = normalized_match_key(name)
@@ -1038,32 +1037,10 @@ def extract_core_business_objects_from_brief(source_text: str, stage_02b_text: s
         normalized.append(
             {
                 "object": name,
-                "description": table_row_value(row, "description", "responsibility", "purpose"),
-                "module": table_row_value(row, "module", "owner_module", "owning_module", "owner", "owner_module"),
+                "description": row.get("description") or row.get("responsibility") or row.get("purpose") or "",
+                "module": row.get("module") or row.get("owner_module") or row.get("owning_module") or row.get("owner") or "",
             }
         )
-    module_matrix_block = extract_markdown_section(
-        source_text,
-        ["Module Responsibility Matrix", "Information Architecture Spec Matrix", "Module Matrix"],
-        level_pattern=r"##",
-    )
-    module_matrix_rows = parse_markdown_table(module_matrix_block) + extract_stage_module_matrix_rows(stage_02b_text)
-    for row in module_matrix_rows:
-        module_name = table_row_value(row, "module", "module_name", "screen_module", "workflow_step")
-        responsibility = table_row_value(row, "responsibility", "description")
-        for object_name in re.split(r"\s*(?:,|，|/|、|;|；|\+)\s*", table_row_value(row, "core_objects", "objects", "core_business_objects")):
-            object_name = object_name.strip(" `")
-            match_key = normalized_match_key(object_name)
-            if not object_name or match_key in seen or looks_like_placeholder(object_name):
-                continue
-            seen.add(match_key)
-            normalized.append(
-                {
-                    "object": object_name,
-                    "description": responsibility or f"source-defined object used by `{module_name}`",
-                    "module": module_name,
-                }
-            )
     for row in extract_stage_object_workflow_rows(stage_02b_text):
         workflow_step = table_row_value(row, "workflow_step", "process_name", "module")
         downstream_effect = table_row_value(row, "downstream_effect", "effect", "why_it_matters")
@@ -1205,8 +1182,34 @@ def extract_structured_source_items(source_text: str, headings: list[str]) -> li
     return list(dict.fromkeys(items))
 
 
-def source_semantic_profile_id(source_text: str, runtime_context: dict[str, object]) -> str:
-    return "source_semantic_profile"
+def detect_domain_style(source_text: str, runtime_context: dict[str, object]) -> str:
+    pack = runtime_context.get("domain_baseline_pack", {})
+    if isinstance(pack, dict) and pack.get("domain") == "pet_clinic":
+        return "pet_clinic"
+    fact_source_text = source_fact_text(source_text)
+    evidence_text = " ".join(
+        [
+            fact_source_text,
+            str(runtime_context.get("executive_summary", "")),
+            str(runtime_context.get("problem_statement", "")),
+            str(runtime_context.get("workflow_backbone", "")),
+            str(runtime_context.get("object_chain", "")),
+            " ".join(str(item) for item in runtime_context.get("target_user_roles", [])),
+        ]
+    ).casefold()
+    growth_signal = re.search(
+        r"\bgeo\b|ai 搜索|ai 回答|ai 可见性|tracked scope|finding|recommendation|seo|归因|roi|conversion|"
+        r"prompt-probing|citation-likelihood",
+        evidence_text,
+    )
+    visibility_growth_signal = re.search(
+        r"\b(?:ai|geo|search|answer|citation|prompt-probing|seo)\b.{0,100}\bvisibility\b|"
+        r"\bvisibility\b.{0,100}\b(?:ai|geo|search|answer|citation|prompt-probing|seo)\b",
+        evidence_text,
+    )
+    if growth_signal or visibility_growth_signal:
+        return "growth_observation"
+    return "generic"
 
 
 def summarize_structured_items(items: list[str], fallback: str) -> str:
@@ -1305,70 +1308,18 @@ def business_loop_plain_surface(runtime_context: dict[str, object], limit: int =
     )
 
 
-def runtime_source_semantic_profile(
-    runtime_context: dict[str, object],
-    source_text: str = "",
-) -> dict[str, object]:
-    existing = runtime_context.get("source_semantic_profile", {})
-    if isinstance(existing, dict) and existing:
-        return existing
-    roles = [{"Role": str(role)} for role in runtime_context.get("target_user_roles", []) if str(role).strip()]
-    module_hint = module_names(runtime_context, 1)[0] if module_names(runtime_context, 1) else generic_workflow_label(runtime_context)
-    if source_text:
-        return build_source_semantic_profile(source_text, module_name=module_hint, roles=roles)
-    flow_steps = canonical_operational_flow_steps(runtime_context)[:5]
-    objects = core_object_names(runtime_context, 5)
-    evidence = [
-        str(item).strip()
-        for item in [
-            runtime_context.get("problem_statement", ""),
-            runtime_context.get("workflow_backbone", ""),
-            *flow_steps,
-            *runtime_context.get("business_value_signals", [])[:3],
-            *runtime_context.get("non_functional_requirements", [])[:3],
-        ]
-        if str(item).strip()
-    ]
-    return {
-        "profile_id": "source-semantic-profile.v1",
-        "domain_profile": "source-grounded-operating-loop",
-        "module_name": module_hint or "source-defined capability",
-        "primary_actor": str(runtime_context.get("primary_segment", "")).strip() or (roles[0]["Role"] if roles else "primary operator"),
-        "role_names": [row["Role"] for row in roles],
-        "core_objects": objects or ["business record"],
-        "flow_steps": flow_steps,
-        "source_evidence": dedupe_runtime_phrases(evidence)[:8],
-        "constraints": list(runtime_context.get("non_functional_requirements", []))[:4],
-        "outcomes": list(runtime_context.get("business_value_signals", []))[:4],
-        "claim_ceiling": "source-grounded semantic projection only; not external validation",
-    }
-
-
-def semantic_profile_list(profile: dict[str, object], key: str, fallback: list[str]) -> list[str]:
-    values = [str(item).strip() for item in profile.get(key, []) if str(item).strip()]
-    return values or fallback
-
-
-def semantic_profile_phrase(
-    runtime_context: dict[str, object],
-    source_text: str = "",
-    *,
-    key: str,
-    fallback: str,
-    limit: int = 3,
-) -> str:
-    profile = runtime_source_semantic_profile(runtime_context, source_text)
-    values = semantic_profile_list(profile, key, [fallback])[:limit]
-    return plain_label_surface(values, fallback, limit=limit)
-
-
 def compact_business_loop_reader_item(item: str) -> str:
     text = clean_runtime_label_item(item)
     replacements = [
-        (r"记录(?:或)?确认\s+(.+?)\s+context", r"确认 \1 context"),
-        (r"执行\s+(.+?)\s+并更新状态", r"执行 \1 并更新状态"),
-        (r"查看\s+(.+?)\s+summary\s+与\s+(.+)", r"查看 \1 summary 与 \2"),
-        (r"选择高优先级\s+(.+?)[，,]\s*转成\s+(.+)", r"转成 \2"),
+        (r"配置或更新\s+tracked scope", "配置 tracked scope"),
+        (r"触发一次\s+baseline\s+生成", "生成 baseline"),
+        (r"查看\s+baseline summary\s+与\s+findings", "查看 findings"),
+        (r"选择高优先级\s+finding[，,]\s*转成\s+recommendation/任务", "转成 recommendation/任务"),
+        (r"内容运营执行\s+任务\s+并更新状态", "执行任务并更新状态"),
+        (r"记录接诊信息并确认\s+visit context", "确认 visit context"),
+        (r"医生查看病例并下达治疗计划", "生成治疗计划"),
+        (r"执行治疗并记录结果", "记录治疗结果"),
+        (r"离院确认和复诊安排", "安排离院/复诊"),
     ]
     for pattern, replacement in replacements:
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
@@ -1411,65 +1362,84 @@ def reader_facing_chain_phrase(value: object, *, fallback: str = "素材定义�
 
 
 def build_scope_promise_line(source_text: str, runtime_context: dict[str, object]) -> str:
-    profile = runtime_source_semantic_profile(runtime_context, source_text)
-    loop = business_loop_reader_surface(runtime_context, limit=5)
-    objects = semantic_profile_list(profile, "core_objects", core_object_names(runtime_context, 3) or ["核心业务对象"])
-    constraint = semantic_profile_phrase(
-        runtime_context,
-        source_text,
-        key="constraints",
-        fallback="source-defined constraints",
-        limit=2,
-    )
-    return (
-        f"首版承诺的是围绕 {loop} 的可执行、可追踪、可审计、可复盘闭环；核心对象包括 "
-        f"{plain_label_surface(objects[:3], '核心业务对象', limit=3)}。不承诺超出源素材和 {constraint} 之外的自动化扩展、外部验证或生产级结论；"
-        "所有未验证真相仍以待评审确认（review-bound）方式显式保留。"
-    )
+    style = detect_domain_style(source_text, runtime_context)
+    if style == "growth_observation":
+        return "首版承诺的是“可观测 + 可解释 + 可执行 + 可复盘”的业务闭环，不承诺全自动优化执行与高精度财务级归因；所有未验证真相仍以待评审确认（review-bound）方式显式保留。"
+    if style == "pet_clinic":
+        return "首版承诺的是可执行、可追踪、可审计、可复盘的就诊运营闭环，不承诺未验证的自动化经营扩展；所有未验证真相仍以待评审确认（review-bound）方式显式保留。"
+    return "首版承诺的是可执行、可解释、可追踪、可复盘的业务闭环，不承诺未验证的自动化扩展或高级经营分析；所有未验证真相仍以待评审确认（review-bound）方式显式保留。"
 
 
 def build_problem_chain_line(source_text: str, runtime_context: dict[str, object]) -> str:
-    profile = runtime_source_semantic_profile(runtime_context, source_text)
+    style = detect_domain_style(source_text, runtime_context)
     business_loop = business_loop_reader_surface(runtime_context, limit=5)
-    objects = semantic_profile_phrase(runtime_context, source_text, key="core_objects", fallback="核心业务对象链", limit=3)
-    outcome = semantic_profile_phrase(runtime_context, source_text, key="outcomes", fallback="可评审业务结果", limit=2)
-    return (
-        f"团队当前缺的是一条把 {business_loop} 放进同一条可执行主线的完整闭环。没有这条主线，"
-        f"{objects} 会在环节之间失去连续状态、owner、blocked reason 和下一步动作，{outcome} 也会重新回到人工解释。"
-    )
+    if style == "growth_observation":
+        return f"团队当前缺的是一条把 {business_loop} 放进同一经营主线的完整闭环。没有这条主线，信号无法变成行动，行动无法变成复盘，投入无法变成可解释决策。"
+    if style == "pet_clinic":
+        return f"团队当前缺的是一条把 {business_loop} 放进同一服务主线的完整闭环。没有这条主线，接诊上下文会在关键环节丢失，治疗执行、离院确认和复诊安排会重新回到人工补录与口头交接。"
+    return f"团队当前缺的是一条把 {business_loop} 放进同一经营主线的完整闭环。没有这条主线，关键业务上下文会在环节之间丢失，后续执行与复盘会重新回到人工拼接。"
 
 
 def build_problem_boundary_line(source_text: str, runtime_context: dict[str, object]) -> str:
+    style = detect_domain_style(source_text, runtime_context)
     business_loop = business_loop_reader_surface(runtime_context, limit=5)
-    objects = semantic_profile_phrase(runtime_context, source_text, key="core_objects", fallback="核心业务对象", limit=3)
-    return f"必须把 {business_loop} 组织成围绕 {objects} 的可重复执行闭环，而不是只输出一次性记录、局部页面或审计形状。"
+    if style == "growth_observation":
+        return f"必须把 {business_loop} 组织成可重复经营闭环，而不是只输出一次性洞察。"
+    if style == "pet_clinic":
+        return f"必须把 {business_loop} 组织成可重复执行的就诊服务闭环，而不是只留下零散记录或单点页面。"
+    return f"必须把 {business_loop} 组织成可重复执行的业务闭环，而不是只输出一次性记录或局部页面。"
 
 
 def build_review_bound_summary(source_text: str, runtime_context: dict[str, object]) -> str:
+    style = detect_domain_style(source_text, runtime_context)
     primary_segment = str(runtime_context.get("primary_segment", "")).strip() or "primary segment"
-    evidence = semantic_profile_phrase(runtime_context, source_text, key="source_evidence", fallback="source-defined evidence", limit=3)
-    return f"首发主边界收敛到 {primary_segment}、{evidence} 的证据充分性、采纳摩擦、指标稳定性、范围接受度和后续扩展需求。"
+    if style == "growth_observation":
+        return f"首发客群收敛到 {primary_segment}、付费意愿强度、recommendation trust、指标稳定性、粗粒度归因接受度。"
+    if style == "pet_clinic":
+        return f"首发主边界收敛到 {primary_segment}、真实门店采纳摩擦、指标稳定性、范围接受度和更深经营分析需求。"
+    return f"首发主边界收敛到 {primary_segment}、采纳摩擦、指标稳定性、范围接受度和后续扩展需求。"
 
 
 def render_problem_signal_lines(source_text: str, runtime_context: dict[str, object]) -> list[str]:
+    style = detect_domain_style(source_text, runtime_context)
     roles = list(runtime_context.get("target_user_roles", []))[:3]
     role_text = "、".join(roles) if roles else "核心角色"
     problem_items = extract_structured_source_items(source_text, ["Structured Problem List", "结构化问题清单"])
     opportunity_items = extract_structured_source_items(source_text, ["Structured Opportunity List", "结构化机会清单"])
-    profile = runtime_source_semantic_profile(runtime_context, source_text)
-    objects = semantic_profile_phrase(runtime_context, source_text, key="core_objects", fallback="核心业务对象", limit=3)
-    evidence = semantic_profile_phrase(runtime_context, source_text, key="source_evidence", fallback="source facts", limit=3)
-    constraints = semantic_profile_phrase(runtime_context, source_text, key="constraints", fallback="source-defined constraints", limit=2)
     lines = [
         f"- top_problem_clusters: {summarize_structured_items(problem_items, 'source-defined business problems still need explicit recompilation')}",
         f"- top_opportunity_clusters: {summarize_structured_items(opportunity_items, 'source-defined business opportunities still need explicit recompilation')}",
-        f"- operating visibility note: 当前域的核心压力来自 {objects}、状态推进、证据和 review/closure 的连续可见。",
-        f"- source evidence note: 当前语义投射来自 {evidence}；脚本只装配该证据，不把熟悉案例分支当作业务真相。",
-        f"- gap question: 当前围绕 {business_loop_reader_surface(runtime_context, limit=5)} 的业务主线，哪些环节仍会让 {objects}、blocked reason 或 next action 在 handoff 中丢失。",
-        f"- current visibility position question: 当前记录链路是否能让 {role_text} 看到同一条 {objects} 推进链。",
-        f"- partial_tool_gap_question: 单点工具可以数字化某一步，但不能持续保留 {constraints}、端到端上下文和复盘连续性。",
-        f"- business_change_question: 如果 {objects}、状态推进和复盘被组织成同一条闭环，团队的日常执行和判断会如何变化",
     ]
+    if style == "growth_observation":
+        lines.extend(
+            [
+                "- AI visibility note: 当前域的核心压力来自 AI 可见性、证据可解释性和 recommendation/action 闭环，而不是传统页面流量本身。",
+                f"- gap question: 当前围绕 {business_loop_reader_surface(runtime_context, limit=5)} 的经营主线，哪些环节仍会让 evidence、priority 或 action 在 handoff 中失真。",
+                f"- current visibility position question: 当前可见性位置是否能让 {role_text} 看到同一条 tracked scope、finding、recommendation 与 review 主线。",
+                "- partial_tool_gap_question: 单点 SEO/reporting/prompt-probing 工具可以展示 observation，但不能持续保留 recommendation、action 和 review 的主线连续性。",
+                "- business_change_question: 如果 scope、finding、recommendation 和 review 被组织成同一条经营链，团队的预算判断、内容优先级和复盘质量会如何变化",
+            ]
+        )
+    elif style == "pet_clinic":
+        lines.extend(
+            [
+                "- operating visibility note: 当前域的核心压力来自接诊上下文、治疗执行和离院复诊闭环的连续可见，而不是单点页面存在与否。",
+                f"- gap question: 当前围绕 {business_loop_reader_surface(runtime_context, limit=5)} 的服务主线，哪些环节仍会让 visit context、blocked reason 或 next action 在 handoff 中丢失。",
+                f"- current visibility position question: 当前记录链路是否能让 {role_text} 看到同一条接诊、治疗与离院/复诊主线。",
+                "- partial_tool_gap_question: 单点 registration、billing 或 note-taking 工具可以数字化某一步，但不能持续保留医生接手所需的上下文、治疗证据和闭环连续性。",
+                "- business_change_question: 如果接诊、治疗、离院和复诊被组织成同一条服务链，门店执行质量、异常处理和复盘判断会如何变化",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "- operating visibility note: 当前域的核心压力来自核心业务对象、状态推进和 review/closure 的连续可见。",
+                f"- gap question: 当前围绕 {business_loop_reader_surface(runtime_context, limit=5)} 的业务主线，哪些环节仍会让上下文、blocked reason 或 next action 在 handoff 中丢失。",
+                f"- current visibility position question: 当前记录链路是否能让 {role_text} 看到同一条业务对象推进链。",
+                "- partial_tool_gap_question: 单点工具可以数字化某一步，但不能持续保留端到端上下文和复盘连续性。",
+                "- business_change_question: 如果核心业务对象、状态推进和复盘被组织成同一条闭环，团队的日常执行和判断会如何变化",
+            ]
+        )
     return lines
 
 
@@ -1574,70 +1544,101 @@ def generic_workflow_label(runtime_context: dict[str, object]) -> str:
 
 
 def detect_domain_baseline_pack(runtime_context: dict[str, object]) -> dict[str, object]:
-    profile = runtime_source_semantic_profile(runtime_context)
-    objects = semantic_profile_list(profile, "core_objects", core_object_names(runtime_context, 4) or ["source-defined business record"])
-    flow_steps = semantic_profile_list(profile, "flow_steps", canonical_operational_flow_steps(runtime_context)[:4] or module_names(runtime_context, 4) or ["source-defined workflow step"])
-    roles = semantic_profile_list(profile, "role_names", list(runtime_context.get("target_user_roles", [])) or ["primary operator"])
-    constraints = semantic_profile_list(profile, "constraints", list(runtime_context.get("non_functional_requirements", [])) or ["source-defined boundary conditions"])
-    object_phrase = plain_label_surface(objects[:3], "source-defined business record", limit=3)
-    first_step = flow_steps[0]
-    last_step = flow_steps[-1]
-    primary_role = roles[0]
-    downstream_role = roles[1] if len(roles) > 1 else primary_role
-    constraint_phrase = plain_label_surface(constraints[:2], "source-defined boundary conditions", limit=2)
-    return {
-        "domain": "source_semantic_profile",
-        "overview_lines": [
-            f"ordinary_real_world_baseline: 首波流程应证明 {object_phrase} 能从 {first_step} 推进到 {last_step}，而不是停在薄登记、薄记录或报告壳。",
-            f"real_world_constraint: {constraint_phrase} 必须跟随 {object_phrase} 的状态推进保持可见，缺失时只能 blocked/review-bound。",
-            f"coordination_density: {primary_role} 到 {downstream_role} 的 handoff 必须保留 owner、state、blocked reason、next action 和 evidence context。",
-        ],
-        "topic_lines": {},
-        "acceptance_rows": [
-            [
-                "AC-RW-01",
-                "anchor",
-                "EP-01",
-                "Primary User Story",
-                f"Given `{object_phrase}` is missing required entry evidence or owner context",
-                f"When `{primary_role}` attempts to advance `{first_step}`",
-                "Then the system keeps the record blocked and exposes the missing evidence explicitly",
-                f"{object_phrase} cannot advance as an empty or audit-shaped shell",
-                "missing_required_input",
-                f"{first_step} must not hide missing source-defined evidence, owner, or state",
-                "Flow 1",
+    evidence_text = " ".join(
+        [
+            str(runtime_context.get("executive_summary", "")),
+            str(runtime_context.get("problem_statement", "")),
+            str(runtime_context.get("workflow_backbone", "")),
+            str(runtime_context.get("object_chain", "")),
+            " ".join(module_names(runtime_context, 12)),
+            " ".join(core_object_names(runtime_context, 12)),
+            " ".join(str(item) for item in runtime_context.get("target_user_roles", [])),
+        ]
+    ).casefold()
+    if re.search(
+        r"pet|clinic|veterinar|诊所|宠物|就诊|治疗|复诊|discharge|follow-up|medication|x-ray|diagnosis",
+        evidence_text,
+    ):
+        return {
+            "domain": "pet_clinic",
+            "overview_lines": [
+                "ordinary_real_world_baseline: 首波诊所流程应覆盖接诊证据、可供医生接手的就诊上下文、治疗执行证据，以及离院加复诊闭环，而不是停在很薄的登记 demo。",
+                "real_world_constraint: 普通诊所通常需要 owner identity、pet identity、prior record / vaccine context、weight、temperature 和 urgent/triage signal，医生交接才算安全。",
+                "coordination_density: 前台、医生和离院 / 管理角色需要共享同一份 visit record，并看到同一个 blocked reason、next action 和 follow-up timing。",
             ],
-            [
-                "AC-RW-02",
-                "supporting",
-                "EP-02",
-                "Use Case 2",
-                f"Given `{object_phrase}` is handed from `{primary_role}` to `{downstream_role}`",
-                "When output, blocked reason, or next action is incomplete",
-                "Then the system prevents the handoff-ready state until the missing execution truth is recorded",
-                f"{object_phrase} remains executable rather than collapsing into a note-only record",
-                "handoff_contract_integrity",
-                f"{object_phrase} must not move forward if handoff evidence or blocked reason is missing",
-                "Flow 2",
+            "topic_lines": {
+                "intake": [
+                    "ordinary_real_world_baseline: 接诊通常需要先记录 owner identity、pet identity、visit reason、prior medical / vaccine context 和 urgent/triage flag，然后才能交给医生。",
+                    "real_world_constraint: 前台通常要记录 weight、temperature、photo 或其他 identity evidence，并完成必需的 consent / document checks，visit 才能继续。",
+                    "coordination_density: receptionist 交给 veterinarian 的应是 checked-in visit、current vitals 和 missing-document flags，而不是口头重新拼装的上下文。",
+                ],
+                "care": [
+                    "ordinary_real_world_baseline: 问诊和治疗通常需要 exam findings、必要时的 lab / x-ray 等 diagnostic orders、treatment items，以及已执行用药 / 操作证据。",
+                    "real_world_constraint: 当 diagnostics、equipment 或 clinician time 不可用时，工作流必须保留 estimate / approval notes、treatment evidence 和 blocked reasons。",
+                    "coordination_density: veterinarian 和执行人员必须在 billing 或 discharge 前看到同一份 treatment order、completion status 和 next action。",
+                ],
+                "closure": [
+                    "ordinary_real_world_baseline: 离院闭环通常包括 invoice / payment confirmation、medication 与 home-care instructions、warning signs，以及已安排的 recheck / follow-up。",
+                    "real_world_constraint: 如果 payment、take-home meds、discharge instructions 或 follow-up timing 仍不完整，discharge 必须保持 blocked。",
+                    "coordination_density: clinic manager 或前台只能在 clinician handoff、discharge packet 和 review-ready audit trail 保持一致后关闭 visit。",
+                ],
+            },
+            "acceptance_rows": [
+                [
+                    "AC-RW-01",
+                    "anchor",
+                    "EP-01",
+                    "Primary User Story",
+                    "Given a pet arrives without completed identity evidence, weight, temperature, or prior-record context where applicable",
+                    "When the receptionist attempts to hand the visit to the veterinarian",
+                    "Then the system keeps the visit blocked and exposes the missing intake evidence explicitly",
+                    "Clinic intake cannot advance as a thin registration shell without the minimum real-world visit context",
+                    "missing_required_input",
+                    "intake handoff must not hide missing vitals, records, consent, or urgent/triage context",
+                    "Flow 1",
+                ],
+                [
+                    "AC-RW-02",
+                    "supporting",
+                    "EP-02",
+                    "Use Case 2",
+                    "Given diagnostics, medication, or treatment work is ordered during the visit",
+                    "When treatment evidence, estimate approval, or blocked reason is still incomplete",
+                    "Then the system prevents discharge-ready or billing-ready handoff until the missing execution truth is recorded",
+                    "Treatment and diagnostics remain executable rather than collapsing into a note-only demo record",
+                    "handoff_contract_integrity",
+                    "the visit must not move forward if treatment evidence, diagnostic result, or blocked reason is missing",
+                    "Flow 2",
+                ],
+                [
+                    "AC-RW-03",
+                    "anchor",
+                    "EP-03",
+                    "Use Case 3",
+                    "Given a visit is being closed after treatment",
+                    "When discharge instructions, take-home medication notes, payment confirmation, or follow-up timing is incomplete",
+                    "Then the system keeps the visit out of closed state and records the outstanding closure requirement",
+                    "Pet-clinic closure remains reviewable and safe instead of ending at a paid-but-undischarged pseudo-finish",
+                    "payment_closure",
+                    "closure must not complete before discharge packet and follow-up contract are present",
+                    "Flow 3",
+                ],
             ],
-            [
-                "AC-RW-03",
-                "anchor",
-                "EP-03",
-                "Use Case 3",
-                f"Given `{object_phrase}` is being closed after `{last_step}`",
-                "When final confirmation, audit context, or review evidence is incomplete",
-                "Then the system keeps the record out of closed state and records the outstanding closure requirement",
-                f"{object_phrase} closure remains reviewable instead of ending at a pseudo-finish",
-                "closure_confirmation",
-                "closure must not complete before the source-defined closure evidence is present",
-                "Flow 3",
-            ],
-        ],
-    }
+        }
+    return {"domain": "generic", "overview_lines": [], "topic_lines": {}, "acceptance_rows": []}
 
 
 def domain_baseline_topic_for_title(runtime_context: dict[str, object], title: str) -> str:
+    pack = runtime_context.get("domain_baseline_pack", {})
+    if not isinstance(pack, dict) or pack.get("domain") != "pet_clinic":
+        return "overview"
+    lowered = title.casefold()
+    if re.search(r"接诊|登记|intake|register|check-?in|arrival", lowered):
+        return "intake"
+    if re.search(r"检查|治疗|consult|exam|diagnos|care|treatment|procedure", lowered):
+        return "care"
+    if re.search(r"复诊|离院|出院|billing|invoice|closure|discharge|follow-?up|review", lowered):
+        return "closure"
     return "overview"
 
 
@@ -2390,78 +2391,14 @@ def clean_operational_flow_step_text(raw_step: object) -> str:
     return cleaned
 
 
-def cleaned_source_flow_steps(flow: dict[str, object]) -> list[str]:
-    steps: list[str] = []
-    seen: set[str] = set()
-    for step in flow.get("steps", []):
-        cleaned = clean_operational_flow_step_text(step)
-        if not cleaned:
-            continue
-        key = normalized_match_key(cleaned)
-        if key in seen:
-            continue
-        seen.add(key)
-        steps.append(cleaned)
-    return steps
-
-
-def select_end_to_end_source_flow_steps(source_flows: list[dict[str, object]]) -> list[str]:
-    flow_records: list[tuple[int, list[str], set[str]]] = []
-    for idx, flow in enumerate(source_flows):
-        steps = cleaned_source_flow_steps(flow)
-        keys = {normalized_match_key(step) for step in steps if normalized_match_key(step)}
-        if steps and keys:
-            flow_records.append((idx, steps, keys))
-    if len(flow_records) < 2:
-        return []
-
-    for _idx, steps, keys in sorted(flow_records, key=lambda item: len(item[1]), reverse=True):
-        if len(steps) < 4:
-            continue
-        other_groups = [other_keys for _other_idx, _other_steps, other_keys in flow_records if other_keys is not keys]
-        if not other_groups:
-            continue
-        if all(
-            other_keys.issubset(keys)
-            or (len(keys & other_keys) / max(len(other_keys), 1)) >= 0.8
-            for other_keys in other_groups
-        ):
-            return steps
-    return []
-
-
 def canonical_operational_flow_steps(runtime_context: dict[str, object]) -> list[str]:
     steps: list[str] = []
     seen: set[str] = set()
-    ia_rows = [row for row in runtime_context.get("ia_matrix", []) if isinstance(row, dict)]
-    source_flows = [flow for flow in runtime_context.get("source_flows", []) if isinstance(flow, dict)]
-    module_contract_steps: list[str] = []
-    if len(ia_rows) >= 2 and len(source_flows) >= 2:
-        for row in ia_rows:
-            module = re.sub(r"\s+", " ", str(row.get("module", ""))).strip()
-            responsibility = re.sub(r"\s+", " ", str(row.get("responsibility", ""))).strip()
-            input_name = re.sub(r"\s+", " ", str(row.get("input", "") or row.get("entry_condition", ""))).strip()
-            output_name = re.sub(r"\s+", " ", str(row.get("output", "") or row.get("exit_action", ""))).strip()
-            if not module or looks_like_placeholder(module):
-                continue
-            if responsibility and not looks_like_placeholder(responsibility):
-                candidate = f"{module}: {responsibility}"
-            elif input_name or output_name:
-                candidate = f"{module}: {input_name or 'source-defined input'} -> {output_name or 'source-defined output'}"
-            else:
-                candidate = module
-            key = normalized_match_key(candidate)
-            if key in seen:
-                continue
-            seen.add(key)
-            module_contract_steps.append(candidate)
-        source_primary_steps = select_end_to_end_source_flow_steps(source_flows)
-        if source_primary_steps and len(source_primary_steps) > len(module_contract_steps):
-            return source_primary_steps
-        if module_contract_steps:
-            return module_contract_steps
-    for flow in source_flows:
-        for cleaned in cleaned_source_flow_steps(flow):
+    for flow in runtime_context.get("source_flows", []):
+        if not isinstance(flow, dict):
+            continue
+        for step in flow.get("steps", []):
+            cleaned = clean_operational_flow_step_text(step)
             if not cleaned:
                 continue
             key = normalized_match_key(cleaned)
@@ -2707,14 +2644,28 @@ def phase1_trace_dependency_artifact_ids(
 
 
 def build_phase1_prd_context_surfaces(source_text: str, runtime_context: dict[str, object]) -> Phase1PrdContextSurfaces:
-    style = source_semantic_profile_id(source_text, runtime_context)
-    profile = runtime_source_semantic_profile(runtime_context, source_text)
-    objects = semantic_profile_phrase(runtime_context, source_text, key="core_objects", fallback="核心业务对象", limit=3)
-    evidence = semantic_profile_phrase(runtime_context, source_text, key="source_evidence", fallback="source facts", limit=3)
-    flow = business_loop_reader_surface(runtime_context, limit=5)
-    why_now_line = f"当前 source 描述的业务仍依赖分散流程，{objects}、状态推进、证据和结果复盘没有被统一组织，因此需要围绕 {flow} 重新定义产品结构。"
-    context_pressure_note = f"如果今天仍把 {evidence} 分散在离线记录、截图、讨论串或单点工具里，团队会持续丢失 {objects} 的经营上下文。"
-    architecture_guidance_line = "- issue signal -> next-step action compatibility note: any abstract guidance layer must remain subordinate to source-grounded object state, operator action, trace evidence, and review closure."
+    style = detect_domain_style(source_text, runtime_context)
+    why_now_line = (
+        "当前 source 描述的业务仍依赖分散的 scope、evidence、recommendation 与 review 协作，经营闭环没有被统一组织，因此需要围绕真实 GEO 周期重新定义产品结构。"
+        if style == "growth_observation"
+        else "当前 source 描述的业务仍依赖线下或分散流程，核心记录、状态推进和结算闭环没有被统一组织，因此需要围绕真实业务流重新定义产品结构。"
+        if style == "pet_clinic"
+        else "当前 source 描述的业务仍依赖分散流程，核心记录、状态推进和结果复盘没有被统一组织，因此需要围绕真实业务流重新定义产品结构。"
+    )
+    context_pressure_note = (
+        "如果今天仍把 tracked scope、baseline、finding、recommendation 和 review 分散在线下表格、截图和讨论串里，团队会持续丢失 GEO 经营上下文。"
+        if style == "growth_observation"
+        else "如果今天仍沿用纸质/Excel/分散台账，团队会在关键环节持续丢失上下文。"
+        if style == "pet_clinic"
+        else "如果今天仍沿用分散记录与人工补位，团队会在关键环节持续丢失上下文。"
+    )
+    architecture_guidance_line = (
+        "- issue signal -> next-step action compatibility note: any abstract guidance layer must remain subordinate to real GEO evidence, operator action, and review closure."
+        if style == "growth_observation"
+        else "- issue signal -> next-step action compatibility note: any abstract guidance layer must remain subordinate to real clinic object states."
+        if style == "pet_clinic"
+        else "- issue signal -> next-step action compatibility note: any abstract guidance layer must remain subordinate to real business object states."
+    )
     truth_model = runtime_context.get("business_world_model", {}) if isinstance(runtime_context.get("business_world_model"), dict) else {}
     truth_alternatives = truth_model.get("primary_alternative_set", {}) if isinstance(truth_model, dict) else {}
     return Phase1PrdContextSurfaces(
@@ -3267,10 +3218,15 @@ def render_product_reasoning_digest_lines(
     source_text: str,
     runtime_context: dict[str, object],
 ) -> list[str]:
+    style = detect_domain_style(source_text, runtime_context)
     mainline = business_loop_reader_surface(runtime_context, limit=5)
     primary_segment = str(runtime_context.get("primary_segment", "")).strip() or "primary operator"
-    objects = semantic_profile_phrase(runtime_context, source_text, key="core_objects", fallback="核心业务对象", limit=3)
-    consequence = f"否则 {objects} 会重新回到人工拼接上下文和事后解释。"
+    if style == "growth_observation":
+        consequence = "否则产品会退回到报告查看和人工解释，无法支撑下一轮投入判断。"
+    elif style == "pet_clinic":
+        consequence = "否则门店会重新依赖人工补录、口头交接和事后追踪。"
+    else:
+        consequence = "否则业务会重新回到人工拼接上下文和事后解释。"
     return [
         "### Product Reasoning Digest",
         f"- 首发入口先围绕 {primary_segment}，因为主线必须从一个可执行入口开始。",
@@ -3522,7 +3478,7 @@ def render_phase1_requirements_structure_lines(runtime_context: dict[str, object
         "",
         "### Business Process Decomposition",
         "| activity | primary actor | trigger | preconditions | system behavior | outputs | postconditions |",
-        render_flow_process_table(list(runtime_context["source_flows"]), runtime_context=runtime_context),
+        render_flow_process_table(list(runtime_context["source_flows"])),
         "",
         *render_flow_step_deepening_lines(runtime_context),
         "",
@@ -3832,7 +3788,14 @@ def render_key_path_blocks(runtime_context: dict[str, object]) -> list[str]:
 def render_design_requirements_extraction(runtime_context: dict[str, object]) -> str:
     roles = list(runtime_context.get("target_user_roles", []))
     ia_rows = list(runtime_context.get("ia_matrix", []))
-    supporting_context = "handoff into the next responsible module with source evidence intact"
+    style = detect_domain_style("", runtime_context)
+    supporting_context = (
+        "handoff into execution or the next module"
+        if style == "growth_observation"
+        else "handoff into consultation or next module"
+        if style == "pet_clinic"
+        else "handoff into the next module"
+    )
     def required_outcome(index: int, fallback: str) -> str:
         if index < len(ia_rows):
             output_name = str(ia_rows[index].get("output", "")).strip()
@@ -3920,12 +3883,11 @@ def render_process_identification_table(runtime_context: dict[str, object]) -> s
     ia_rows = list(runtime_context.get("ia_matrix", []))
     rows = []
     for row in ia_rows:
-        actor = str(row.get("primary_actor", "")).strip() or str(runtime_context.get("primary_segment", "primary role"))
         rows.append(
             [
                 "main flow",
                 row["module"],
-                actor,
+                runtime_context.get("primary_segment", "primary role"),
                 row["input"] or "source-defined trigger",
                 row["output"] or "source-defined output",
                 row["responsibility"] or "module responsibility from source",
@@ -4196,11 +4158,19 @@ def render_scope_boundary_lines(runtime_context: dict[str, object]) -> list[str]
 
 
 def render_slice_lists(runtime_context: dict[str, object]) -> list[str]:
-    profile = runtime_source_semantic_profile(runtime_context)
-    objects = semantic_profile_list(profile, "core_objects", core_object_names(runtime_context, 2) or ["source-defined business record"])
-    flow_steps = semantic_profile_list(profile, "flow_steps", canonical_operational_flow_steps(runtime_context)[:3] or ["entry", "execution", "closure"])
-    minimum_loop = f"a single {plain_label_surface(objects[:2], 'source-defined business record', limit=2)} can move through {plain_label_surface(flow_steps[:3], 'entry to closure', limit=3)} without manual reconstruction"
-    later_slices = "broader role surfaces, richer review analytics, integrations, and automation layers"
+    style = detect_domain_style("", runtime_context)
+    minimum_loop = (
+        "a single GEO cycle can move from scope and baseline through finding, action, and review without manual reconstruction"
+        if style == "growth_observation"
+        else "a single visit can move from intake to discharge/follow-up readiness without manual reconstruction"
+        if style == "pet_clinic"
+        else "a single source-defined business record can move from entry to closure without manual reconstruction"
+    )
+    later_slices = (
+        "broader role surfaces, richer review analytics, and optimization layers"
+        if style == "growth_observation"
+        else "richer visibility, broader admin tooling, optimization surfaces"
+    )
     return [
         "- chosen_slice_strategy: workflow-loop-first",
         "- why_this_slice_not_that: it protects the shortest complete source-defined workflow",
@@ -4305,52 +4275,65 @@ def render_transition_rules(runtime_context: dict[str, object]) -> list[str]:
 
 
 def render_payload_contract_table(runtime_context: dict[str, object]) -> str:
-    profile = runtime_source_semantic_profile(runtime_context)
-    objects = semantic_profile_list(profile, "core_objects", core_object_names(runtime_context, 4) or ["business record"])
-    flow_steps = semantic_profile_list(profile, "flow_steps", canonical_operational_flow_steps(runtime_context)[:4] or ["source-defined workflow"])
-    constraints = semantic_profile_list(profile, "constraints", list(runtime_context.get("non_functional_requirements", [])) or ["source-defined boundary"])
-    object_ids = [f"{re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')}_id" for name in objects[:4]]
-    primary_object = objects[0] if objects else "business record"
+    style = detect_domain_style("", runtime_context)
+    if style == "growth_observation":
+        return markdown_table(
+            ["payload element", "source capability detail preserved", "first-wave representation", "task/export implication", "certainty / note"],
+            [
+                ["AI-friendly score and quality diagnosis", "AI 友好度评分（0-100） / 内容质量诊断", "`ai_friendliness_score` + `quality_diagnosis_summary` + `score_explanation`", "影响 priority、是否进入 task bridge、review 预期", "score rubric 首版仍属 review-bound"],
+                ["Structured rewrite suggestion", "结构化改写建议", "`rewrite_goal` + `rewrite_outline` + `before_after_hint`", "形成可执行编辑动作，而不只是“建议优化”", "不直接自动改写发布"],
+                ["Keyword / question focus", "关键词优化建议 + 问答焦点", "`target_question` + `keyword_focus` + `coverage_gap`", "决定任务目标问题、FAQ 切入点和资产优先级", "必须绑定 Tracked Scope 与 Content Asset"],
+                ["Citation-likelihood hypothesis", "引用概率预测", "`citation_likelihood_band` + `citation_reason` + `confidence_state`", "影响 recommendation priority 与 review 预期，不可当作 guaranteed outcome", "首版仅做 hypothesis，不做承诺"],
+                ["FAQ / Q&A suggestion", "AI 回答模板生成 + 问答对自动生成", "`faq_question` + `faq_answer_outline` + `suggested_format`", "可导出为 FAQ/task 子类型，而不是消失在通用建议里", "FAQ auto-generation 仍非 fully automatic publish"],
+                ["Export-ready task payload", "保存草稿 / 创建任务 / 一键应用优化 的执行核", "`target_asset_id` + `priority` + `owner_hint` + `due_cycle` + `blocked_reason`", "recommendation 才能一跳转成 task/export record", "“一键应用”仅保留为人工确认后的 action"],
+            ],
+        )
+
+    object_ids = [f"{re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')}_id" for name in core_object_names(runtime_context, 4)]
     return markdown_table(
         ["payload element", "source capability detail preserved", "first-wave representation", "task/export implication", "certainty / note"],
         [
-            [f"{primary_object} identity", "object identity", " / ".join(object_ids) if object_ids else "business_record_id", "downstream work stays traceable to the source object", "source-grounded"],
-            ["workflow_state", plain_label_surface(flow_steps[:3], "source-defined workflow", limit=3), "current_state + next_valid_state + transition_reason", "supports rejected transitions instead of input echo", "source-grounded"],
+            ["target_asset_id", "object identity", " / ".join(object_ids) if object_ids else "business_record_id", "downstream task export stays traceable", "source-grounded"],
+            ["priority", "workflow urgency", "source-defined priority level", "supports queue ordering", "review-bound calibration"],
             ["owner_hint", "responsible role", "primary role / supporting role / governance role", "supports handoff", "source-grounded"],
-            ["blocked_reason", plain_label_surface(constraints[:2], "failure or exception path", limit=2), "missing input / invalid state / dependency unavailable / permission boundary", "preserves recovery path", "source-grounded"],
-            ["semantic_evidence_ref", "source excerpt and trace obligation", "source_ref + trace_id + evidence_state", "prevents write-only semantic evidence markers", "review-bound until confirmed"],
-            ["extension_context", "source-defined deferred seam only", "future seam field", "reserved for later integrations without claiming completion", "deferred seam"],
+            ["blocked_reason", "failure or exception path", "missing input / invalid state / dependency unavailable / permission boundary", "preserves recovery path", "source-grounded"],
+            ["extension_context", "extension seam only", "future seam field", "reserved for later integrations", "deferred seam"],
         ],
     )
 
 
 def payload_contract_heading(runtime_context: dict[str, object]) -> str:
-    primary_object = semantic_profile_list(runtime_source_semantic_profile(runtime_context), "core_objects", ["Module"])[0]
-    return f"{primary_object} Interface Payload Contract"
+    return (
+        "Recommendation Payload Contract"
+        if detect_domain_style("", runtime_context) == "growth_observation"
+        else "Module Interface Payload Contract"
+    )
 
 
 def deferred_seam_heading(runtime_context: dict[str, object]) -> str:
-    return "Source-Defined Deferred Capability Seam"
+    return (
+        "Deferred Attribution and Conversion Seam"
+        if detect_domain_style("", runtime_context) == "growth_observation"
+        else "Deferred Capability Seam"
+    )
 
 
 def render_deferred_seam_table(runtime_context: dict[str, object]) -> str:
-    out_of_scope = [str(item).strip() for item in runtime_context.get("out_of_scope_items", []) if str(item).strip()]
-    future_items = out_of_scope[:4] or ["source-defined deferred capability"]
-    rows: list[list[str]] = []
-    for item in future_items:
-        slug = re.sub(r"[^a-z0-9]+", "_", item.lower()).strip("_") or "source_defined_deferred_capability"
-        rows.append(
+    if detect_domain_style("", runtime_context) == "growth_observation":
+        return markdown_table(
+            ["future concern", "first-wave treatment now", "future seam entity/interface", "minimum reserved fields or hook", "why deferred now"],
             [
-                item,
-                "keep outside MVP commitment but visible in seam ledger",
-                title_case_token(slug),
-                f"`{slug}_status` + `{slug}_owner` + `{slug}_evidence_state`",
-                "not enough source or validation evidence to claim completion now",
-            ]
+                ["AI traffic source tagging", "baseline/review 仅记录 platform / query cluster / source note", "Attribution Signal", "`source_tag` + `platform` + `query_cluster` + `landing_asset_ref`", "首版不做全链路埋点"],
+                ["Funnel progression", "report 仅保留方向性 outcome note", "Funnel Stage Snapshot", "`funnel_stage` + `stage_timestamp` + `related_scope_id`", "缺少稳定业务数据接入"],
+                ["Conversion event linkage", "允许人工记录 conversion note", "Conversion Event", "`conversion_event_id` + `event_type` + `amount_band` + `evidence_source`", "精确财务归因证据不足"],
+                ["Cross-device identity", "不做 identity stitching", "Identity Resolution Link", "`visitor_link_key` + `device_class` + `confidence_state`", "MVP 不承担跨设备识别复杂度"],
+                ["ROI rollup", "review 仅保留 coarse attribution hypothesis", "Attribution Rollup", "`attributed_range` + `assumption_note` + `confidence_state`", "不能在 MVP 假装财务级证明已成立"],
+            ],
         )
+
     return markdown_table(
         ["future concern", "first-wave treatment now", "future seam entity/interface", "minimum reserved fields or hook", "why deferred now"],
-        rows,
+        [["source-defined deferred capability", "keep outside MVP commitment but visible in seam ledger", "Source Defined Deferred Capability Seam", "`source_defined_deferred_capability_status` + `source_defined_deferred_capability_owner` + `source_defined_deferred_capability_notes`", "explicitly deferred in source scope boundary"]],
     )
 
 
@@ -4395,13 +4378,6 @@ def render_validation_artifact_threshold_table() -> str:
 def flow_step_owner_surface(runtime_context: dict[str, object], step_text: object) -> str:
     step = str(step_text or "").strip()
     lowered = step.casefold()
-    for row in runtime_context.get("ia_matrix", []):
-        if not isinstance(row, dict):
-            continue
-        module = str(row.get("module", "")).strip()
-        actor = str(row.get("primary_actor", "")).strip()
-        if module and actor and normalized_match_key(module) in normalized_match_key(step):
-            return actor
     roles = [str(role).strip() for role in runtime_context.get("target_user_roles", []) if str(role).strip()]
     for role in roles:
         role_label = role.split("（", 1)[0].split("(", 1)[0].strip()
@@ -4453,8 +4429,14 @@ def render_flow_step_deepening_lines(runtime_context: dict[str, object]) -> list
 
 def render_module_detail_lines(runtime_context: dict[str, object]) -> list[str]:
     lines: list[str] = []
-    constraints = semantic_profile_list(runtime_source_semantic_profile(runtime_context), "constraints", list(runtime_context.get("non_functional_requirements", [])) or ["source-defined account boundary"])
-    boundary_note = plain_label_surface(constraints[:2], "source-defined account boundary", limit=2)
+    style = detect_domain_style("", runtime_context)
+    boundary_note = (
+        "tenant boundary"
+        if style == "growth_observation"
+        else "clinic account boundary"
+        if style == "pet_clinic"
+        else "source-defined account boundary"
+    )
     for row in runtime_context.get("ia_matrix", []):
         payload_description = build_interface_payload_description(row)
         lines.extend(
@@ -4467,7 +4449,13 @@ def render_module_detail_lines(runtime_context: dict[str, object]) -> list[str]:
                 f"- interface_payloads: what: {payload_description}",
             ]
         )
-    lines.append("- value honesty: source-defined closure, financial, safety, or operational signals must not overstate proof beyond current evidence.")
+    if style == "pet_clinic":
+        lines.extend(
+            [
+                "- clinic-private boundary: visit, treatment, follow-up, and review records remain clinic-private inside the clinic account boundary by default.",
+                "- value honesty: billing, estimate, and operational closure signals must not overstate exact financial proof in MVP.",
+            ]
+        )
     return lines
 
 
@@ -4529,6 +4517,7 @@ def render_validation_target_lines(source_text: str, runtime_context: dict[str, 
         else {}
     )
     proof_track = str(business_proof_track.get("proof_track", "")).strip() if isinstance(business_proof_track, dict) else ""
+    style = detect_domain_style(source_text, runtime_context)
     if proof_track == "economic-decision-proof":
         targets = [
             ("target_1", "business proof target clarity"),
@@ -4545,17 +4534,29 @@ def render_validation_target_lines(source_text: str, runtime_context: dict[str, 
             ("target_4", "audit and closure record proof"),
             ("target_5", "user task/process friction reduction"),
         ]
-    else:
-        profile = runtime_source_semantic_profile(runtime_context, source_text)
-        flow_steps = semantic_profile_list(profile, "flow_steps", canonical_operational_flow_steps(runtime_context)[:4] or ["entry flow", "handoff", "closure"])
-        objects = semantic_profile_list(profile, "core_objects", core_object_names(runtime_context, 3) or ["business record"])
-        constraints = semantic_profile_list(profile, "constraints", list(runtime_context.get("non_functional_requirements", [])) or ["boundary and audit"])
+    elif style == "growth_observation":
         targets = [
-            ("target_1", f"{flow_steps[0]} clarity"),
-            ("target_2", f"{plain_label_surface(objects[:2], 'business record', limit=2)} handoff clarity"),
-            ("target_3", f"{flow_steps[-1]} closure and audit clarity"),
+            ("target_1", "tracked scope initialization clarity"),
+            ("target_2", "finding and recommendation readability"),
+            ("target_3", "recommendation-to-task bridge clarity"),
+            ("target_4", "review decision clarity"),
+            ("target_5", "boundary and audit clarity"),
+        ]
+    elif style == "pet_clinic":
+        targets = [
+            ("target_1", "intake entry clarity"),
+            ("target_2", "treatment handoff clarity"),
+            ("target_3", "billing and discharge closure"),
             ("target_4", "transition guard completeness"),
-            ("target_5", f"{plain_label_surface(constraints[:2], 'scope ledger', limit=2)} visibility"),
+            ("target_5", "scope ledger clarity"),
+        ]
+    else:
+        targets = [
+            ("target_1", "entry flow clarity"),
+            ("target_2", "mainline handoff clarity"),
+            ("target_3", "closure and audit clarity"),
+            ("target_4", "transition guard completeness"),
+            ("target_5", "scope ledger clarity"),
         ]
     rows = [
         [
@@ -4607,37 +4608,60 @@ def plain_truth_text(value: str) -> str:
 
 READER_FACING_TERM_GLOSSARY = {
     "actionability rationale": "可行动性理由",
-    "active workspace": "活跃工作区",
-    "arrival request": "到达请求",
+    "active tenant workspace": "活跃租户工作区",
+    "arrival request": "到诊请求",
     "audit context": "审计上下文",
     "audit policy": "审计策略",
     "audit-ready context": "审计就绪上下文",
     "baseline collection": "基线采集",
     "baseline snapshot": "基线快照",
     "blocked reason": "阻断原因",
-    "checked-in record": "已登记记录",
+    "brand targets": "品牌目标",
+    "checked-in visit": "已登记就诊",
+    "clinician-ready intake context": "医生接手所需的接诊上下文",
     "collection window": "采集窗口",
+    "competitor set": "竞品集合",
     "cycle conclusion": "周期结论",
     "cycle evidence": "周期证据",
+    "diagnostic result": "诊断结果",
+    "discharge closure": "离院闭环",
+    "discharge confirmation": "离院确认",
+    "discharge context": "离院上下文",
     "evidence link": "证据链接",
     "evidence links": "证据链接",
     "evidence set": "证据集合",
+    "exam notes": "检查记录",
     "execution status": "执行状态",
     "explainable evidence": "可解释证据",
-    "follow-up need": "后续动作需求",
-    "follow-up plan": "后续动作计划",
+    "finding": "发现项",
+    "finding deltas": "发现项变化",
+    "follow-up need": "复诊需求",
+    "follow-up plan": "复诊计划",
     "freshness status": "新鲜度状态",
-    "intake handoff context": "入口交接上下文",
+    "intake handoff context": "接诊交接上下文",
     "member roles": "成员角色",
+    "monitored scope context": "监控范围上下文",
+    "monitored topic set": "监控主题集合",
     "next action": "下一步动作",
     "owner details": "负责人/所有者信息",
     "owner hint": "负责人提示",
+    "pet record": "宠物记录",
+    "pet profile": "宠物档案",
     "prior record": "既往记录",
+    "prioritized findings": "已排序发现项",
+    "prompt scope definition": "提示词范围定义",
+    "prompt set": "提示词集合",
+    "recommendation-ready findings": "可转建议的发现项",
     "review summary": "评审摘要",
     "role boundary": "角色边界",
     "scope boundary": "范围边界",
-    "workspace identity": "工作区身份",
-    "versioned scope": "带版本的范围",
+    "symptoms": "症状",
+    "tenant identity": "租户身份",
+    "treatment execution": "治疗执行",
+    "treatment record": "治疗记录",
+    "treatment result": "治疗结果",
+    "versioned tracked scope": "带版本的追踪范围",
+    "visit reason": "就诊原因",
 }
 
 
@@ -4717,6 +4741,22 @@ def reader_facing_digest_action_phrase(value: str) -> str:
     if not text or is_machine_or_code_surface(text):
         return text
     action_patterns: tuple[tuple[re.Pattern[str], str], ...] = (
+        (
+            re.compile(r"^register the arriving pet and preserve clinician-ready intake context$", re.IGNORECASE),
+            "登记到诊宠物，并保留医生接手所需的接诊上下文",
+        ),
+        (
+            re.compile(r"^record diagnosis,\s*treatment execution,\s*and the next clinical action$", re.IGNORECASE),
+            "记录诊断、治疗执行和下一步临床动作",
+        ),
+        (
+            re.compile(r"^arrange follow-up,\s*discharge closure,\s*and review-ready clinic summary$", re.IGNORECASE),
+            "安排复诊、完成离院闭环，并形成评审就绪的诊所摘要",
+        ),
+        (
+            re.compile(r"^arrange follow-up,\s*discharge closure,\s*and .+clinic summary$", re.IGNORECASE),
+            "安排复诊、完成离院闭环，并形成评审就绪的诊所摘要",
+        ),
         (
             re.compile(r"^establish (.+?) for (.+)$", re.IGNORECASE),
             "建立 {0}，用于 {1}",
@@ -5267,7 +5307,7 @@ def reader_facing_truth_is_spliced(raw_value: str, cleaned_value: str | None = N
         return True
     if len(text) > 160 and re.search(
         r"workflow-first|dashboard|source-grounded|grounded in|TenantWorkspace,\s*TrackedScope|"
-        r"decision-ready\s+\w+|"
+        r"VisitRecord,\s*TreatmentRecord|decision-ready\s+\w+|"
         r"系统通过把|作为产品主论点，并把|而不是把\s+如果|的问题不是只慢一点|"
         r"不必再在分散记录之间重建上下文",
         combined,
@@ -6670,16 +6710,23 @@ def render_loop_business_scenario_lines(
 
 
 def render_reasoning_units(source_text: str, runtime_context: dict[str, object]) -> list[str]:
+    style = detect_domain_style(source_text, runtime_context)
     problem_items = extract_structured_source_items(source_text, ["Structured Problem List", "结构化问题清单"])
-    problem_statement = summarize_structured_items(problem_items, str(runtime_context.get("problem_statement", "")).strip())
-    profile = runtime_source_semantic_profile(runtime_context, source_text)
-    objects = semantic_profile_phrase(runtime_context, source_text, key="core_objects", fallback="核心业务对象", limit=3)
-    evidence = semantic_profile_phrase(runtime_context, source_text, key="source_evidence", fallback="source facts", limit=3)
-    constraints = semantic_profile_phrase(runtime_context, source_text, key="constraints", fallback="source-defined constraints", limit=2)
-    problem_mechanism = f"{objects} 的状态、owner、证据与下一步动作若不能沿显式主链推进，业务执行会重新回到人工拼接。"
-    decision_effect = f"recompile the source into one operating chain grounded in {evidence} rather than isolated pages or audit-shaped records"
-    out_of_scope = [str(item).strip() for item in runtime_context.get("out_of_scope_items", []) if str(item).strip()]
-    remaining_unknown = plain_label_surface(out_of_scope[:3], f"{constraints} still need later validation", limit=3)
+    if style == "growth_observation":
+        problem_statement = summarize_structured_items(problem_items, str(runtime_context.get("problem_statement", "")).strip())
+        problem_mechanism = "scope、baseline、finding、recommendation 与 review 若不能被组织成一条显式链路，GEO 只会停留在报告层。"
+        decision_effect = "recompile the brief into one GEO operating chain rather than isolated observation or reporting pages"
+        remaining_unknown = "commercial packaging、recommendation trust、metric stability 和 attribution acceptance still need later validation"
+    elif style == "pet_clinic":
+        problem_statement = summarize_structured_items(problem_items, str(runtime_context.get("problem_statement", "")).strip())
+        problem_mechanism = "接诊上下文、治疗执行和离院复诊若不能沿一条显式链路推进，门店会重新回到人工补录和口头交接。"
+        decision_effect = "recompile the brief into one clinic service loop rather than isolated registration or record pages"
+        remaining_unknown = "richer analytics, integrations, and broader admin tooling still need later validation"
+    else:
+        problem_statement = summarize_structured_items(problem_items, str(runtime_context.get("problem_statement", "")).strip())
+        problem_mechanism = "状态与对象连续性若不能沿显式主链推进，业务执行会重新回到人工拼接。"
+        decision_effect = "recompile the brief into a single operating chain rather than isolated pages"
+        remaining_unknown = "richer analytics, integrations, and broader admin tooling still need later validation"
     return [
         "### Reasoning Unit 1: Primary Boundary Lock",
         f"- chosen segment: `{runtime_context['primary_segment']}`",
@@ -6735,8 +6782,14 @@ def render_phase1_reasoning_evidence_appendix_lines(source_text: str, runtime_co
 
 def sanitize_assembled_text(text: str, runtime_context: dict[str, object]) -> str:
     primary_segment = str(runtime_context.get("primary_segment", "")).strip() or "primary operator"
-    profile = runtime_source_semantic_profile(runtime_context)
-    domain_posture = str(profile.get("domain_profile") or "source-grounded-operating-loop")
+    style = detect_domain_style("", runtime_context)
+    domain_posture = (
+        "growth-observation"
+        if style == "growth_observation"
+        else "operational-service"
+        if style == "pet_clinic"
+        else "generic-workflow"
+    )
     replacement_pairs = [
         ("current-状态 snapshot", "业务状态快照"),
         ("action recommendation", "建议动作"),
@@ -6790,34 +6843,9 @@ def sanitize_assembled_text(text: str, runtime_context: dict[str, object]) -> st
     )
 
 
-def render_flow_process_table(
-    flows: list[dict[str, object]],
-    *,
-    runtime_context: dict[str, object] | None = None,
-) -> str:
+def render_flow_process_table(flows: list[dict[str, object]]) -> str:
     rows: list[list[str]] = []
-    context_rows = [
-        row for row in (runtime_context or {}).get("ia_matrix", []) if isinstance(row, dict)
-    ]
-    if context_rows:
-        for row in context_rows:
-            module = str(row.get("module", "")).strip() or "business flow"
-            actor = str(row.get("primary_actor", "")).strip() or "source-defined primary actor"
-            trigger = str(row.get("input", "") or row.get("entry_condition", "")).strip() or "source-defined trigger"
-            output = str(row.get("output", "") or row.get("exit_action", "")).strip() or "flow outcome"
-            responsibility = str(row.get("responsibility", "")).strip() or "progress the business record through the defined flow steps"
-            rows.append(
-                [
-                    "main flow",
-                    module,
-                    actor,
-                    trigger,
-                    responsibility,
-                    output,
-                    "flow state becomes reviewable for the next business action",
-                ]
-            )
-    for flow in [] if rows else flows:
+    for flow in flows:
         steps: list[str] = []
         for raw_step in flow.get("steps", []):
             cleaned = clean_operational_flow_step_text(raw_step)
@@ -6850,7 +6878,7 @@ def render_flow_process_table(
         [
             "activity_type",
             "activity",
-            "primary_actor",
+            "trigger",
             "preconditions",
             "system_behavior",
             "outputs",
@@ -6864,7 +6892,7 @@ def build_phase1_ia_acceptance_rows(
     ia_rows: list[dict[str, object]],
     *,
     flow_count: int,
-    style: str = "source_semantic_profile",
+    style: str,
 ) -> list[list[str]]:
     rows: list[list[str]] = []
     for idx, row in enumerate(ia_rows[:8], start=1):
@@ -6873,6 +6901,23 @@ def build_phase1_ia_acceptance_rows(
         inputs = row.get("input") or "required business inputs"
         output = row.get("output") or "business output"
         core_objects = row.get("core_objects") or module
+        if style == "growth_observation" and re.search(r"recommendation|task|任务", str(module), flags=re.IGNORECASE):
+            rows.append(
+                [
+                    "AC-05",
+                    "anchor",
+                    "EP-02",
+                    "Use Case 2",
+                    "Given a recommendation is marked for execution",
+                    "When task creation is requested",
+                    "Then AI-friendly score, quality diagnosis, structured rewrite, keyword/question focus, and target asset reference are all present",
+                    "A typed recommendation payload can be exported without missing execution-semantic fields",
+                    "invalid_payload",
+                    "task creation fails if execution-semantic fields are incomplete",
+                    bounded_flow_ref(6, flow_count),
+                ]
+            )
+            continue
         boundary_type = (
             "missing_required_input" if idx == 1 else
             "invalid_state_transition" if idx == 2 else
@@ -7049,30 +7094,25 @@ def build_phase1_loop_target_acceptance_rows(
     return rows
 
 
-def build_phase1_semantic_acceptance_extension_rows(
+def build_phase1_growth_acceptance_extension_rows(
     *,
-    runtime_context: dict[str, object],
     flow_count: int,
+    style: str,
 ) -> list[list[str]]:
-    profile = runtime_source_semantic_profile(runtime_context)
-    objects = semantic_profile_list(profile, "core_objects", core_object_names(runtime_context, 2) or ["business record"])
-    flow_steps = semantic_profile_list(profile, "flow_steps", canonical_operational_flow_steps(runtime_context)[:3] or ["source-defined workflow"])
-    out_of_scope = [str(item).strip() for item in runtime_context.get("out_of_scope_items", []) if str(item).strip()]
-    object_phrase = plain_label_surface(objects[:2], "business record", limit=2)
-    flow_phrase = plain_label_surface(flow_steps[:3], "source-defined workflow", limit=3)
-    deferred_phrase = plain_label_surface(out_of_scope[:2], "source-defined deferred capability", limit=2)
+    if style != "growth_observation":
+        return []
     return [
         [
             "AC-13",
             "supporting",
             "EP-03",
             "Use Case 4",
-            f"Given `{object_phrase}` is serialized for downstream execution",
-            "When execution semantics are handed off to the next module",
-            "Then source object identity, state, owner, blocked reason, and evidence reference remain preserved",
-            f"Downstream intake can still distinguish execution-ready from clarification-needed {object_phrase}",
+            "Given a recommendation export is produced",
+            "When execution semantics are serialized for task intake",
+            "Then citation-likelihood hypothesis, FAQ suggestion, and blocked reason remain preserved where applicable",
+            "Downstream task intake can still distinguish execution-ready from clarification-needed items",
             "export_semantics_loss",
-            "export is invalid if source-grounded execution semantics disappear",
+            "export is invalid if clarification semantics disappear",
             bounded_flow_ref(7, flow_count),
         ],
         [
@@ -7080,12 +7120,12 @@ def build_phase1_semantic_acceptance_extension_rows(
             "supporting",
             "EP-03",
             "Use Case 3",
-            f"Given `{deferred_phrase}` stays deferred",
+            "Given attribution capability stays deferred",
             "When the implementation seam is described",
-            f"Then seam status, owner, evidence_state, and affected `{object_phrase}` remain explicit",
-            f"Phase-2 can extend `{deferred_phrase}` without rewriting the {flow_phrase} object chain",
+            "Then source tag, platform, query cluster, funnel stage, conversion event, and cross-device placeholder remain reserved",
+            "Phase-2 can extend attribution without rewriting the object chain",
             "deferred_seam_loss",
-            "deferred capability may stay out of MVP but cannot vanish from the seam contract",
+            "deferred attribution may stay out of MVP but cannot vanish from the seam contract",
             bounded_flow_ref(10, flow_count),
         ],
         [
@@ -7107,12 +7147,29 @@ def build_phase1_semantic_acceptance_extension_rows(
 def build_generic_acceptance_detail_rows(runtime_context: dict[str, object]) -> list[list[str]]:
     ia_rows = list(runtime_context.get("ia_matrix", []))
     flow_count = max(len(canonical_operational_flow_steps(runtime_context)), 1)
-    profile = runtime_source_semantic_profile(runtime_context)
-    object_label = semantic_profile_list(profile, "core_objects", core_object_names(runtime_context, 1) or ["protected business record"])[0]
-    closing_boundary_type = f"{re.sub(r'[^a-z0-9]+', '_', object_label.lower()).strip('_') or 'business_record'}_closure"
-    permission_record_label = object_label
-    permission_boundary_note = f"{object_label} writes must not bypass source-defined role restrictions"
-    rows = build_phase1_ia_acceptance_rows(ia_rows, flow_count=flow_count)
+    style = detect_domain_style("", runtime_context)
+    closing_boundary_type = (
+        "review_cycle_closure"
+        if style == "growth_observation"
+        else "visit_closure"
+        if style == "pet_clinic"
+        else "final_confirmation"
+    )
+    permission_record_label = (
+        "tenant-scoped GEO record"
+        if style == "growth_observation"
+        else "billing or visit record"
+        if style == "pet_clinic"
+        else "protected business record"
+    )
+    permission_boundary_note = (
+        "tenant-scoped writes must not bypass role restrictions"
+        if style == "growth_observation"
+        else "billing writes must not bypass role restrictions"
+        if style == "pet_clinic"
+        else "protected writes must not bypass role restrictions"
+    )
+    rows = build_phase1_ia_acceptance_rows(ia_rows, flow_count=flow_count, style=style)
 
     standard_rows, next_index = build_phase1_standard_acceptance_rows(
         existing_rows=rows,
@@ -7125,7 +7182,7 @@ def build_generic_acceptance_detail_rows(runtime_context: dict[str, object]) -> 
     rows.extend(build_phase1_loop_target_acceptance_rows(runtime_context, start_index=next_index))
     for extra_row in runtime_context.get("domain_baseline_pack", {}).get("acceptance_rows", []):
         rows.append(list(extra_row))
-    rows.extend(build_phase1_semantic_acceptance_extension_rows(runtime_context=runtime_context, flow_count=flow_count))
+    rows.extend(build_phase1_growth_acceptance_extension_rows(flow_count=flow_count, style=style))
     return rows
 
 
@@ -7195,29 +7252,24 @@ def build_phase1_standard_requirement_translation_rows(*, start_index: int) -> l
     ]
 
 
-def build_phase1_semantic_requirement_extension_rows(runtime_context: dict[str, object]) -> list[list[str]]:
-    profile = runtime_source_semantic_profile(runtime_context)
-    objects = semantic_profile_list(profile, "core_objects", core_object_names(runtime_context, 2) or ["business record"])
-    flow_steps = semantic_profile_list(profile, "flow_steps", canonical_operational_flow_steps(runtime_context)[:3] or ["source-defined workflow"])
-    out_of_scope = [str(item).strip() for item in runtime_context.get("out_of_scope_items", []) if str(item).strip()]
-    object_phrase = plain_label_surface(objects[:2], "business record", limit=2)
-    flow_phrase = plain_label_surface(flow_steps[:3], "source-defined workflow", limit=3)
-    deferred_phrase = plain_label_surface(out_of_scope[:2], "source-defined deferred capability", limit=2)
+def build_phase1_growth_requirement_extension_rows(*, style: str) -> list[list[str]]:
+    if style != "growth_observation":
+        return []
     return [
         [
             "RQ-16",
             "EP-02 / EP-03",
             "Use Case 2 / Use Case 4",
             "functional_requirement",
-            f"{object_phrase} payload 必须保留对象身份、当前状态、owner、blocked reason、next action、source evidence ref 和 trace obligation。",
-            f"这是 {flow_phrase} 的 execution-ready payload 直接功能定义。",
+            "recommendation payload 必须在适用时保留 AI-friendly score、quality diagnosis、structured rewrite、keyword/question focus、citation-likelihood hypothesis、FAQ suggestion 等结构化字段。",
+            "这是 execution-ready payload 的直接功能定义。",
         ],
         [
             "RQ-17",
             "EP-03",
             "Use Case 3",
             "quality_or_compliance_constraint",
-            f"系统必须为 {deferred_phrase} 保留 extension seam，包括 seam status、owner、evidence_state、affected object 和 downstream hook，但不得包装成已完成能力。",
+            "系统必须为 attribution/conversion 保留 extension seam，包括 source tagging、funnel、conversion event、cross-device placeholder 等字段或接口说明，但不得把它们包装成已完成 ROI 证明。",
             "它约束未来扩展与证据诚实度，属于质量/合规边界。",
         ],
         [
@@ -7233,10 +7285,11 @@ def build_phase1_semantic_requirement_extension_rows(runtime_context: dict[str, 
 
 def build_generic_requirement_translation_rows(runtime_context: dict[str, object]) -> list[list[str]]:
     ia_rows = list(runtime_context.get("ia_matrix", []))
+    style = detect_domain_style("", runtime_context)
     rows = build_phase1_ia_requirement_translation_rows(ia_rows)
 
     rows.extend(build_phase1_standard_requirement_translation_rows(start_index=len(rows) + 1))
-    rows.extend(build_phase1_semantic_requirement_extension_rows(runtime_context))
+    rows.extend(build_phase1_growth_requirement_extension_rows(style=style))
     return rows
 
 
@@ -7416,33 +7469,79 @@ def render_warning_confirmation_table(rows: list[dict[str, str]]) -> str:
 
 def render_epic_decomposition_table(runtime_context: dict[str, object]) -> str:
     flows = list(runtime_context.get("source_flows", []))
-    profile = runtime_source_semantic_profile(runtime_context)
-    objects = semantic_profile_list(profile, "core_objects", core_object_names(runtime_context, 3) or ["business record"])
-    flow_steps = semantic_profile_list(profile, "flow_steps", canonical_operational_flow_steps(runtime_context)[:3] or module_names(runtime_context, 3) or ["entry", "execution", "closure"])
-    object_phrase = plain_label_surface(objects[:2], "business record", limit=2)
-    rows = [
-        [
-            "EP-01",
-            f"{object_phrase} Foundation",
-            f"establish trustworthy {object_phrase} identity, owner, and boundary records",
-            "Primary User Story, Use Case 1",
-            f"{flow_steps[0]} must preserve source evidence before downstream work can converge",
-        ],
-        [
-            "EP-02",
-            "Core Workflow Execution",
-            f"support {plain_label_surface(flow_steps[:3], 'source-defined workflow', limit=3)} with explicit handoff",
-            "Use Case 2",
-            "module contracts and dependency checks must remain typed and traceable",
-        ],
-        [
-            "EP-03",
-            "Closure, Audit, and Review",
-            f"complete traceable closure for {object_phrase} and auditable state transitions",
-            "Use Case 3",
-            "closure evidence and audit events must remain implementation-visible",
-        ],
-    ]
+    style = detect_domain_style("", runtime_context)
+    if style == "growth_observation":
+        rows = [
+            [
+                "EP-01",
+                "Scope and Evidence Foundation",
+                "establish trustworthy tenant, scope, and baseline records",
+                "Primary User Story, Use Case 1",
+                "scope, evidence, and role boundaries must exist before downstream GEO actions can converge",
+            ],
+            [
+                "EP-02",
+                "Finding-to-Action Execution",
+                "support finding interpretation, recommendation, and task handoff",
+                "Use Case 2",
+                "module contracts and dependency checks must remain typed and traceable",
+            ],
+            [
+                "EP-03",
+                "Review, Audit, and Decision Closure",
+                "complete traceable cycle review and auditable decision transitions",
+                "Use Case 3",
+                "review closure and audit events must remain implementation-visible",
+            ],
+        ]
+    elif style == "pet_clinic":
+        rows = [
+            [
+                "EP-01",
+                "Visit Intake Foundation",
+                "establish trustworthy owner, pet, and visit intake records",
+                "Primary User Story, Use Case 1",
+                "core visit records and role boundaries must exist before downstream modules can converge",
+            ],
+            [
+                "EP-02",
+                "Consultation and Treatment Execution",
+                "support the main module handoff and treatment execution path",
+                "Use Case 2",
+                "module contracts and dependency checks must remain typed and traceable",
+            ],
+            [
+                "EP-03",
+                "Discharge, Audit, and Review",
+                "complete traceable visit closure and auditable state transitions",
+                "Use Case 3",
+                "discharge closure and audit events must remain implementation-visible",
+            ],
+        ]
+    else:
+        rows = [
+            [
+                "EP-01",
+                "Business Record Foundation",
+                "establish trustworthy business records and boundary contracts",
+                "Primary User Story, Use Case 1",
+                "core records and role boundaries must exist before downstream modules can converge",
+            ],
+            [
+                "EP-02",
+                "Core Workflow Execution",
+                "support the main module handoff and downstream action path",
+                "Use Case 2",
+                "module contracts and dependency checks must remain typed and traceable",
+            ],
+            [
+                "EP-03",
+                "Closure, Audit, and Review",
+                "complete traceable closure and auditable state transitions",
+                "Use Case 3",
+                "closure and audit events must remain implementation-visible",
+            ],
+        ]
     if not flows:
         rows[1][2] = "support the source-defined business workflow"
     return markdown_table(
@@ -7459,9 +7558,14 @@ def render_epic_decomposition_table(runtime_context: dict[str, object]) -> str:
 
 def build_generic_invest_evaluation_rows(runtime_context: dict[str, object]) -> list[list[str]]:
     primary_segment = str(runtime_context.get("primary_segment", "")).strip() or "primary operator"
-    profile = runtime_source_semantic_profile(runtime_context)
-    objects = semantic_profile_list(profile, "core_objects", core_object_names(runtime_context, 2) or ["business record"])
-    foundation_note = f"bounded around {plain_label_surface(objects[:2], 'business record', limit=2)} foundation and entry clarity"
+    style = detect_domain_style("", runtime_context)
+    foundation_note = (
+        "bounded around tracked scope/baseline foundation and operator entry clarity"
+        if style == "growth_observation"
+        else "bounded around visit foundation and intake clarity"
+        if style == "pet_clinic"
+        else "bounded around business record foundation and entry clarity"
+    )
     return [
         [
             "Primary User Story",
@@ -7970,7 +8074,12 @@ def build_generic_maturity_confidence_ledger(source_text: str, runtime_context: 
         if re.search(r"[\u4e00-\u9fff]", source_text)
         else f"source brief / stage evidence names {proof_artifact} as the continuation review artifact"
     )
-    workflow_evidence_blocker = "need real usage validation in the source-defined operating environment"
+    style = detect_domain_style(source_text, runtime_context)
+    workflow_evidence_blocker = (
+        "need real usage validation in GEO operating practice"
+        if style == "growth_observation"
+        else "need real usage validation in the source-defined operating environment"
+    )
     return [
         {
             "subject": f"primary segment boundary ({primary_segment})",
@@ -8467,20 +8576,6 @@ def build_runtime_context(
         signal_context=signal_context,
         business_world_context=business_world_context,
     )
-    module_hint = (
-        module_names(provisional_context, 1)[0]
-        if module_names(provisional_context, 1)
-        else source_structure_context.workflow_backbone
-    )
-    source_semantic_profile = build_source_semantic_profile(
-        fact_source_text,
-        module_name=module_hint,
-        roles=[{"Role": str(role)} for role in primary_problem_context.target_user_items if str(role).strip()],
-    )
-    provisional_context = {
-        **provisional_context,
-        "source_semantic_profile": source_semantic_profile,
-    }
     domain_baseline_pack = detect_domain_baseline_pack(provisional_context)
 
     return {

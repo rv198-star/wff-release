@@ -67,23 +67,6 @@ def _optional_phase3_runtime_sidecar(module_name: str):
         raise
 
 
-def trace_matrix_source_summary(test_trace_matrix: dict[str, object], row_count: int) -> dict[str, object]:
-    summary = test_trace_matrix.get("summary", {}) if isinstance(test_trace_matrix, dict) else {}
-    matrix_row_count = row_count
-    if isinstance(summary, dict) and isinstance(summary.get("matrix_row_count"), (int, float)):
-        matrix_row_count = int(summary["matrix_row_count"])
-    return {
-        "row_count": matrix_row_count,
-        "sidecar_unavailable": bool(test_trace_matrix.get("sidecar_unavailable", False))
-        if isinstance(test_trace_matrix, dict)
-        else False,
-        "sidecar_id": str(test_trace_matrix.get("sidecar_id") or "").strip()
-        if isinstance(test_trace_matrix, dict)
-        else "",
-        "reason": str(test_trace_matrix.get("reason") or "").strip() if isinstance(test_trace_matrix, dict) else "",
-    }
-
-
 def initialize_phase3_trace_registry(test_trace_matrix: dict[str, object]) -> dict[str, object]:
     module = _optional_phase3_runtime_sidecar("trace_registry")
     if module is not None:
@@ -114,7 +97,6 @@ def initialize_phase3_trace_registry(test_trace_matrix: dict[str, object]) -> di
             "pending_source_count": len(registry_rows),
             "resolved_source_count": 0,
         },
-        "source_matrix": trace_matrix_source_summary(test_trace_matrix, len(registry_rows)),
         "mode": "unavailable",
         "sidecar_id": "trace_registry",
         "sidecar_unavailable": True,
@@ -171,7 +153,6 @@ def finalize_trace_registry(
             "unresolved_trace_ids": unresolved_trace_ids,
             "source_type_breakdown": source_type_breakdown,
         },
-        "source_matrix": trace_matrix_source_summary(test_trace_matrix, len(final_rows)),
         "mode": "unavailable",
         "sidecar_id": "trace_registry",
         "sidecar_unavailable": True,

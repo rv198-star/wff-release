@@ -12,13 +12,6 @@
       ]
     },
     {
-      "id": "usage-router",
-      "resource_modules": [],
-      "skills": [
-        "using-wff"
-      ]
-    },
-    {
       "id": "project-context-base",
       "resource_modules": [
         "generated-output-policy"
@@ -169,7 +162,6 @@
       "audience": "mixed-user-and-maintainer",
       "blockers": [],
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -213,13 +205,15 @@
         "scripts/phase3/dispatch_execution.py",
         "scripts/phase3/dispatch_runtime.py",
         "scripts/phase3/phase3_dispatch_runner.py",
+        "scripts/phase3/replay_test_scaffolder.py",
         "scripts/phase3/runtime_environment.py",
+        "scripts/phase3/scenario_test_scaffolder.py",
+        "scripts/phase3/test_trace_matrix_builder.py",
         "scripts/phase3/worker_packet_artifacts.py",
         "scripts/phase3/worker_packet_runner.py",
         "scripts/release/bootstrap_mindthus_dependency.py",
         "scripts/release/run_release_dual_case_eval.py",
-        "scripts/phase3/run_phase3_first_version.py",
-        "scripts/phase2/run_phase2_full_trial.py"
+        "scripts/phase3/run_phase3_first_version.py"
       ],
       "id": "full-pack",
       "include_full_pack_defaults": true,
@@ -237,6 +231,7 @@
         "phase1-release-gate-support-scripts",
         "phase1-reference-package",
         "phase2-runtime-scripts",
+        "phase2-full-trial-manual-sidecar-scripts",
         "phase2-reference-package",
         "phase3-runtime-scripts",
         "phase3-runtime-smoke-scripts",
@@ -254,7 +249,6 @@
         "p3-delivery-gate-full-sidecar-scripts",
         "p3-delivery-assessment-sidecar-scripts",
         "p3-delivery-support-sidecar-scripts",
-        "p3-scenario-replay-test-sidecar-scripts",
         "phase3-reference-package",
         "p3-worker-guidance-docs",
         "phase4-runtime-scripts",
@@ -274,7 +268,6 @@
         "wff-agent"
       ],
       "skills": [
-        "using-wff",
         "wff-arch",
         "wff-base-reader-translation",
         "wff-base-traceability-management",
@@ -304,7 +297,6 @@
       "audience": "business-project-user",
       "blockers": [],
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -358,7 +350,6 @@
         "wff-init"
       ],
       "skills": [
-        "using-wff",
         "wff-req-chat",
         "wff-project-context",
         "wff-help",
@@ -374,7 +365,6 @@
       "audience": "business-project-user",
       "blockers": [],
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -390,8 +380,7 @@
         "scripts/phase2/component_semantic_inventory.py",
         "scripts/phase2/phase2_operation_semantic_payload.py",
         "scripts/phase3/operation_risk_tiering.py",
-        "scripts/phase3/phase3_operation_semantics.py",
-        "scripts/common/human_review_surface.py"
+        "scripts/phase3/phase3_operation_semantics.py"
       ],
       "explicit_docs": [
         "docs/public/wff-orientation-map.zh-CN.md"
@@ -406,8 +395,6 @@
       "explicit_runtime_dep_dirs": [],
       "explicit_scripts": [
         "scripts/release/wff_init.py",
-        "scripts/phase2/run_phase2_fresh_generation.py",
-        "scripts/phase2/run_phase2_existing_system_intake.py",
         "scripts/phase2/run_phase2_first_version.py"
       ],
       "explicit_templates": [],
@@ -432,7 +419,6 @@
         "wff-init"
       ],
       "skills": [
-        "using-wff",
         "wff-project-context",
         "wff-help",
         "wff-base-traceability-management",
@@ -446,7 +432,6 @@
       "audience": "business-project-user",
       "blockers": [],
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -509,8 +494,7 @@
         "scripts/phase3/delivery_report_rendering.py",
         "scripts/phase3/phase3_delivery_gate_full.py",
         "scripts/phase3/phase3_first_version_runtime.py",
-        "scripts/phase3/run_impl_foundation.py",
-        "scripts/phase3/phase3_operation_semantics.py"
+        "scripts/phase3/run_impl_foundation.py"
       ],
       "explicit_docs": [
         "docs/public/wff-orientation-map.zh-CN.md"
@@ -568,7 +552,6 @@
         "wff-init"
       ],
       "skills": [
-        "using-wff",
         "wff-project-context",
         "wff-help",
         "wff-base-traceability-management",
@@ -591,7 +574,6 @@
       "audience": "business-project-user",
       "blockers": [],
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -600,10 +582,8 @@
       ],
       "excluded_scripts": [
         "scripts/release/run_release_dual_case_eval.py",
-        "scripts/phase2/run_phase2_fresh_generation.py",
-        "scripts/phase3/run_phase3_first_version.py",
-        "scripts/phase2/run_phase2_existing_system_intake.py",
-        "scripts/phase2/run_phase2_first_version.py"
+        "scripts/phase2/run_phase2_first_version.py",
+        "scripts/phase3/run_phase3_first_version.py"
       ],
       "explicit_docs": [
         "docs/public/wff-orientation-map.zh-CN.md"
@@ -645,7 +625,6 @@
         "wff-init"
       ],
       "skills": [
-        "using-wff",
         "wff-project-context",
         "wff-help",
         "wff-base-traceability-management",
@@ -659,7 +638,6 @@
       "audience": "business-project-user",
       "blockers": [],
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -718,12 +696,13 @@
         "scripts/phase3/operable_surface_contract_metrics.py",
         "scripts/phase3/scenario_test_scaffolder.py",
         "scripts/phase3/replay_test_scaffolder.py",
+        "scripts/phase3/test_trace_matrix_builder.py",
+        "scripts/phase3/trace_registry.py",
         "scripts/phase3/post_execution_refresh.py",
         "scripts/phase3/delivery_closure.py",
         "scripts/phase3/delivery_report_rendering.py",
         "scripts/phase3/phase3_delivery_gate_full.py",
-        "scripts/phase3/run_phase3_first_version.py",
-        "scripts/phase2/run_phase2_full_trial.py"
+        "scripts/phase3/run_phase3_first_version.py"
       ],
       "explicit_docs": [
         "docs/public/wff-orientation-map.zh-CN.md"
@@ -745,9 +724,8 @@
         "scripts/release/wff_init.py",
         "scripts/phase1/run_phase1_full_trial.py",
         "scripts/phase1/run_phase1_convergence.py",
-        "scripts/phase2/run_phase2_fresh_generation.py",
-        "scripts/phase2/run_phase2_existing_system_intake.py",
         "scripts/phase2/run_phase2_first_version.py",
+        "scripts/phase2/run_phase2_full_trial.py",
         "scripts/phase3/run_impl.py",
         "scripts/phase3/run_impl_action_cards.py",
         "scripts/phase3/run_impl_db_schema.py",
@@ -776,6 +754,7 @@
         "phase1-runtime-scripts",
         "phase1-reference-package",
         "phase2-runtime-scripts",
+        "phase2-full-trial-manual-sidecar-scripts",
         "phase2-reference-package",
         "phase3-runtime-scripts",
         "p3-impl-core-runtime",
@@ -803,7 +782,6 @@
         "wff-init"
       ],
       "skills": [
-        "using-wff",
         "wff-req-chat",
         "wff-project-context",
         "wff-help",
@@ -831,7 +809,6 @@
       "audience": "business-project-user",
       "blockers": [],
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -875,7 +852,6 @@
         "wff-init"
       ],
       "skills": [
-        "using-wff",
         "wff-project-context",
         "wff-help",
         "wff-base-traceability-management",
@@ -965,7 +941,6 @@
       "audience": "business-project-user",
       "blockers": [],
       "capabilities": [
-        "usage-router",
         "role-agent-companion"
       ],
       "explicit_docs": [
@@ -1001,7 +976,6 @@
         "wff-agent"
       ],
       "skills": [
-        "using-wff",
         "wff-role-agents"
       ],
       "standalone_claim": "adapter-export-only",
@@ -1075,6 +1049,7 @@
         "phase1-runtime-scripts",
         "phase1-reference-package",
         "phase2-runtime-scripts",
+        "phase2-full-trial-manual-sidecar-scripts",
         "phase2-reference-package",
         "phase3-runtime-scripts",
         "p3-delivery-gate-core",
@@ -1257,13 +1232,12 @@
             "scripts/phasex/validate_phasex_case.py",
             "scripts/phasex/extract_mainline_reentry_packets.py"
           ],
-          "future_action": "Use the fuller brownfield-change profile when project bootstrap, context, and traceability support are needed.",
-          "reason": "PhaseX / PX is supported for code-backed existing-system assessment and depends on brownfield reference assets and scripts.",
-          "type": "phasex-runtime"
+          "future_action": "Run a separate PhaseX profile smoke before claiming standalone preview installability.",
+          "reason": "PhaseX is preview/incubating and still depends on brownfield reference assets and scripts.",
+          "type": "phasex-preview-runtime"
         }
       ],
       "capabilities": [
-        "usage-router",
         "phasex-brownfield-runtime"
       ],
       "explicit_docs": [
@@ -1279,7 +1253,7 @@
       "include_skill_direct_assets": true,
       "layer": "install-profile",
       "pack_type": "skills-install-profile-pack",
-      "package_kind": "user-facing-scenario",
+      "package_kind": "preview-scenario",
       "resource_modules": [
         "phasex-runtime-scripts",
         "phasex-reference-package"
@@ -1287,11 +1261,10 @@
       "root_entrypoint_targets": {},
       "root_entrypoints": [],
       "skills": [
-        "using-wff",
         "wff-x"
       ],
-      "standalone_claim": "minimal supported PhaseX / PX entry profile for code-backed existing-system assessment",
-      "status": "supported",
+      "standalone_claim": "preview-not-proven",
+      "status": "preview",
       "target_package": "brownfield-change"
     }
   ],
@@ -1384,10 +1357,7 @@
     {
       "id": "phase2-runtime-scripts",
       "paths": [
-        "scripts/phase2/run_phase2_fresh_generation.py",
-        "scripts/phase2/run_phase2_existing_system_intake.py",
-        "scripts/phase2/run_phase2_first_version.py",
-        "scripts/phase2/phase2_closure_runtime.py"
+        "scripts/phase2/run_phase2_first_version.py"
       ],
       "type": "phase-runtime"
     },
@@ -1591,8 +1561,6 @@
       "paths": [
         "scripts/phase3/phase3_first_version_runtime.py",
         "scripts/phase3/run_impl_foundation.py",
-        "scripts/phase3/test_trace_matrix_builder.py",
-        "scripts/phase3/trace_registry.py",
         "scripts/phase3/ui_locale_full.py",
         "scripts/phase3/validation_levels.py",
         "scripts/phase3/timing_report.py"
@@ -1744,7 +1712,6 @@
     {
       "audience": "business-project-user",
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -1761,7 +1728,6 @@
     {
       "audience": "business-project-user",
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -1786,7 +1752,6 @@
     {
       "audience": "business-project-user",
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -1807,7 +1772,6 @@
     {
       "audience": "business-project-user",
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -1839,7 +1803,6 @@
     {
       "audience": "business-project-user",
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -1860,7 +1823,6 @@
     {
       "audience": "business-project-user",
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",
@@ -1879,7 +1841,6 @@
     {
       "audience": "business-project-user",
       "capabilities": [
-        "usage-router",
         "project-bootstrap-base",
         "project-context-base",
         "traceability-base",

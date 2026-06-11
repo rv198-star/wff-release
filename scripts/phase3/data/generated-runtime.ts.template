@@ -329,27 +329,6 @@ function nextId(prefix: string): string {
   return `${prefix}_${nextCounter(prefix)}`;
 }
 
-function idAlreadyRemembered(field: string, id: string): boolean {
-  const normalized = normalizeIdValue(field, id);
-  for (const alias of idFieldAliases(field)) {
-    if (runtimeState.entityRecords[alias]?.[normalized]) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function nextUnrememberedId(field: string): string {
-  const prefix = stripIdSuffix(snakeIdField(field));
-  let raw = nextId(prefix);
-  let normalized = normalizeIdValue(field, raw);
-  while (idAlreadyRemembered(field, normalized)) {
-    raw = nextId(prefix);
-    normalized = normalizeIdValue(field, raw);
-  }
-  return normalized;
-}
-
 function isUuidLike(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
@@ -499,38 +478,6 @@ function projectToExampleShape(exampleValue: unknown, actualValue: unknown): unk
 
 function projectResponseData(spec: OperationSpec, actualValue: unknown): unknown {
   return projectToExampleShape(asRecord(spec.responseExample).data, actualValue);
-}
-
-function literalContractValueFields(spec: OperationSpec): string[] {
-  const exampleData = asRecord(asRecord(spec.responseExample).data);
-  return Object.entries(exampleData)
-    .filter(([field, value]) => {
-      const normalized = snakeCase(field).replace(/[^a-z0-9]+/g, "");
-      if (normalized === "traceid" || normalized === "createdat" || normalized === "updatedat" || normalized.endsWith("id")) {
-        return false;
-      }
-      return value !== undefined && value !== null && ["string", "number", "boolean"].includes(typeof value);
-    })
-    .map(([field]) => field);
-}
-
-function preserveLiteralContractValues(spec: OperationSpec, projectedData: unknown): unknown {
-  const fields = literalContractValueFields(spec);
-  if (fields.length === 0) {
-    return projectedData;
-  }
-  const exampleData = asRecord(asRecord(spec.responseExample).data);
-  if (Array.isArray(projectedData)) {
-    return projectedData.map((item) => preserveLiteralContractValues(spec, item));
-  }
-  if (!projectedData || typeof projectedData !== "object") {
-    return projectedData;
-  }
-  const record = clone(projectedData) as JsonRecord;
-  for (const field of fields) {
-    record[field] = clone(exampleData[field]);
-  }
-  return record;
 }
 
 function projectListResponseData(spec: OperationSpec, actualRows: unknown[]): unknown {
@@ -868,10 +815,6 @@ function hasPresentField(payload: JsonRecord, field: string): boolean {
   });
 }
 
-function hasAnyPresentField(payload: JsonRecord, fields: string[]): boolean {
-  return fields.some((field) => hasPresentField(payload, field));
-}
-
 function requiredBodyKeys(spec: OperationSpec): string[] {
   return uniqueNonEmpty(spec.requestRequiredFields || []);
 }
@@ -881,17 +824,7 @@ function requiredPathParamKeys(spec: OperationSpec): string[] {
 }
 
 function validatePayload(spec: OperationSpec, payload: JsonRecord): void {
-  if (payload.simulateDependencyFailure === true || stringValue(payload.simulateDependencyFailure) === "true") {
-    const dependencyFailure = spec.failureCases.find((failure) => (
-      failure.status.startsWith("5")
-      || failure.error_code.includes("dependency")
-      || failure.error_code.includes("unavailable")
-      || failure.error_code.includes("timeout")
-    ));
-    if (dependencyFailure) {
-      failureFor(spec, dependencyFailure.error_code, dependencyFailure.status);
-    }
-  }
+  maybeForcedFailure(spec, payload);
   const requiredBody = requiredBodyKeys(spec);
   for (const key of requiredBody) {
     if (!hasPresentField(payload, key)) {
@@ -909,25 +842,11 @@ function validatePayload(spec: OperationSpec, payload: JsonRecord): void {
   }
 }
 
-function hasVersionConflictSignal(spec: OperationSpec, payload: JsonRecord): boolean {
-  const conflictFailure = findFailureByStatusPrefix(spec, "409");
-  if (!conflictFailure) {
-    return false;
+function maybeForcedFailure(spec: OperationSpec, payload: JsonRecord): void {
+  const code = stringValue(payload.force_error_code);
+  if (code) {
+    failureFor(spec, code, "409");
   }
-  const expectedVersion = numberValue(payload.expectedVersion ?? payload.expected_version);
-  const currentVersion = numberValue(payload.currentVersion ?? payload.current_version);
-  if (expectedVersion !== undefined && currentVersion !== undefined && expectedVersion !== currentVersion) {
-    return true;
-  }
-  return expectedVersion === 0;
-}
-
-function rejectVersionConflictIfSignaled(spec: OperationSpec, payload: JsonRecord): void {
-  if (!hasVersionConflictSignal(spec, payload)) {
-    return;
-  }
-  const conflictFailure = findFailureByStatusPrefix(spec, "409");
-  failureFor(spec, conflictFailure?.error_code || "version_conflict", "409");
 }
 
 function buildStoredData(spec: OperationSpec, payload: JsonRecord, tenantId: string): JsonRecord {
@@ -938,6 +857,7 @@ function buildStoredData(spec: OperationSpec, payload: JsonRecord, tenantId: str
   const createLike = isCreateLikeOperation(spec);
   delete data.auth_context;
   delete data.path_params;
+  delete data.force_error_code;
   delete data.invalid_query;
   data.tenant_id = normalizeIdValue(
     "tenant_id",
@@ -956,7 +876,7 @@ function buildStoredData(spec: OperationSpec, payload: JsonRecord, tenantId: str
       continue;
     }
     if (createLike || !stringValue(value)) {
-      data[field] = nextUnrememberedId(field);
+      data[field] = normalizeIdValue(field, nextId(stripIdSuffix(snakeIdField(field))));
     }
   }
   for (const [field, value] of Object.entries({ ...data })) {
@@ -1178,16 +1098,9 @@ type PersistenceConstraint = {
   columns: string[];
 };
 
-type PersistenceColumnMetadata = {
-  columnName: string;
-  dataType: string;
-  udtName: string;
-};
-
 type PersistenceTarget = {
   tableName: string;
   columns: string[];
-  columnMetadata: Record<string, PersistenceColumnMetadata>;
   notNullColumns: string[];
   primaryKeyColumns: string[];
   conflictKeys: string[];
@@ -1461,40 +1374,9 @@ function preferExistingRowPrimaryKeyTarget(
 function syntheticPersistenceValue(column: string): string {
   const normalized = snakeCase(column);
   if (normalized.endsWith("_id")) {
-    return nextUnrememberedId(column);
+    return normalizeIdValue(column, nextId(stripIdSuffix(normalized)));
   }
   return `${normalized}_${nextCounter("seed")}`;
-}
-
-function isJsonPersistenceColumn(metadata: PersistenceColumnMetadata | undefined): boolean {
-  const dataType = String(metadata?.dataType ?? "").toLowerCase();
-  const udtName = String(metadata?.udtName ?? "").toLowerCase();
-  return dataType === "json" || dataType === "jsonb" || udtName === "json" || udtName === "jsonb";
-}
-
-function preparePersistenceParameter(value: unknown, metadata: PersistenceColumnMetadata | undefined): unknown {
-  if (value === undefined || value === null) {
-    return value;
-  }
-  if (isJsonPersistenceColumn(metadata)) {
-    if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (!trimmed) {
-        return "{}";
-      }
-      try {
-        JSON.parse(trimmed);
-        return trimmed;
-      } catch {
-        return JSON.stringify(value);
-      }
-    }
-    return JSON.stringify(value);
-  }
-  if (typeof value === "object" && !(value instanceof Date)) {
-    return JSON.stringify(value);
-  }
-  return value;
 }
 
 async function withPersistenceClient<T>(run: (client: PersistenceClient) => Promise<T>): Promise<T | undefined> {
@@ -1576,8 +1458,8 @@ async function resolvePersistenceTarget(
     if (!tableRows.rows[0]?.present) {
       continue;
     }
-    const columnRows = await client.query<{ column_name: string; is_nullable: string; data_type: string; udt_name: string }>(
-      "SELECT column_name, is_nullable, data_type, udt_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1",
+    const columnRows = await client.query<{ column_name: string; is_nullable: string }>(
+      "SELECT column_name, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1",
       [candidate],
     );
     const constraintRows = await client.query<PersistenceKeyRow>(
@@ -1597,16 +1479,6 @@ async function resolvePersistenceTarget(
       [candidate],
     );
     const columns = columnRows.rows.map((row) => stringValue(row.column_name)).filter(Boolean);
-    const columnMetadata = Object.fromEntries(
-      columnRows.rows
-        .map((row) => ({
-          columnName: stringValue(row.column_name),
-          dataType: stringValue(row.data_type),
-          udtName: stringValue(row.udt_name),
-        }))
-        .filter((row) => row.columnName)
-        .map((row) => [row.columnName, row]),
-    );
     const notNullColumns = columnRows.rows
       .filter((row) => stringValue(row.is_nullable).toUpperCase() === "NO")
       .map((row) => stringValue(row.column_name))
@@ -1645,7 +1517,6 @@ async function resolvePersistenceTarget(
     candidateTargets.push({
       tableName: candidate,
       columns,
-      columnMetadata,
       notNullColumns,
       primaryKeyColumns,
       conflictKeys: effectiveConflictKeys,
@@ -1675,7 +1546,6 @@ async function resolvePersistenceTarget(
   return {
     tableName: bestCandidate.tableName,
     columns: bestCandidate.columns,
-    columnMetadata: bestCandidate.columnMetadata,
     notNullColumns: bestCandidate.notNullColumns,
     primaryKeyColumns: bestCandidate.primaryKeyColumns,
     conflictKeys: bestCandidate.conflictKeys,
@@ -1720,9 +1590,6 @@ async function writePersistenceRecord(
   const allowSyntheticConflictKeys = options.allowSyntheticConflictKeys ?? true;
   for (const notNullColumn of (target.notNullColumns ?? [])) {
     if (!hasPresentPersistenceValue(row[notNullColumn])) {
-      if (!allowSyntheticConflictKeys && target.conflictKeys.includes(notNullColumn)) {
-        continue;
-      }
       row[notNullColumn] = synthesizeMissingPersistenceValue(notNullColumn, row, target);
     }
   }
@@ -1738,7 +1605,7 @@ async function writePersistenceRecord(
   if (names.length === 0) {
     return;
   }
-  const values = names.map((name) => preparePersistenceParameter(row[name], target.columnMetadata[name]));
+  const values = names.map((name) => row[name]);
   const placeholders = names.map((_, index) => `$${index + 1}`).join(", ");
   const protectedColumns = new Set([...target.conflictKeys, ...target.primaryKeyColumns]);
   const updates = names.filter((name) => !protectedColumns.has(name)).map((name) => `"${name}" = EXCLUDED."${name}"`);
@@ -1777,13 +1644,6 @@ async function persistRecord(spec: OperationSpec, payload: JsonRecord, data: Jso
   });
 }
 
-function hasSeedRecordConflictIdentity(target: PersistenceTarget, row: Record<string, unknown>): boolean {
-  return target.conflictKeys.every((conflictKey) => (
-    hasPresentPersistenceValue(row[conflictKey])
-    || hasPresentPersistenceValue(row[camelField(conflictKey)])
-  ));
-}
-
 async function persistSeedRecord(spec: OperationSpec, payload: JsonRecord, data: JsonRecord): Promise<void> {
   await withPersistenceClient(async (client) => {
     const target = await resolvePersistenceTarget(client, spec, payload, data, { preferPrimaryKeyConstraint: true });
@@ -1797,10 +1657,7 @@ async function persistSeedRecord(spec: OperationSpec, payload: JsonRecord, data:
       : undefined;
     const effectiveTarget = preferExistingRowPrimaryKeyTarget(target, existingByLookup);
     mergeExistingPrimaryKeyValues(row, effectiveTarget.primaryKeyColumns, existingByLookup);
-    const allowSyntheticConflictKeys = Boolean(existingByLookup) || target.isStrictCandidate;
-    if (!hasSeedRecordConflictIdentity(effectiveTarget, row) && !allowSyntheticConflictKeys) {
-      return;
-    }
+    const allowSyntheticConflictKeys = Boolean(existingByLookup) || target.isStrictCandidate || target.matchedColumnCount > 1;
     await writePersistenceRecord(client, effectiveTarget, row, { allowSyntheticConflictKeys });
   });
 }
@@ -2011,7 +1868,6 @@ async function persistCommandRecord(
 
 async function handleCreateLike(spec: OperationSpec, payload: JsonRecord): Promise<Record<string, unknown>> {
   validatePayload(spec, payload);
-  rejectVersionConflictIfSignaled(spec, payload);
   const { tenantId, subjectId } = resolveExecutionAccess(spec, payload);
   const normalizedPayload = mergeRecords(payload, {
     tenant_id: tenantId,
@@ -2033,11 +1889,9 @@ async function handleCreateLike(spec: OperationSpec, payload: JsonRecord): Promi
       failureFor(spec, duplicateFailure.error_code || "conflict", "409");
     }
   }
+  runtimeState.createdKeys.add(uniqueKey);
   const stored = buildStoredData(spec, normalizedPayload, tenantId);
   await persistRecord(spec, normalizedPayload, stored);
-  if (uniqueKey !== `${spec.operationId}:`) {
-    runtimeState.createdKeys.add(uniqueKey);
-  }
   rememberRecord(stored);
   appendAuditRecord({
     tenantId,
@@ -2049,19 +1903,8 @@ async function handleCreateLike(spec: OperationSpec, payload: JsonRecord): Promi
   return successEnvelope(spec, projectResponseData(spec, stored), projectResponseMeta(spec));
 }
 
-async function handleReadSnapshot(spec: OperationSpec, payload: JsonRecord): Promise<Record<string, unknown>> {
-  const { pathParams, record: existingRecord } = resolvePrimaryRecordContext(spec, payload);
-  const access = resolveExecutionAccess(spec, { ...payload, path_params: pathParams });
-  const persistedRecord = await loadRecordFromPersistence(spec, payload, pathParams);
-  const responseExampleData = asRecord(asRecord(spec.responseExample).data);
-  const merged = mergeRecords(responseExampleData, persistedRecord ?? existingRecord ?? asRecord(payload));
-  if (hasTenantAccessControl(spec) && stringValue(merged.tenant_id) === "") {
-    merged.tenant_id = access.tenantId;
-  }
-  return successEnvelope(spec, projectResponseData(spec, merged), projectResponseMeta(spec));
-}
-
 async function handleDetailRead(spec: OperationSpec, payload: JsonRecord): Promise<Record<string, unknown>> {
+  maybeForcedFailure(spec, payload);
   const { pathParams, recordKey, id, record: existingRecord } = resolvePrimaryRecordContext(spec, payload);
   const access = resolveExecutionAccess(spec, { ...payload, path_params: pathParams });
   let record = await loadRecordFromPersistence(spec, payload, pathParams);
@@ -2082,6 +1925,7 @@ async function handleDetailRead(spec: OperationSpec, payload: JsonRecord): Promi
 }
 
 async function handleListRead(spec: OperationSpec, payload: JsonRecord): Promise<Record<string, unknown>> {
+  maybeForcedFailure(spec, payload);
   const normalizedPayload = mergeRecords(payload, {
     path_params: mergeRecords(defaultPathParams(spec), asRecord(payload.path_params)),
   });
@@ -2150,6 +1994,7 @@ async function handleListRead(spec: OperationSpec, payload: JsonRecord): Promise
 }
 
 async function handleCommand(spec: OperationSpec, payload: JsonRecord): Promise<Record<string, unknown>> {
+  maybeForcedFailure(spec, payload);
   const { pathParams, recordKey, id, record } = resolvePrimaryRecordContext(spec, payload);
   const persistedRecord = await loadRecordFromPersistence(spec, payload, pathParams);
   const currentRecord = persistedRecord ?? record;
@@ -2172,7 +2017,6 @@ async function handleCommand(spec: OperationSpec, payload: JsonRecord): Promise<
     }
   }
   validatePayload(spec, normalizedPayload);
-  rejectVersionConflictIfSignaled(spec, normalizedPayload);
   const data = mergeRecords(mergeRecords(asRecord(asRecord(spec.responseExample).data), currentRecord ?? {}), asRecord(normalizedPayload));
   const responseExampleData = asRecord(asRecord(spec.responseExample).data);
   for (const [field, exampleValue] of Object.entries(responseExampleData)) {
@@ -2200,10 +2044,9 @@ async function handleCommand(spec: OperationSpec, payload: JsonRecord): Promise<
     subjectId: access.subjectId,
     operationId: spec.operationId,
   });
-  const projected = projectResponseData(spec, mergeRecords(responseExampleData, persisted ?? data));
   return successEnvelope(
     spec,
-    preserveLiteralContractValues(spec, projected),
+    projectResponseData(spec, mergeRecords(responseExampleData, persisted ?? data)),
     projectResponseMeta(spec),
   );
 }
@@ -2263,10 +2106,6 @@ export function buildOperationPlan(partial: OperationExecutionPlan): JsonRecord 
 
 export async function executeCreateOperation(spec: OperationSpec, payload: JsonRecord): Promise<Record<string, unknown>> {
   return handleCreateLike(spec, payload);
-}
-
-export async function executeReadSnapshotOperation(spec: OperationSpec, payload: JsonRecord): Promise<Record<string, unknown>> {
-  return handleReadSnapshot(spec, payload);
 }
 
 export async function executeDetailReadOperation(spec: OperationSpec, payload: JsonRecord): Promise<Record<string, unknown>> {
@@ -2355,9 +2194,6 @@ function seededTenantId(record: JsonRecord): string {
 
 export function seedGeneratedRuntimeState(): void {
   for (const spec of Object.values(OPERATION_SPECS)) {
-    if (isCreateLikeOperation(spec)) {
-      continue;
-    }
     for (const responseRecord of responseExampleRecords(spec)) {
       const normalizedRecord = normalizePayloadIdentifiers(clone(responseRecord)) as JsonRecord;
       const record = normalizePayloadIdentifiers(mergeRecords(normalizedRecord, {
@@ -2370,15 +2206,11 @@ export function seedGeneratedRuntimeState(): void {
 
 export async function seedGeneratedRuntimePersistence(): Promise<void> {
   for (const spec of Object.values(OPERATION_SPECS)) {
-    if (isCreateLikeOperation(spec)) {
-      continue;
-    }
     const payload = buildOperationPayload(spec.operationId);
-    const payloadTenantId = seededTenantId(payload);
     for (const responseRecord of responseExampleRecords(spec)) {
       const normalizedRecord = normalizePayloadIdentifiers(clone(responseRecord)) as JsonRecord;
       const record = normalizePayloadIdentifiers(mergeRecords(normalizedRecord, {
-        tenant_id: payloadTenantId,
+        tenant_id: seededTenantId(normalizedRecord),
       })) as JsonRecord;
       rememberRecord(record);
       await persistSeedRecord(spec, payload, record);
@@ -2387,21 +2219,16 @@ export async function seedGeneratedRuntimePersistence(): Promise<void> {
 }
 
 function harmonizeHappyPathPayloadWithResponseExample(spec: OperationSpec, payload: JsonRecord): JsonRecord {
-  const responseEnvelope = asRecord(spec.responseExample);
-  const responseMeta = asRecord(responseEnvelope.meta);
   const responseRecord = responseExampleRecord(spec);
   const next = mergeRecords(payload, {});
-  for (const [field, responseValue] of Object.entries(responseRecord)) {
+  for (const [field] of Object.entries(responseRecord)) {
     const normalized = snakeCase(field);
+    if (normalized !== "status" && normalized !== "state") {
+      continue;
+    }
     const aliases = uniqueNonEmpty([field, normalized, camelField(field)]);
-    if (isCreateLikeOperation(spec) && isIdField(field)) {
-      continue;
-    }
-    if (!hasAnyPresentField(next, aliases) && responseValue !== undefined) {
-      next[camelField(field)] = clone(responseValue);
-      continue;
-    }
-    if ((normalized !== "status" && normalized !== "state") || responseValue === undefined) {
+    const responseValue = responseRecord[field] ?? responseRecord[normalized] ?? responseRecord[camelField(field)];
+    if (!aliases.some((alias) => hasPresentField(payload, alias)) || responseValue === undefined) {
       continue;
     }
     for (const alias of aliases) {
@@ -2410,21 +2237,6 @@ function harmonizeHappyPathPayloadWithResponseExample(spec: OperationSpec, paylo
       }
     }
   }
-  const traceId = stringValue(responseEnvelope.trace_id)
-    || stringValue(responseEnvelope.traceId)
-    || stringValue(responseMeta.trace_id)
-    || stringValue(responseMeta.traceId);
-  if (traceId) {
-    next.trace_id = traceId;
-    next.traceId = next.traceId ?? traceId;
-  }
-  const requestId = stringValue(responseEnvelope.request_id)
-    || stringValue(responseEnvelope.requestId)
-    || stringValue(responseMeta.request_id)
-    || stringValue(responseMeta.requestId)
-    || "req_1";
-  next.request_id = requestId;
-  next.requestId = next.requestId ?? requestId;
   return next;
 }
 
@@ -2506,6 +2318,8 @@ export function buildFailurePayload(operationId: string, errorCode: string): Jso
     if (key) {
       pathParams[key] = `missing_${snakeCase(key)}`;
       payload.path_params = pathParams;
+    } else {
+      payload.force_error_code = errorCode;
     }
     return payload;
   }
@@ -2513,6 +2327,7 @@ export function buildFailurePayload(operationId: string, errorCode: string): Jso
     payload.next_state = "invalid";
     return payload;
   }
+  payload.force_error_code = errorCode;
   return payload;
 }
 

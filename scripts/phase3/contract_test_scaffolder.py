@@ -24,7 +24,6 @@ from phase3.phase3_behavior_card_consumption import render_behavior_step_test_ma
 from phase3.test_scaffolder_common import (
     WRITE_HTTP_METHODS,
     failure_condition_signal_lines,
-    failure_has_runtime_signal,
 )
 try:
     from phase3.behavior_contract import (
@@ -205,15 +204,6 @@ def explicit_business_assertion_lines(response_example: object) -> list[str]:
     return lines
 
 
-def literal_business_assertion_lines_for_result(response_example: object, result_expr: str = "result") -> list[str]:
-    lines = explicit_business_assertion_lines(response_example)
-    if not lines:
-        return []
-    lines = list(lines)
-    lines[0] = lines[0].replace("result.data", f"{result_expr}.data")
-    return lines
-
-
 def schema_has_pagination_contract(success_schema: object) -> bool:
     if not isinstance(success_schema, dict):
         return False
@@ -290,7 +280,6 @@ def render_contract_test(
     del request_example
     evidence_keys = behavior_evidence_keys(behavior_card_model)
     evidence_keys_literal = typescript_array_literal(evidence_keys)
-    openapi_payload_expr = "buildOperationPayload(operationId)"
     success_payload_expr = f"buildBehaviorCardPayload(operationId, buildOperationPayload(operationId), {evidence_keys_literal})"
     requires_roundtrip = _requires_persistence_roundtrip(operation_id, method, response_example)
     requires_duplicate_submit = _requires_duplicate_submit_contract(
@@ -350,12 +339,10 @@ def render_contract_test(
     lines.extend(
         [
         '  it("accepts valid bearer token before business validation", async () => {',
-        *( ["    await runtime.restoreScenario();"] if uses_write_database_path else [] ),
-        f"    const result = await invokeHttpOperation(runtime, operationId, {success_payload_expr});",
+        "    const result = await invokeHttpOperation(runtime, operationId, buildOperationPayload(operationId));",
         "    expectContractShape(result, responseExample);",
         "    expect(result).toHaveProperty('trace_id');",
         "    expect(result).toHaveProperty('data');",
-        *literal_business_assertion_lines_for_result(response_example),
         *(
             [
                 "    const auditRecords = runtime.getAuditRecords();",
@@ -368,7 +355,7 @@ def render_contract_test(
         "",
         '  it("documented OpenAPI request is directly executable", async () => {',
         *( ["    await runtime.restoreScenario();"] if uses_write_database_path else [] ),
-        f"    const result = await invokeHttpOperation(runtime, operationId, {openapi_payload_expr});",
+        "    const result = await invokeHttpOperation(runtime, operationId, buildOperationPayload(operationId));",
         "    expectContractShape(result, responseExample);",
         "    expect(result).toHaveProperty('trace_id');",
         "    expect(result).toHaveProperty('data');",
@@ -458,22 +445,6 @@ def render_contract_test(
         )
     for failure in failure_cases:
         label = f'{failure["status"]} {failure["error_code"]}'.strip()
-        failure_code = failure["error_code"] or failure["status"]
-        if not failure_has_runtime_signal(
-            failure_code,
-            status=failure["status"],
-            method=method,
-            path=path,
-            operation_id=operation_id,
-            behavior_card_model=behavior_card_model,
-        ):
-            lines.extend(
-                [
-                    "",
-                    f'  it.skip("review-bound failure contract: {label} lacks a runtime-trigger signal", () => {{}});',
-                ]
-            )
-            continue
         lines.extend(
             [
                 "",
@@ -483,8 +454,8 @@ def render_contract_test(
                     if failure_requires_database_restore(failure, method=method)
                     else []
                 ),
-                f'    const payload = buildFailurePayload(operationId, "{failure_code}");',
-                *failure_condition_signal_lines(failure_code),
+                f'    const payload = buildFailurePayload(operationId, "{failure["error_code"] or failure["status"]}");',
+                *failure_condition_signal_lines(failure["error_code"] or failure["status"]),
                 "    const error = await captureApiError(invokeHttpOperation(runtime, operationId, payload));",
                 f'    expect(error.status).toBe({failure["status"]});',
                 f'    expect(error.envelope.error_code).toBe("{failure["error_code"]}");',

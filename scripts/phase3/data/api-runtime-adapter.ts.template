@@ -5,6 +5,7 @@ export interface GeneratedRuntimePayload {
   authContext?: Record<string, unknown>;
   body?: Record<string, unknown>;
   query?: Record<string, unknown>;
+  force_error_code?: string;
   invalid_query?: boolean;
   [key: string]: unknown;
 }

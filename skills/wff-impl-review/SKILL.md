@@ -39,8 +39,8 @@ Apply these rules:
 - Do not waive naming, dependency-direction, or error-envelope drift just because the build is green.
 - If the code is still placeholder-heavy, stop the review from pretending the slice is stable.
 - Every high or critical finding must point to concrete evidence in current files or generated reports.
-- High-risk public operations require behavior cards before a business-depth pass can be claimed.
-- Service/Domain/Repository/Adapter implementation must be covered by P2-authored implementation action cards; missing source material is `action_card_source_material_missing`, not a reviewer preference.
+- For v1.2.3, high-risk public operations require behavior cards before a business-depth pass can be claimed.
+- For v1.2.3 ACD, Service/Domain/Repository/Adapter implementation must be covered by P2-authored implementation action cards; missing source material is `action_card_source_material_missing`, not a reviewer preference.
 - Behavior-card and action-card trace authority must come from `wff-base-traceability-management`; a P3-only trace registry is not sufficient evidence of P1/P2 continuity.
 
 Resolution matrix / discovery policy:

@@ -20,26 +20,6 @@ PERSISTENCE_ROUNDTRIP_OPERATION_PREFIXES = (
     "Refresh",
 )
 WRITE_HTTP_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-UNDECLARED_SEMANTIC_OWNER_VALUES = {
-    "",
-    "agentic-required",
-    "agentic_required",
-    "n/a",
-    "na",
-    "none",
-    "not-applicable",
-    "not_applicable",
-    "not applicable",
-    "not-declared",
-    "not_declared",
-    "pending",
-    "review-bound",
-    "review_bound",
-    "tbd",
-    "to-be-decided",
-    "to_be_decided",
-    "unknown",
-}
 
 
 def dedupe_preserve_order(values: list[str]) -> list[str]:
@@ -62,18 +42,6 @@ def unique_strings(values: list[Any]) -> list[str]:
             result.append(text)
             seen.add(text)
     return result
-
-
-def normalized_semantic_owner(value: object) -> str:
-    text = str(value or "").strip()
-    normalized = re.sub(r"[\s_]+", "-", text.lower())
-    if normalized in UNDECLARED_SEMANTIC_OWNER_VALUES:
-        return ""
-    return text
-
-
-def has_declared_semantic_owner(value: object) -> bool:
-    return bool(normalized_semantic_owner(value))
 
 
 def endpoint_index(endpoint_rows: list[dict[str, object]]) -> dict[str, dict[str, object]]:
@@ -214,48 +182,6 @@ def failure_condition_signal_lines(error_code: str, payload_name: str = "payload
             f"    {payload_name}.simulateDependencyFailure = true;",
         ]
     return []
-
-
-def failure_has_runtime_signal(
-    error_code: str,
-    *,
-    status: str = "",
-    method: str = "",
-    path: str = "",
-    operation_id: str = "",
-    behavior_card_model: dict[str, Any] | None = None,
-) -> bool:
-    normalized = error_code.lower()
-    status_text = str(status).strip()
-    method_text = str(method).strip().upper()
-    has_path_param = "{" in str(path) and "}" in str(path)
-    if status_text.startswith("404") or "not_found" in normalized:
-        return has_path_param
-    if status_text.startswith("400") or any(token in normalized for token in ("invalid", "validation", "missing", "required")):
-        return True
-    if status_text.startswith("403") or "forbidden" in normalized:
-        if "tenant_forbidden" in normalized or "rbac_forbidden" in normalized:
-            return True
-        has_behavior_model = isinstance(behavior_card_model, dict)
-        semantics = (
-            behavior_card_model.get("operation_semantics", {})
-            if has_behavior_model and isinstance(behavior_card_model.get("operation_semantics"), dict)
-            else {}
-        )
-        semantic_status = str(semantics.get("status") or "").strip()
-        if semantic_status == "review-bound":
-            return False
-        owner_service = normalized_semantic_owner(semantics.get("owner_service"))
-        if has_behavior_model:
-            return bool(owner_service and semantic_status in {"", "resolved"})
-        if failure_condition_signal_lines(error_code):
-            return True
-        return bool(owner_service and semantic_status in {"", "resolved"})
-    if status_text.startswith("409") or any(token in normalized for token in ("conflict", "stale", "version", "duplicate")):
-        return method_text in WRITE_HTTP_METHODS
-    if any(token in normalized for token in ("db", "database", "dependency", "unavailable", "timeout")):
-        return method_text in WRITE_HTTP_METHODS or operation_id.startswith("List")
-    return bool(failure_condition_signal_lines(error_code))
 
 
 def remap_operation_ids_to_runtime_contract(

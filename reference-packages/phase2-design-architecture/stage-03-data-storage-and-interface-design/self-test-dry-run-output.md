@@ -1,0 +1,237 @@
+# Stage-03 Dry-Run Output — meeting assistant data and interface design
+
+## 1. Document Metadata
+- document_name:
+  - ai-meeting-assistant-stage-03-dry-run
+- stage:
+  - data-storage-and-interface-design
+- version:
+  - v0.1-dry-run
+- status:
+  - `provisional`
+- source_status:
+  - `mixed`
+- artifact_id:
+  - `ARCH-STG03-OUTPUT-0001`
+- artifact_type:
+  - `ARCH`
+- depends_on:
+  - `ARCH-STG02-OUTPUT-0001`
+- feeds:
+  - `ARCH-STG04-OUTPUT-0001`
+- source_path:
+  - `reference-packages/phase2-design-architecture/stage-03-data-storage-and-interface-design/self-test-dry-run-output.md`
+- source_anchor:
+  - `#arch-stg03-output-0001`
+- traceability_managed_by:
+  - `wff-base-traceability-management`
+
+## 2. Context and Objective {#arch-stg03-output-0001}
+- design_objective:
+  - produce a Stage-04-consumable data/storage/interface package from Stage-02 decomposition
+- upstream_decomposition_summary:
+  - capture, review, summarization, and CRM sync services are explicit, with conceptual ER and domain-event hints already present
+- upstream_declaration_states:
+  - `present | unknown | deferred`
+- assumptions:
+  - review workflow needs durable state tracking and auditable outbound sync
+- open_questions:
+  - exact retention window and vendor-specific CRM API limits remain unresolved
+
+## 3. Core Structured Output
+- data_model_summary:
+  - meeting aggregate
+  - transcript artifact
+  - summary draft
+  - review decision snapshot
+  - CRM sync attempt record
+- data_ownership_map:
+  - review service owns review decision state
+  - summarization service owns summary draft state
+  - CRM sync service owns outbound sync attempt records and retry state
+- storage_strategy:
+  - relational transactional store for meeting/review state
+  - object/artifact store for transcript evidence
+  - audit/trace store for processing lineage and outbound sync attempts
+  - rebuildable projections for reporting/search views
+  - queue-backed job state for asynchronous CRM sync
+- schema_draft:
+  - logical tables/collections:
+    - `meetings`
+    - `transcript_artifacts`
+    - `summary_drafts`
+    - `review_decisions`
+    - `crm_sync_jobs`
+    - `crm_sync_attempts`
+  - key relations:
+    - `summary_drafts.meeting_id -> meetings.id`
+    - `review_decisions.meeting_id -> meetings.id`
+    - `crm_sync_jobs.review_decision_id -> review_decisions.id`
+    - `crm_sync_attempts.crm_sync_job_id -> crm_sync_jobs.id`
+  - ownership notes:
+    - review-owned truth remains outside CRM sync records
+- interface_contracts:
+  - `ArtifactIngestionReceipt`:
+    - capture-to-processing input contract
+  - `ReviewDecisionSnapshot`:
+    - processing-to-review summary decision contract with rejection/rework path
+    - derived/read-only from `review_decisions`
+  - `CRMSyncJobRequest`:
+    - review-to-sync enqueue contract
+  - `CRMSyncAttemptSnapshot`:
+    - retry/failure status contract for downstream review/reporting
+    - derived/read-only from `crm_sync_attempts`
+- api_endpoint_draft:
+  - `POST /meetings/{meeting_id}/artifacts`
+    - request: artifact metadata + storage reference
+    - response: artifact id + `ArtifactIngestionReceipt`
+  - `POST /reviews/{review_id}/decisions`
+    - request: approve/reject decision + reviewer note
+    - response: `ReviewDecisionSnapshot` + downstream sync eligibility
+  - `POST /sync/crm-jobs`
+    - request: `CRMSyncJobRequest`
+    - response: job id + initial queue status
+- lifecycle_and_command_consistency_checks:
+  - authoritative review-decision mutation occurs only through `POST /reviews/{review_id}/decisions`
+  - `POST /sync/crm-jobs` creates sync-job state only and does not mutate review decision truth
+  - CRM worker mutates `crm_sync_jobs` and `crm_sync_attempts`, not `review_decisions`
+  - rejection/rework creates a new summary draft candidate rather than rewriting prior review history
+  - reporting/search readers consume derived snapshots only
+- public_boundary_registry_closure:
+  - `ArtifactIngestionReceipt`:
+    - status: defined
+    - origin: ingestion endpoint response
+  - `ReviewDecisionSnapshot`:
+    - status: defined as derived/read-only
+    - origin: `review_decisions`
+  - `CRMSyncJobRequest`:
+    - status: defined
+    - origin: sync-job enqueue endpoint request
+  - `CRMSyncAttemptSnapshot`:
+    - status: defined as derived/read-only
+    - origin: `crm_sync_attempts`
+- interaction_flow:
+  - capture -> processing -> review -> CRM sync
+  - rejection loops from review back to summarization notes rather than mutating prior decision history
+- scenario_coverage_matrix:
+  - ingestion success:
+    - entities: meeting aggregate, transcript artifact
+    - modules/services: capture, processing
+    - contracts: capture-to-processing input
+  - review reject and rework:
+    - entities: summary draft, review decision snapshot
+    - modules/services: summarization, review
+    - contracts: processing-to-review summary contract
+  - CRM sync retry:
+    - entities: review decision snapshot, CRM sync attempt
+    - modules/services: review, CRM sync
+    - contracts: review-to-sync action payload contract
+  - retention delete request:
+    - entities: meeting aggregate, transcript artifact, audit trace
+    - modules/services: review, retention/audit sidecar
+    - notes: deletion flow remains review-bound pending retention rule confirmation
+- security_architecture_outline:
+  - trust boundary between internal application and CRM adapter is explicit
+  - review decision writes require authenticated reviewer identity
+  - transcript artifacts assume encryption at rest and scoped retrieval links
+  - outbound payload omits excluded transcript fields by contract
+- technology_stack_and_deployment_assumptions:
+  - modular monolith application runtime
+  - relational primary store + object store + durable queue/job runner
+  - external CRM reached only through adapter boundary
+  - deployment remains single application boundary with background worker lane in first pass
+- technology_selection_evaluation_matrix:
+  - candidate_a:
+    - relational-primary transactional model + queue-backed sync
+    - strengths: review integrity, audit clarity, operational familiarity
+  - candidate_b:
+    - document-primary workflow store + direct sync
+    - strengths: flexible nested payloads
+    - weakness: weaker cross-object audit/query discipline
+  - candidate_c:
+    - event-first append-only core
+    - strengths: strongest lineage/replay story
+    - weakness: higher complexity burden than current meeting-assistant scope justifies
+  - evidence rule:
+    - vendor/version/LTS/security claims remain externally verified before final stack freeze
+- dominant_bottleneck_hypothesis:
+  - auditability and human-review integrity dominate architecture choice more than peak throughput
+- architecture_alternative_candidate_set:
+  - mainstream baseline:
+    - simple CRUD services + relational tables + synchronous CRM push
+  - stronger candidate:
+    - relational primary truth + explicit review snapshots + queue-backed outbound sync
+  - stretch candidate:
+    - append-only event core with replayable projections
+- baseline_insufficiency_note:
+  - a synchronous CRUD baseline obscures retry/audit history and couples reviewer completion to CRM availability
+- constraint_dominant_optimum_candidate:
+  - relational primary truth with explicit review decision snapshots and queue-backed outbound sync is the current best fit under review-integrity and auditability constraints
+- capacity_and_performance_assumptions:
+  - reviewer-facing writes should stay low-latency
+  - CRM sync is asynchronous and may retry with backpressure
+  - reporting/search projections are rebuildable and not source-of-truth
+- key_tradeoff_decisions:
+  - preserve review decision state separately from summary content
+  - keep CRM sync asynchronous to isolate external instability
+  - stop at relational-primary first pass unless stronger external evidence justifies event-first complexity
+
+## 3.1 Provenance / Confidence / Verification
+- source:
+  - `mixed`
+- confidence_profile:
+  - input_confidence:
+    - `partially-confirmed`
+  - evidence_strength:
+    - `evidence-needed`
+  - design_stability:
+    - `provisional`
+  - optimality_confidence:
+    - `unsettled`
+- verification:
+  - `required`
+- assumptions_to_validate:
+  - whether CRM API feasibility requires a constrained/manual fallback boundary
+- what_changes_if_wrong:
+  - technology choice and outbound interaction design may require revision
+
+## 4. Key Judgments and Constraints
+- key_judgments:
+  - review decision snapshot is the boundary-visible approval truth
+  - outbound CRM sync remains downstream of review, never upstream of decision truth
+- key_constraints:
+  - auditability
+  - human-review integrity
+  - bounded first-pass integration complexity
+- nfr_and_quality_state:
+  - `present | unknown | deferred`
+- boundary_visibility_scope:
+  - `public-boundary-only`
+- deferred_private_implementation_notes:
+  - internal repository/service class structure remains implementation-stage work
+- explicit_exclusions:
+  - no final vendor-specific DB or queue product commitment in this dry run
+
+## 5. Acceptance and Flow
+- handoff_to:
+  - `design-convergence-and-delivery-prototype`
+  - handoff_package:
+  - data model summary
+  - data ownership map
+  - storage strategy
+  - schema draft
+  - contract set
+  - API endpoint draft
+  - lifecycle and command consistency checks
+  - public-boundary registry closure notes
+  - interaction flow
+  - scenario coverage matrix
+  - security architecture outline
+  - technology stack/deployment assumptions
+  - technology selection evaluation matrix
+  - dominant bottleneck hypothesis
+  - architecture alternative candidate set
+  - baseline insufficiency note
+  - constraint-dominant optimum candidate
+  - capacity/performance assumptions
+  - unresolved declaration-state and quality notes

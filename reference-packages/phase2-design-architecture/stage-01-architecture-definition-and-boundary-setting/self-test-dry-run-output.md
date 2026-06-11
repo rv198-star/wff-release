@@ -1,0 +1,146 @@
+# Stage-01 Dry-Run Output — AI meeting assistant architecture entry
+
+## 1. Document Metadata
+- document_name:
+  - ai-meeting-assistant-stage-01-dry-run
+- stage:
+  - architecture-definition-and-boundary-setting
+- version:
+  - v0.1-dry-run
+- status:
+  - `provisional`
+- owner:
+  - AI dry-run
+- source_status:
+  - `mixed`
+- artifact_id:
+  - `ARCH-STG01-OUTPUT-0001`
+- artifact_type:
+  - `ARCH`
+- depends_on:
+  - `REQ-STG04-OUTPUT-0001`
+- feeds:
+  - `ARCH-STG02-OUTPUT-0001`
+- source_path:
+  - `reference-packages/phase2-design-architecture/stage-01-architecture-definition-and-boundary-setting/self-test-dry-run-output.md`
+- source_anchor:
+  - `#arch-stg01-output-0001`
+- traceability_managed_by:
+  - `wff-base-traceability-management`
+
+## 2. Context and Objective {#arch-stg01-output-0001}
+- current_architecture_target:
+  - define the architecture entry package for an AI meeting assistant MVP
+- architecture_objective:
+  - freeze system boundary, constraints, capability map, and architecture direction for Stage-02 decomposition
+- upstream_handoff_summary:
+  - validated MVP includes meeting capture, summary review, and one-CRM action sync
+- assumptions:
+  - CRM sync is important but should not dominate core summarization capability boundaries
+- open_questions:
+  - exact summary-latency expectation remains unknown
+  - retention/audit constraints remain incomplete
+
+## 3. Core Structured Output
+- system_boundary_statement:
+  - in_scope:
+    - meeting capture pipeline
+    - summary generation and review workflow
+    - action extraction and single-CRM synchronization
+  - adjacent_systems_or_external_dependencies:
+    - meeting platform APIs
+    - CRM API
+    - identity provider
+  - explicit_out_of_scope:
+    - multi-CRM orchestration
+    - enterprise BI/reporting platform
+    - generalized workflow automation
+- constraints:
+  - inherited_constraints:
+    - MVP supports one CRM integration only
+    - privacy expectations are already known from upstream validation
+  - inferred_constraints:
+    - summary-generation core should remain isolated from CRM-facing sync logic
+  - unknown_constraints:
+    - target latency for summary turnaround
+  - deferred_constraints:
+    - future multi-CRM expansion rules
+- quality_attribute_structure:
+  - upstream_nfr_state:
+    - `unknown`
+  - architecture_facing_quality_attributes:
+    - privacy / data handling
+    - reviewability / traceability
+    - integration reliability
+  - unresolved_quality_gaps:
+    - latency scenario incomplete
+    - audit/retention requirements incomplete
+- security_architecture_sketch:
+  - trust_boundaries:
+    - reviewer-facing workflow boundary
+    - CRM outbound integration boundary
+  - identity_and_access_posture:
+    - enterprise identity provider with reviewer/operator role split
+  - sensitive_data_or_sensitive_actions:
+    - meeting transcript access
+    - summary approval
+    - CRM write operations
+  - audit_sensitive_edges:
+    - review approval or rejection
+    - outbound CRM push attempts
+  - unresolved_security_questions:
+    - tenant-level retention/export controls
+- capacity_estimation:
+  - load_assumption_basis:
+    - bursty post-meeting ingestion and review activity for SMB teams
+  - dominant_peak_patterns:
+    - ingestion burst after meeting close
+    - review burst before CRM sync
+  - order_of_magnitude_throughput_or_volume:
+    - low-to-mid tens of concurrent active workflows per tenant
+  - latency_or_freshness_posture:
+    - summary review should complete within an interactive session
+  - growth_or_retention_pressure:
+    - transcript and audit artifacts grow faster than CRM sync records
+  - unresolved_capacity_questions:
+    - exact peak concurrency and long-term artifact retention volume
+- capability_map:
+  - meeting ingestion
+  - transcript / note processing
+  - summary review
+  - action extraction
+  - CRM synchronization
+- architecture_direction:
+  - modular service-oriented structure with clear separation between capture, processing, review, and external sync capabilities
+- key_architecture_decisions:
+  - treat review workflow as first-class capability
+  - keep CRM sync outside the summary-generation core
+  - preserve unresolved quality gaps explicitly for downstream stages
+
+## 3.1 Provenance / Confidence / Verification
+- source:
+  - `mixed`
+- confidence_profile:
+  - input_confidence:
+    - `partially-confirmed`
+  - evidence_strength:
+    - `internally-grounded`
+  - design_stability:
+    - `provisional`
+  - optimality_confidence:
+    - `not-applicable`
+- verification:
+  - `required`
+- assumptions_to_validate:
+  - whether latency is a critical adoption gate
+  - whether auditability is operationally mandatory in MVP
+- what_changes_if_wrong:
+  - decomposition and interface choices may shift if auditability or latency become hard constraints
+- ai_inferred_marker:
+  - `AI-INFERRED DRAFT — UNVERIFIED`
+
+## 4. Acceptance and Flow
+- handoff_to:
+  - `domain-module-service-decomposition`
+- downstream_usage_rule:
+  - downstream may use this output only as a review-bound architecture-entry package until unresolved quality items are confirmed

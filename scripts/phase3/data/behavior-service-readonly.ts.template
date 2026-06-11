@@ -8,7 +8,7 @@ export class $module_class {
     // operation-semantic-event: read-only projection
     // operation-semantic-evidence: $semantic_evidence
     const context = this.validate${op}Context(payload);
-    this.assert${op}BusinessPreconditions(context);
+    this.maybeForced${op}Failure(context);
 $path_param_not_found_guard
 $behavior_value_state_guards
     const current = await this.repository.load${op}ForDecision(context);
@@ -49,8 +49,8 @@ $meta_projection
       data: responseData,
       meta: responseMeta,
 $pagination_projection
-      request_id: String(this.project${op}ResponseField("request_id", context, nextState, {}, "request", "$operation_id")),
-      trace_id: String(this.project${op}ResponseField("trace_id", context, nextState, {}, "trace", "$operation_id")),
+      request_id: String(context.request_id ?? context.requestId ?? nextState.request_id ?? nextState.requestId ?? `req-$method`),
+      trace_id: String(context.trace_id ?? context.traceId ?? nextState.trace_id ?? nextState.traceId ?? "trace-generated"),
     };
   }
 }

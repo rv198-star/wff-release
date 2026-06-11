@@ -21,7 +21,7 @@
     "deferred_seam": "Do not assume deferred extension seams can be dropped without Phase-2 consequences."
   },
   "first_version_authority": {
-    "canonical_guidance": "Use run_phase2_fresh_generation.py --run-wrapper as the fresh Phase-2 mainline. Use run_phase2_existing_system_intake.py when an existing-system architecture-change intake packet is required. run_phase2_first_version.py is a deprecated compatibility wrapper only; wrapper success does not upgrade P2 into release proof or production readiness.",
+    "canonical_guidance": "Use run_phase2_first_version.py --run-wrapper as the fresh Phase-2 mainline. Wrapper success does not upgrade P2 into release proof or production readiness.",
     "claim_ceiling": "P2 architecture/spec artifacts and declared wrapper evidence only",
     "default_status": "default",
     "fresh_generation_entrypoint": true,

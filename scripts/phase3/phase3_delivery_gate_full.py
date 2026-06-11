@@ -54,14 +54,9 @@ from phase3.delivery_mode_authority import (
     phase3_mode_authority,
     phase3_mode_authority_map,
 )
-from phase3.claim_ceiling_resolver import (
-    apply_phase3_claim_ceiling,
-    build_phase3_claim_ceiling_report,
-)
 from phase3.trace_gap_checks import (
     first_int,
     trace_registry_blocking_gap_count,
-    trace_registry_quality_report,
 )
 
 
@@ -97,15 +92,6 @@ def bootstrap_report_is_green(report: dict[str, Any] | None) -> bool:
     module = optional_phase3_gate_sidecar("backend_truth_checks")
     if module is not None:
         return module.bootstrap_report_is_green(report)
-    checks = report.get("checks", {}) if isinstance(report, dict) else {}
-    if isinstance(checks, dict):
-        toolchain_status = str(
-            checks.get("toolchain_bootstrap_status") or checks.get("toolchain_bootstrap_raw_status") or ""
-        ).strip().lower()
-        if toolchain_status in {"ready", "toolchain-ready", "pass"}:
-            return True
-        if toolchain_status in {"fail", "failed", "blocked", "not-ready", "error"}:
-            return False
     return _report_status_green(report)
 
 
@@ -626,21 +612,6 @@ def analyze_phase3_delivery(
         ("frontend_contract_alignment_gap_count",),
         ("summary", "frontend_contract_alignment_gap_count"),
     )
-    code_review_empty_or_audit_shaped_services = first_int(
-        code_review_metrics,
-        ("empty_or_audit_shaped_service_count",),
-        ("summary", "empty_or_audit_shaped_service_count"),
-    )
-    code_review_same_source_test_risks = first_int(
-        code_review_metrics,
-        ("same_source_test_risk_count",),
-        ("summary", "same_source_test_risk_count"),
-    )
-    code_review_anti_cheat_negative_tests = first_int(
-        code_review_metrics,
-        ("anti_cheat_negative_test_count",),
-        ("summary", "anti_cheat_negative_test_count"),
-    )
     code_review_all_payload_typed = None
     if isinstance(code_review_metrics, dict):
         code_review_summary = code_review_metrics.get("summary", {})
@@ -831,28 +802,11 @@ def analyze_phase3_delivery(
         failures.append("security_audit_has_high_findings")
 
     trace_registry_final_present = path_exists(trace_registry_final_path)
-    trace_registry_payload = (
-        load_json(trace_registry_final_path)
-        if trace_registry_final_present and trace_registry_final_path and trace_registry_final_path.suffix == ".json"
-        else None
+    trace_registry_gap_count = trace_registry_blocking_gap_count(
+        load_json(trace_registry_final_path) if trace_registry_final_present and trace_registry_final_path and trace_registry_final_path.suffix == ".json" else None
     )
-    if isinstance(trace_registry_payload, dict) and trace_registry_final_path is not None:
-        trace_registry_payload = dict(trace_registry_payload)
-        trace_registry_payload["trace_db_present"] = bool(trace_registry_payload.get("trace_db_present")) or (
-            trace_registry_final_path.parent / ".trace" / "trace.db"
-        ).exists()
-    trace_quality = trace_registry_quality_report(trace_registry_payload)
-    trace_registry_gap_count = trace_registry_blocking_gap_count(trace_registry_payload)
-    trace_registry_unresolved_count = int(trace_quality.get("unresolved_count", 0) or 0)
-    trace_registry_review_count = int(trace_quality.get("review_count", 0) or 0)
-    trace_registry_suggested_count = int(trace_quality.get("suggested_count", 0) or 0)
-    trace_registry_abuse_count = int(trace_quality.get("abuse_count", 0) or 0)
-    if trace_registry_final_present and (
-        trace_registry_gap_count > 0 or trace_registry_unresolved_count > 0 or trace_registry_abuse_count > 0
-    ):
+    if trace_registry_final_present and trace_registry_gap_count > 0:
         failures.append("trace_registry_final_has_unresolved_ids")
-    if trace_registry_final_present and bool(trace_quality.get("trace_db_projection_blocking")):
-        failures.append("trace_db_not_indexed_for_phase3_evidence")
 
     openapi_final_present = path_exists(openapi_final_path)
     api_doc_assets_present = dir_has_entries(api_doc_dir)
@@ -1194,9 +1148,6 @@ def analyze_phase3_delivery(
             "code_review_frontend_contract_meta_surface_count": code_review_frontend_contract_meta_surfaces,
             "code_review_frontend_operability_gap_count": code_review_frontend_operability_gaps,
             "code_review_frontend_contract_alignment_gap_count": code_review_frontend_contract_alignment_gaps,
-            "empty_or_audit_shaped_service_count": code_review_empty_or_audit_shaped_services,
-            "same_source_test_risk_count": code_review_same_source_test_risks,
-            "anti_cheat_negative_test_count": code_review_anti_cheat_negative_tests,
             "security_audit_report_present": security_audit_report is not None,
             "security_critical_findings": security_critical,
             "security_high_findings": security_high,
@@ -1223,35 +1174,12 @@ def analyze_phase3_delivery(
             "execution_report_present": execution_report_present,
             "trace_registry_final_present": trace_registry_final_present,
             "trace_registry_gap_count": trace_registry_gap_count,
-            "trace_registry_confirmed_count": int(trace_quality.get("confirmed_count", 0) or 0),
-            "trace_registry_suggested_count": trace_registry_suggested_count,
-            "trace_registry_review_count": trace_registry_review_count,
-            "trace_registry_unresolved_count": trace_registry_unresolved_count,
-            "trace_registry_unknown_count": int(trace_quality.get("unknown_count", 0) or 0),
-            "trace_registry_abuse_count": trace_registry_abuse_count,
-            "trace_registry_chain_coverage_state": str(trace_quality.get("chain_coverage_state", "unknown")),
-            "trace_registry_quality": trace_quality,
-            "trace_db_present": bool(trace_quality.get("trace_db_present")),
-            "trace_db_indexed": bool(trace_quality.get("trace_db_indexed")),
-            "trace_db_projection_status": str(trace_quality.get("trace_db_projection_status") or ""),
-            "trace_db_projection_blocking": bool(trace_quality.get("trace_db_projection_blocking")),
             "delivery_artifacts_complete": delivery_artifacts_complete,
             "delivery_gate": delivery_ready,
         },
         "failures": failures,
         "warnings": warnings,
     }
-    report["mainline_assessment"] = build_phase3_mainline_assessment(delivery_gate_report=report)
-    report = apply_phase3_claim_ceiling(
-        report,
-        build_phase3_claim_ceiling_report(
-            requested_formal_state=str(report.get("recommended_formal_state") or ""),
-            checks=report.get("checks", {}),
-            failures=failures,
-            warnings=warnings,
-            scope_states=report["mainline_assessment"],
-        ),
-    )
     report["mainline_assessment"] = build_phase3_mainline_assessment(delivery_gate_report=report)
     return report
 

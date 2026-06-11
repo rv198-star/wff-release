@@ -433,18 +433,6 @@ def run_phase3_runtime_smoke(
                 failures.append("docker_image_build_failed")
 
             if image_build_passed:
-                commands["migration"] = run_command(
-                    [*compose_command, "-p", project_name, "-f", str(compose_prod_path), "run", "--rm", "api", "pnpm", "migrate"],
-                    workspace_root,
-                    command_timeout_seconds,
-                    runtime_smoke_env,
-                )
-                migration_passed = bool(commands["migration"].get("passed"))
-                compose_started = True
-                if not migration_passed:
-                    failures.append("docker_migration_failed")
-
-            if migration_passed:
                 commands["compose_up"] = run_command(
                     [*compose_command, "-p", project_name, "-f", str(compose_prod_path), "up", "-d", "api"],
                     workspace_root,
@@ -452,8 +440,20 @@ def run_phase3_runtime_smoke(
                     runtime_smoke_env,
                 )
                 compose_up_passed = bool(commands["compose_up"].get("passed"))
+                compose_started = compose_up_passed
                 if not compose_up_passed:
                     failures.append("docker_compose_up_failed")
+
+            if compose_up_passed:
+                commands["migration"] = run_command(
+                    [*compose_command, "-p", project_name, "-f", str(compose_prod_path), "run", "--rm", "api", "pnpm", "migrate"],
+                    workspace_root,
+                    command_timeout_seconds,
+                    runtime_smoke_env,
+                )
+                migration_passed = bool(commands["migration"].get("passed"))
+                if not migration_passed:
+                    failures.append("docker_migration_failed")
 
             if compose_up_passed:
                 probes["healthz"] = wait_for_probe(

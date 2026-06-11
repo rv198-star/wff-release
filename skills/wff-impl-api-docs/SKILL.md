@@ -32,7 +32,7 @@ S01 `openapi.yaml` remains the source of truth.
 S03 may add compatible implementation detail, but must not silently change frozen public fields, paths, methods, envelopes, or status semantics.
 Any incompatible diff must point back to an ADR or be treated as blocked.
 
-API docs are not an endpoint list only. Core API documentation should expose evidence linkage:
+For `v1.2.3` P3, API docs are not an endpoint list only. Core API documentation should expose evidence linkage:
 
 - P1 business scenario / acceptance intent
 - P2 contract, RBI, or work-package anchor

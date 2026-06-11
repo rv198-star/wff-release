@@ -32,7 +32,7 @@ def list_items_from_block(block: str) -> list[str]:
 def find_markdown_block(text: str, heading_keywords: list[str]) -> str:
     for keyword in heading_keywords:
         match = re.search(
-            rf"^#+\s+(?:\d+(?:\.\d+)?\s+)?[^\n]*{re.escape(keyword)}[^\n]*$",
+            rf"^##+\s+(?:\d+(?:\.\d+)?\s+)?[^\n]*{re.escape(keyword)}[^\n]*$",
             text,
             flags=re.IGNORECASE | re.MULTILINE,
         )
@@ -43,7 +43,7 @@ def find_markdown_block(text: str, heading_keywords: list[str]) -> str:
         heading_level = len(re.match(r"^#+", heading_line).group(0))
         tail = text[start:]
         next_heading = re.search(
-            rf"^#{{1,{heading_level}}}\s+",
+            rf"^#{{2,{heading_level}}}\s+",
             tail[match.end() - start :],
             flags=re.MULTILINE,
         )
@@ -283,21 +283,10 @@ def detect_source_segments(source_text: str) -> list[str]:
     if not candidates:
         table_rows = parse_markdown_table(find_markdown_block(fact_text, ["User, Buyer, Operator", "2. Target Users", "Target Users", "目标用户"]))
         candidates = [
-            normalize_candidate(_row_value(row, "Role", "role", "角色", "persona", "user", "target_user"))
+            normalize_candidate(str(row.get("Role", "") or row.get("role", "")).strip())
             for row in table_rows
-            if normalize_candidate(_row_value(row, "Role", "role", "角色", "persona", "user", "target_user"))
+            if normalize_candidate(str(row.get("Role", "") or row.get("role", "")).strip())
         ]
-    if not candidates:
-        for headers, table_rows in iter_markdown_tables(fact_text):
-            if not _table_has_header(headers, "Role", "role", "角色", "persona", "user", "target_user"):
-                continue
-            candidates = [
-                normalize_candidate(_row_value(row, "Role", "role", "角色", "persona", "user", "target_user"))
-                for row in table_rows
-                if normalize_candidate(_row_value(row, "Role", "role", "角色", "persona", "user", "target_user"))
-            ]
-            if candidates:
-                break
     if not candidates:
         target_users_block = find_markdown_block(fact_text, ["User, Buyer, Operator", "Target Users", "目标用户"])
         candidates = [value for value in (normalize_candidate(item) for item in list_items_from_block(target_users_block)) if value]
@@ -306,12 +295,7 @@ def detect_source_segments(source_text: str) -> list[str]:
             row = re.match(r"^\|\s*([^|]+?)\s*\|", line)
             if row:
                 cell = normalize_candidate(row.group(1).strip())
-                if (
-                    cell
-                    and cell.lower() not in {"role", "---"}
-                    and cell not in {"角色", "文档状态", "目标阶段", "目标用户", "使用范围", "核心路线", "整理日期"}
-                    and "source section not found" not in cell.lower()
-                ):
+                if cell and cell.lower() not in {"role", "---"} and "source section not found" not in cell.lower():
                     candidates.append(cell)
             if len(candidates) >= 5:
                 break
@@ -345,53 +329,6 @@ def parse_markdown_table(block: str) -> list[dict[str, str]]:
             continue
         rows.append({headers[idx]: cells[idx] for idx in range(len(headers))})
     return rows
-
-
-def iter_markdown_tables(block: str) -> list[tuple[list[str], list[dict[str, str]]]]:
-    tables: list[tuple[list[str], list[dict[str, str]]]] = []
-    lines = block.splitlines()
-    index = 0
-    while index < len(lines) - 1:
-        if "|" not in lines[index] or "|" not in lines[index + 1]:
-            index += 1
-            continue
-        if not re.match(r"^\s*\|?[\-:\s|]+\|?\s*$", lines[index + 1]):
-            index += 1
-            continue
-        headers = [cell.strip() for cell in lines[index].strip().strip("|").split("|")]
-        rows: list[dict[str, str]] = []
-        index += 2
-        while index < len(lines) and "|" in lines[index]:
-            if re.match(r"^\s*\|?[\-:\s|]+\|?\s*$", lines[index]):
-                index += 1
-                continue
-            cells = [cell.strip() for cell in lines[index].strip().strip("|").split("|")]
-            if len(cells) < len(headers):
-                cells.extend([""] * (len(headers) - len(cells)))
-            if len(cells) == len(headers):
-                rows.append({headers[pos]: cells[pos] for pos in range(len(headers))})
-            index += 1
-        if rows:
-            tables.append((headers, rows))
-    return tables
-
-
-def _normalized_header_key(value: str) -> str:
-    text = str(value or "").strip().strip("`").casefold()
-    return re.sub(r"[\s_`：:/／|()（）-]+", "", text)
-
-
-def _row_value(row: dict[str, str], *aliases: str) -> str:
-    normalized_aliases = {_normalized_header_key(alias) for alias in aliases if alias}
-    for key, value in row.items():
-        if _normalized_header_key(key) in normalized_aliases:
-            return str(value or "").strip().strip("`")
-    return ""
-
-
-def _table_has_header(headers: list[str], *aliases: str) -> bool:
-    normalized = {_normalized_header_key(header) for header in headers}
-    return any(_normalized_header_key(alias) in normalized for alias in aliases)
 
 
 def parse_markdown_table_padded(block: str) -> list[dict[str, str]]:
@@ -467,46 +404,24 @@ def extract_target_user_rows(source_text: str) -> list[dict[str, str]]:
     if rows:
         normalized_rows: list[dict[str, str]] = []
         for row in rows:
-            role = _row_value(row, "Role", "role", "角色", "persona", "user", "target_user")
+            role = str(row.get("Role") or row.get("role") or "").strip().strip("`")
             if role:
                 normalized = dict(row)
                 normalized["Role"] = role
-                description = _row_value(row, "Description", "description", "核心需求", "职责", "Source-backed responsibility")
-                if description and "Description" not in normalized:
-                    normalized["Description"] = description
-                boundary = _row_value(row, "Boundary", "boundary", "关键边界", "Product implication")
-                if boundary and "Boundary" not in normalized:
-                    normalized["Boundary"] = boundary
                 normalized_rows.append(normalized)
         return normalized_rows or rows
-    for headers, table_rows in iter_markdown_tables(fact_text):
-        if not _table_has_header(headers, "Role", "role", "角色", "persona", "user", "target_user"):
-            continue
-        normalized_rows = []
-        for row in table_rows:
-            role = _row_value(row, "Role", "role", "角色", "persona", "user", "target_user")
-            if not role:
-                continue
-            normalized_rows.append(
-                {
-                    "Role": role,
-                    "Description": _row_value(
-                        row,
-                        "Description",
-                        "description",
-                        "核心需求",
-                        "职责",
-                        "Source-backed responsibility",
-                    ),
-                    "Boundary": _row_value(row, "Boundary", "boundary", "关键边界", "Product implication"),
-                }
-            )
-        if normalized_rows:
-            return normalized_rows
     return [{"Role": value.strip("`"), "Description": ""} for value in detect_source_segments(fact_text)]
 
 def detect_source_style(source_text: str) -> str:
-    return "source_semantic_profile"
+    lowered = source_fact_text(source_text).casefold()
+    if re.search(
+        r"\bgeo\b|ai 搜索|生成式回答|ai 可见性|visibility|tracked scope|citation|competitor|竞争对手|归因|roi|conversion|b2b 市场|marketing owner|content operator|growth owner|baseline run",
+        lowered,
+    ):
+        return "growth_observation"
+    if re.search(r"pet|clinic|veterinar|宠物|诊所|就诊|治疗|复诊|随访|discharge|follow-up", lowered):
+        return "pet_clinic"
+    return "generic"
 
 def _role_name_list(roles: list[dict[str, str]]) -> list[str]:
     return [role_label(row) for row in roles if role_label(row)]
@@ -518,391 +433,134 @@ def _find_role_by_hint(role_names: list[str], patterns: list[str], fallback_inde
             return role
     return role_names[fallback_index] if role_names else "primary operator"
 
-
-def _choose_primary_actor_from_context(role_names: list[object], *context_values: str, fallback: str = "") -> str:
-    role_names = [
-        role_label(role) if isinstance(role, dict) else str(role or "").strip()
-        for role in role_names
-        if (role_label(role) if isinstance(role, dict) else str(role or "").strip())
-    ]
-    if not role_names:
-        return fallback or "primary operator"
-    weights = [10, 6, 4, 3, 2]
-    scores: dict[str, int] = {role: 0 for role in role_names}
-    for index, value in enumerate(context_values):
-        text = clean_source_text_value(value).casefold()
-        if not text:
-            continue
-        weight = weights[index] if index < len(weights) else 1
-        for role in role_names:
-            candidates = unique_preserve_order(
-                [clean_source_text_value(role)] + _module_keyword_tokens(role)
-            )
-            for candidate in candidates:
-                candidate_key = candidate.casefold()
-                if candidate_key and candidate_key in text:
-                    scores[role] += weight
-    best_role = max(role_names, key=lambda role: scores.get(role, 0))
-    return best_role if scores.get(best_role, 0) > 0 else fallback or role_names[0]
-
-
-def _clean_sentence_fragment(value: object, *, fallback: str = "") -> str:
-    text = clean_source_text_value(value)
-    text = re.sub(r"^[A-Za-z0-9 _/-]{1,40}\s*[:：]\s*", "", text).strip()
-    return text or fallback
-
-
-def _source_steps_from_text(value: object, *, limit: int = 5) -> list[str]:
-    text = _clean_sentence_fragment(value)
-    if not text:
-        return []
-    parts = [
-        _clean_sentence_fragment(part)
-        for part in re.split(r"\s*(?:[；;]|->|→)\s*", text)
-        if _clean_sentence_fragment(part)
-    ]
-    if len(parts) <= 1:
-        parts = [
-            _clean_sentence_fragment(part)
-            for part in re.split(r"(?<=[。.!?！？])\s*", text)
-            if _clean_sentence_fragment(part)
-        ]
-    return unique_preserve_order(parts)[:limit]
-
-
-def _split_source_concepts(value: object, *, limit: int = 4) -> list[str]:
-    text = _clean_sentence_fragment(value)
-    if not text:
-        return []
-    parts = [
-        _clean_sentence_fragment(part)
-        for part in re.split(r"\s*(?:,|，|/|、|;|；|\+|->|→)\s*", text)
-        if _clean_sentence_fragment(part)
-    ]
-    return unique_preserve_order(parts)[:limit]
-
-
-def _module_keyword_tokens(module_name: str) -> list[str]:
-    text = clean_source_text_value(module_name)
-    ascii_tokens = re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", text)
-    cjk_chunks = re.findall(r"[\u4e00-\u9fff]{2,8}", text)
-    tokens = ascii_tokens + cjk_chunks
-    stopwords = {
-        "and",
-        "the",
-        "with",
-        "module",
-        "workflow",
-        "service",
-        "business",
-        "record",
-        "source",
-        "defined",
-        "primary",
-        "核心",
-        "业务",
-        "流程",
-        "模块",
-        "记录",
-    }
-    return [token for token in tokens if token.casefold() not in stopwords][:6]
-
-
-def _looks_like_object_candidate(value: str) -> bool:
-    text = clean_source_text_value(value)
-    if not text or len(text) > 72:
-        return False
-    lowered = text.casefold()
-    if any(
-        token in lowered
-        for token in (
-            "目标",
-            "goal",
-            "product",
-            "产品代号",
-            "用户",
-            "负责人",
-            "operator",
-            "manager",
-            "场景",
-            "建立",
-            "帮助",
-            "可观测",
-            "可解释",
-            "可执行",
-            "可复盘",
-        )
-    ):
-        return False
-    if re.search(r"[。！？.!?]", text):
-        return False
-    return bool(re.search(r"[A-Za-z][A-Za-z0-9_-]{2,}|[\u4e00-\u9fff]{2,}", text))
-
-
-def _object_candidates_from_source_lines(lines: list[str], *, limit: int = 4) -> list[str]:
-    objectish_terms: list[str] = []
-    for line in lines:
-        objectish_terms.extend(
-            item for item in _split_source_concepts(line, limit=4) if _looks_like_object_candidate(item)
-        )
-    return unique_preserve_order(objectish_terms)[:limit]
-
-
-def _is_generic_projected_object(value: str) -> bool:
-    return bool(
-        re.search(
-            r"primarybusinessflow|sourcedefinedworkflow|sourcedefinedcapability|businessflowrecord",
-            re.sub(r"[^a-z0-9]+", "", str(value).casefold()),
-        )
-    )
-
-
-def _object_name_from_capability(value: str) -> str:
-    text = clean_source_text_value(value)
-    text = re.sub(r"\b(?:管理|生成与查询|列表与详情|动作链|结论记录|基础模型)\b", "", text)
-    text = re.sub(r"\b(?:create|update|list|detail|query|manage|record|review)\b", "", text, flags=re.IGNORECASE)
-    tokens = re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", text)
-    if tokens:
-        if len(tokens) == 1:
-            base = title_case_token(tokens[0])
-        else:
-            base = "".join(title_case_token(token).replace(" ", "") for token in tokens[:3])
-        if not re.search(r"(record|run|task|scope|slot|review|summary|profile|state)$", base, flags=re.IGNORECASE):
-            if re.search(r"scope", base, flags=re.IGNORECASE):
-                base += "Scope"
-            elif re.search(r"baseline", base, flags=re.IGNORECASE):
-                base += "Run"
-            elif re.search(r"task|recommendation", base, flags=re.IGNORECASE):
-                base += "Task"
-            else:
-                base += "Record"
-        return base
-    cjk = re.sub(r"[^\u4e00-\u9fff]+", "", text)
-    if not cjk:
-        return ""
-    if not re.search(r"(记录|对象|任务|状态|档案|单|表|摘要)$", cjk):
-        cjk = f"{cjk[:10]}记录"
-    return cjk[:14]
-
-
-def _fallback_object_names_from_source(source_text: str, *, limit: int = 6) -> list[str]:
-    values: list[str] = []
-    p0_items = (
-        extract_priority_bucket(source_text, "P0（MVP 必须有）")
-        or flatten_bullets(find_markdown_block(source_text, ["P0（MVP 必须有）", "P0", "MVP"]), 10)
-        or label_block_items(source_text, [r"P0"], limit=10)
-    )
-    for item in p0_items:
-        if re.search(r"tenant\s*/\s*actor\s*/\s*audit|基础模型|foundation|auth|权限|审计底座", item, flags=re.IGNORECASE):
-            continue
-        candidate = _object_name_from_capability(item)
-        if candidate and _looks_like_object_candidate(candidate):
-            values.append(candidate)
-    if not values:
-        for flow in extract_flow_rows(source_text):
-            for step in flow.get("steps", []):
-                candidate = _object_name_from_capability(str(step))
-                if candidate and _looks_like_object_candidate(candidate):
-                    values.append(candidate)
-    return unique_preserve_order(values)[:limit]
-
-
-def _best_matching_source_lines(source_text: str, module_name: str, *, limit: int = 4) -> list[str]:
-    fact_text = source_fact_text(source_text)
-    tokens = _module_keyword_tokens(module_name)
-    lines: list[tuple[int, int, str]] = []
-    for index, raw in enumerate(fact_text.splitlines()):
-        line = raw.strip()
-        if not line or line.startswith("#") or re.match(r"^\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?$", line):
-            continue
-        cleaned = _clean_sentence_fragment(re.sub(r"^(?:[-*]|\d+[.)])\s+", "", line).strip("| "))
-        if not cleaned:
-            continue
-        lowered = cleaned.casefold()
-        score = sum(1 for token in tokens if token.casefold() in lowered)
-        if score <= 0:
-            continue
-        lines.append((score, -index, cleaned))
-    return [line for _, _, line in sorted(lines, reverse=True)[:limit]]
-
-
-def _source_table_cells(source_text: str, headings: list[str], columns: list[str], *, limit: int = 6) -> list[str]:
-    rows = extract_table_rows(source_text, headings)
-    values: list[str] = []
-    for row in rows:
-        for column in columns:
-            value = row.get(column) or row.get(column.lower()) or row.get(column.replace(" ", "_").lower())
-            if value:
-                values.extend(_split_source_concepts(value, limit=3) or [_clean_sentence_fragment(value)])
-        if len(values) >= limit:
-            break
-    return unique_preserve_order([value for value in values if value])[:limit]
-
-
-def _semantic_table_rows(source_text: str, required_headers: list[str]) -> list[dict[str, str]]:
-    fact_text = source_fact_text(source_text)
-    matches: list[dict[str, str]] = []
-    for headers, rows in iter_markdown_tables(fact_text):
-        if all(_table_has_header(headers, header) for header in required_headers):
-            matches.extend(rows)
-    return matches
-
-
-def _source_object_names(source_text: str, *, limit: int = 8) -> list[str]:
-    rows = extract_table_rows(
-        source_text,
-        ["5. Core Business Objects", "Core Business Objects", "核心业务对象", "Core Objects", "数据与学习 WIKI"],
-    )
-    if not rows:
-        rows = _semantic_table_rows(source_text, ["数据对象"])
-    values: list[str] = []
-    for row in rows:
-        object_name = (
-            _row_value(row, "Object", "object", "Entity", "entity", "Name", "name", "core_object", "数据对象", "对象")
-        )
-        if object_name:
-            values.extend(_split_source_concepts(object_name, limit=3) or [_clean_sentence_fragment(object_name)])
-        if len(values) >= limit:
-            break
-    return unique_preserve_order([value for value in values if value])[:limit]
-
-
-def build_source_semantic_profile(
-    source_text: str,
-    *,
-    module_name: str = "",
-    roles: list[dict[str, str]] | None = None,
-) -> dict[str, object]:
-    """Project concrete semantic hints from the source, without case branches."""
-
-    fact_text = source_fact_text(source_text)
-    role_names = _role_name_list(roles or extract_target_user_rows(fact_text))
-    module_lines = _best_matching_source_lines(fact_text, module_name)
-    source_flows = extract_flow_rows(fact_text)
-    flow_steps = [
-        str(step).strip()
-        for flow in source_flows
-        for step in flow.get("steps", [])
-        if str(step).strip()
-    ]
-    module_tokens = _module_keyword_tokens(module_name)
-    matching_flow_steps = [
-        step
-        for step in flow_steps
-        if any(token.casefold() in step.casefold() for token in module_tokens)
-    ][:4]
-    generic_module_hint = bool(
-        re.fullmatch(
-            r"(?:primary business flow|source-defined workflow|source-defined capability|business flow)",
-            clean_source_text_value(module_name),
-            flags=re.IGNORECASE,
-        )
-        or is_generic_flow_container_title(module_name)
-        or re.search(r"完成一次|闭环|complete.+loop", clean_source_text_value(module_name), flags=re.IGNORECASE)
-    )
-    module_object = "" if generic_module_hint else _object_name_from_capability(module_name)
-    source_objects = _source_object_names(fact_text, limit=8)
-    objects = [
-        module_object
-    ] if module_object and _looks_like_object_candidate(module_object) and not _is_generic_projected_object(module_object) else []
-    objects = unique_preserve_order(objects + source_objects)
-    module_object_rows = extract_table_rows(
-        fact_text,
-        ["4. Module Responsibility Matrix", "Module Responsibility Matrix", "模块与实体清单"],
-    )
-    for row in module_object_rows:
-        module_value = str(row.get("module") or row.get("Module") or row.get("module_name") or "").strip()
-        if module_name and module_value and _normalized_label_key(module_value) != _normalized_label_key(module_name):
-            continue
-        row_objects = row.get("core_objects") or row.get("Core Objects") or row.get("objects") or row.get("Objects") or ""
-        if row_objects:
-            objects = unique_preserve_order(_split_source_concepts(row_objects, limit=6) + objects + source_objects)[:8]
-            break
-    objects = [item for item in objects if not _is_generic_projected_object(item)]
-    if not objects:
-        objects = _fallback_object_names_from_source(fact_text, limit=6)
-    else:
-        objects = unique_preserve_order(
-            objects + _object_candidates_from_source_lines(module_lines + matching_flow_steps, limit=3)
-        )[:8]
-    if not objects:
-        objects = _object_candidates_from_source_lines(module_lines + matching_flow_steps, limit=4)
-    constraints = extract_non_functional_requirements(fact_text) or extract_architectural_constraints(fact_text)
-    outcomes = extract_business_objectives(fact_text)
-    profile_name = _clean_sentence_fragment(module_name, fallback="source-defined capability")
-    source_evidence = unique_preserve_order(module_lines + matching_flow_steps + outcomes[:2] + constraints[:2])
-    primary_actor = _choose_primary_actor_from_context(
-        role_names,
-        module_name,
-        " ".join(module_lines),
-        " ".join(matching_flow_steps),
-        fallback=role_names[0] if role_names else "primary operator",
-    )
-    for role in role_names:
-        role_key = role.casefold()
-        if primary_actor and primary_actor != (role_names[0] if role_names else ""):
-            break
-        if any(token.casefold() in " ".join(module_lines + matching_flow_steps).casefold() for token in _module_keyword_tokens(role)):
-            primary_actor = role
-            break
-        if any(token in role_key for token in ("owner", "lead", "manager", "负责人", "主管", "经理", "owner")):
-            primary_actor = role
-            break
-    return {
-        "profile_id": "source-semantic-profile.v1",
-        "domain_profile": "source-grounded-operating-loop",
-        "module_name": profile_name,
-        "primary_actor": primary_actor,
-        "role_names": role_names,
-        "core_objects": objects[:4] or [preserved_display_label(profile_name, fallback="Business Object")],
-        "flow_steps": matching_flow_steps or flow_steps[:4],
-        "source_evidence": source_evidence[:8],
-        "constraints": constraints[:4],
-        "outcomes": outcomes[:4],
-        "claim_ceiling": "source-grounded semantic projection only; not external validation",
-    }
-
-
-def infer_agentic_module_contract(
-    source_text: str,
-    business_name: str,
-    roles: list[dict[str, str]],
-) -> dict[str, str]:
-    profile = build_source_semantic_profile(source_text, module_name=business_name, roles=roles)
-    module = str(profile.get("module_name") or business_name or "source-defined capability")
-    primary_actor = str(profile.get("primary_actor") or "primary operator")
-    core_objects = [str(item).strip() for item in profile.get("core_objects", []) if str(item).strip()]
-    flow_steps = [str(item).strip() for item in profile.get("flow_steps", []) if str(item).strip()]
-    source_evidence = [str(item).strip() for item in profile.get("source_evidence", []) if str(item).strip()]
-    constraints = [str(item).strip() for item in profile.get("constraints", []) if str(item).strip()]
-    first_step = flow_steps[0] if flow_steps else f"start {module}"
-    last_step = flow_steps[-1] if flow_steps else f"complete {module}"
-    evidence_phrase = source_evidence[0] if source_evidence else module
-    object_phrase = ", ".join(core_objects[:3]) if core_objects else preserved_display_label(module, fallback="Business Object")
-    constraint_phrase = constraints[0] if constraints else "source-defined boundary and audit context"
-    responsibility = (
-        f"turn source fact `{evidence_phrase}` into an executable `{module}` responsibility "
-        "with explicit state, owner, blocked reason, and handoff"
-    )
-    input_value = f"{first_step} context, required {object_phrase} state, and source-grounded preconditions"
-    output_value = f"{last_step} result, updated {object_phrase} state, and reviewable handoff context"
-    return {
-        "module": module,
-        "primary_actor": primary_actor,
-        "core_objects": object_phrase,
-        "responsibility": responsibility,
-        "input": input_value,
-        "output": output_value,
-        "exit_action": f"confirm {module} outcome and hand off the next source-defined action",
-        "architectural note": f"preserve {constraint_phrase}; this contract is projected from source evidence rather than a named-case branch",
-    }
-
 def infer_fallback_module_contract(
     source_text: str,
     business_name: str,
     roles: list[dict[str, str]],
 ) -> dict[str, str]:
-    return infer_agentic_module_contract(source_text, business_name, roles)
+    style = detect_source_style(source_text)
+    role_names = _role_name_list(roles)
+    lowered = business_name.casefold()
+
+    if style == "growth_observation":
+        primary_actor = _find_role_by_hint(role_names, [r"marketing", r"市场"], 0)
+        execution_actor = _find_role_by_hint(role_names, [r"content", r"内容"], 1 if len(role_names) > 1 else 0)
+        reviewer_actor = _find_role_by_hint(role_names, [r"business", r"增长", r"review"], 2 if len(role_names) > 2 else 0)
+        if any(token in lowered for token in ["tenant", "audit", "actor"]):
+            return {
+                "module": business_name,
+                "primary_actor": primary_actor,
+                "core_objects": "TenantWorkspace, ActorRole, AuditRecord",
+                "responsibility": "establish tenant, actor, and audit boundary for the GEO operating loop",
+                "input": "tenant identity, member roles, and audit policy",
+                "output": "active tenant workspace, role boundary, and audit-ready context",
+                "exit_action": "save tenant/audit setup and enter tracked scope configuration",
+                "architectural note": "preserve tenant-safe boundary and audit provenance before scope operations",
+            }
+        if "tracked scope" in lowered:
+            return {
+                "module": business_name,
+                "primary_actor": primary_actor,
+                "core_objects": "TrackedScope, ScopeTopicSet, CompetitorSet",
+                "responsibility": "define monitored brand, competitor, topic, and prompt scope for one GEO cycle",
+                "input": "brand targets, competitor set, topic boundaries, and prompt scope definition",
+                "output": "versioned tracked scope, monitored topic set, and scope boundary",
+                "exit_action": "freeze tracked scope and start baseline generation",
+                "architectural note": "preserve scope provenance and downstream baseline comparability",
+            }
+        if "baseline" in lowered:
+            return {
+                "module": business_name,
+                "primary_actor": primary_actor,
+                "core_objects": "BaselineRun, EvidenceSnapshot, BaselineSummary",
+                "responsibility": "run baseline collection and preserve explainable GEO evidence for the current cycle",
+                "input": "tracked scope, prompt set, and collection window",
+                "output": "baseline snapshot, evidence set, and freshness status",
+                "exit_action": "review baseline freshness and open findings",
+                "architectural note": "preserve evidence freshness, provenance, and cycle-level comparability",
+            }
+        if "finding" in lowered:
+            return {
+                "module": business_name,
+                "primary_actor": primary_actor,
+                "core_objects": "Finding, EvidenceLink, PriorityReason",
+                "responsibility": "structure findings with evidence link, priority reason, and actionability signal",
+                "input": "baseline snapshot, evidence set, and monitored scope context",
+                "output": "prioritized findings, evidence links, and actionability rationale",
+                "exit_action": "confirm finding priority and open recommendation/task handoff",
+                "architectural note": "preserve finding readability and downstream recommendation continuity",
+            }
+        if "recommendation" in lowered or "task" in lowered:
+            return {
+                "module": business_name,
+                "primary_actor": execution_actor,
+                "core_objects": "Recommendation, ActionTask, ExecutionStatus",
+                "responsibility": "turn recommendation-ready findings into assigned tasks with explicit evidence linkage",
+                "input": "finding, evidence link, priority rationale, and owner hint",
+                "output": "task-ready recommendation, assigned task, and execution status",
+                "exit_action": "handoff execution and keep review linkage visible",
+                "architectural note": "preserve finding-to-task bridge, ownership, and blocked-reason visibility",
+            }
+        if "review" in lowered:
+            return {
+                "module": business_name,
+                "primary_actor": reviewer_actor,
+                "core_objects": "ReviewCycle, DecisionRecord, ReviewSummary",
+                "responsibility": "summarize one GEO cycle and record continue/revise/pause judgment with evidence",
+                "input": "task outcomes, finding deltas, and cycle evidence",
+                "output": "continue/revise/pause decision, review summary, and cycle conclusion",
+                "exit_action": "record cycle decision and close the current review window",
+                "architectural note": "preserve review judgment, evidence lineage, and audit trace",
+            }
+
+    if style == "pet_clinic":
+        intake_actor = _find_role_by_hint(role_names, [r"reception", r"front desk", r"接待", r"前台"], 0)
+        clinician_actor = _find_role_by_hint(role_names, [r"veter", r"vet", r"兽医"], 1 if len(role_names) > 1 else 0)
+        manager_actor = _find_role_by_hint(role_names, [r"manager", r"admin", r"clinic", r"管理"], 2 if len(role_names) > 2 else 0)
+        if any(token in lowered for token in ["接诊", "登记", "intake", "register", "预约", "arriv"]):
+            return {
+                "module": business_name,
+                "primary_actor": intake_actor,
+                "core_objects": "VisitRecord, PetProfile, IntakeSnapshot",
+                "responsibility": "register the arriving pet and preserve clinician-ready intake context",
+                "input": "arrival request, owner details, pet profile, and visit reason",
+                "output": "checked-in visit, pet record, and intake handoff context",
+                "exit_action": "complete intake and hand off to consultation or treatment",
+                "architectural note": "preserve intake evidence, blocked reason, and clinician-ready handoff context",
+            }
+        if any(token in lowered for token in ["治疗", "检查", "consult", "care", "visit", "诊疗"]):
+            return {
+                "module": business_name,
+                "primary_actor": clinician_actor,
+                "core_objects": "TreatmentRecord, DiagnosticOrder, VisitPlan",
+                "responsibility": "record diagnosis, treatment execution, and the next clinical action",
+                "input": "checked-in visit, symptoms, prior record, and exam notes",
+                "output": "treatment record, diagnostic result, and next action",
+                "exit_action": "record treatment result and prepare discharge or follow-up",
+                "architectural note": "preserve treatment evidence, blocked reason, and downstream discharge continuity",
+            }
+        if any(token in lowered for token in ["复诊", "随访", "review", "follow", "discharge", "离院"]):
+            return {
+                "module": business_name,
+                "primary_actor": manager_actor,
+                "core_objects": "FollowUpTask, DischargePacket, ReviewSummary",
+                "responsibility": "arrange follow-up, discharge closure, and review-ready clinic summary",
+                "input": "treatment result, discharge context, and follow-up need",
+                "output": "follow-up plan, discharge confirmation, and review-ready summary",
+                "exit_action": "close the visit and schedule follow-up or review",
+                "architectural note": "preserve discharge closure, follow-up timing, and clinic review context",
+            }
+
+    return {
+        "module": business_name,
+        "primary_actor": _find_role_by_hint(role_names, [r".*"], 0),
+        "core_objects": preserved_display_label(business_name, fallback="Business Object"),
+        "responsibility": f"complete {business_name} with explicit input, output, and handoff",
+        "input": f"{business_name} required input context",
+        "output": f"{business_name} completion record",
+        "exit_action": f"confirm {business_name} and hand off to the next step",
+        "architectural note": "preserve explicit responsibility and downstream handoff",
+    }
 
 def extract_module_rows(source_text: str) -> list[dict[str, str]]:
     fact_text = source_fact_text(source_text)
@@ -912,94 +570,6 @@ def extract_module_rows(source_text: str) -> list[dict[str, str]]:
     )
     if rows:
         return rows
-    priority_rows: list[dict[str, str]] = []
-    capability_rows: list[dict[str, str]] = []
-    engine_rows: list[dict[str, str]] = []
-    roles = extract_target_user_rows(fact_text)
-    for headers, table_rows in iter_markdown_tables(fact_text):
-        if _table_has_header(headers, "闭环") and _table_has_header(headers, "内容"):
-            for row in table_rows:
-                module_name = _row_value(row, "闭环", "Module", "module", "能力", "Capability")
-                if not module_name or module_name in {"闭环", "后置"}:
-                    continue
-                description = _row_value(row, "内容", "Description", "description", "职责") or module_name
-                steps = _source_steps_from_text(description)
-                contract = infer_fallback_module_contract(fact_text, module_name, roles)
-                priority_rows.append(
-                    contract
-                    | {
-                        "primary_actor": _choose_primary_actor_from_context(
-                            roles,
-                            module_name,
-                            description,
-                            fallback=str(contract.get("primary_actor") or ""),
-                        ),
-                        "responsibility": description,
-                        "input": steps[0] if steps else (_row_value(row, "优先级", "Priority", "priority") or ""),
-                        "output": steps[-1] if steps else str(contract.get("output") or ""),
-                    }
-                )
-        elif _table_has_header(headers, "Agent 能力", "Capability") and _table_has_header(headers, "职责"):
-            for row in table_rows:
-                module_name = _row_value(row, "Agent 能力", "Capability", "能力", "module", "Module")
-                if not module_name:
-                    continue
-                description = _row_value(row, "职责", "Responsibility", "Description") or module_name
-                steps = _source_steps_from_text(description)
-                contract = infer_fallback_module_contract(fact_text, module_name, roles)
-                capability_rows.append(
-                    contract
-                    | {
-                        "primary_actor": _choose_primary_actor_from_context(
-                            roles,
-                            module_name,
-                            description,
-                            fallback=str(contract.get("primary_actor") or ""),
-                        ),
-                        "responsibility": description,
-                        "input": steps[0] if steps else str(contract.get("input") or ""),
-                        "output": steps[-1] if steps else str(contract.get("output") or ""),
-                        "architectural note": _row_value(row, "关键边界", "Boundary") or "preserve source-defined Agent boundary",
-                    }
-                )
-        elif _table_has_header(headers, "引擎") and _table_has_header(headers, "首个闭环"):
-            for row in table_rows:
-                module_name = _row_value(row, "引擎", "Engine", "module", "Module")
-                if not module_name:
-                    continue
-                description = _row_value(row, "定位", "Positioning", "Description") or module_name
-                first_loop = _row_value(row, "首个闭环", "First Loop", "first_loop") or ""
-                steps = _source_steps_from_text(first_loop)
-                contract = infer_fallback_module_contract(fact_text, module_name, roles)
-                engine_rows.append(
-                    contract
-                    | {
-                        "primary_actor": _choose_primary_actor_from_context(
-                            roles,
-                            module_name,
-                            description,
-                            first_loop,
-                            fallback=str(contract.get("primary_actor") or ""),
-                        ),
-                        "responsibility": description,
-                        "input": steps[0] if steps else str(contract.get("input") or ""),
-                        "output": steps[-1] if steps else first_loop,
-                    }
-                )
-    semantic_rows = priority_rows + capability_rows + engine_rows
-    if semantic_rows:
-        primary: list[dict[str, str]] = []
-        supporting: list[dict[str, str]] = []
-        for row in semantic_rows:
-            module_name = str(row.get("module", "")).strip()
-            if module_name and module_name not in {item.get("module") for item in primary}:
-                if re.search(r"后置|复杂防作弊|自定义人设", module_name):
-                    continue
-                if len(primary) < 6:
-                    primary.append(row)
-                else:
-                    supporting.append(row)
-        return primary or supporting[:6]
     fallbacks = flatten_bullets(find_markdown_block(fact_text, ["P0（MVP 必须有）"]), 6)
     if not fallbacks:
         fallbacks = label_block_items(fact_text, [r"P0"], limit=8)
@@ -1019,36 +589,42 @@ def extract_object_rows(source_text: str) -> list[dict[str, str]]:
     fact_text = source_fact_text(source_text)
     rows = extract_table_rows(
         fact_text,
-        ["5. Core Business Objects", "Core Business Objects", "核心业务对象", "Core Objects", "数据与学习 WIKI"],
+        ["5. Core Business Objects", "Core Business Objects", "核心业务对象", "Core Objects"],
     )
-    if not rows:
-        rows = _semantic_table_rows(fact_text, ["数据对象"])
     if rows:
         normalized_rows: list[dict[str, str]] = []
         for row in rows:
-            object_name = _row_value(
-                row,
-                "Object",
-                "object",
-                "Entity",
-                "entity",
-                "Name",
-                "name",
-                "core_object",
-                "数据对象",
-                "对象",
-            )
+            object_name = (
+                row.get("Object")
+                or row.get("object")
+                or row.get("Entity")
+                or row.get("entity")
+                or row.get("Name")
+                or row.get("name")
+                or row.get("core_object")
+                or ""
+            ).strip()
             if not object_name:
                 continue
             normalized_rows.append(
                 {
                     "Object": object_name,
                     "Owner Module": (
-                        _row_value(row, "Owner Module", "owner module", "owner_module", "owning_module", "module", "Module")
-                    ),
+                        row.get("Owner Module")
+                        or row.get("owner module")
+                        or row.get("owner_module")
+                        or row.get("owning_module")
+                        or row.get("module")
+                        or row.get("Module")
+                        or ""
+                    ).strip(),
                     "Description": (
-                        _row_value(row, "Description", "description", "responsibility", "purpose", "主要字段", "字段")
-                    ),
+                        row.get("Description")
+                        or row.get("description")
+                        or row.get("responsibility")
+                        or row.get("purpose")
+                        or ""
+                    ).strip(),
                 }
             )
         if normalized_rows:
@@ -1057,9 +633,6 @@ def extract_object_rows(source_text: str) -> list[dict[str, str]]:
 
     def fallback_object_name(module_name: str) -> str:
         stripped = str(module_name or "").strip()
-        capability_object = _object_name_from_capability(stripped)
-        if capability_object and _looks_like_object_candidate(capability_object):
-            return capability_object
         slug = slug_token(stripped)
         if stripped and (re.search(r"[^\x00-\x7F]", stripped) or slug == "item"):
             return stripped
@@ -1115,27 +688,6 @@ def extract_priority_bucket(source_text: str, heading: str) -> list[str]:
         values = label_block_items(fact_text, [r"P1"], limit=8)
     if not values and "P2" in heading:
         values = label_block_items(fact_text, [r"P2"], limit=8)
-    if not values:
-        desired_priority = ""
-        if "P0" in heading:
-            desired_priority = "P0"
-        elif "P1" in heading:
-            desired_priority = "P1"
-        elif "P2" in heading:
-            desired_priority = "P2"
-        if desired_priority:
-            for headers, rows in iter_markdown_tables(fact_text):
-                if not (_table_has_header(headers, "优先级", "Priority") and _table_has_header(headers, "闭环")):
-                    continue
-                for row in rows:
-                    priority = _row_value(row, "优先级", "Priority", "priority")
-                    if desired_priority not in priority:
-                        continue
-                    module_name = _row_value(row, "闭环", "Module", "module")
-                    description = _row_value(row, "内容", "Description", "description")
-                    values.append(module_name if not description else f"{module_name}: {description}")
-                if values:
-                    break
     return values
 
 def is_generic_flow_container_title(title: str) -> bool:
@@ -1185,32 +737,6 @@ def extract_flow_rows(source_text: str) -> list[dict[str, object]]:
     main_flow = flatten_bullets(extract_main_flow_block(fact_text), 8)
     if main_flow:
         return [{"name": "Primary Flow", "steps": main_flow}]
-    table_flows: list[dict[str, object]] = []
-    for headers, rows in iter_markdown_tables(fact_text):
-        if _table_has_header(headers, "引擎") and _table_has_header(headers, "首个闭环"):
-            for row in rows:
-                name = _row_value(row, "引擎", "Engine", "module", "Module")
-                first_loop = _row_value(row, "首个闭环", "First Loop", "first_loop")
-                steps = [
-                    _clean_sentence_fragment(part)
-                    for part in re.split(r"\s*[；;]\s*", first_loop)
-                    if _clean_sentence_fragment(part)
-                ]
-                if name and steps:
-                    table_flows.append({"name": name, "steps": steps})
-        elif _table_has_header(headers, "闭环") and _table_has_header(headers, "内容"):
-            for row in rows:
-                name = _row_value(row, "闭环", "Module", "module")
-                content = _row_value(row, "内容", "Description", "description")
-                steps = [
-                    _clean_sentence_fragment(part)
-                    for part in re.split(r"\s*[；;]\s*", content)
-                    if _clean_sentence_fragment(part)
-                ]
-                if name and steps:
-                    table_flows.append({"name": name, "steps": steps})
-    if table_flows:
-        return table_flows
     return []
 
 def derive_navigation_surfaces(module_rows: list[dict[str, str]], objectives: list[str]) -> list[str]:

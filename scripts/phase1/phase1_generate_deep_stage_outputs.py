@@ -84,7 +84,7 @@ from phase1.phase1_generation_kernel import (
     title_case_token,
     extract_table_rows,
     extract_target_user_rows,
-    build_source_semantic_profile,
+    detect_source_style,
     _role_name_list,
     _find_role_by_hint,
     infer_fallback_module_contract,
@@ -111,65 +111,6 @@ from phase1.phase1_generation_kernel import (
 REVIEW_BOUND_MISSING = "review-bound / missing evidence"
 
 
-SEMANTIC_POSTURE_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    (
-        "growth-observation",
-        (
-            "recommendation",
-            "attribution",
-            "conversion",
-            "citation",
-            "ai-friendly",
-            "ai 友好",
-            "引用",
-            "转化",
-            "归因",
-            "竞品",
-            "tracked scope",
-            "finding",
-            "baseline",
-        ),
-    ),
-    (
-        "operational-service",
-        (
-            "appointment",
-            "visit",
-            "treatment",
-            "follow-up",
-            "handoff",
-            "work item",
-            "service loop",
-            "接诊",
-            "就诊",
-            "治疗",
-            "复诊",
-            "随访",
-            "交接",
-        ),
-    ),
-)
-
-SEMANTIC_TOKEN_PATTERNS: tuple[tuple[str, str], ...] = (
-    ("ai_friendliness", r"ai[-\s]*friendly|ai\s*友好|AI\s*友好"),
-    ("quality_diagnosis", r"quality diagnosis|内容质量|质量诊断"),
-    ("citation_likelihood", r"citation|引用概率|引用"),
-    ("attribution", r"attribution|归因"),
-    ("conversion_event", r"conversion|转化"),
-    ("identity_resolution", r"identity|身份|跨设备"),
-    ("keyword_focus", r"keyword|关键词"),
-    ("question_focus", r"question|问答|问题"),
-    ("rewrite_suggestion", r"rewrite|改写"),
-    ("recommendation", r"recommendation|建议"),
-    ("evidence_link", r"evidence|证据"),
-    ("review_cycle", r"review|复盘|评审"),
-    ("follow_up", r"follow[-\s]*up|复诊|随访"),
-    ("treatment_record", r"treatment|治疗"),
-    ("visit_record", r"visit|接诊|就诊"),
-    ("appointment", r"appointment|预约"),
-)
-
-
 def nonempty_string_values(items: object) -> list[str]:
     candidates: Iterable[object] = items if not isinstance(items, str) and isinstance(items, Iterable) else [items]
     return [str(item).strip() for item in candidates if str(item).strip()]
@@ -190,107 +131,6 @@ def dict_sequence_field_text(rows: list[dict[str, object]], index: int, field: s
         return fallback
     text = str(rows[index].get(field, "") or "").strip()
     return text or fallback
-
-
-def source_semantic_profile_from_context(
-    context: dict[str, object],
-    *,
-    module_name: str = "",
-) -> dict[str, object]:
-    existing = context.get("source_semantic_profile")
-    if isinstance(existing, dict) and existing:
-        return existing
-    source_text = str(context.get("source_text", ""))
-    roles = [
-        {"Role": str(row.get("Role", "")).strip()}
-        for row in context.get("roles", [])
-        if isinstance(row, dict) and str(row.get("Role", "")).strip()
-    ]
-    module_hint = module_name or dict_sequence_field_text(
-        [row for row in context.get("modules", []) if isinstance(row, dict)],
-        0,
-        "module",
-        "",
-    )
-    return build_source_semantic_profile(source_text, module_name=module_hint, roles=roles)
-
-
-def _source_semantic_blob(context: dict[str, object], profile: dict[str, object] | None = None) -> str:
-    profile = profile or source_semantic_profile_from_context(context)
-    values: list[str] = [str(context.get("source_text", ""))]
-    for key in (
-        "module_name",
-        "domain_profile",
-        "primary_actor",
-        "role_names",
-        "core_objects",
-        "flow_steps",
-        "source_evidence",
-        "constraints",
-        "outcomes",
-    ):
-        value = profile.get(key)
-        if isinstance(value, list):
-            values.extend(str(item) for item in value)
-        else:
-            values.append(str(value or ""))
-    for key in (
-        "objectives",
-        "constraints",
-        "nfrs",
-        "out_of_scope",
-        "p0",
-        "p1",
-        "p2",
-        "business_value_signals",
-        "pressure_signals",
-        "commercial_decision_signals",
-        "user_experience_signals",
-    ):
-        values.extend(str(item) for item in context.get(key, []) if str(item).strip())
-    for row in context.get("modules", []):
-        if isinstance(row, dict):
-            values.extend(str(value) for value in row.values() if str(value).strip())
-    return "\n".join(values)
-
-
-def infer_source_semantic_posture(context: dict[str, object] | None, *, text: str = "") -> str:
-    local_context = context if isinstance(context, dict) else {"source_text": text}
-    profile = source_semantic_profile_from_context(local_context)
-    blob = "\n".join([text, _source_semantic_blob(local_context, profile)]).casefold()
-    scores: dict[str, int] = {}
-    for posture, patterns in SEMANTIC_POSTURE_PATTERNS:
-        scores[posture] = sum(1 for pattern in patterns if pattern.casefold() in blob)
-    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
-    if not ranked or ranked[0][1] <= 0:
-        return "generic-workflow"
-    if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
-        return "generic-workflow"
-    return ranked[0][0]
-
-
-def source_semantic_guard_context(
-    context: dict[str, object] | None = None,
-    *,
-    text: str = "",
-) -> dict[str, object]:
-    local_context = context if isinstance(context, dict) else {"source_text": text}
-    profile = source_semantic_profile_from_context(local_context)
-    role_labels = [
-        str(row.get("Role", "")).strip()
-        for row in local_context.get("roles", [])
-        if isinstance(row, dict) and str(row.get("Role", "")).strip()
-    ]
-    if not role_labels:
-        role_labels = [str(item).strip() for item in profile.get("role_names", []) if str(item).strip()]
-    primary_segment = str(profile.get("primary_actor", "")).strip() or sequence_item_text(role_labels, 0, "primary operator")
-    return {
-        "domain_posture": infer_source_semantic_posture(local_context, text=text),
-        "primary_segment": primary_segment,
-        "role_labels": role_labels,
-        "supporting_role_label": sequence_item_text(role_labels, 1, ""),
-        "decision_role_label": sequence_item_text(role_labels, -1, primary_segment),
-    }
 
 
 def render_labeled_markdown_list_lines(
@@ -1091,7 +931,28 @@ def bullet_lines(items: list[str], indent: str = "") -> str:
 def skill_asset_sanitizer_context(context: dict[str, object] | None) -> dict[str, object] | None:
     if not isinstance(context, dict):
         return None
-    return source_semantic_guard_context(context)
+    source_text = str(context.get("source_text", ""))
+    style = detect_source_style(source_text)
+    domain_posture = (
+        "growth-observation"
+        if style == "growth_observation"
+        else "operational-service"
+        if style == "pet_clinic"
+        else "generic-workflow"
+    )
+    role_labels = [
+        str(row.get("Role", "")).strip()
+        for row in context.get("roles", [])
+        if isinstance(row, dict) and str(row.get("Role", "")).strip()
+    ]
+    primary_segment = sequence_item_text(role_labels, 0, "primary operator")
+    return {
+        "domain_posture": domain_posture,
+        "primary_segment": primary_segment,
+        "role_labels": role_labels,
+        "supporting_role_label": sequence_item_text(role_labels, 1, ""),
+        "decision_role_label": sequence_item_text(role_labels, -1, primary_segment),
+    }
 
 
 def sanitized_bullet_lines(
@@ -1403,7 +1264,15 @@ def write_json_artifact(path: Path, payload: object) -> None:
 
 
 def normalize_domain_terms(text: str) -> str:
-    return str(sanitize_domain_default_truth(text, context=source_semantic_guard_context(text=text)))
+    style = detect_source_style(text)
+    domain_posture = (
+        "growth-observation"
+        if style == "growth_observation"
+        else "operational-service"
+        if style == "pet_clinic"
+        else "generic-workflow"
+    )
+    return str(sanitize_domain_default_truth(text, context={"domain_posture": domain_posture}))
 
 
 def _label_variants(label: str) -> list[str]:
@@ -1453,15 +1322,6 @@ def stable_ascii_token(
             if token and token not in {"item", prefix}:
                 return token
     return f"{prefix}_{index + 1}" if index is not None else prefix
-
-
-def source_semantic_token_hits(context: dict[str, object]) -> list[str]:
-    blob = _source_semantic_blob(context)
-    hits: list[str] = []
-    for token, pattern in SEMANTIC_TOKEN_PATTERNS:
-        if re.search(pattern, blob, flags=re.IGNORECASE):
-            hits.append(token)
-    return unique_preserve_order(hits)
 
 
 def unique_ascii_token(
@@ -1673,7 +1533,13 @@ def build_business_world_model(
     ) or " -> ".join(
         str(row.get("name", "")).strip() for row in flow_rows if str(row.get("name", "")).strip()
     ) or "source-defined workflow"
-    domain_posture = infer_source_semantic_posture(context, text=source_text)
+    domain_posture = (
+        "growth-observation"
+        if detect_source_style(source_text) == "growth_observation"
+        else "operational-service"
+        if detect_source_style(source_text) == "pet_clinic"
+        else "generic-workflow"
+    )
     return compile_business_world_truth_spine(
         {
             "domain_posture": domain_posture,
@@ -2403,13 +2269,13 @@ def render_module_matrix_rows(module_rows: list[dict[str, str]]) -> str:
 def render_object_workflow_rows(context: dict[str, object]) -> str:
     object_rows = context["objects"]
     module_rows = context["modules"]
-    profile = source_semantic_profile_from_context(context)
-    profile_objects = [str(item).strip() for item in profile.get("core_objects", []) if str(item).strip()]
-    last_output = dict_sequence_field_text(module_rows, -1, "output", "")
+    style = detect_source_style(str(context.get("source_text", "")))
     closing_object = (
-        profile_objects[-1]
-        if profile_objects
-        else title_case_token(unique_ascii_token(last_output, prefix="closure"))
+        "ReviewConclusion"
+        if style == "growth_observation"
+        else "ReviewSummary"
+        if style == "pet_clinic"
+        else "CompletionSummary"
     )
     lines = ["| workflow step | primary object | secondary object | downstream effect |", "|---|---|---|---|"]
     for idx, module_row in enumerate(module_rows):
@@ -2471,45 +2337,54 @@ def render_screen_navigation_rows(context: dict[str, object]) -> str:
 
 
 def payload_contract_heading_from_context(context: dict[str, object]) -> str:
-    profile = source_semantic_profile_from_context(context)
-    primary_object = sequence_item_text(
-        [str(item) for item in profile.get("core_objects", []) if str(item).strip()],
-        0,
-        "Module",
+    return (
+        "Recommendation Payload Contract"
+        if detect_source_style(str(context.get("source_text", ""))) == "growth_observation"
+        else "Module Interface Payload Contract"
     )
-    return f"{primary_object} Interface Payload Contract"
 
 
 def deferred_seam_heading_from_context(context: dict[str, object]) -> str:
-    return "Source-Defined Deferred Capability Seam"
+    return (
+        "Deferred Attribution and Conversion Seam"
+        if detect_source_style(str(context.get("source_text", ""))) == "growth_observation"
+        else "Deferred Capability Seam"
+    )
 
 
 def render_stage02b_domain_boundary_honesty_lines(context: dict[str, object]) -> str:
-    constraints = [str(item).strip() for item in context.get("constraints", []) if str(item).strip()]
-    nfrs = [str(item).strip() for item in context.get("nfrs", []) if str(item).strip()]
-    signals = constraints[:2] + nfrs[:2]
-    if not signals:
-        return ""
-    lines = ["- source boundary honesty:"]
-    lines.extend(f"  - {item}" for item in signals[:4])
-    lines.append("- value honesty:")
-    lines.append("  - do not overstate MVP proof beyond source evidence, review-bound signals, and first-wave scope.")
-    return "\n".join(lines)
+    style = detect_source_style(str(context.get("source_text", "")))
+    if style == "pet_clinic":
+        return (
+            "- clinic-private boundary:\n"
+            "  - visit, treatment, follow-up, and review records remain clinic-private inside the clinic account boundary by default.\n"
+            "- value honesty:\n"
+            "  - billing, estimate, and operational closure signals must not overstate exact financial proof in MVP."
+        )
+    return ""
 
 
 def render_interface_payload_rows(context: dict[str, object]) -> str:
     module_rows = context["modules"]
+    style = detect_source_style(str(context.get("source_text", "")))
+    if style == "growth_observation":
+        return "\n".join(
+            [
+                "| payload element | source capability detail preserved | first-wave representation | task/export implication | certainty / note |",
+                "|---|---|---|---|---|",
+                "| AI-friendly score and quality diagnosis | AI 友好度评分（0-100） / 内容质量诊断 | `ai_friendliness_score` + `quality_diagnosis_summary` + `score_explanation` | 影响 priority、是否进入 task bridge、review 预期 | score rubric 首版仍属 review-bound |",
+                "| Structured rewrite suggestion | 结构化改写建议 | `rewrite_goal` + `rewrite_outline` + `before_after_hint` | 形成可执行编辑动作，而不只是“建议优化” | 不直接自动改写发布 |",
+                "| Keyword / question focus | 关键词优化建议 + 问答焦点 | `target_question` + `keyword_focus` + `coverage_gap` | 决定任务目标问题、FAQ 切入点和资产优先级 | 必须绑定 Tracked Scope 与 Content Asset |",
+                "| Citation-likelihood hypothesis | 引用概率预测 | `citation_likelihood_band` + `citation_reason` + `confidence_state` | 影响 recommendation priority 与 review 预期，不可当作 guaranteed outcome | 首版仅做 hypothesis，不做承诺 |",
+                "| FAQ / Q&A suggestion | AI 回答模板生成 + 问答对自动生成 | `faq_question` + `faq_answer_outline` + `suggested_format` | 可导出为 FAQ/task 子类型，而不是消失在通用建议里 | FAQ auto-generation 仍非 fully automatic publish |",
+                "| Export-ready task payload | 保存草稿 / 创建任务 / 一键应用优化 的执行核 | `target_asset_id` + `priority` + `owner_hint` + `due_cycle` + `blocked_reason` | recommendation 才能一跳转成 task/export record | “一键应用”仅保留为人工确认后的 action |",
+            ]
+        )
+
     lines = [
         "| payload element | source capability detail preserved | first-wave representation | task/export implication | certainty / note |",
         "|---|---|---|---|---|",
     ]
-    token_hits = source_semantic_token_hits(context)
-    if token_hits:
-        for token in token_hits[:8]:
-            label = title_case_token(token)
-            lines.append(
-                f"| {label} payload | source explicitly mentions {label.lower().replace('_', ' ')} capability or signal | `{token}_value` + `{token}_evidence_ref` + `{token}_confidence_state` | keeps the capability traceable without claiming external proof | source-derived / review-bound until confirmed |"
-            )
     seen_tokens: set[str] = set()
     for idx, row in enumerate(module_rows):
         module = str(row.get("module", "module")).strip()
@@ -2537,17 +2412,25 @@ def render_interface_payload_rows(context: dict[str, object]) -> str:
 
 
 def render_deferred_seam_rows(context: dict[str, object]) -> str:
+    style = detect_source_style(str(context.get("source_text", "")))
+    if style == "growth_observation":
+        return "\n".join(
+            [
+                "| future concern | first-wave treatment now | future seam entity/interface | minimum reserved fields or hook | why deferred now |",
+                "|---|---|---|---|---|",
+                "| AI traffic source tagging | baseline/review 仅记录 platform / query cluster / source note | Attribution Signal | `source_tag` + `platform` + `query_cluster` + `landing_asset_ref` | 首版不做全链路埋点 |",
+                "| Funnel progression | report 仅保留方向性 outcome note | Funnel Stage Snapshot | `funnel_stage` + `stage_timestamp` + `related_scope_id` | 缺少稳定业务数据接入 |",
+                "| Conversion event linkage | 允许人工记录 conversion note | Conversion Event | `conversion_event_id` + `event_type` + `amount_band` + `evidence_source` | 精确财务归因证据不足 |",
+                "| Cross-device identity | 不做 identity stitching | Identity Resolution Link | `visitor_link_key` + `device_class` + `confidence_state` | MVP 不承担跨设备识别复杂度 |",
+                "| ROI rollup | review 仅保留 coarse attribution hypothesis | Attribution Rollup | `attributed_range` + `assumption_note` + `confidence_state` | 不能在 MVP 假装财务级证明已成立 |",
+            ]
+        )
+
     out_of_scope = list(context.get("out_of_scope", []))
     lines = [
         "| future concern | first-wave treatment now | future seam entity/interface | minimum reserved fields or hook | why deferred now |",
         "|---|---|---|---|---|",
     ]
-    for token in source_semantic_token_hits(context):
-        if token not in {"attribution", "conversion_event", "identity_resolution"}:
-            continue
-        lines.append(
-            f"| {title_case_token(token)} | keep as review-bound seam unless source and validation evidence prove completion | {title_case_token(token)} Seam | `{token}_status` + `{token}_owner` + `{token}_evidence_state` | source mentions the concern but MVP proof remains bounded |"
-        )
     if not out_of_scope:
         out_of_scope = ["future source-defined extension"]
     for item in out_of_scope:

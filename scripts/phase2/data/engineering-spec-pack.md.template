@@ -1,0 +1,224 @@
+# Engineering Spec Pack
+
+## 1. Metadata
+__ESP_PART_001__
+__ESP_PART_002__
+__ESP_PART_003__
+__ESP_PART_004__
+__ESP_PART_005__
+
+## 2. Upstream Source Set
+__ESP_PART_006__
+__ESP_PART_007__
+__ESP_PART_008__
+__ESP_PART_009__
+__ESP_PART_010__
+__ESP_PART_011__
+__ESP_PART_012__
+
+__READER_DECISION_BRIEF__
+
+### 2.1 Quick-Start Reading Path
+__QUICK_START_PATH__
+
+### 2.2 Working Glossary
+__WORKING_GLOSSARY__
+
+## 3. Architecture Summary
+This Engineering Spec Pack is intentionally self-contained. It carries forward the system boundary, decision baseline, decomposition, schema/API, risks, and realizability judgment so an implementation team does not need to bounce back and forth across four separate Stage artifacts just to understand the first executable design posture.
+
+### 3.1 System Boundary Statement
+__SYSTEM_BOUNDARY_STATEMENT__
+
+### 3.2 Constraint Posture
+__CONSTRAINTS__
+
+### 3.3 Thesis-Driven Architecture Handoff
+This section is intentionally near the top of the ESP: implementation should see the business proof loop before it sees module and API detail, so Phase-2 does not collapse back into CRUD, read-only dashboards, or record-only stores.
+
+#### 3.3A Chosen Thesis Architecture Pressure
+__CHOSEN_THESIS_ARCHITECTURE_PRESSURE__
+
+#### 3.3B Thesis-Driven Translation
+__THESIS_DRIVEN_ARCHITECTURE_TRANSLATION__
+
+#### 3.3C Stage-04 Implementation Handoff
+__ESP_PART_013__
+
+### 3.4 Quality Attribute / NFR Absorption
+__QUALITY_ATTRIBUTE_STRUCTURE__
+
+### 3.5 Security Architecture Sketch
+__SECURITY_ARCHITECTURE_SKETCH__
+
+### 3.6 Capacity Estimation
+__CAPACITY_ESTIMATION__
+
+### 3.7 Key Architecture Decisions
+__KEY_ARCHITECTURE_DECISIONS__
+
+__ESP_BLOCK_001__
+## 4. Decomposition and Ownership
+The implementation-facing ownership model remains the Phase-2 decomposition spine. Domains, modules, logical services, and collaboration boundaries are carried inline here so downstream work does not re-invent ownership from filenames or UI surfaces.
+
+### 4.1 Domain Map
+__DOMAIN_MAP__
+
+### 4.2 Module Map
+__MODULE_MAP__
+
+### 4.3 Service Candidates
+__SERVICE_CANDIDATES__
+
+### 4.4 Responsibility Matrix
+__RESPONSIBILITY_MATRIX__
+
+### 4.5 Dependency / Collaboration Map
+__DEPENDENCY_COLLABORATION_MAP__
+
+### 4.6 Conceptual Entity Relationship Diagram
+__ENTITY_RELATIONSHIP_DIAGRAM__
+
+### 4.7 Domain Event Catalog
+__DOMAIN_EVENT_CATALOG__
+
+__OPTIONAL_STAGE_SECTIONS__
+## 5. Schema Summary
+The schema summary below preserves table-level design inline. Full field-level detail still belongs to Stage-03, but this pack keeps the structural baseline visible for implementation planning and migration sequencing.
+
+### 5.1 Data Sensitivity and Compliance Matrix
+This matrix is implementation-facing: it makes PII posture, masking/encryption rules, retention, and audit access expectations explicit before schema, API, and observability work fork in different directions.
+
+__DATA_SENSITIVITY_AND_COMPLIANCE_MATRIX__
+
+### 5.2 Schema Draft
+__SCHEMA_DRAFT__
+
+## 6. API Summary
+Public contracts, endpoint shapes, and interaction flow are carried into the Engineering Spec Pack so controller and adapter work can start from explicit boundary truth rather than pointer-only references.
+
+### 6.1 Interface Contracts
+__INTERFACE_CONTRACTS__
+
+### 6.2 API Endpoint Draft
+__API_ENDPOINT_DRAFT__
+
+### 6.3 Data-Service Binding Matrix
+__DATA_SERVICE_BINDING_MATRIX__
+
+### 6.4 Interaction Matrix P2 Enrichment
+__INTERACTION_MATRIX_P2_ENRICHMENT__
+
+### 6.5 Traceability Matrix
+__TRACEABILITY_MATRIX__
+
+### 6.6 Interaction Flow
+__INTERACTION_FLOW__
+
+### 6.7 Technology Stack and Deployment Assumptions
+__TECHNOLOGY_STACK_AND_DEPLOYMENT_ASSUMPTIONS__
+
+### 6.8 Technology Selection Evaluation Matrix
+__TECHNOLOGY_SELECTION_EVALUATION_MATRIX__
+
+### 6.9 Dominant Bottleneck Hypothesis
+__DOMINANT_BOTTLENECK_HYPOTHESIS__
+
+### 6.10 Architecture Alternative Candidate Set
+__ARCHITECTURE_ALTERNATIVE_CANDIDATE_SET__
+
+### 6.11 Baseline Insufficiency Note
+__BASELINE_INSUFFICIENCY_NOTE__
+
+### 6.12 Constraint-Dominant Optimum Candidate
+__CONSTRAINT_DOMINANT_OPTIMUM_CANDIDATE__
+
+### 6.13 Key Tradeoff Decisions
+__KEY_TRADEOFF_DECISIONS__
+
+### 6.14 Capacity and Performance Assumptions
+__CAPACITY_AND_PERFORMANCE_ASSUMPTIONS__
+
+## 7. Key Decisions Quick Reference
+__ESP_PART_014__
+
+## 8. Risk Summary
+__UNRESOLVED_RISKS_AND_REVIEW_BOUND_ITEMS__
+
+## 9. Realizability Judgment
+__REALIZABILITY_SECTION__
+
+## 10. Delivery Expression and Implementation Intake
+__FRONTEND_SURFACE_ARCHITECTURE__
+
+### 10.2 Prototype or Structured Delivery Expression
+__PROTOTYPE_OR_STRUCTURED_DELIVERY_EXPRESSION__
+
+### 10.3 Implementation Handoff Package
+__IMPLEMENTATION_HANDOFF_PACKAGE__
+
+#### 10.3A Implementation Task Sketch
+__IMPLEMENTATION_TASK_SKETCH__
+
+### 10.4 Implementation Start Order
+This section is implementation-specific rather than a Stage copy. It converts the Stage-04 work-package ledger into the concrete start order that Phase-3 should preserve during branch planning, staffing, and dependency management.
+
+__IMPLEMENTATION_START_ORDER__
+
+### 10.5 Schema and Data Migration Focus
+The goal here is not to restate every Stage-03 schema row verbatim, but to call out the create/backfill sequence that implementation must preserve so contract and review flows do not start from partially initialized storage.
+
+__SCHEMA_MIGRATION_FOCUS__
+
+### 10.6 Contract Freeze and Adapter Boundaries
+Implementation may optimize internals, but it must not rename public contracts or silently weaken endpoint failure semantics. The surfaces below are the boundary freeze set for the first build.
+
+__CONTRACT_FREEZE__
+
+### 10.6A Operation Source Obligation Matrix
+P2 is the source of truth for per-operation risk tier and required behavior-source types. P3 must consume this matrix and may recompute risk only to report mismatches, not to downgrade source requirements.
+
+__ESP_PART_015__
+
+### 11.2.1 Operation Design Source Registry
+__ESP_PART_016__
+
+### 10.6B Implementation Depth Obligation Matrix
+P2 combines P1 business value, P2 engineering risk, and implementation complexity into ACD. P3 must consume these rows and may not downgrade missing P1/P2 source material to low depth.
+
+__ESP_PART_017__
+
+### 10.6C Implementation Component Catalog
+P2 owns component identities before P3 writes code. Missing catalog rows are review-bound; P3 must not invent components from filenames alone.
+
+__ESP_PART_018__
+
+### 10.6D Component Action Card Obligation Matrix
+Each Service/Domain/Repository/Adapter card obligation is derived from P1/P2 source rows. Source sufficiency is separate from required depth.
+
+__ESP_PART_019__
+
+### 10.7 Operational Rollout Guardrails
+Open review-bound items remain implementation guardrails, not documentation leftovers. Branch planning, rollout sequencing, and release readiness must treat these RBI bindings as active constraints.
+
+__ROLLOUT_GUARDRAILS__
+
+### 10.8 Observability and Operational Readiness
+Logs, metrics, alerts, SLO thresholds, and rollout guardrails must be designed before implementation fans out. This section is the minimum operational contract that implementation should preserve while building controllers, jobs, and adapters.
+
+__OBSERVABILITY_AND_OPERATIONAL_READINESS__
+
+### 10.9 Identity, Auth Vendor, and Key Lifecycle
+When delivery realism depends on auth provider choice, token lifetime, refresh/rotation posture, or key storage, this section becomes part of the implementation baseline rather than an optional note.
+
+__IDENTITY_AND_KEY_MANAGEMENT_CHOICE_POSTURE__
+
+### 10.10 Phase-3 Onboarding Summary
+This section keeps the first-day implementation entry concise: what to read first, what terms matter, and what environment or dependency prerequisites must be preserved before coding begins.
+
+__ONBOARDING_SUMMARY_BLOCK__
+
+## 11. Traceability Runtime
+__ESP_PART_020__
+__ESP_PART_021__
+- traceability_rule: preserve artifact ids, dependency chain, and unresolved truth from the canonical Phase-2 Stage outputs

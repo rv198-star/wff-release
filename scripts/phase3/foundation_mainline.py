@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib
 import json
-import shutil
 from pathlib import Path
 from typing import Any, Callable
 
@@ -16,36 +15,12 @@ from phase3.phase3_implementation_action_card_scaffolder import load_action_card
 from phase3.project_implementation_conventions import parse_stack_decision_text, synthesize_project_implementation_conventions
 from phase3.synthesis_boundary import write_phase3_synthesis_brief_artifacts
 from phase3.timing_report import record_timing_segment, set_timing_segment, start_timer, write_phase3_timing_report
-from phase3.trace_registry import project_phase3_trace_registry_to_trace_db
 from phase3.validation_levels import build_validation_profile, normalize_validation_level
 
 
 def write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
-def carry_phase2_trace_identity_source(*, phase2_root: Path, output_dir: Path) -> dict[str, Any]:
-    source = phase2_root / ".trace" / "trace.db"
-    target = output_dir / ".trace" / "trace.db"
-    if not source.exists():
-        return {
-            "status": "missing",
-            "source": str(source),
-            "target": str(target),
-            "trace_db_present": False,
-            "reason": "phase2_trace_db_missing",
-        }
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if source.resolve() != target.resolve():
-        shutil.copy2(source, target)
-    return {
-        "status": "carried",
-        "source": str(source),
-        "target": str(target),
-        "trace_db_present": target.exists(),
-        "size_bytes": target.stat().st_size if target.exists() else 0,
-    }
 
 
 def agentic_authoring_enrichment_module(module_name: str):
@@ -798,23 +773,9 @@ def prepare_phase3_foundation_workspace(
         },
     )
 
-    trace_identity_source_summary = carry_phase2_trace_identity_source(
-        phase2_root=phase2_root,
-        output_dir=output_dir,
-    )
     trace_registry_final = finalize_trace_registry_fn(
         test_trace_matrix=matrix,
         implementation_bindings=implementation_bindings,
-    )
-    trace_registry_final = {
-        **trace_registry_final,
-        "trace_db_present": bool(trace_identity_source_summary.get("trace_db_present")),
-        "trace_identity_source": trace_identity_source_summary,
-    }
-    trace_registry_final["trace_db_projection"] = project_phase3_trace_registry_to_trace_db(
-        trace_db_path=output_dir / ".trace" / "trace.db",
-        trace_registry_final=trace_registry_final,
-        source_path=trace_registry_final_path,
     )
     write_json(trace_registry_final_path, trace_registry_final)
 
@@ -855,7 +816,6 @@ def prepare_phase3_foundation_workspace(
         "quality": quality,
         "toolchain_bootstrap_report": toolchain_bootstrap_report,
         "trace_registry_final": trace_registry_final,
-        "trace_identity_source_summary": trace_identity_source_summary,
         "bootstrap_worker_run_report_path": bootstrap_worker_run_report_path,
     }
 
@@ -1028,13 +988,9 @@ def build_phase3_foundation_summary(
     mainline_backend_verification: dict[str, Any],
 ) -> dict[str, object]:
     dispatch_lane_state = workspace["dispatch_lane_state"]
-    scaffold_quality_gate = str(workspace["quality"].get("overall_quality_gate", "")).strip() or "unknown"
-    phase_verdict = str(refresh_summary.get("phase_verdict", "")).strip()
-    final_quality_gate = "pass" if scaffold_quality_gate == "pass" and phase_verdict.startswith("PASS") else "fail"
     return {
         "output_dir": str(output_dir),
-        "quality_gate": final_quality_gate,
-        "scaffold_quality_gate": scaffold_quality_gate,
+        "quality_gate": workspace["quality"]["overall_quality_gate"],
         "recommended_formal_state": refresh_summary.get("recommended_formal_state", ""),
         "stack_decision": str(paths["stack_decision_path"]),
         "schema_summary": workspace["schema_summary"],
@@ -1079,7 +1035,7 @@ def build_phase3_foundation_summary(
         "mainline_assessment_artifacts": refresh_summary.get("mainline_assessment_paths", {}),
         "mainline_assessment_summary": refresh_summary.get("mainline_assessment_summary", {}),
         "phase_verdict_path": refresh_summary.get("phase_verdict_path", ""),
-        "phase_verdict": phase_verdict,
+        "phase_verdict": refresh_summary.get("phase_verdict", ""),
         "phase_total_score": refresh_summary.get("phase_total_score"),
         "run_metadata": str(paths["run_metadata_path"]),
     }

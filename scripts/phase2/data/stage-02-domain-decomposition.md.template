@@ -1,0 +1,79 @@
+# Stage-02: domain-module-service-decomposition
+
+## 1. Generation Provenance
+- state: authored-first-pass
+- phase1_prd: $phase1_prd
+- complexity_profile: $complexity_profile
+
+## 2. 架构判断备忘
+- 为什么这样拆：本阶段先把 `$narrative_objects` 放回 `$narrative_modules` 的权威写入、只读协作和事件传播边界里；拆分不是为了多造模块，而是为了让 P3 能继承清楚的责任线。
+- 先读什么：先读 owner / aggregate 边界，再读 service responsibility、event handoff 与 P3 implementation hook；不要从表格字段反推业务语义。
+- 表格怎么读：下方表格是结构化契约和实现索引，不是架构判断本身；读者应把 domain_map、aggregate_catalog、responsibility_matrix 连起来看同一条所有权链。
+- 事件模型含义：`$narrative_event_names` 等事件表达对象状态、读取投影或审计追加的传播事实，不是下游重新写入上游真相的许可。
+- 给 P3 的交接：P3 Agentic implementation 应直接消费 owner、payload、幂等、failure guardrail 和 claim ceiling，而不是只复制字段名。
+- 证据边界：Stage-02 只声明架构规划可用性；实现闭合仍由 P3 runtime / test evidence 证明。
+
+## 3. Core Structured Output
+- business_proof_track_carryover:
+$business_proof_track_carryover_block
+- domain_map:
+$domain_map_table
+- module_map:
+$module_map_table
+- service_candidates:
+$service_candidates_table
+- canonical_object_structure:
+$canonical_object_structure_table
+- aggregate_catalog:
+$aggregate_catalog_table
+- responsibility_matrix:
+$responsibility_matrix_table
+- service_endpoint_mapping:
+$service_endpoint_mapping_table
+- lifecycle_ownership_closure:
+  - owner_rule: 权威写入者必须与 aggregate catalog 中声明的 Stage-02 home module 保持一致
+  - conflict_detection_rule: 同一 aggregate id 的并发写入必须做版本校验或串行化任务回放
+  - escalation_rule: 如果生命周期 owner 不清晰，先冻结契约并抬升为 review-bound RBI，而不是临场脑补
+- aggregate_lifecycle_coverage:
+$aggregate_lifecycle_coverage_table
+- dependency_collaboration_map:
+$dependency_collaboration_map_table
+  - anti_cycle_rules:
+    - 上游契约可以被下游读取，但所有权不能因为方便缓存而迁移
+    - read assembly 可以放宽读取范围，但写入权仍绑定在 owner 模块
+    - downstream replay 或 review surface 需要请求新版本，而不是直接改写上游真相
+    - audit 与 review 证据只能向前追加，不能回头重开既有状态边界
+  - violation_consequence: 依赖回环一律按设计缺陷处理，先冻结受影响契约，再显式补齐所有权
+- entity_relationship_diagram:
+  - conceptual_er_scope: aggregate roots + key support entities
+  - aggregate_root_entities: $er_entities_block
+- domain_event_catalog:
+$domain_event_catalog_table
+- p2_architecture_event_model_driver:
+  - driver_id: `p2-architecture-event-model-driver.v1`
+  - event_direct_driver_status: `active`
+  - control_boundary:
+    - Workflow keeps the event handoff visible; P2 Agentic architecture judgment owns event meaning, payload posture, and downstream usage.
+  - domain_event_vocabulary:
+$domain_event_vocabulary_table
+  - domain_event_model_catalog:
+$domain_event_model_catalog_table
+  - review_bound_event_gaps:
+    - none; current event models are resolved for first-wave implementation planning and remain capped by later runtime evidence.
+- decomposition_decisions:
+  - policy: 先显式保留 workflow object chain，再考虑物理拆分
+  - seam_preservation: 未来 seam 以命名契约保留，而不是藏成 TODO
+  - namespace_root: $root_namespace 在 Stage-02 到 Stage-04 期间保持稳定
+
+## 5. Mermaid Evidence
+$state_diagrams_block
+
+```mermaid
+erDiagram
+$er_relationship_block
+```
+
+```mermaid
+flowchart LR
+$flow_lines_block
+```

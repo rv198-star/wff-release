@@ -1,0 +1,12 @@
+checklist_id: p3-code-review-naming-consistency
+purpose: Keep code naming aligned with Phase-2 glossary and public contract terminology.
+checks:
+  - id: CR-NAM-01
+    title: Public contract names are preserved
+    verify: Operation, DTO, entity, and route names remain traceable to Phase-2 contract and glossary terms.
+  - id: CR-NAM-02
+    title: Alias drift is explicit if introduced
+    verify: Any intentional rename is documented and linked to an approved upstream decision instead of silently diverging.
+  - id: CR-NAM-03
+    title: Error vocabulary remains canonical
+    verify: Business and system error codes follow the canonical envelope vocabulary rather than ad hoc string variants.

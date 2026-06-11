@@ -1,0 +1,207 @@
+# P1 Source Input Packet
+
+- `packet_subtype`: `existing-system-change`
+- `producer`: `upstream-existing-system-analysis`
+- `source_status`: `mixed`
+- `admission_status`: `ready-for-P1`
+
+## P1 Source Brief
+
+### Current State Summary
+
+The existing system already exposes a user-visible {change_label_lower} surface. Current-state summary: {current_state}
+{change_label} is already part of the product workflow: {observed_facts}
+{primary_actor} and downstream consumers depend on stable {protected_label} behavior, history, and response semantics.
+
+### Target Change Summary
+
+The requested change is to clarify and constrain bounded {change_label_lower} behavior. Target summary: {target_change}
+The product change intent is to {change_intent}
+{target_change_clarification_block}P1 should converge the visible product policy before any implementation plan is treated as ready.
+
+### Observed Business Facts
+
+- {observed_facts}
+- Existing {protected_label} behavior and response shape are part of the compatibility surface.
+- Downstream consumers can break if {change_label_lower} behavior or response semantics change incompatibly.
+
+### Inferred Business Semantics
+
+- {inferred_semantics}
+- Target policy or acceptance semantics may be a product acceptance rule, not only an implementation detail.
+
+### Users and Workflow
+
+- Primary users: {primary_actor} who use, review, or operate the existing {change_label_lower} workflow.
+- Downstream users: {downstream_actor} that relies on {change_label_lower} response compatibility.
+- Main workflow: initiate {change_label_lower} -> check scope and acceptance policy -> apply bounded behavior -> preserve {protected_label} behavior -> return compatible response -> record history/audit evidence.
+- Affected workflow: {affected_workflows}
+- Business impact if mishandled: {business_impact}
+
+### User, Buyer, Operator, And Decision Roles
+
+| Role | Evidence state | Responsibility | Product implication |
+|---|---|---|---|
+| {primary_actor} | inferred-from-existing-system | use, review, or operate the existing {change_label_lower} workflow | Needs the existing workflow to stay understandable and compatible. |
+| {downstream_actor} | observed-compatibility-pressure | depends on stable {change_label_lower} response semantics | Response shape and protected behavior changes must be explicit product decisions. |
+| Product policy reviewer or Agentic conservative default | review-bound | decides whether target behavior changes acceptance semantics | Missing owner confirmation cannot be hidden as a pure implementation detail. |
+
+{semantic_reentry_section}### Current-State Baseline Or Substitute Path
+
+- Current baseline: {current_state}
+- Existing workflow evidence: {observed_facts}
+- Compatibility pressure: {acceptance_pressure}
+- Substitute / fallback if weak: users or clients rely on the {legacy_label} behavior and conservative policy review.
+
+### Desired Outcome And Success Signals
+
+- Desired outcome: {target_change}
+- Success signal: {change_label_lower} behavior is bounded without breaking {protected_label} behavior or response compatibility.
+{desired_outcome_clarification_block}- Success signal: target semantics are externally confirmed, explicitly constrained, or kept review-bound with a conservative default.
+- Success signal: implementation planning can name the protected client contract and review-bound policy gap.
+
+### Scope Boundary
+
+P0:
+- clarify {change_label_lower} policy and acceptance boundary
+- preserve existing {protected_label} behavior and response compatibility
+- expose target policy as review-bound until resolved, constrained, or externally confirmed
+
+P1:
+- richer review, reporting, or analytics around {change_label_lower} history
+- deeper workflow variants after policy resolution or explicit bounded default
+
+P2:
+- broader platform or domain redesign
+- unrelated {protected_label} lifecycle redesign
+- external integration changes outside the bounded change
+
+Out of scope:
+- {non_goals}
+- {scope_boundaries}
+
+### Module Responsibility Matrix
+
+| module | primary_actor | core_objects | responsibility | input | output |
+|---|---|---|---|---|---|
+| {change_label} Intake | {primary_actor} | {protected_entity}, {request_entity} | capture the bounded change request against existing behavior | current {protected_label} state and requested change reason | classified change request with compatibility flags |
+| {change_label} Policy Review | Product policy reviewer or Agentic conservative default | {policy_entity}, PolicyDecision | decide whether target behavior changes product acceptance semantics | classified request and open policy question | accepted policy decision, conservative default, or review-bound constraint |
+| Client Compatibility Guard | {downstream_actor} | {response_entity}, CompatibilityContract | preserve protected behavior and response-shape expectations | bounded behavior and protected legacy response shape | compatible response or explicit non-compatible change warning |
+| {change_label} Audit Trail | {primary_actor} | {audit_entity}, {protected_entity}History | record applied change and policy evidence | applied bounded behavior and policy decision | auditable history |
+
+### Core Business Objects
+
+| object | description | module |
+|---|---|---|
+| {protected_entity} | Existing protected business object or behavior that must remain stable. | {change_label} Intake |
+| {request_entity} | User-visible bounded change request. | {change_label} Intake |
+| {policy_entity} | Product-level target semantics and acceptance policy. | {change_label} Policy Review |
+| {response_entity} | Client-visible response shape. | Client Compatibility Guard |
+| {audit_entity} | Audit evidence for applied change and policy decision. | {change_label} Audit Trail |
+
+### Key Business Flows / Scenarios
+
+#### {change_label} bounded change flow
+1. {primary_actor} initiates the existing {change_label_lower} workflow.
+2. System checks whether the request stays inside the bounded change scope.
+3. Product policy is resolved as externally confirmed, conservatively defaulted, or explicitly review-bound.
+4. System applies only accepted bounded behavior and preserves {protected_label} behavior.
+5. System returns a compatible response to existing clients.
+6. System records audit/history evidence for later review.
+
+### Rules, Exceptions, Permissions, And Approvals
+
+- Rule: target semantics remain review-bound until product policy is externally confirmed or safely constrained by a conservative default.
+- Rule: existing {protected_label} behavior and response shape must not change silently.
+- Exception: if policy or target semantics cannot be externally confirmed, downstream design may reserve a seam and proceed only within conservative compatibility-preserving behavior.
+- Permission / audit pressure: policy decision and applied change need traceable evidence.
+
+### Constraints
+
+- Compatibility constraint: existing {protected_label} behavior and response shape are protected.
+- Migration constraint: do not force full {protected_label} lifecycle redesign into this bounded change.
+- Evidence constraint: no bundled policy document or owner confirmation means target behavior remains review-bound.
+
+### Product Policy Question
+
+The main review-bound policy question is whether target behavior changes acceptance semantics: {unknowns}
+P1 should decide whether the target is only an implementation constraint or a product policy that changes what users and clients can expect.
+
+{demand_confirmation_boundary}
+{demand_clarification_addendum}
+### Legacy Behaviors To Preserve
+
+- Legacy behavior to preserve: {preserve}
+- Acceptance pressure: {acceptance_pressure}
+
+### Non-Goals
+
+- Non-goals: {non_goals}
+- Explicit scope boundary: {scope_boundaries}
+- Do not redesign the full {protected_label} lifecycle or unrelated modules in this bounded change.
+
+### Source Conflicts
+
+- Source conflict: {source_conflicts}
+
+### Acceptance Pressure
+
+- {acceptance_pressure}
+{acceptance_clarification_block}
+{nonfunctional_requirements_block}## Demand Change Evaluation
+
+### Change Intent
+
+{change_intent}
+
+### Business Impact
+
+{business_impact}
+
+### Affected Users / Workflows
+
+{affected_workflows}
+
+### Non-Goals / Scope Boundaries
+
+{scope_boundaries}
+
+### Proceed Decision
+
+- `decision`: `{proceed_decision}`
+- `reason`: The target change, affected workflow, compatibility pressure, and review-bound policy gap are explicit enough for P1 convergence.
+- `visible_gaps`: {unknowns}
+
+## Truth-State Ledger
+
+| Item ID | Statement | Truth State | Evidence Pointer | P1 Handling |
+|---|---|---|---|---|
+| TS-001 | {observed_facts} | observed | wff-x-intake-target-driver current-state packet | fact base |
+| TS-002 | {inferred_semantics} | inferred | wff-x-intake-target-driver semantic inference | review-bound product policy question |
+| TS-003 | {preserve} | review-bound | wff-x-intake-target-driver preservation pressure | acceptance boundary |
+| TS-004 | {unknowns} | unknown | no bundled policy document | open gap |
+{truth_state_clarification_row}
+## Open Truth Gaps
+
+| Gap ID | Missing Truth | Why It Matters | Required Clarification |
+|---|---|---|---|
+| GAP-001 | {unknowns} | Target semantics may change acceptance criteria and client expectations. | Record product policy as confirmed, constrained, or review-bound before P2/P3 implementation planning. |
+{open_truth_gap_clarification_row}
+## Reviewer Concerns
+
+- Keep target policy review-bound until product policy is externally confirmed or constrained by a conservative default.
+- Preserve {protected_label} behavior and response-shape compatibility unless P1 explicitly changes the product promise.
+- Do not convert current technical route existence into a target product requirement by default.
+
+## Admission Decision
+
+- `admission_status`: `ready-for-P1`
+- `claim_ceiling`: {claim_ceiling}
+- `reason`: The packet is sufficient for P1 to converge demand and product policy, but not sufficient to claim architecture readiness or production readiness.
+
+## Handoff Note For wff-req
+
+- Safe fact base: existing {change_label_lower} workflow, affected workflow, compatibility pressure.
+{handoff_clarification_block}
+- Historical behavior to preserve: {protected_label} behavior and response shape.
+- P2 clues only: route, endpoint, persistence, compatibility, and rollback details belong to architecture/design intake, not P1 product truth.

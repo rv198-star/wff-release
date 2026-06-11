@@ -1,0 +1,62 @@
+{
+  "schema_version": "tplan.v0.1",
+  "mission": {
+    "id": "mission-001",
+    "title": "Example Mission",
+    "objective": "Describe the Mission outcome.",
+    "status": "active",
+    "human_in_loop": 0,
+    "risk_tolerance": 50,
+    "resource_sufficiency": 50,
+    "acceptance_evidence": [
+      {
+        "id": "A1",
+        "description": "Example acceptance evidence."
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "id": "T1",
+      "parent_id": null,
+      "kind": "task",
+      "level": 1,
+      "title": "Example success-critical task",
+      "status": "pending",
+      "role": "success-critical",
+      "mission_contribution": "Explains why this task is required for Mission convergence.",
+      "acceptance_evidence": [
+        "A1"
+      ],
+      "evidence_links": []
+    },
+    {
+      "id": "T1.1",
+      "parent_id": "T1",
+      "kind": "subtask",
+      "level": 2,
+      "title": "Example subtask",
+      "status": "pending",
+      "role": "supporting",
+      "parent_contribution": "Explains how this child advances T1.",
+      "parent_acceptance": "Names the local done condition T1 can verify.",
+      "mission_trace": "via T1 -> A1",
+      "evidence_links": []
+    },
+    {
+      "id": "T1.1.S1",
+      "parent_id": "T1.1",
+      "kind": "step",
+      "level": 3,
+      "title": "Example execution step",
+      "status": "pending",
+      "role": "supporting",
+      "parent_contribution": "Explains how this step advances T1.1.",
+      "mission_trace": "via T1.1 -> T1 -> A1",
+      "step_action": "Perform one concrete execution action.",
+      "done_condition": "The action has an inspectable result, blocker, or failure.",
+      "evidence_links": []
+    }
+  ],
+  "active_task_id": null
+}

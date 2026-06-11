@@ -1,0 +1,64 @@
+# Phase-3 runtime compose template
+# Runner owns COMPOSE_PROJECT_NAME and host port allocation.
+# Do not add container_name; run-scoped compose projects prevent cross-run teardown conflicts.
+services:
+  api:
+    build:
+      context: .
+      target: runtime
+    command: ["pnpm", "--filter", "@app/api", "start:container"]
+    depends_on:
+      - postgres
+      - redis
+    env_file:
+      - .env.example
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-app}
+      REDIS_URL: redis://redis:6379
+      PORT: 3000
+      HOST: 0.0.0.0
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET:-replace-me}
+      CONTAINER_HEALTH_PORT: 3000
+      CONTAINER_HEALTH_PATH: /healthz
+    ports:
+      - "${API_HOST_PORT:-53000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/healthz >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  web:
+    build:
+      context: .
+      target: web-runtime
+    command: ["pnpm", "--filter", "@app/web", "start"]
+    depends_on:
+      - api
+    env_file:
+      - .env.example
+    environment:
+      HOST: 0.0.0.0
+      WEB_PORT: 3100
+      WEB_API_BASE_URL: http://api:3000
+      VITE_API_BASE_URL: /api
+      CONTAINER_HEALTH_PORT: 3100
+      CONTAINER_HEALTH_PATH: /
+    ports:
+      - "${WEB_HOST_PORT:-53100}:3100"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3100/ >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-55432}:5432"
+  redis:
+    image: redis:7
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-56379}:6379"

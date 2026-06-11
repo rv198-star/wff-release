@@ -1,0 +1,40 @@
+function isIdentifierField(key: string): boolean {
+  return key.endsWith("_id") || key.endsWith("Id");
+}
+
+function expectedObjectKeys(expected: Record<string, unknown>, fieldName: string): string[] {
+  if (fieldName === "" && "data" in expected) {
+    return Array.from(new Set([...Object.keys(expected), ...__TOP_LEVEL_SHAPE_KEYS__])).sort();
+  }
+  return Object.keys(expected).sort();
+}
+
+function expectContractShape(actual: unknown, expected: unknown, fieldName = ""): void {
+  if (Array.isArray(expected)) {
+    expect(Array.isArray(actual)).toBe(true);
+    expect((actual as unknown[]).length).toBe(expected.length);
+    expected.forEach((item, index) => expectContractShape((actual as unknown[])[index], item, fieldName));
+    return;
+  }
+  if (expected && typeof expected === "object") {
+    expect(actual).toBeTruthy();
+    const actualRecord = actual as Record<string, unknown>;
+    const expectedRecord = expected as Record<string, unknown>;
+    expect(Object.keys(actualRecord).sort()).toEqual(expectedObjectKeys(expectedRecord, fieldName));
+    if (fieldName === "" && "data" in expectedRecord) {
+      expect(actualRecord.trace_id).toEqual(expect.any(String));
+      expect(actualRecord.request_id).toEqual(expect.any(String));
+      expect(actualRecord.meta).toEqual(expect.any(Object));
+    }
+    for (const [key, value] of Object.entries(expectedRecord)) {
+      expectContractShape(actualRecord[key], value, key);
+    }
+    return;
+  }
+  if (typeof expected === "string" && isIdentifierField(fieldName)) {
+    expect(actual).toEqual(expect.any(String));
+    return;
+  }
+  expect(actual).toEqual(expected);
+}
+

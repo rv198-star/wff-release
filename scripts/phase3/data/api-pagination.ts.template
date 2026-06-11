@@ -1,0 +1,36 @@
+export interface CursorPageRequest {
+  cursor?: string;
+  limit?: number;
+}
+
+export function buildCursorMeta(
+  items: unknown[],
+  exampleMeta?: Record<string, unknown>,
+  nextCursor?: string,
+): Record<string, unknown> {
+  const meta: Record<string, unknown> = { ...(exampleMeta ?? {}) };
+  const resolvedCursor = nextCursor ?? null;
+  if (meta.nextCursor === undefined && meta.next_cursor === undefined) {
+    meta.nextCursor = resolvedCursor;
+    meta.next_cursor = resolvedCursor;
+  } else {
+    if (meta.nextCursor === undefined) {
+      meta.nextCursor = meta.next_cursor ?? resolvedCursor;
+    }
+    if (meta.next_cursor === undefined) {
+      meta.next_cursor = meta.nextCursor ?? resolvedCursor;
+    }
+  }
+  if (meta.returnedCount === undefined && meta.returned_count === undefined) {
+    meta.returnedCount = items.length;
+    meta.returned_count = items.length;
+  } else {
+    if (meta.returnedCount === undefined) {
+      meta.returnedCount = meta.returned_count ?? items.length;
+    }
+    if (meta.returned_count === undefined) {
+      meta.returned_count = meta.returnedCount ?? items.length;
+    }
+  }
+  return meta;
+}

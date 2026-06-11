@@ -1,0 +1,137 @@
+import jwt from "jsonwebtoken";
+import { createApiError } from "./errors.js";
+
+export interface AuthSessionContext {
+  subject_id: string;
+  tenant_id: string;
+  roles: string[];
+  session_id: string;
+  oidc_claims: Record<string, unknown>;
+}
+
+export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
+export const REFRESH_TOKEN_TTL_SECONDS = 8 * 60 * 60;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function authTokenSecret(): string {
+  return process.env.AUTH_TOKEN_SECRET || "phase3-local-dev-secret";
+}
+
+function roleList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+  }
+  if (typeof value === 'string' && value.trim()) {
+    return [value.trim()];
+  }
+  return [];
+}
+
+function refreshTokenFamilyId(raw: Record<string, unknown>): string {
+  const existing = raw.refresh_token_family_id ?? raw.refreshTokenFamilyId;
+  if (typeof existing === 'string' && existing.trim()) {
+    return existing.trim();
+  }
+  const sessionId = raw.session_id ?? raw.sid;
+  if (typeof sessionId === 'string' && sessionId.trim()) {
+    return `refresh-family-${sessionId.trim()}`;
+  }
+  return 'refresh-family-local';
+}
+
+function rotationCounter(raw: Record<string, unknown>): number {
+  const value = raw.rotation_counter ?? raw.rotationCounter;
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function signableClaims(raw: Record<string, unknown>): Record<string, unknown> {
+  const claims = { ...raw };
+  delete claims.exp;
+  delete claims.iat;
+  delete claims.nbf;
+  return claims;
+}
+
+export function issueAuthToken(raw: Record<string, unknown>): string {
+  return jwt.sign({ ...signableClaims(raw), token_use: 'access' }, authTokenSecret(), { algorithm: 'HS256', expiresIn: ACCESS_TOKEN_TTL_SECONDS });
+}
+
+export function issueRefreshToken(raw: Record<string, unknown>): string {
+  return jwt.sign(
+    {
+      ...signableClaims(raw),
+      token_use: 'refresh',
+      refresh_token_family_id: refreshTokenFamilyId(raw),
+      rotation_counter: rotationCounter(raw),
+    },
+    authTokenSecret(),
+    { algorithm: 'HS256', expiresIn: REFRESH_TOKEN_TTL_SECONDS },
+  );
+}
+
+export function rotateRefreshToken(raw: Record<string, unknown>): string {
+  return issueRefreshToken({
+    ...raw,
+    refresh_token_family_id: refreshTokenFamilyId(raw),
+    rotation_counter: rotationCounter(raw) + 1,
+  });
+}
+
+export function parseAuthorizationHeader(headerValue: string | undefined): Record<string, unknown> {
+  if (!headerValue || !headerValue.trim()) {
+    throw createApiError(401, 'auth_error', 'missing_bearer_token', 'caller_after_fix', 'Authorization header must use Bearer token');
+  }
+  const bearerPrefix = 'Bearer ';
+  const token = headerValue.startsWith(bearerPrefix) ? headerValue.slice(bearerPrefix.length).trim() : '';
+  if (!token) {
+    throw createApiError(401, 'auth_error', 'missing_bearer_token', 'caller_after_fix', 'Authorization header must use Bearer token');
+  }
+  try {
+    const verified = jwt.verify(token, authTokenSecret()) as unknown;
+    return isRecord(verified) ? verified : {};
+  } catch (error) {
+    throw createApiError(
+      401,
+      'auth_error',
+      'invalid_auth_token',
+      'caller_after_fix',
+      error instanceof Error ? error.message : 'token verification failed',
+    );
+  }
+}
+
+export function normalizeAuthSession(raw: unknown, fallbackTenantId: string): AuthSessionContext {
+  const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const tenantId = typeof source.tenant_id === 'string' && source.tenant_id
+    ? source.tenant_id
+    : (typeof source.tenantId === 'string' && source.tenantId ? source.tenantId : fallbackTenantId);
+  const subjectId = typeof source.subject_id === 'string' && source.subject_id
+    ? source.subject_id
+    : (typeof source.sub === 'string' && source.sub ? source.sub : '');
+  const sessionId = typeof source.session_id === 'string' && source.session_id
+    ? source.session_id
+    : (typeof source.sid === 'string' && source.sid ? source.sid : '');
+  const roles = roleList(source.roles).length > 0 ? roleList(source.roles) : roleList(source.role);
+  const oidcClaims = isRecord(source.oidc_claims)
+    ? (source.oidc_claims as Record<string, unknown>)
+    : source;
+  if (!tenantId || !subjectId || !sessionId || roles.length === 0) {
+    throw createApiError(401, 'auth_error', 'invalid_auth_context', 'caller_after_fix', 'tenant/session claims are missing');
+  }
+  return {
+    subject_id: subjectId,
+    tenant_id: tenantId,
+    roles,
+    session_id: sessionId,
+    oidc_claims: oidcClaims,
+  };
+}
+
+export function requireRbacRole(session: AuthSessionContext, role: string): void {
+  if (!session.roles.includes(role)) {
+    throw createApiError(403, 'business_error', 'rbac_forbidden', 'never', `Missing role: ${role}`);
+  }
+}

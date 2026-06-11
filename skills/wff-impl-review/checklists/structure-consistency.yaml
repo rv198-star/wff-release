@@ -1,0 +1,15 @@
+checklist_id: p3-code-review-structure-consistency
+purpose: Verify that reviewed code still matches the frozen Phase-3 scaffold, contract boundary, and module ownership model.
+checks:
+  - id: CR-STR-01
+    title: Module topology matches intended ownership
+    verify: Controller, service, repository or adapter, and shared runtime boundaries are not collapsed into one undifferentiated layer.
+  - id: CR-STR-02
+    title: Public contract has no silent drift
+    verify: Paths, methods, envelopes, and named public fields remain aligned to the frozen OpenAPI source.
+  - id: CR-STR-03
+    title: Placeholder code is not presented as delivered
+    verify: TODO throws, scaffold shells, and empty entrypoints are escalated as findings.
+  - id: CR-STR-04
+    title: Dependency direction preserves domain boundaries
+    verify: Cross-module imports do not invert the Phase-2 ownership model or hide orchestration in infrastructure layers.

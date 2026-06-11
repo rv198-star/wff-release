@@ -1,0 +1,392 @@
+{
+  "content_inventory": {
+    "category_bytes": {
+      "install-pack-root-guidance": 24185,
+      "optional-runtime-dependency": 332481,
+      "other": 52425,
+      "runtime-config": 75562,
+      "user-facing-guidance": 208009,
+      "user-facing-reference-package": 628023,
+      "user-facing-template": 2936,
+      "user-runtime-script": 5258496,
+      "user-runtime-skill": 226405
+    },
+    "category_counts": {
+      "install-pack-root-guidance": 4,
+      "optional-runtime-dependency": 59,
+      "other": 6,
+      "runtime-config": 3,
+      "user-facing-guidance": 19,
+      "user-facing-reference-package": 180,
+      "user-facing-template": 1,
+      "user-runtime-script": 275,
+      "user-runtime-skill": 55
+    },
+    "policy_findings": [],
+    "top_level": [
+      {
+        "bytes": 2525,
+        "files": 1,
+        "path": "AGENTS.md"
+      },
+      {
+        "bytes": 7304,
+        "files": 1,
+        "path": "README.en.md"
+      },
+      {
+        "bytes": 7178,
+        "files": 1,
+        "path": "README.md"
+      },
+      {
+        "bytes": 7178,
+        "files": 1,
+        "path": "README.zh-CN.md"
+      },
+      {
+        "bytes": 46719,
+        "files": 1,
+        "path": "SKILL_INSTALL_PACK_MANIFEST.json"
+      },
+      {
+        "bytes": 2755,
+        "files": 1,
+        "path": "WFF-START-HERE.md"
+      },
+      {
+        "bytes": 2629,
+        "files": 1,
+        "path": "WFF-START-HERE.zh-CN.md"
+      },
+      {
+        "bytes": 75562,
+        "files": 3,
+        "path": "config"
+      },
+      {
+        "bytes": 208009,
+        "files": 19,
+        "path": "docs"
+      },
+      {
+        "bytes": 628023,
+        "files": 180,
+        "path": "reference-packages"
+      },
+      {
+        "bytes": 12,
+        "files": 1,
+        "path": "requirements.txt"
+      },
+      {
+        "bytes": 332481,
+        "files": 59,
+        "path": "runtime-deps"
+      },
+      {
+        "bytes": 5258496,
+        "files": 275,
+        "path": "scripts"
+      },
+      {
+        "bytes": 226405,
+        "files": 55,
+        "path": "skills"
+      },
+      {
+        "bytes": 2936,
+        "files": 1,
+        "path": "templates"
+      },
+      {
+        "bytes": 168,
+        "files": 1,
+        "path": "wff-agent"
+      },
+      {
+        "bytes": 142,
+        "files": 1,
+        "path": "wff-init"
+      }
+    ],
+    "total_bytes": 6808522,
+    "total_files": 602
+  },
+  "excluded_path_leaks": {
+    "pyc_files": [],
+    "pycache_dirs": [],
+    "test_dirs": []
+  },
+  "hard_failures": [],
+  "install_pack_agents_guidance": {
+    "exists": true,
+    "line_count": 39,
+    "max_allowed_lines": 120,
+    "missing_required_phrases": [],
+    "path": "AGENTS.md",
+    "repo_level_markers": []
+  },
+  "internal_reference_failures": [],
+  "overall_verdict": "pass",
+  "pack_name": "wff-v1.5.3-skills-install-pack",
+  "pack_root": "/tmp/wff-public-release-build/wff-v1.5.3-skills-install-pack",
+  "pack_type": "skills-install-pack",
+  "phase_checks": {
+    "phase1": {
+      "classification": "install-pack-ready",
+      "compatibility_file_count": 0,
+      "compatibility_help_probes": [],
+      "diagnostic_file_count": 0,
+      "diagnostic_help_probes": [],
+      "help_probes": [
+        {
+          "command": "scripts/phase1/run_phase1_full_trial.py --help",
+          "detail": "",
+          "ok": true
+        }
+      ],
+      "missing_compatibility_files": [],
+      "missing_diagnostic_files": [],
+      "missing_files": [],
+      "required_file_count": 7
+    },
+    "phase2": {
+      "classification": "install-pack-ready",
+      "compatibility_file_count": 1,
+      "compatibility_help_probes": [
+        {
+          "command": "scripts/phase2/run_phase2_first_version.py --help",
+          "detail": "",
+          "ok": true,
+          "skipped": false
+        }
+      ],
+      "diagnostic_file_count": 3,
+      "diagnostic_help_probes": [
+        {
+          "command": "scripts/phase2/run_phase2_full_trial.py --help",
+          "detail": "script not included in this install profile",
+          "ok": false,
+          "skipped": true
+        }
+      ],
+      "help_probes": [
+        {
+          "command": "scripts/phase2/run_phase2_fresh_generation.py --help",
+          "detail": "",
+          "ok": true
+        },
+        {
+          "command": "scripts/phase2/run_phase2_existing_system_intake.py --help",
+          "detail": "",
+          "ok": true
+        }
+      ],
+      "missing_compatibility_files": [],
+      "missing_diagnostic_files": [
+        "scripts/phase2/run_phase2_full_trial.py",
+        "scripts/phase2/validate_mermaid.py",
+        "scripts/phase2/cross_stage_consistency.py"
+      ],
+      "missing_files": [],
+      "required_file_count": 9
+    },
+    "phase3": {
+      "classification": "install-pack-ready",
+      "compatibility_file_count": 0,
+      "compatibility_help_probes": [],
+      "diagnostic_file_count": 0,
+      "diagnostic_help_probes": [],
+      "help_probes": [
+        {
+          "command": "scripts/phase3/run_impl.py --help",
+          "detail": "",
+          "ok": true
+        }
+      ],
+      "missing_compatibility_files": [],
+      "missing_diagnostic_files": [],
+      "missing_files": [],
+      "required_file_count": 4
+    },
+    "phase4": {
+      "classification": "install-pack-ready",
+      "compatibility_file_count": 0,
+      "compatibility_help_probes": [],
+      "diagnostic_file_count": 0,
+      "diagnostic_help_probes": [],
+      "help_probes": [
+        {
+          "command": "scripts/phase4/run_phase4_first_version.py --help",
+          "detail": "",
+          "ok": true
+        },
+        {
+          "command": "scripts/phase4/run_p1_p4_mainline_closure.py --help",
+          "detail": "",
+          "ok": true
+        }
+      ],
+      "missing_compatibility_files": [],
+      "missing_diagnostic_files": [],
+      "missing_files": [],
+      "required_file_count": 9
+    },
+    "phasex": {
+      "classification": "install-pack-ready",
+      "compatibility_file_count": 0,
+      "compatibility_help_probes": [],
+      "diagnostic_file_count": 0,
+      "diagnostic_help_probes": [],
+      "help_probes": [
+        {
+          "command": "scripts/phasex/scaffold_phasex_case.py --help",
+          "detail": "",
+          "ok": true
+        },
+        {
+          "command": "scripts/phasex/validate_phasex_case.py --help",
+          "detail": "",
+          "ok": true
+        },
+        {
+          "command": "scripts/phasex/extract_mainline_reentry_packets.py --help",
+          "detail": "",
+          "ok": true
+        }
+      ],
+      "missing_compatibility_files": [],
+      "missing_diagnostic_files": [],
+      "missing_files": [],
+      "required_file_count": 8
+    }
+  },
+  "phase_runtime_classification": {
+    "phase1": "install-pack-ready",
+    "phase2": "install-pack-ready",
+    "phase3": "install-pack-ready",
+    "phase4": "install-pack-ready",
+    "phasex": "install-pack-ready"
+  },
+  "profile_blockers": [],
+  "profile_claim": "default-full-pack",
+  "profile_id": "full-pack",
+  "profile_status": "default",
+  "release_eval_support": {
+    "help_probes": [],
+    "missing_files": [],
+    "official_input_root": "",
+    "official_runner": "",
+    "required_files": []
+  },
+  "rendered_artifact_audit_support": {
+    "missing_files": [],
+    "required_files": [],
+    "runner": ""
+  },
+  "root_guidance_context_boundary": {
+    "checked_root_guidance_files": [
+      {
+        "line_count": 39,
+        "markers": [],
+        "max_allowed_lines": 240,
+        "path": "AGENTS.md"
+      },
+      {
+        "line_count": 153,
+        "markers": [],
+        "max_allowed_lines": 240,
+        "path": "README.en.md"
+      },
+      {
+        "line_count": 153,
+        "markers": [],
+        "max_allowed_lines": 240,
+        "path": "README.md"
+      },
+      {
+        "line_count": 153,
+        "markers": [],
+        "max_allowed_lines": 240,
+        "path": "README.zh-CN.md"
+      },
+      {
+        "line_count": 32,
+        "markers": [],
+        "max_allowed_lines": 240,
+        "path": "WFF-START-HERE.md"
+      },
+      {
+        "line_count": 32,
+        "markers": [],
+        "max_allowed_lines": 240,
+        "path": "WFF-START-HERE.zh-CN.md"
+      }
+    ],
+    "forbidden_manifest_root_files": [],
+    "forbidden_path_leaks": [],
+    "max_allowed_lines": 240,
+    "oversized_root_guidance_files": [],
+    "repo_level_marker_hits": [],
+    "unexpected_root_guidance_files": []
+  },
+  "runtime_skill_context_boundary": {
+    "findings": [],
+    "max_phase_entry_lines": 300
+  },
+  "script_reference_failures": [],
+  "skill_checks": {
+    "skills/wff-impl-review/SKILL.md": {
+      "missing_files": [],
+      "missing_headings": [],
+      "skill_path": "skills/wff-impl-review/SKILL.md"
+    },
+    "skills/wff-impl-security/SKILL.md": {
+      "missing_files": [],
+      "missing_headings": [],
+      "skill_path": "skills/wff-impl-security/SKILL.md"
+    }
+  },
+  "skill_name_mismatches": [],
+  "source_revision": "e14ca85ab7126ebc59ad200f269a967dffba37b7",
+  "wff_project_init_support": {
+    "help_probes": [
+      {
+        "command": "scripts/release/wff_init.py --help",
+        "detail": "",
+        "ok": true
+      }
+    ],
+    "help_skill": "skills/wff-help/SKILL.md",
+    "launcher": "wff-init",
+    "missing_files": [],
+    "required_files": [
+      "wff-init",
+      "scripts/release/wff_init.py",
+      "skills/wff-help/SKILL.md"
+    ],
+    "script": "scripts/release/wff_init.py"
+  },
+  "wff_role_agent_support": {
+    "help_probes": [
+      {
+        "command": "scripts/release/wff_agent.py --help",
+        "detail": "",
+        "ok": true
+      }
+    ],
+    "launcher": "wff-agent",
+    "missing_files": [],
+    "required_files": [
+      "wff-agent",
+      "scripts/release/wff_agent.py",
+      "scripts/release/role_agent_manifest.py",
+      "config/wff-role-mounts.json",
+      "config/wff-install-profiles.json",
+      "skills/wff-role-agents/SKILL.md"
+    ],
+    "role_manifest": "config/wff-role-mounts.json",
+    "script": "scripts/release/wff_agent.py"
+  }
+}

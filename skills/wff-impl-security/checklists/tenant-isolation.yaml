@@ -1,0 +1,12 @@
+checklist_id: p3-security-audit-tenant-isolation
+purpose: Validate that multitenant access boundaries are materially checked before delivery-ready is claimed.
+checks:
+  - id: SEC-TEN-01
+    title: Tenant scope is injected and enforced
+    verify: Request context or equivalent enforcement surface binds tenant scope before data access.
+  - id: SEC-TEN-02
+    title: Cross-tenant access is denied
+    verify: Negative-path evidence exists for cross-tenant reads or writes on protected surfaces.
+  - id: SEC-TEN-03
+    title: Audit trail exists for sensitive tenant actions
+    verify: Sensitive auth or tenant-bound state changes produce an audit surface or equivalent traceable evidence.

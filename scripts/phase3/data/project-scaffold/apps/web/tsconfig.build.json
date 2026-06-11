@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "vite.config.ts"
+  ]
+}

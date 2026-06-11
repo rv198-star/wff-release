@@ -1,0 +1,15 @@
+checklist_id: p3-security-audit-owasp-top10
+purpose: Keep the Phase-3 security audit anchored to common web application risk classes.
+checks:
+  - id: SEC-OWASP-01
+    title: Broken access control
+    verify: Tenant and role checks are enforced on sensitive read/write paths, including negative-path coverage where applicable.
+  - id: SEC-OWASP-02
+    title: Cryptographic failures
+    verify: Secret placeholders, key handling posture, and sensitive-field treatment remain explicit.
+  - id: SEC-OWASP-03
+    title: Injection and unsafe input handling
+    verify: Runtime input validation or equivalent schema enforcement exists for public API inputs.
+  - id: SEC-OWASP-04
+    title: Security misconfiguration
+    verify: Error envelopes, environment templates, and auth defaults do not leak unsafe development shortcuts as production posture.

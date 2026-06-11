@@ -1,0 +1,4 @@
+interface:
+  display_name: "Phase-4 Orchestrator"
+  short_description: "Run official validation from Phase-3 evidence to closure"
+  default_prompt: "Use $wff-validation to run Phase-4 from a completed Phase-3 root, freeze the acceptance catalog first, execute against real inherited evidence, and close with explicit review-bound handling for UI and visual acceptance."

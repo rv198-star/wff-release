@@ -1,0 +1,249 @@
+import { useState } from "react";
+import { Button, Card, Form, Input, Layout, Menu, Space, Tag, Typography } from "antd";
+import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
+
+type SurfaceInput = {
+  field: string;
+  required: boolean;
+  validation: string;
+};
+
+type SurfaceAction = {
+  action: string;
+  on_success: string;
+  on_error: string;
+  next_route?: string;
+};
+
+type SurfaceStates = {
+  loading: string;
+  success: string;
+  empty: string;
+  error: string;
+};
+
+type CompiledInteractionSpec = {
+  interaction_id?: string;
+  trigger_kind?: string;
+  binding_mode?: string;
+  domain_service?: string;
+  api_endpoint?: string;
+  next_page_id?: string;
+  failure_route?: string;
+  readiness_status?: string;
+  blocked_reason?: string;
+};
+
+type SurfaceSpec = {
+  page_id?: string;
+  locale?: string;
+  title: string;
+  route: string;
+  subtitle: string;
+  goal: string;
+  page_role: string;
+  allowed_roles: string[];
+  business_objects: string[];
+  required_regions: string[];
+  next_route_candidates: string[];
+  compiled_interactions: CompiledInteractionSpec[];
+  presentation: string[];
+  user_inputs: SurfaceInput[];
+  actions: SurfaceAction[];
+  states: SurfaceStates;
+};
+
+const surfaces: SurfaceSpec[] = __SURFACES__;
+
+function SurfaceScaffoldPage({ surface }: { surface: SurfaceSpec }) {
+  const [submitted, setSubmitted] = useState<Record<string, string> | null>(null);
+  const hasContractAnchors = surface.allowed_roles.length > 0 || surface.business_objects.length > 0 || surface.required_regions.length > 0 || surface.compiled_interactions.length > 0 || surface.next_route_candidates.length > 0;
+  return (
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <Card>
+        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          <Tag>{surface.page_role}</Tag>
+          <Typography.Title level={2} style={{ margin: 0 }}>{surface.title}</Typography.Title>
+          <Typography.Paragraph style={{ marginBottom: 0 }}>{surface.subtitle}</Typography.Paragraph>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>__ROUTE_LABEL__: /{surface.route}</Typography.Paragraph>
+        </Space>
+      </Card>
+      <Card title={__GOAL_TITLE__}>
+        <Typography.Paragraph style={{ marginBottom: 0 }}>{surface.goal}</Typography.Paragraph>
+      </Card>
+      <Card title={__CONTRACT_ANCHOR_TITLE__}>
+        {hasContractAnchors ? (
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            {surface.allowed_roles.length > 0 ? (
+              <div>
+                <Typography.Text strong>__ALLOWED_ROLES_TITLE__</Typography.Text>
+                <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {surface.allowed_roles.map((item) => <Tag key={item}>{item}</Tag>)}
+                </div>
+              </div>
+            ) : null}
+            {surface.business_objects.length > 0 ? (
+              <div>
+                <Typography.Text strong>__BUSINESS_OBJECTS_TITLE__</Typography.Text>
+                <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {surface.business_objects.map((item) => <Tag key={item} color="blue">{item}</Tag>)}
+                </div>
+              </div>
+            ) : null}
+            {surface.required_regions.length > 0 ? (
+              <div>
+                <Typography.Text strong>__REQUIRED_REGIONS_TITLE__</Typography.Text>
+                <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {surface.required_regions.map((item) => <Tag key={item} color="purple">{item}</Tag>)}
+                </div>
+              </div>
+            ) : null}
+            {surface.compiled_interactions.length > 0 ? (
+              <div>
+                <Typography.Text strong>__INTERACTION_BINDING_TITLE__</Typography.Text>
+                <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
+                  {surface.compiled_interactions.map((item, index) => (
+                    <Card key={item.interaction_id || String(index)} size="small">
+                      <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                        <Typography.Text strong>{item.interaction_id || 'interaction'}</Typography.Text>
+                        <Typography.Paragraph style={{ marginBottom: 0 }}>
+                          {[item.trigger_kind, item.binding_mode, item.domain_service, item.api_endpoint].filter(Boolean).join(' · ') || '—'}
+                        </Typography.Paragraph>
+                        {(item.next_page_id || item.failure_route || item.readiness_status || item.blocked_reason) ? (
+                          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                            {[item.next_page_id ? `next: ${item.next_page_id}` : '', item.failure_route ? `failure: ${item.failure_route}` : '', item.readiness_status ? `status: ${item.readiness_status}` : '', item.blocked_reason ? `reason: ${item.blocked_reason}` : ''].filter(Boolean).join(' · ')}
+                          </Typography.Paragraph>
+                        ) : null}
+                      </Space>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {surface.next_route_candidates.length > 0 ? (
+              <div>
+                <Typography.Text strong>__NEXT_ROUTES_TITLE__</Typography.Text>
+                <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {surface.next_route_candidates.map((item) => <Tag key={item} color="green">{item}</Tag>)}
+                </div>
+              </div>
+            ) : null}
+          </Space>
+        ) : (
+          <Typography.Paragraph style={{ marginBottom: 0 }}>__NO_CONTRACT_ANCHOR_HINT__</Typography.Paragraph>
+        )}
+      </Card>
+      <Card title={__WORK_AREA_TITLE__}>
+        <Typography.Paragraph>__WORK_AREA_HINT__</Typography.Paragraph>
+        <Form
+          layout="vertical"
+          onFinish={(values) => {
+            const normalized = Object.fromEntries(Object.entries(values).map(([key, value]) => [key, String(value ?? '')]));
+            setSubmitted(normalized);
+          }}
+        >
+          {surface.user_inputs.map((item) => (
+            <Form.Item
+              key={item.field}
+              label={item.field}
+              name={item.field}
+              rules={[{ required: item.required, message: item.field + __REQUIRED_MESSAGE_SUFFIX__ }]}
+              extra={item.validation}
+            >
+              <Input placeholder={item.validation || __INPUT_PLACEHOLDER__} />
+            </Form.Item>
+          ))}
+          <Button htmlType="submit" type="primary">__SAVE_DRAFT_LABEL__</Button>
+        </Form>
+      </Card>
+      <Card title={__CURRENT_CONTEXT_TITLE__}>
+        {submitted ? <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify(submitted, null, 2)}</pre> : <Typography.Paragraph style={{ marginBottom: 0 }}>__SUBMITTED_HINT__</Typography.Paragraph>}
+      </Card>
+      <Card title={__DATA_SIGNALS_TITLE__}>
+        <Space wrap>
+          {surface.presentation.map((item) => <Tag key={item}>{item}</Tag>)}
+        </Space>
+      </Card>
+      <Card title={__PAGE_STATES_TITLE__}>
+        <ul>
+          <li><strong>__LOADING_LABEL__</strong> {surface.states.loading}</li>
+          <li><strong>__SUCCESS_LABEL__</strong> {surface.states.success}</li>
+          <li><strong>__EMPTY_LABEL__</strong> {surface.states.empty}</li>
+          <li><strong>__ERROR_LABEL__</strong> {surface.states.error}</li>
+        </ul>
+      </Card>
+      <Card title={__NEXT_STEPS_TITLE__}>
+        <ol>
+          {surface.actions.map((item) => (
+            <li key={item.action}>
+              <strong>{item.action}</strong> {` __SUCCESS_PREFIX__: ${item.on_success}. __ERROR_PREFIX__: ${item.on_error}.`}
+            </li>
+          ))}
+        </ol>
+      </Card>
+    </Space>
+  );
+}
+
+function HomePage() {
+  const primarySurface = surfaces[0] ?? null;
+  return (
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <Card>
+        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          <Typography.Text type="secondary">__DELIVERY_WORKSPACE__</Typography.Text>
+          <Typography.Title level={2} style={{ margin: 0 }}>__OPERATE_RUNNABLE_WORKFLOW__</Typography.Title>
+          <Typography.Paragraph style={{ marginBottom: 0 }}>__WORKSPACE_INTRO_SCAFFOLD__</Typography.Paragraph>
+          {primarySurface ? <Link to={`/${primarySurface.route}`}>__OPEN_PRIMARY_WORKSPACE__</Link> : null}
+        </Space>
+      </Card>
+      <Card title={__AVAILABLE_WORK_AREAS__}>
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          {surfaces.map((surface) => (
+            <Card key={surface.route} size="small">
+              <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                <Tag>{__PAGE_ROLE_LABELS__[surface.page_role] ?? surface.page_role}</Tag>
+                <Typography.Title level={4} style={{ margin: 0 }}><Link to={`/${surface.route}`}>{surface.title}</Link></Typography.Title>
+                <Typography.Paragraph style={{ marginBottom: 0 }}>{surface.goal}</Typography.Paragraph>
+                {surface.business_objects.length > 0 ? <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>{surface.business_objects.slice(0, 3).join(' / ')}</Typography.Paragraph> : null}
+                <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>{surface.actions[0]?.action ?? __CONTINUE_WORKFLOW__}</Typography.Paragraph>
+              </Space>
+            </Card>
+          ))}
+        </Space>
+      </Card>
+    </Space>
+  );
+}
+
+export function App() {
+  const location = useLocation();
+  const menuItems = [
+    { key: '/', label: <Link to="/">__WORKSPACE_MENU__</Link> },
+    ...surfaces.map((surface) => ({ key: `/${surface.route}`, label: <Link to={`/${surface.route}`}>{surface.title}</Link> })),
+  ];
+  const selectedKey = menuItems.some((item) => item.key === location.pathname) ? location.pathname : '/';
+  return (
+    <Layout style={{ minHeight: '100vh', background: '#f5f7fb' }}>
+      <Layout.Sider width={280}>
+        <div style={{ padding: 20, display: 'grid', gap: 8 }}>
+          <Typography.Text style={{ color: 'rgba(255,255,255,0.72)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>__DELIVERY_WORKSPACE__</Typography.Text>
+          <Typography.Title level={4} style={{ color: '#fff', margin: 0 }}>__RUNNABLE_MVP__</Typography.Title>
+          <Typography.Paragraph style={{ color: 'rgba(255,255,255,0.78)', margin: 0 }}>
+            __WORKSPACE_INTRO_GENERATED__
+          </Typography.Paragraph>
+        </div>
+        <Menu theme="dark" mode="inline" selectedKeys={[selectedKey]} items={menuItems} />
+      </Layout.Sider>
+      <Layout.Content style={{ padding: 24 }}>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          {surfaces.map((surface) => (
+            <Route key={surface.route} path={`/${surface.route}`} element={<SurfaceScaffoldPage surface={surface} />} />
+          ))}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Layout.Content>
+    </Layout>
+  );
+}

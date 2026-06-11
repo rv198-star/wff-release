@@ -1,0 +1,30 @@
+# Stage-02.5: third-party-integration-architecture-design
+
+## 1. Generation Provenance
+- state: `authored-first-pass`
+- phase1_prd: `$phase1_prd`
+- trigger_basis:
+  - Phase-1 external integration categories detected: $category_summary
+
+## 3. Core Structured Output
+- activation_decision:
+  - stage_status: `skipped`
+  - trigger_summary:
+    - Phase-1 contains external-integration signals, but the first-wave design package still lacks a named provider, fixed auth method, SLA, quota, data-sovereignty constraint, or mock/sandbox posture that would justify a fully active integration design lane.
+  - skip_reason: The current Phase-2 baseline preserves external seams explicitly, but freezing provider-level design now would create false certainty. Stage-02.5 is therefore skipped by decision, not omitted by accident.
+  - preserve_now:
+    - keep provider-facing seams behind stable internal ports
+    - keep auth/token and callback assumptions review-bound rather than silently hard-coded
+    - require Stage-02.5 re-entry before any vendor-specific SDK, OAuth/OIDC mapping, external callback, or quota-driven rollout becomes MVP-critical
+  - reactivation_rule:
+    - Activate Stage-02.5 once delivery scope binds a named provider, auth pattern, callback contract, SLA, quota budget, timeout/retry policy, or mock/sandbox strategy.
+- third_party_dependency_manifest:
+$dependency_manifest_table
+- integration_decision_records:
+$integration_decision_records
+- integration_adapter_specifications:
+$adapter_specifications_table
+- integration_test_strategy:
+$integration_test_strategy_table
+- integration_risk_register:
+$risk_register_table

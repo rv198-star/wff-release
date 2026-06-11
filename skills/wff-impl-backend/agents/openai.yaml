@@ -1,0 +1,4 @@
+interface:
+  display_name: "Phase-3 Backend Implementation"
+  short_description: "Implement backend slices inside frozen contracts and tests"
+  default_prompt: "Use $wff-impl-backend to implement a bounded Phase-3 backend slice, preserve the frozen API/data contracts, and make the generated failing tests pass without drifting from Phase-2 decisions."

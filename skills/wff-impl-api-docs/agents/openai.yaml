@@ -1,0 +1,4 @@
+interface:
+  display_name: "Phase-3 API Docs"
+  short_description: "Generate final API docs and diff them against the frozen contract"
+  default_prompt: "Use $wff-impl-api-docs to generate final Phase-3 API docs from the frozen contract, diff them against any implemented candidate state, and escalate incompatible drift instead of publishing it silently."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Phase-2 Design Orchestrator"
+  short_description: "Run official design/architecture delivery and reruns"
+  default_prompt: "Use $wff-arch to run or rerun a real case through the official Phase-2 stage flow, preserve review-bound truth, initialize traceability, validate the registry, and produce an implementation-facing convergence pack."

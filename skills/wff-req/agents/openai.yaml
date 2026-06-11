@@ -1,0 +1,4 @@
+interface:
+  display_name: "Phase-1 PRD Orchestrator"
+  short_description: "Run official product/requirements delivery and reruns"
+  default_prompt: "Use $wff-req to run or rerun a real case through the official Phase-1 stage flow, preserve unresolved truth, generate the PRD/convergence artifacts, and emit the execution report."

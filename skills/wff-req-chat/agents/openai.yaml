@@ -1,0 +1,4 @@
+interface:
+  display_name: "Requirements Chat Intake"
+  short_description: "Turn rough project intent into a Phase-1 source brief"
+  default_prompt: "Use $wff-req-chat in intake mode, then wff-office-hours mode when ready, to gather project intent, challenge source truth, label confirmed versus inferred or review-bound truth, and produce a P1 source input packet with a P1 source brief for $wff-req without PRD or UPP outputs."

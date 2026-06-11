@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+set -eu
+PACK_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+exec python3 "$PACK_ROOT/scripts/release/wff_init.py" "$@"

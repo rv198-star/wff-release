@@ -1,0 +1,10 @@
+node_modules
+.pnpm-store
+coverage
+.phase3-reports
+worker-runs
+apps/api/dist
+apps/web/dist
+packages/*/dist
+*.log
+.git

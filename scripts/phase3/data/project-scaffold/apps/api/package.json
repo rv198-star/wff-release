@@ -1,0 +1,19 @@
+{
+  "name": "@app/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm build && node dist/main.js",
+    "start": "node dist/main.js",
+    "start:container": "sh -lc 'until node dist/runtime/migrate.js; do sleep 1; done; node dist/main.js'",
+    "migrate": "node dist/runtime/migrate.js",
+    "lint": "eslint --max-warnings=0 \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --config ../../vitest.config.ts ../../tests/unit/api ../../tests/contracts ../../tests/scenarios ../../tests/replays",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1"
+  }
+}

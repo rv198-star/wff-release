@@ -1,0 +1,4 @@
+interface:
+  display_name: "Phase-3 Testing"
+  short_description: "Generate and run failing contract/scenario/replay packs"
+  default_prompt: "Use $wff-impl-verification to generate or extend the Phase-3 contract/scenario/replay pack from frozen truth, preserve trace-to-test coverage, and describe concurrent conflict tests honestly when they are simulation-based rather than real parallel race validation."

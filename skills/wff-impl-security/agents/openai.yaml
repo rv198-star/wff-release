@@ -1,0 +1,4 @@
+interface:
+  display_name: "Phase-3 Security Audit"
+  short_description: "Audit auth, tenancy, validation, secrets, and OWASP risks"
+  default_prompt: "Use $wff-impl-security to audit a stabilized Phase-3 implementation for auth correctness, tenant isolation, validation, secrets, sensitive data handling, and OWASP-class risks."

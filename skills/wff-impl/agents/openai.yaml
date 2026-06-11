@@ -1,0 +1,4 @@
+interface:
+  display_name: "Phase-3 Orchestrator"
+  short_description: "Run official implementation delivery from contract to handoff"
+  default_prompt: "Use $wff-impl to run Phase-3 from a completed Phase-2 handoff, freeze the contract pack first, generate failing tests before implementation, and keep delivery aligned to work packages and traceability."

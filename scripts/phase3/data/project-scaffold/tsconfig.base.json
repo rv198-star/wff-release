@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "jsx": "react-jsx",
+    "resolveJsonModule": true,
+    "paths": {
+      "@app/api-client": [
+        "packages/api-client/index.ts"
+      ],
+      "@app/shared-types": [
+        "packages/shared-types/index.ts"
+      ]
+    }
+  }
+}

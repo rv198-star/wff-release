@@ -1,0 +1,113 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { issueAuthToken, issueRefreshToken, normalizeAuthSession, parseAuthorizationHeader, requireRbacRole, rotateRefreshToken } from "../../../../apps/api/src/common/auth-session";
+import { buildCursorMeta } from "../../../../apps/api/src/common/pagination";
+import { appendEnvelopeMeta, annotateRuntimePayload, normalizeGeneratedPayload } from "../../../../apps/api/src/common/runtime-adapter";
+import { buildOperationPlan, getOperationSpec } from "../../../../apps/api/src/common/operation-support";
+import { buildFailurePayload, buildOperationPayload, normalizeIdValue, resetGeneratedRuntime } from "../../../../apps/api/src/common/generated-runtime";
+import { checkDatabaseReadiness, runMigrations } from "../../../../apps/api/src/runtime/database";
+
+describe("phase3 api foundation unit", () => {
+  beforeEach(() => {
+    resetGeneratedRuntime();
+    delete process.env.DATABASE_URL;
+    process.env.AUTH_TOKEN_SECRET = "phase3-foundation-secret";
+  });
+
+  it("auth session helpers issue bearer tokens and normalize fallback claims", () => {
+    const token = issueAuthToken({
+      tenant_id: "tenant-001",
+      sub: "user-001",
+      sid: "sess-001",
+      role: "tenant_admin",
+    });
+    const parsed = parseAuthorizationHeader(`Bearer ${token}`);
+    const session = normalizeAuthSession(parsed, "tenant-fallback");
+    expect(session.tenant_id).toBe("tenant-001");
+    expect(session.subject_id).toBe("user-001");
+    expect(session.session_id).toBe("sess-001");
+    expect(session.roles).toEqual(["tenant_admin"]);
+    requireRbacRole(session, "tenant_admin");
+  });
+
+  it("auth session helpers enforce token lifecycle and refresh rotation", () => {
+    const accessToken = issueAuthToken({
+      tenant_id: "tenant-001",
+      sub: "user-001",
+      sid: "sess-001",
+      role: "tenant_admin",
+    });
+    const accessClaims = parseAuthorizationHeader(`Bearer ${accessToken}`);
+    expect(accessClaims.token_use).toBe('access');
+    expect(Number(accessClaims.exp) - Number(accessClaims.iat)).toBe(15 * 60);
+    const refreshToken = issueRefreshToken({
+      tenant_id: "tenant-001",
+      sub: "user-001",
+      sid: "sess-001",
+      role: "tenant_admin",
+    });
+    const refreshClaims = parseAuthorizationHeader(`Bearer ${refreshToken}`);
+    expect(refreshClaims.token_use).toBe('refresh');
+    expect(Number(refreshClaims.exp) - Number(refreshClaims.iat)).toBe(8 * 60 * 60);
+    expect(refreshClaims.refresh_token_family_id).toBe('refresh-family-sess-001');
+    expect(refreshClaims.rotation_counter).toBe(0);
+    const rotatedToken = rotateRefreshToken(refreshClaims);
+    const rotatedClaims = parseAuthorizationHeader(`Bearer ${rotatedToken}`);
+    expect(rotatedClaims.refresh_token_family_id).toBe(refreshClaims.refresh_token_family_id);
+    expect(rotatedClaims.rotation_counter).toBe(1);
+  });
+
+  it("auth session helpers reject invalid bearer inputs and missing roles", () => {
+    expect(() => parseAuthorizationHeader("Basic token")).toThrow(/bearer token|missing_bearer_token/i);
+    expect(() => normalizeAuthSession({ sub: "user-001" }, "tenant-fallback")).toThrow(/tenant\/session claims are missing|invalid_auth_context/i);
+    const session = normalizeAuthSession({ tenantId: "tenant-fallback", sub: "user-001", sid: "sess-001", role: "tenant_admin" }, "tenant-fallback");
+    expect(() => requireRbacRole(session, "vet_staff")).toThrow(/Missing role|rbac_forbidden/i);
+  });
+
+  it("runtime payload helpers normalize aliases without clobbering explicit values", () => {
+    const normalized = normalizeGeneratedPayload({
+      body: { appointmentId: "appointment-001" },
+      query: { cursor: "cursor-001" },
+      input: { nested: { paymentId: "payment-001" } },
+      pathParams: { appointmentId: "appointment-001" },
+      authContext: { tenant_id: "tenant-001" },
+    });
+    expect(normalized.appointmentId).toBe("appointment-001");
+    expect(normalized.cursor).toBe("cursor-001");
+    expect(normalized.paymentId).toBe("payment-001");
+    expect(normalized.path_params).toEqual({ appointmentId: "appointment-001" });
+    expect(normalized.auth_context).toEqual({ tenant_id: "tenant-001" });
+    const annotated = annotateRuntimePayload(
+      { body: { appointmentId: "appointment-001" } },
+      { appointmentId: "keep-explicit", invalid_query: true },
+    );
+    expect(annotated.appointmentId).toBe("appointment-001");
+    expect(annotated.invalid_query).toBe(true);
+    const envelope = appendEnvelopeMeta({ data: { ok: true }, meta: { traceId: "trace-001" } }, { traceId: "trace-override", requestId: "req-001" });
+    expect(envelope.meta).toEqual({ traceId: "trace-001", requestId: "req-001" });
+  });
+
+  it("pagination helper mirrors camel and snake cursor metadata", () => {
+    const meta = buildCursorMeta([1, 2], { next_cursor: "cursor-002" });
+    expect(meta.nextCursor).toBe("cursor-002");
+    expect(meta.next_cursor).toBe("cursor-002");
+    expect(meta.returnedCount).toBe(2);
+    expect(meta.returned_count).toBe(2);
+    const emptyMeta = buildCursorMeta([], {}, "cursor-005");
+    expect(emptyMeta.nextCursor).toBe("cursor-005");
+    expect(emptyMeta.next_cursor).toBe("cursor-005");
+    expect(emptyMeta.returnedCount).toBe(0);
+    expect(emptyMeta.returned_count).toBe(0);
+    const camelOnlyMeta = buildCursorMeta([], { nextCursor: "cursor-003", returnedCount: 0 });
+    expect(camelOnlyMeta.next_cursor).toBe("cursor-003");
+    expect(camelOnlyMeta.returned_count).toBe(0);
+    const snakeOnlyMeta = buildCursorMeta([], { next_cursor: "cursor-004", returned_count: 0 });
+    expect(snakeOnlyMeta.nextCursor).toBe("cursor-004");
+    expect(snakeOnlyMeta.returnedCount).toBe(0);
+  });
+
+  it("database helpers fail fast when runtime configuration is missing", async () => {
+    await expect(checkDatabaseReadiness()).resolves.toEqual({ ready: false, reason: "database_url_missing" });
+    await expect(runMigrations(["select 1"])).rejects.toThrow(/DATABASE_URL is required/);
+  });
+
+__OPERATION_SUPPORT_TEST__});

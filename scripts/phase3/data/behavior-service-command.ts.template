@@ -1,0 +1,77 @@
+export class $module_class {
+  // contract-response-fields: $response_fields
+  // contract-example-request-id: $example_request_id
+  async $method(payload: GeneratedRuntimePayload): Promise<GeneratedRuntimeResult> {
+    // behavior-card-step: step-1 receive request and preserve caller trace context.
+    // operation-semantic-owner: $semantic_owner
+    // operation-semantic-aggregate: $semantic_aggregate
+    // operation-semantic-event: $semantic_event
+    // operation-semantic-evidence: $semantic_evidence
+    const context = this.validate${op}Context(payload);
+    this.assert${op}BusinessPreconditions(context);
+$path_param_not_found_guard
+    const current = await this.repository.load${op}ForDecision(context);
+    const nextState = this.apply${op}StateTransition(context, current);
+    const persistedState = this.merge${op}RepositoryResult(
+      nextState,
+      await this.repository.persist${op}WithInvariants(context, nextState),
+    );
+    await this.append${op}AuditEffect(context, persistedState);
+    return this.map${op}Response(context, persistedState);
+  }
+
+  private validate${op}Context(payload: GeneratedRuntimePayload): Record<string, unknown> {
+    // behavior-card-step: step-2 validate business context, tenant/permission posture, and contract fields.
+    if (!payload || typeof payload !== "object") {
+      throw this.map${op}Error("invalid_request");
+    }
+    const context = payload as Record<string, unknown>;
+    if (context.invalid_query === true || context.invalid_query === "true") {
+      throw this.map${op}Error("invalid_request");
+    }
+$behavior_value_validation_guards
+$request_field_validation_guards
+$evidence_key_absorption
+$semantic_validation_guards
+    return context;
+  }
+
+  private apply${op}StateTransition(context: Record<string, unknown>, current: Record<string, unknown>): Record<string, unknown> {
+    // behavior-card-step: step-4 apply state transition and conflict policy.
+    const expectedVersion = this.resolve${op}ContextValue(context, "expectedVersion");
+    if (current.expectedVersion !== undefined && expectedVersion !== current.expectedVersion) {
+      throw this.map${op}Error("version_conflict");
+    }
+$behavior_value_state_guards
+$state_transition_application
+  }
+
+$forced_failure_method
+  private map${op}Error(errorCode: $errors): Error {
+    const policyByCode = {
+$error_policy
+    } satisfies Record<$errors, { status: number; kind: "business_error" | "system_error"; retryability: "never" | "safe" }>;
+    const policy = policyByCode[errorCode];
+    return createApiError(policy.status, policy.kind, errorCode, policy.retryability, `$operation_id rejected with $${errorCode}`);
+  }
+
+  private async append${op}AuditEffect(context: Record<string, unknown>, nextState: Record<string, unknown>): Promise<void> {
+    // behavior-card-step: step-5 append audit/event evidence when durable state changes.
+    await this.repository.append${op}AuditEffect(context, nextState);
+  }
+
+$context_resolver_method
+$repository_result_merge_method
+  private map${op}Response(context: Record<string, unknown>, nextState: Record<string, unknown>): GeneratedRuntimeResult {
+    // behavior-card-step: step-6 return frozen response envelope with trace metadata.
+$response_projection
+$meta_projection
+    return {
+      data: responseData,
+      meta: responseMeta,
+$pagination_projection
+      request_id: String(this.project${op}ResponseField("request_id", context, nextState, {}, "request", "$operation_id")),
+      trace_id: String(this.project${op}ResponseField("trace_id", context, nextState, {}, "trace", "$operation_id")),
+    };
+  }
+}

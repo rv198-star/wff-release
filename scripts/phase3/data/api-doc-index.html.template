@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="$lang">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>$title</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; color: #17212b; background: #f3f6fb; font-family: ui-sans-serif, system-ui, sans-serif; }
+    .shell { max-width: 1360px; margin: 0 auto; padding: 28px 20px 40px; display: grid; gap: 20px; }
+    .hero { border: 1px solid #d8e0e8; border-radius: 18px; padding: 24px; background: linear-gradient(135deg, #ffffff 0%, #eef5ff 100%); display: grid; gap: 14px; }
+    .hero h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); line-height: 1.05; }
+    .hero-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .hero-card { border: 1px solid #d8e0e8; border-radius: 14px; padding: 16px; background: rgba(255,255,255,0.88); display: grid; gap: 8px; }
+    .hero-card strong { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #516071; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+    .hero-actions a { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 0 14px; border-radius: 999px; text-decoration: none; border: 1px solid #0f5bd8; background: #0f5bd8; color: #fff; font-weight: 600; }
+    .hero-actions a.secondary { background: #fff; color: #17212b; border-color: #c9d6ea; }
+    .hero-note { margin: 0; color: #516071; }
+    h2 { margin: 0 0 12px; }
+    .panel { border: 1px solid #d8e0e8; border-radius: 18px; padding: 20px; background: #fff; }
+    .panel + .panel { margin-top: 0; }
+    table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+    th, td { border: 1px solid #d8e0e8; padding: 10px; text-align: left; vertical-align: top; }
+    th { background: #f4f7fa; }
+    .status-pass { color: #146c2e; font-weight: 700; }
+    .status-fail { color: #b42318; font-weight: 700; }
+    code { white-space: nowrap; }
+    #swagger-ui { margin-top: 12px; }
+    .swagger-ui .topbar { display: none; }
+    @media (max-width: 720px) { .shell { padding-inline: 12px; } .panel, .hero { padding: 16px; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <h1>$title</h1>
+      <div class="hero-grid">
+        <article class="hero-card">
+          <strong>$verdict_label</strong>
+          <div class="status-${diff_status_class}">$diff_status</div>
+        </article>
+        <article class="hero-card">
+          <strong>$operations_label</strong>
+          <div>$operations_count</div>
+        </article>
+        <article class="hero-card">
+          <strong>$summary_label</strong>
+          <div>$summary_value</div>
+        </article>
+      </div>
+      <p class="hero-note">$interactive_label</p>
+      <div class="hero-actions">
+        <a href="./redoc.html" class="secondary">$redoc_label</a>
+        <a href="./openapi.json" class="secondary">$raw_spec_label</a>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>$operations_label</h2>
+      <table>
+        <thead><tr><th>Method</th><th>Path</th><th>Operation ID</th><th>Responses</th></tr></thead>
+        <tbody>
+${operations_rows}        </tbody>
+      </table>
+    </section>
+$evidence_section
+    <section class="panel">
+      <h2>$interactive_label</h2>
+      <div id="swagger-ui"></div>
+    </section>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      url: "./openapi.json",
+      dom_id: "#swagger-ui",
+      deepLinking: true,
+      displayRequestDuration: true,
+      tryItOutEnabled: true,
+      persistAuthorization: true,
+      presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+      layout: "BaseLayout",
+    });
+  </script>
+</body>
+</html>

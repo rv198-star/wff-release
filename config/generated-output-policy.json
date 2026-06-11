@@ -1,0 +1,21 @@
+{
+  "human_reviewed_output_locale": "zh-CN",
+  "env_override": "WFF_OUTPUT_LOCALE",
+  "allowed_locales": [
+    "zh-CN",
+    "en"
+  ],
+  "scope": "human-reviewed generated artifacts and skill-guided outputs",
+  "reader_translation": {
+    "model": "gpt-5.4",
+    "api_base_url": "https://sub2api.72live.com/v1",
+    "api_key_env": "OPENAI_API_KEY",
+    "api_key": "",
+    "reasoning_effort": "low",
+    "max_tokens_per_segment": 32768,
+    "segment_target_lines": 500,
+    "max_retries": 3,
+    "retry_backoff_seconds": [1, 2, 4],
+    "timeout_seconds": 1800
+  }
+}

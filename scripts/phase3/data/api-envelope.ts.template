@@ -1,0 +1,19 @@
+export interface ApiEnvelope<TData> {
+  trace_id: string;
+  request_id?: string;
+  data: TData;
+  meta?: Record<string, unknown>;
+}
+
+export function buildEnvelope<TData>(
+  data: TData,
+  ids: { traceId: string; requestId: string },
+  meta?: Record<string, unknown>,
+): ApiEnvelope<TData> {
+  return {
+    trace_id: ids.traceId,
+    request_id: ids.requestId,
+    data,
+    meta,
+  };
+}

@@ -2,6 +2,10 @@
 
 > Vibe Coding 给速度，SPEC 给意图，Harness 给运行证据；WFF 给复杂应用所需的可维护交付闭环。
 
+![WFF 是什么](docs/public/assets/wff-overview-infographic.png)
+
+项目地址：<[rv198-star/wff-release](https://github.com/rv198-star/wff-release)>
+
 WFF 是给 AI Agent 用的软件生命周期框架。
 
 它解决的不是“怎么让 AI 更猛”，而是“怎么避免把 AI 用错”。

@@ -2,19 +2,7 @@
 
 > Vibe Coding 给速度，SPEC 给意图，Harness 给运行证据；WFF 给复杂应用所需的可维护交付闭环。
 
-![WFF 是什么](docs/public/assets/wff-overview-infographic.png)
-
 项目地址：<[rv198-star/wff-release](https://github.com/rv198-star/wff-release)>
-
-## 核心流程概览
-
-![需求对齐](docs/public/assets/wff-requirements-alignment.png)
-
-![工程拆解](docs/public/assets/wff-engineering-decomposition.png)
-
-![Action Card 开发](docs/public/assets/wff-action-card-development.png)
-
-![历史项目演进](docs/public/assets/wff-existing-project-evolution.png)
 
 WFF 是给 AI Agent 用的软件生命周期框架。
 
@@ -41,6 +29,10 @@ WFF 把一个复杂软件工作拆成一串小而清楚的任务。
 这样做的结果是：AI Agent 不需要一次性理解整个宇宙。它可以被委派去完成一个边界清楚的模块，完成后再把结果接回完整证据链。
 
 这才是复杂应用能持续长大的前提：不是让 AI 硬扛更长上下文，而是让软件工程把上下文切小、切清楚、切得可追踪。
+
+下面这张图用于先理解整体闭环；README 中展示的是轻量阅读版，点击图片可打开高清原图。
+
+[![WFF 是什么](docs/public/assets/wff-overview-infographic-readme.png)](docs/public/assets/wff-overview-infographic.png)
 
 ## 和你已经熟悉的东西有什么不同
 
@@ -82,6 +74,10 @@ WFF 的位置就在这里：它不是继续把所有负担压给 AI 的记忆和
 using-wff -> wff-req-chat / wff-req
 ```
 
+这个场景最重要的是先把人、场景、证据和未确认边界讲清楚。
+
+[![需求对齐](docs/public/assets/wff-requirements-alignment-readme.png)](docs/public/assets/wff-requirements-alignment.png)
+
 ### 已有需求、规格、设计稿或接口材料
 
 适合把已有材料变成可继续设计、实现、测试和追踪的工程输入。重点不是“再写一份文档”，而是把材料拆成后续 AI Agent 可以独立处理的小块。
@@ -92,6 +88,12 @@ using-wff -> wff-req-chat / wff-req
 using-wff -> wff-req / wff-arch / wff-impl
 ```
 
+已有材料稳定后，WFF 会先把实现边界、接口和数据关系拆清，再把模块工作压到更小的 Action Card 上。
+
+[![工程拆解](docs/public/assets/wff-engineering-decomposition-readme.png)](docs/public/assets/wff-engineering-decomposition.png)
+
+[![Action Card 开发](docs/public/assets/wff-action-card-development-readme.png)](docs/public/assets/wff-action-card-development.png)
+
 ### 已有代码系统、历史包袱或迁移改造任务
 
 适合先看真实代码、数据、接口和风险，而不是只读旧文档就开始重构。WFF 会先分清事实、推断和未知数，再决定后续怎么走。
@@ -101,6 +103,10 @@ using-wff -> wff-req / wff-arch / wff-impl
 ```text
 using-wff -> wff-x
 ```
+
+已有系统不会被直接当成“可以随便改的代码包”。WFF 会先读代码、运行证据、文档和维护者经验，再决定补需求、改架构、小步实现或先补安全网。
+
+[![历史项目演进](docs/public/assets/wff-existing-project-evolution-readme.png)](docs/public/assets/wff-existing-project-evolution.png)
 
 ## 你会看到什么
 

@@ -6,6 +6,16 @@
 
 项目地址：<[rv198-star/wff-release](https://github.com/rv198-star/wff-release)>
 
+## 核心流程概览
+
+![需求对齐](docs/public/assets/wff-requirements-alignment.png)
+
+![工程拆解](docs/public/assets/wff-engineering-decomposition.png)
+
+![Action Card 开发](docs/public/assets/wff-action-card-development.png)
+
+![历史项目演进](docs/public/assets/wff-existing-project-evolution.png)
+
 WFF 是给 AI Agent 用的软件生命周期框架。
 
 它解决的不是“怎么让 AI 更猛”，而是“怎么避免把 AI 用错”。

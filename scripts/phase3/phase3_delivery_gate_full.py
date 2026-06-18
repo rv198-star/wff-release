@@ -641,6 +641,21 @@ def analyze_phase3_delivery(
         ("anti_cheat_negative_test_count",),
         ("summary", "anti_cheat_negative_test_count"),
     )
+    code_review_raw_status_echo_transitions = first_int(
+        code_review_metrics,
+        ("raw_status_echo_target_count",),
+        ("summary", "raw_status_echo_target_count"),
+    )
+    code_review_source_backed_state_machine_transitions = first_int(
+        code_review_metrics,
+        ("source_backed_state_machine_target_count",),
+        ("summary", "source_backed_state_machine_target_count"),
+    )
+    code_review_lifecycle_review_bound_transitions = first_int(
+        code_review_metrics,
+        ("lifecycle_review_bound_target_count",),
+        ("summary", "lifecycle_review_bound_target_count"),
+    )
     code_review_all_payload_typed = None
     if isinstance(code_review_metrics, dict):
         code_review_summary = code_review_metrics.get("summary", {})
@@ -773,6 +788,8 @@ def analyze_phase3_delivery(
         failures.append("persistence_reentry_gate_failed")
     if code_review_mock_runtime_dependencies > 0:
         failures.append("mock_runtime_dependency_detected")
+    if code_review_raw_status_echo_transitions > 0:
+        failures.append("raw_status_echo_transition_detected")
     if frontend_contract_blocking and code_review_frontend_surface_gaps > 0:
         failures.append("frontend_core_surface_gap_detected")
     if frontend_contract_blocking and code_review_frontend_contract_meta_surfaces > 0:
@@ -971,6 +988,10 @@ def analyze_phase3_delivery(
         warnings.append("api_evidence_linkage_missing")
     if code_review_mock_runtime_dependencies > 0:
         warnings.append("mock_runtime_dependency_still_present")
+    if code_review_raw_status_echo_transitions > 0:
+        warnings.append("raw_status_echo_transition_detected")
+    elif code_review_lifecycle_review_bound_transitions > 0:
+        warnings.append("lifecycle_transition_review_bound")
     if code_review_frontend_surface_gaps > 0:
         warnings.append("frontend_core_surface_coverage_incomplete")
     if code_review_frontend_contract_meta_surfaces > 0:
@@ -1197,6 +1218,9 @@ def analyze_phase3_delivery(
             "empty_or_audit_shaped_service_count": code_review_empty_or_audit_shaped_services,
             "same_source_test_risk_count": code_review_same_source_test_risks,
             "anti_cheat_negative_test_count": code_review_anti_cheat_negative_tests,
+            "raw_status_echo_transition_count": code_review_raw_status_echo_transitions,
+            "source_backed_state_machine_transition_count": code_review_source_backed_state_machine_transitions,
+            "lifecycle_review_bound_transition_count": code_review_lifecycle_review_bound_transitions,
             "security_audit_report_present": security_audit_report is not None,
             "security_critical_findings": security_critical,
             "security_high_findings": security_high,

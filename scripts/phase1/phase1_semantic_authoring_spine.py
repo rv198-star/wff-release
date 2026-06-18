@@ -10,8 +10,8 @@ from typing import Any
 from phase1.phase1_generation_kernel import (
     clean_source_text_value as _clean_text,
     find_markdown_block as _find_markdown_block,
+    source_fact_text as _kernel_source_fact_text,
 )
-from phase1.phase1_source_text_normalization import normalize_source_handoff_phrases
 
 
 ARTIFACT_ID = "p1-semantic-authoring-spine.v1"
@@ -47,7 +47,7 @@ def _is_packet(source_text: str) -> bool:
 def _fact_surface(source_text: str) -> str:
     if not _is_packet(source_text):
         return source_text
-    return normalize_source_handoff_phrases(_find_markdown_block(source_text, ("P1 Source Brief",)) or source_text)
+    return _kernel_source_fact_text(source_text)
 
 
 def _section_title(line: str) -> str:
@@ -135,6 +135,8 @@ def _has_any(text: str, tokens: tuple[str, ...]) -> bool:
 def _semantic_matches(excerpt: str, section: str) -> list[tuple[str, str]]:
     text = f"{section} {excerpt}"
     matches: list[tuple[str, str]] = []
+    if _has_any(text, ("out of scope", "non-goal", "deferred", "later", "future", "范围外", "非目标", "后续", "后置")):
+        return [("deferred_out_of_scope", "scope_boundary_deferred_item")]
     if _has_any(
         text,
         (
@@ -245,8 +247,6 @@ def _semantic_matches(excerpt: str, section: str) -> list[tuple[str, str]]:
         ),
     ):
         matches.append(("metric_success_signal", "validation_metric_success_signal"))
-    if _has_any(text, ("out of scope", "non-goal", "deferred", "later", "future", "范围外", "非目标", "后续")):
-        matches.append(("deferred_out_of_scope", "scope_boundary_deferred_item"))
     if _has_any(
         text,
         (

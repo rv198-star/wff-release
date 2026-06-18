@@ -920,7 +920,7 @@ def write_px_contamination_report(
         if path.exists() and path.suffix.lower() in {".md", ".markdown"}:
             parts.append(path.read_text(encoding="utf-8"))
     output_path = output_dir / PX_CONTAMINATION_REPORT_FILENAME
-    build_contamination_report(
+    report = build_contamination_report(
         "\n\n".join(parts),
         source_label=str(target_driver),
         boundary="px-to-p1-p2",
@@ -930,6 +930,10 @@ def write_px_contamination_report(
         "label": "px-contamination-report",
         "field": "px_contamination_report",
         "path": str(output_path),
+        "overall_status": report["overall_status"],
+        "claim_ceiling": report["claim_ceiling"],
+        "classifications": list(report["classifications"]),
+        "findings_count": len(report["findings"]),
         "required_token_issues": [],
     }
 
@@ -975,21 +979,23 @@ def extract_packets(target_driver: Path, output_dir: Path) -> dict[str, Any]:
         issues.extend(packet["required_token_issues"])
         if label == "p1":
             sidecars.append(write_p1_confirmation_checklist(output_dir=output_dir, block=block))
-    sidecars.append(
-        write_px_contamination_report(
-            output_dir=output_dir,
-            target_driver=target_driver,
-            packets=packets,
-            sidecars=sidecars,
-        )
+    contamination_sidecar = write_px_contamination_report(
+        output_dir=output_dir,
+        target_driver=target_driver,
+        packets=packets,
+        sidecars=sidecars,
     )
+    sidecars.append(contamination_sidecar)
+    contamination_status = str(contamination_sidecar.get("overall_status") or "unknown")
     return {
         "target_driver": str(target_driver),
         "output_dir": str(output_dir),
         "packets": packets,
         "sidecars": sidecars,
         "issues": issues,
-        "passed": not issues and len(packets) == len(PACKET_BLOCKS),
+        "contamination_status": contamination_status,
+        "contamination_claim_ceiling": contamination_sidecar.get("claim_ceiling", ""),
+        "passed": not issues and len(packets) == len(PACKET_BLOCKS) and contamination_status != "blocked",
     }
 
 
@@ -1022,6 +1028,8 @@ def main() -> int:
     if manifest_path:
         manifest_path.write_text(payload, encoding="utf-8")
     print(payload.rstrip())
+    if result.get("contamination_status") == "blocked":
+        return 2
     return 0 if result["passed"] else 1
 
 

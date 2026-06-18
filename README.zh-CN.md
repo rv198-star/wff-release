@@ -58,9 +58,13 @@ WFF 的位置就在这里：它不是继续把所有负担压给 AI 的记忆和
 
 你不需要先理解 WFF 的完整内部流程。第一次使用，先从 `using-wff` 开始，让它根据你手上的材料判断入口。
 
+WFF 对外只有三个入口：`wff-req-chat`、`wff-req`、`wff-x`。`wff-arch`、`wff-impl`、`wff-validation` 不是外部直达入口，只能在已有 WFF 上游产物成立后继续往下走。
+
 ### 只有想法、聊天记录或零散材料
 
 适合先把想法讲清楚，整理出需求来源、关键缺口、约束和后续要确认的问题。这个入口不是直接写代码，也不是假装已经有完整规格。
+
+`wff-req-chat` 是 P1 前的引导入口，负责把粗糙材料整理成可继续进入 P1 的输入。
 
 建议入口：
 
@@ -75,12 +79,16 @@ using-wff -> wff-req-chat / wff-req
 建议入口：
 
 ```text
-using-wff -> wff-req / wff-arch / wff-impl
+using-wff -> wff-req
 ```
+
+如果 `using-wff` 判断已经存在可接受的 WFF-native upstream artifacts，后续才可以把 `wff-arch`、`wff-impl` 当作内部续接路线。
 
 ### 已有代码系统、历史包袱或迁移改造任务
 
 适合先看真实代码、数据、接口和风险，而不是只读旧文档就开始重构。WFF 会先分清事实、推断和未知数，再决定后续怎么走。
+
+`wff-x` 是 code-backed existing-system assessment。Related documents are supporting evidence；standalone documents are not enough。
 
 建议入口：
 
@@ -99,7 +107,7 @@ WFF 运行后可能会产生很多文件，但用户不需要从机器日志开�
 - 追踪关系：需求、设计、模块、代码、测试和证据之间的连接。
 - 声明上限：哪些结论成立，哪些还需要真实环境、外部评审或业务负责人确认。
 
-如果输出目录里有 `human-review/INDEX.md`，先看它。它是人类阅读入口，不替代原始产物、trace registry 或 gate 报告，也不会提高 claim ceiling。
+如果输出目录里有 `human-review/INDEX.md`，先看它。这个目录名是历史兼容路径；当前语义是 AI / 外部 review 阅读入口，不替代原始产物、trace registry 或 gate 报告，也不会提高 claim ceiling。
 
 ## 最快开始
 
@@ -144,13 +152,13 @@ WFF 的安装单位是完整 skill 目录和配套资源，不是单个 `SKILL.m
 
 完整 proof snapshot 不放在公开 runtime 仓库 `main`。它们按版本保存在独立 proof snapshot 分支，避免公开首页仓库被生成物拖大。
 
-最近的 v1.5.3 完整验证快照已保留在独立 proof snapshot 分支，包含三条主线场景和四条存量系统场景的全量源码级产物，用于外部独立评审。当前边界是 `pass-with-review-pending`：这是带声明上限的发布证据，不是无条件 release proof。
+最近的 v1.5.4 维护版主线验证快照已保留在独立 proof snapshot 分支，包含三条主线场景 P1 -> P4 的源码级产物，用于外部独立评审。当前边界是 `pass-with-review-pending`：这是带声明上限的发布证据，不是无条件 release proof；v1.5.4 不声明 fresh PhaseX 四场景重跑。
 
 ## 继续阅读
 
 1. [WFF 全局导航图](docs/public/wff-orientation-map.zh-CN.md)
 2. [WFF Role Agents 使用指南](docs/WFF-ROLE-AGENTS.zh-CN.md)
-3. [Human Review Surface](docs/public/human-review-surface.zh-CN.md)
+3. [AI / External Review Surface](docs/public/human-review-surface.zh-CN.md)
 4. `INSTALL-PACK-README.zh-CN.md`
 
 ## License

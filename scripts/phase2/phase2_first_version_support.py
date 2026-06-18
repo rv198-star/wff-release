@@ -9,7 +9,7 @@ This fills the missing synthesis layer between:
 The goal is not to replace later refinement loops. The goal is to ensure a
 fresh P1 -> P2 run can produce authored Stage-01..04 artifacts instead of
 stopping at scaffold-only stubs, and optionally complete the official closure
-bundle by handing off to `run_phase2_full_trial.py`.
+bundle by handing off to the manual-closure runtime.
 """
 
 from __future__ import annotations

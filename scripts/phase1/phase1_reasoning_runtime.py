@@ -56,6 +56,10 @@ def normalize_text(value: str) -> str:
     return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", " ", value.lower()).strip()
 
 
+def _source_has_chinese(value: str) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", str(value or "")))
+
+
 def unique_preserve_order(items: list[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
@@ -97,132 +101,7 @@ def render_template_value(value: Any, context: dict[str, Any]) -> Any:
     return value
 
 
-NON_GROWTH_DOMAIN_CONTAMINATION_REPLACEMENTS: list[tuple[str, str]] = [
-    (r"\bSEO dashboard\b", "single-view dashboard"),
-    (r"\bpage-level tracking\b", "surface-level event logging"),
-    (r"\bcompetitor snapshot\b", "peer comparison snapshot"),
-    (r"\bcompetitor context\b", "peer comparison context"),
-    (r"\brecommendation-first\b", "guidance-first"),
-    (r"\brecommendation-only\b", "guidance-only"),
-    (r"\bRecommendation Payload Contract\b", "Module Interface Payload Contract"),
-    (r"\brecommendation payload contract\b", "module interface payload contract"),
-    (r"\bsource-level recommendation detail\b", "source-level structured capability detail"),
-    (r"\brecommendation detail\b", "structured capability detail"),
-    (r"\bdetailed recommendation outputs\b", "detailed structured outputs"),
-    (r"\bdetailed recommendation capability\b", "detailed structured capability"),
-    (r"\baction recommendation payload\b", "structured action payload"),
-    (r"\brecommendation capability\b", "structured capability"),
-    (r"\brecommendation outputs\b", "structured outputs"),
-    (r"\brecommendation trust\b", "next-step guidance trust"),
-    (r"\brecommendation-to-task bridge\b", "next-step-guidance-to-task bridge"),
-    (r"\brecommendation\s*/\s*task\s*/\s*review\b", "evidence / next action / result judgment"),
-    (r"\brecommendation\s+与\s+task\b", "next-step guidance 与 downstream execution"),
-    (r"\brecommendation/task\b", "next-step-guidance/downstream-execution"),
-    (r"\bDeferred Attribution and Conversion Seam\b", "Deferred Capability Seam"),
-    (r"\bdeferred attribution / conversion seam\b", "deferred capability seam"),
-    (r"\battribution\s*/\s*conversion\b", "future measurement / downstream outcome"),
-    (r"\bfuture measurement seam\s*/\s*conversion\b", "future measurement seam / downstream outcome"),
-    (r"\battribution\b", "future measurement seam"),
-    (r"\bUTM\b", "source tag"),
-    (r"\bfunnel\b", "journey stage"),
-    (r"\bcross-device\b", "multi-entry"),
-]
-
-
-def _semantic_guard_role_labels(context: dict[str, Any] | None) -> dict[str, str]:
-    if not isinstance(context, dict):
-        return {
-            "primary_segment": "primary operator",
-            "supporting_role": "supporting operator",
-            "decision_role": "decision reviewer",
-        }
-    roles = [
-        str(item).strip()
-        for item in context.get("role_labels", [])
-        if str(item).strip()
-    ]
-    primary_segment = str(context.get("primary_segment", "")).strip() or (roles[0] if roles else "primary operator")
-    supporting_role = (
-        str(context.get("supporting_role_label", "")).strip()
-        or (roles[1] if len(roles) > 1 else "")
-        or "supporting operator"
-    )
-    decision_role = (
-        str(context.get("decision_role_label", "")).strip()
-        or (roles[-1] if roles else "")
-        or primary_segment
-        or "decision reviewer"
-    )
-    return {
-        "primary_segment": primary_segment,
-        "supporting_role": supporting_role,
-        "decision_role": decision_role,
-    }
-
-
-def _non_growth_domain_contamination_replacements(context: dict[str, Any] | None) -> list[tuple[str, str]]:
-    labels = _semantic_guard_role_labels(context)
-    return [
-        (r"\bmarketing owner\b", labels["primary_segment"]),
-        (r"\bMarketing Owner\b", labels["primary_segment"]),
-        (r"\bcontent operator\b", labels["supporting_role"]),
-        (r"\bContent Operator\b", labels["supporting_role"]),
-        (r"\bbusiness owner\b", labels["decision_role"]),
-        (r"\bBusiness Owner\b", labels["decision_role"]),
-        *NON_GROWTH_DOMAIN_CONTAMINATION_REPLACEMENTS,
-    ]
-
-
-def _contextual_domain_purity_replacements(context: dict[str, Any] | None) -> list[tuple[str, str]]:
-    if not isinstance(context, dict):
-        return []
-    if str(context.get("domain_posture", "")).strip() == "growth-observation":
-        return []
-    mainline_surface_catalog = str(context.get("mainline_surface_catalog", "")).strip() or "mainline workflow surfaces"
-    mainline_subsystem_catalog = str(context.get("mainline_subsystem_catalog", "")).strip() or mainline_surface_catalog
-    upstream_downstream_boundary_label = (
-        str(context.get("upstream_downstream_boundary_label", "")).strip() or "上游记录与下游动作"
-    )
-    object_dependency_chain = str(context.get("object_dependency_chain", "")).strip() or "source-defined workflow chain"
-    workflow_entry_and_detail = str(context.get("workflow_entry_and_detail_label", "")).strip() or "关键工作入口与记录详情"
-    case_detail_label = str(context.get("case_detail_label", "")).strip() or "current case detail"
-    case_detail_plural_label = str(context.get("case_detail_plural_label", "")).strip() or "current case details"
-    supporting_context_label = str(context.get("supporting_context_label", "")).strip() or "secondary supporting context"
-    return [
-        (
-            r"overview\s*/\s*findings\s*/\s*tasks\s*/\s*competitors\s*/\s*reports\s*/\s*settings",
-            mainline_surface_catalog,
-        ),
-        (r"\boverview 与 findings\b", workflow_entry_and_detail),
-        (
-            r"scope\s*->\s*observation.*?review chain",
-            object_dependency_chain,
-        ),
-        (
-            r"Scope Definition\s*->\s*Analysis Cycle\s*->\s*Insight Record\s*->\s*next-step action\s*->\s*Execution Task\s*->\s*Review Summary",
-            object_dependency_chain,
-        ),
-        (
-            r"Scope\s*&\s*Governance、Observation\s*&\s*Scoring、next-step guidance\s*&\s*Tasking、Review\s*&\s*Reporting",
-            mainline_subsystem_catalog,
-        ),
-        (r"governance\s*/\s*observation\s*/\s*next-step guidance\s*/\s*review split", mainline_subsystem_catalog),
-        (r"Observation 与 next-step guidance", upstream_downstream_boundary_label),
-        (r"\bcompetitor context\b", supporting_context_label),
-        (r"\bdashboard-only\b", "summary-only"),
-    ]
-
-
 def sanitize_domain_default_truth(value: Any, context: dict[str, Any] | None = None) -> Any:
-    if isinstance(value, str):
-        sanitized = value
-        replacements: list[tuple[str, str]] = []
-        if isinstance(context, dict) and str(context.get("domain_posture", "")).strip() != "growth-observation":
-            replacements.extend(_non_growth_domain_contamination_replacements(context))
-            replacements.extend(_contextual_domain_purity_replacements(context))
-        for pattern, replacement in replacements:
-            sanitized = re.sub(pattern, replacement, sanitized, flags=re.IGNORECASE)
-        return sanitized
     if isinstance(value, dict):
         return {key: sanitize_domain_default_truth(item, context=context) for key, item in value.items()}
     if isinstance(value, list):
@@ -748,7 +627,12 @@ def _overlaps_flow_summary(candidate: str, flow_summary: str) -> bool:
     return overlap >= 0.6
 
 
-def _select_objective_phrase(objectives: list[str], workflow_label: str) -> str:
+def _select_objective_phrase(
+    objectives: list[str],
+    workflow_label: str,
+    *,
+    fallback: str = "the mainline work becomes routine instead of manually reconstructed",
+) -> str:
     for raw in objectives:
         candidate = _compress_truth_sentence(raw, intent="value")
         if not candidate or len(candidate) > 120 or _looks_like_truth_field_dump(candidate):
@@ -756,7 +640,7 @@ def _select_objective_phrase(objectives: list[str], workflow_label: str) -> str:
         if _overlaps_flow_summary(candidate, workflow_label):
             continue
         return candidate
-    return "the mainline work becomes routine instead of manually reconstructed"
+    return fallback
 
 
 def _select_boundary_anchor(
@@ -1443,6 +1327,34 @@ def compile_business_world_truth_spine(context: dict[str, Any]) -> dict[str, Any
         if isinstance(context.get("product_source_direct_driver"), dict)
         else {}
     )
+    source_text = _compact_truth_text(context.get("source_text", ""))
+    source_has_chinese = _source_has_chinese(
+        source_text
+        or " ".join(
+            str(item)
+            for item in [
+                context.get("primary_segment", ""),
+                *list(context.get("roles", [])),
+                *list(context.get("objectives", [])),
+                *list(context.get("business_value_signals", [])),
+            ]
+        )
+    )
+    objective_fallback = (
+        "待评审确认的产品价值机制"
+        if source_has_chinese
+        else "the mainline work becomes routine instead of manually reconstructed"
+    )
+    business_pressure_fallback = (
+        "待评审确认的业务压力"
+        if source_has_chinese
+        else "review-bound business pressure gap"
+    )
+    user_experience_pressure_fallback = (
+        "待评审确认的用户体验摩擦"
+        if source_has_chinese
+        else "review-bound operator experience friction"
+    )
     domain_posture = str(context.get("domain_posture", "")).strip() or "generic-workflow"
     primary_segment = _compact_truth_text(context.get("primary_segment")) or "primary operator"
     roles = _non_empty_truth_values(list(context.get("roles", [])))
@@ -1499,21 +1411,25 @@ def compile_business_world_truth_spine(context: dict[str, Any]) -> dict[str, Any
         user_experience_signals,
         fallback=[primary_segment, entry_anchor, exit_anchor],
     )
-    objective_phrase = _select_objective_phrase(objectives, flow_summary)
+    objective_phrase = _select_objective_phrase(
+        objectives,
+        flow_summary,
+        fallback=objective_fallback,
+    )
     business_pressure = _select_pressure_phrase(pressure_signals, flow_summary, "")
     if not business_pressure:
         business_pressure = _select_pressure_phrase(
             [*business_value_signals, *curated_business_signals],
             flow_summary,
-            "manual reconstruction, weak actionability, and lower decision confidence",
+            business_pressure_fallback,
         )
     user_experience_pressure = _select_pressure_phrase(
         [*user_experience_signals, *curated_experience_signals],
         flow_summary,
-        "waiting, handoff friction, and manual reconstruction",
+        user_experience_pressure_fallback,
     )
     if not TRUTH_DIRECT_FAILURE_PATTERN.search(user_experience_pressure):
-        user_experience_pressure = "waiting, handoff friction, and manual reconstruction"
+        user_experience_pressure = user_experience_pressure_fallback
     primary_value_statement = _select_value_phrase(
         [objective_phrase, *business_value_signals, *user_experience_signals],
         flow_summary,
@@ -1693,7 +1609,7 @@ def compile_business_world_truth_spine(context: dict[str, Any]) -> dict[str, Any
         f"并让 `{continuation_owner}` 能围绕 {proof_artifact} 判断下一轮是否继续投入，"
         "而不是只看到事后报告。"
     )
-    if objective_phrase and objective_phrase != "the mainline work becomes routine instead of manually reconstructed":
+    if objective_phrase and objective_phrase != objective_fallback:
         core_thesis = f"{objective_phrase}. {core_thesis_mainline}"
     else:
         core_thesis = core_thesis_mainline

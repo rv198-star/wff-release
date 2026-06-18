@@ -38,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--complexity-override-justification",
         default="",
-        help="Justification forwarded to the full-trial wrapper when --complexity-profile overrides the classifier.",
+        help="Justification forwarded to the manual-closure runtime when --complexity-profile overrides the classifier.",
     )
     parser.add_argument(
         "--deployment-posture",

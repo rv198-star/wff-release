@@ -311,7 +311,7 @@ def main() -> int:
         payload_hits = count_pattern_hits(
             h2_blocks["stories_requirements"],
             [
-                r"Module Interface Payload Contract|Recommendation Payload Contract|payload contract",
+                r"Module Interface Payload Contract|payload contract",
                 r"structured payload|结构化字段|quality diagnosis",
                 r"target_asset_id|priority|owner_hint|blocked_reason|extension_context",
                 r"source_reference|source_tag|stage_placeholder|outcome event|conversion event|multi-entry|cross-device|extension seam|deferred seam",

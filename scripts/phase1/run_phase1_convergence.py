@@ -36,6 +36,7 @@ from phase1.phase1_emit_depth_runtime_artifacts import (
     DEPTH_RUNTIME_SUMMARY_FILENAME,
     DEPTH_RUNTIME_TEXT_ARTIFACTS,
 )
+from phase1.phase1_generation_kernel import extract_domain_context
 from phase1.phase1_gate_authority import SUPPRESS_COMPATIBILITY_WARNING_ENV
 from phase1.phase1_named_state import extract_named_state
 from phase1.phase1_runtime_metadata import THINKING_VALUE_GAIN_OUTPUT_PROFILES
@@ -78,6 +79,14 @@ SAME_RUN_STAGE_REFRESH_FOCUS_AREAS = {
     "role_handoffs",
     "real_world_baseline",
 }
+SOURCE_RETENTION_FALLBACK_PATTERNS = (
+    r"\bworkflow-home\b",
+    r"\bprimary operator\b",
+    r"\bsource-defined (?:primary user|decision owner|primary business flow)\b",
+    r"\bsource-defined (?:workflow output|workflow chain|capability|module)\b",
+    r"\bsource-defined (?:first step|completion step|constraints)\b",
+    r"source brief 未提供",
+)
 
 
 @dataclass(frozen=True)
@@ -542,6 +551,138 @@ def has_signal(texts: list[str], *patterns: str) -> bool:
     return any(re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE | re.DOTALL) for text in texts for pattern in patterns)
 
 
+def unique_nonempty_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        cleaned = re.sub(r"\s+", " ", str(value or "").strip(" `"))
+        if not cleaned:
+            continue
+        key = cleaned.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(cleaned)
+    return ordered
+
+
+def source_retention_anchor_groups(source_text: str) -> dict[str, list[str]]:
+    try:
+        domain_context = extract_domain_context(source_text)
+    except Exception:
+        domain_context = {}
+    roles = [
+        str(item.get("Role", "")).strip()
+        for item in domain_context.get("roles", [])
+        if isinstance(item, dict) and str(item.get("Role", "")).strip()
+    ]
+    roles.extend(str(item).strip() for item in domain_context.get("segments", []) if str(item).strip())
+    modules = [
+        str(item.get("module", "")).strip()
+        for item in domain_context.get("modules", [])
+        if isinstance(item, dict) and str(item.get("module", "")).strip()
+    ]
+    objects = [
+        str(item.get("Object", "")).strip()
+        for item in domain_context.get("objects", [])
+        if isinstance(item, dict) and str(item.get("Object", "")).strip()
+    ]
+    flows: list[str] = []
+    for item in domain_context.get("flows", []):
+        if not isinstance(item, dict):
+            continue
+        flow_name = str(item.get("name", "")).strip()
+        if flow_name:
+            flows.append(flow_name)
+        flows.extend(str(step).strip() for step in item.get("steps", []) if str(step).strip())
+    return {
+        "roles": unique_nonempty_strings(roles),
+        "modules": unique_nonempty_strings(modules),
+        "objects": unique_nonempty_strings(objects),
+        "flows": unique_nonempty_strings(flows),
+    }
+
+
+def source_anchor_hits(text: str, anchors: list[str]) -> int:
+    probe = re.sub(r"\s+", " ", text).casefold()
+    hits = 0
+    for anchor in unique_nonempty_strings(anchors):
+        if len(anchor) <= 2 and anchor.isascii():
+            continue
+        if anchor.casefold() in probe:
+            hits += 1
+    return hits
+
+
+def count_source_retention_fallback_hits(prd_text: str) -> int:
+    return sum(
+        len(re.findall(pattern, prd_text, flags=re.IGNORECASE | re.MULTILINE))
+        for pattern in SOURCE_RETENTION_FALLBACK_PATTERNS
+    )
+
+
+def evaluate_source_fact_retention(source_text: str, prd_text: str) -> dict[str, object]:
+    anchor_groups = source_retention_anchor_groups(source_text)
+    available_groups = {group: anchors for group, anchors in anchor_groups.items() if anchors}
+    group_hits = {
+        group: source_anchor_hits(prd_text, anchors)
+        for group, anchors in available_groups.items()
+    }
+    retained_groups = [group for group, hits in group_hits.items() if hits > 0]
+    total_anchor_count = sum(len(anchors) for anchors in available_groups.values())
+    retained_anchor_count = sum(group_hits.values())
+    fallback_hits = count_source_retention_fallback_hits(prd_text)
+    required_group_count = min(2, len(available_groups))
+    required_anchor_count = min(3, total_anchor_count)
+    if total_anchor_count < 2:
+        if fallback_hits >= 5:
+            status = "BLOCKED"
+            why = (
+                "generated PRD has high fallback placeholder density while source anchors are too thin "
+                f"to prove safe retention mechanically (fallback_hits={fallback_hits})"
+            )
+        else:
+            status = "REVIEW-BOUND"
+            why = "source has too few extractable role/object/flow anchors to prove retention mechanically"
+    elif len(retained_groups) >= required_group_count and retained_anchor_count >= required_anchor_count and fallback_hits == 0:
+        status = "PASS"
+        why = "source-native roles, modules, objects, or flow anchors remain visible without fallback placeholder residue"
+    elif fallback_hits >= 5:
+        status = "BLOCKED"
+        why = (
+            "generated PRD still has high fallback placeholder density despite extractable source anchors "
+            f"(retained_anchors={retained_anchor_count}/{total_anchor_count}, fallback_hits={fallback_hits})"
+        )
+    elif fallback_hits >= 2 and (len(retained_groups) < required_group_count or retained_anchor_count < required_anchor_count):
+        status = "BLOCKED"
+        why = (
+            "source has extractable business anchors, but generated PRD is dominated by fallback placeholders "
+            f"(retained_anchors={retained_anchor_count}/{total_anchor_count}, fallback_hits={fallback_hits})"
+        )
+    elif len(retained_groups) < required_group_count or retained_anchor_count < required_anchor_count:
+        status = "BLOCKED"
+        why = (
+            "source-native roles, modules, objects, or flow anchors are not retained strongly enough "
+            f"(retained_anchors={retained_anchor_count}/{total_anchor_count})"
+        )
+    else:
+        status = "REVIEW-BOUND"
+        why = (
+            "source anchors are visible, but fallback placeholder residue still needs review "
+            f"(fallback_hits={fallback_hits})"
+        )
+    return {
+        "status": status,
+        "why": why,
+        "anchor_group_count": len(available_groups),
+        "retained_group_count": len(retained_groups),
+        "source_anchor_count": total_anchor_count,
+        "retained_anchor_count": retained_anchor_count,
+        "fallback_hits": fallback_hits,
+        "retained_groups": retained_groups,
+    }
+
+
 def gate_map_from_round(round_payload: dict[str, object] | None) -> dict[str, dict[str, object]]:
     if not isinstance(round_payload, dict):
         return {}
@@ -734,6 +875,8 @@ def build_phase1_mainline_assessment(
     delivery_state = extract_named_state(prd_text, "document_delivery_state")
     evidence_state = extract_named_state(prd_text, "evidence_confidence_state")
     commercial_posture = depth_posture in {"commercial-decision", "mixed"}
+    source_retention = evaluate_source_fact_retention(source_text, prd_text)
+    source_retention_fallback_hits = int(source_retention["fallback_hits"])
 
     dimension_rows = [
         {
@@ -839,12 +982,16 @@ def build_phase1_mainline_assessment(
                 + int(has_signal(texts, r"MVP Definition & Scope", r"MVP Scope"))
                 + int(constraints_present)
                 + int(review_bound_present and deferred_present)
-                + int(not placeholder_present)
+                + int(not placeholder_present and source_retention_fallback_hits == 0)
             ),
             "notes": [
                 f"document_delivery_state={delivery_state or 'not-explicit'}",
                 "deferred/review-bound explicit" if review_bound_present and deferred_present else "optional layering still weak",
-                "no obvious placeholder residue" if not placeholder_present else "placeholder residue still visible",
+                (
+                    "no obvious placeholder residue"
+                    if not placeholder_present and source_retention_fallback_hits == 0
+                    else "placeholder residue still visible"
+                ),
             ],
         },
     ]
@@ -965,6 +1112,14 @@ def build_phase1_mainline_assessment(
             "why": value_why,
         }
     )
+    acceptance_rows.append(
+        {
+            "key": "source_fact_retention_not_placeholder",
+            "label": "源事实保留且未被通用占位替换",
+            "status": str(source_retention["status"]),
+            "why": str(source_retention["why"]),
+        }
+    )
     if gate_verdict(gate_map, "executability_gate") == "PASS" and gate_verdict(gate_map, "quality_gate") == "PASS" and handoff_present:
         handoff_status = "PASS"
         handoff_why = "Phase-2 can consume the PRD without reconstructing the product world"
@@ -1048,6 +1203,7 @@ def build_phase1_mainline_assessment(
         "baseline_calibration_status": depth_baseline_status or "not-explicit",
         "baseline_calibration_judgment": depth_baseline_judgment,
         "ordinary_real_world_baseline_met": ordinary_real_world_baseline_met,
+        "source_fact_retention": source_retention,
         "depth_runtime_summary_present": isinstance(depth_runtime_summary, dict),
         "depth_runtime_artifact_count": depth_artifact_count,
         "agentic_loop_plan_present": isinstance(agentic_loop_plan, dict),
@@ -2244,6 +2400,8 @@ def main(argv: list[str] | None = None) -> int:
                     str(prd_path),
                     "--min-section-score",
                     "90",
+                    "--result-mode",
+                    "strict",
                 ],
             )
         )

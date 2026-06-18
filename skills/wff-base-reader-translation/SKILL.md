@@ -26,7 +26,7 @@ These MUST remain exactly as they appear in the source:
 
 - Trace IDs: `P1-...`, `P2-...`, `P3-...`, `P4-...`, `PX-...`, `ARCH-...`, `WP-...`, `RBI-...`, `AC-...`, `RQ-...`, `EP-...`, `BVS-...`, `DR-...`
 - Artifact IDs and version strings
-- File names and paths (e.g., `scripts/phase1/run_phase1_full_trial.py`, `engineering-spec-pack.md`)
+- File names and paths (e.g., `scripts/phase1/run_phase1_source_to_prd.py`, `engineering-spec-pack.md`)
 - Code, API endpoints (`GET /api/...`), schema field names, database column names
 - Object/class/domain identifiers (e.g., `TenantWorkspace`, `ActorRole`, `AuditRecord`, `TrackedScope`)
 - Status enum values (`pass`, `fail`, `warn`, `review-ready`, `downstream-start-safe`, `review-bound`, `implementation-ready`)

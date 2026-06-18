@@ -44,6 +44,9 @@ from phase1.phase1_reasoning_runtime import (
 from phase1.phase1_runtime_metadata import THINKING_VALUE_GAIN_OUTPUT_PROFILES
 from phase1.phase1_source_text_normalization import normalize_source_handoff_phrases
 from phase1.phase1_generation_kernel import (
+    REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT,
+    REVIEW_BOUND_MISSING_SOURCE_DEFERRED_SCOPE,
+    REVIEW_BOUND_MISSING_SOURCE_ROLE,
     SOURCE_PACKET_EVIDENCE_ALIASES,
     HANDOFF_QUALIFIER_PATTERN,
     VALUE_SIGNAL_PATTERNS,
@@ -153,16 +156,16 @@ SEMANTIC_POSTURE_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
 SEMANTIC_TOKEN_PATTERNS: tuple[tuple[str, str], ...] = (
     ("ai_friendliness", r"ai[-\s]*friendly|ai\s*友好|AI\s*友好"),
     ("quality_diagnosis", r"quality diagnosis|内容质量|质量诊断"),
-    ("citation_likelihood", r"citation|引用概率|引用"),
+    ("citation_likelihood", r"citation likelihood|引用概率|被引用概率"),
     ("attribution", r"attribution|归因"),
     ("conversion_event", r"conversion|转化"),
     ("identity_resolution", r"identity|身份|跨设备"),
     ("keyword_focus", r"keyword|关键词"),
-    ("question_focus", r"question|问答|问题"),
+    ("question_focus", r"question focus|query focus|问答焦点|问题焦点|问题聚焦"),
     ("rewrite_suggestion", r"rewrite|改写"),
-    ("recommendation", r"recommendation|建议"),
-    ("evidence_link", r"evidence|证据"),
-    ("review_cycle", r"review|复盘|评审"),
+    ("recommendation", r"\brecommendation\b|推荐引擎|推荐能力|推荐系统|推荐模块"),
+    ("evidence_link", r"evidence link|evidence ref|evidence reference|证据链接|证据引用"),
+    ("review_cycle", r"review cycle|复盘周期|评审周期"),
     ("follow_up", r"follow[-\s]*up|复诊|随访"),
     ("treatment_record", r"treatment|治疗"),
     ("visit_record", r"visit|接诊|就诊"),
@@ -283,7 +286,9 @@ def source_semantic_guard_context(
     ]
     if not role_labels:
         role_labels = [str(item).strip() for item in profile.get("role_names", []) if str(item).strip()]
-    primary_segment = str(profile.get("primary_actor", "")).strip() or sequence_item_text(role_labels, 0, "primary operator")
+    primary_segment = str(profile.get("primary_actor", "")).strip() or sequence_item_text(
+        role_labels, 0, REVIEW_BOUND_MISSING_SOURCE_ROLE
+    )
     return {
         "domain_posture": infer_source_semantic_posture(local_context, text=text),
         "primary_segment": primary_segment,
@@ -505,7 +510,7 @@ def build_phase1_source_snapshot(source_text: str) -> Phase1SourceSnapshot:
     context = extract_domain_context(source_text)
     business_world_model = build_business_world_model(source_text)
     segments = list(context["segments"])
-    primary_segment = str(segments[0])
+    primary_segment = str(segments[0]) if segments else REVIEW_BOUND_MISSING_SOURCE_ROLE
     roles = list(context["roles"])
     modules = list(context["modules"])
     flows = list(context["flows"])
@@ -519,7 +524,7 @@ def build_phase1_source_snapshot(source_text: str) -> Phase1SourceSnapshot:
         product_label=str(context["product_label"]),
         segments=segments,
         primary_segment=primary_segment,
-        alternative_segments=segments[1:] or ["secondary collaborator", "review stakeholder"],
+        alternative_segments=segments[1:] or (["secondary collaborator", "review stakeholder"] if segments else []),
         roles=roles,
         modules=modules,
         flows=flows,
@@ -527,7 +532,7 @@ def build_phase1_source_snapshot(source_text: str) -> Phase1SourceSnapshot:
         module_names=module_names,
         module_chain=" -> ".join(module_names) or "source-defined workflow",
         primary_flow_name=dict_sequence_field_text(flows, 0, "name", "Primary Flow"),
-        main_roles=main_roles,
+        main_roles=main_roles or [REVIEW_BOUND_MISSING_SOURCE_ROLE],
     )
 
 
@@ -1532,11 +1537,13 @@ def _find_alias_position(text: str, alias: str) -> int | None:
 
 def _role_aliases(role: str) -> list[str]:
     aliases = _label_variants(role)
+    for alias in list(aliases):
+        if len(re.findall(r'[A-Za-z]+', alias)) != 1:
+            continue
+        token = re.findall(r'[A-Za-z]+', alias)[0].lower()
+        if len(token) >= 6:
+            aliases.append(token[:3])
     lowered = ' '.join(alias.lower() for alias in aliases)
-    if 'veterinarian' in lowered and 'vet' not in {alias.lower() for alias in aliases}:
-        aliases.append('vet')
-    if 'receptionist' in lowered:
-        aliases.extend(['front desk', 'frontdesk'])
     if 'administrator' in lowered or re.search(r'\badmin\b', lowered):
         aliases.append('admin')
     return unique_preserve_order(aliases)
@@ -1617,7 +1624,7 @@ def _accumulate_surface_actor_scores(
 def infer_surface_primary_actor(surface: str, context: dict[str, object]) -> str:
     roles = [role_label(row) for row in context.get('roles', []) if role_label(row)]
     if not roles:
-        return 'primary operator'
+        return REVIEW_BOUND_MISSING_SOURCE_ROLE
     module_row = _module_row_for_surface(surface, context.get('modules', []))
     if module_row and str(module_row.get("primary_actor", "")).strip():
         return str(module_row.get("primary_actor", "")).strip()
@@ -1676,8 +1683,9 @@ def build_business_world_model(
     domain_posture = infer_source_semantic_posture(context, text=source_text)
     return compile_business_world_truth_spine(
         {
+            "source_text": source_text,
             "domain_posture": domain_posture,
-            "primary_segment": sequence_item_text(segments, 0, "primary operator"),
+            "primary_segment": sequence_item_text(segments, 0, REVIEW_BOUND_MISSING_SOURCE_ROLE),
             "alternative_segments": segments[1:],
             "roles": [str(row.get("Role", "")).strip() for row in context.get("roles", []) if str(row.get("Role", "")).strip()],
             "objectives": list(context.get("objectives", [])),
@@ -2525,7 +2533,7 @@ def render_interface_payload_rows(context: dict[str, object]) -> str:
             existing=seen_tokens,
         )
         lines.append(
-            "| {module} interface payload | {responsibility} | `{token}_input` + `{token}_output` | carries `{input_value}` into `{output_value}` without manual reconstruction | source-derived from module matrix |".format(
+            "| {module} interface payload | {responsibility} | `{token}_input` + `{token}_output` | carries `{input_value}` into `{output_value}` with explicit handoff context | source-derived from module matrix |".format(
                 module=module,
                 responsibility=row.get("responsibility", "source capability detail"),
                 token=token,
@@ -2741,7 +2749,7 @@ def build_stage_01_source_bundle(
     modules = snapshot.modules
     roles = snapshot.roles
     flows = snapshot.flows
-    constraints = context["constraints"] or ["source-defined constraint"]
+    constraints = context["constraints"] or [REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT]
     nfrs = context["nfrs"] or ["source-defined non-functional requirement"]
     out_of_scope = context["out_of_scope"] or ["source-defined deferred item"]
     flow_summary = snapshot.module_chain
@@ -3065,8 +3073,8 @@ def build_stage_02a_nfr_identification_block(
     next_module = sequence_item_text(module_names, 1, "next module")
     last_module = sequence_item_text(module_names, -1, "source completion")
     secondary_role = dict_sequence_field_text(roles, 1, "Role", "secondary collaborator")
-    first_constraint = sequence_item_text(constraints, 0, "source-defined constraint")
-    last_constraint = sequence_item_text(constraints, -1, "source-defined constraint")
+    first_constraint = sequence_item_text(constraints, 0, REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT)
+    last_constraint = sequence_item_text(constraints, -1, REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT)
     return f"""- nfr_initial_identification:
   - nfr_dimensions_scan:
     - dimension_1:
@@ -3811,7 +3819,7 @@ def render_stage_02b_quality_specification_sections(
 | attribute | stimulus | environment | expected response | measure |
 |---|---|---|---|---|
 | reliability | repeat a source-defined workflow step | current source environment | output stays explainable | no hidden state jump across `{module_chain}` |
-| usability | `{primary_actor}` follows the primary module chain | primary business operation | next module can consume current output | no manual reconstruction between modules |
+| usability | `{primary_actor}` follows the primary module chain | primary business operation | next module can consume current output | handoff context stays explicit between modules |
 | security/data-control | role-based access hits a sensitive record | source-defined account boundary | access remains auditable | constraints from source stay visible |
 | maintainability | later capability extends the current workflow | first-wave implementation baseline | module seams remain extensible | downstream can add later scope without rewriting core objects |
 
@@ -3980,7 +3988,7 @@ def build_stage_02b_ia_and_payload_reasoning_units(
         build_reasoning_unit(
             "IA and Deferred Seam Discipline", "IA direction + deferred capability seam", "structured -> stress-tested -> freeze",
             "IA could drift away from workflow, and deferred scope could disappear from the spec",
-            ("IA decision comparison + deferred seam preservation", ["information-architecture direction setting", "deferred seam design for attribution / conversion"], "compare organizing axes, then keep out-of-scope capabilities visible as explicit seams"),
+            ("IA decision comparison + deferred seam preservation", ["information-architecture direction setting", "deferred capability seam design"], "compare organizing axes, then keep out-of-scope capabilities visible as explicit seams"),
             (["entity-first", "role-first", "workflow-first"], "cleaner navigation vs preserving workflow and future extension honesty", "selected workflow-first IA and preserved future capabilities as deferred seams"),
             (f"source out-of-scope includes `{deferred_scope}`", "hiding deferred items creates false completeness for downstream teams", "IA and seam decisions stay coupled to the workflow backbone"),
             ("review-bound", "some later capabilities may need richer interface reservation", "Stage-03 can slice safely without silently dropping future seams", "IA and seam logic are explicit enough for re-audit"),
@@ -4007,7 +4015,7 @@ def build_stage_02b_reasoning_units(
 ) -> list[dict[str, object]]:
     stage_skill_assets = skill_assets if skill_assets is not None else load_stage_skill_assets("stage_02b")
     primary_flow_name = dict_sequence_field_text(flows, 0, "name", "Primary Flow")
-    deferred_scope = sequence_item_text(out_of_scope, 0, "source-defined deferred capability")
+    deferred_scope = sequence_item_text(out_of_scope, 0, REVIEW_BOUND_MISSING_SOURCE_DEFERRED_SCOPE)
     module_names = [str(row.get("module", "module")) for row in modules[:4]]
     return build_material_grounded_reasoning_units(
         [
@@ -4376,9 +4384,9 @@ def build_stage_02b_render_context(
     flows = snapshot.flows
     objectives = context["objectives"] or ["preserve the source-defined workflow chain"]
     nfrs = context["nfrs"] or ["source-defined reliability requirement", "source-defined usability requirement"]
-    out_of_scope = context["out_of_scope"] or ["source-defined deferred capability"]
+    out_of_scope = context["out_of_scope"] or [REVIEW_BOUND_MISSING_SOURCE_DEFERRED_SCOPE]
     navigation_surfaces = context["navigation_surfaces"]
-    primary_actor = dict_sequence_field_text(roles, 0, "Role", "primary operator")
+    primary_actor = dict_sequence_field_text(roles, 0, "Role", snapshot.primary_segment)
     module_chain = snapshot.module_chain
     specification_context = build_stage_02b_specification_context(
         source_context=context,
@@ -5367,7 +5375,7 @@ def build_stage_04_maturity_rows(
     primary_segment: str,
     constraints: list[str],
 ) -> list[dict[str, str]]:
-    primary_constraint = sequence_item_text(constraints, 0, "source-defined constraint")
+    primary_constraint = sequence_item_text(constraints, 0, REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT)
     return [
         {
             "subject": f"workflow backbone `{module_chain}`",

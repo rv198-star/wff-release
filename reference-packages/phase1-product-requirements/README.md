@@ -58,7 +58,7 @@
 - 如何在不重开产品定义的前提下，生成页面地图、主流程、状态覆盖与原型执行约束
 
 补充定位：
-- Stage-05 不是主链 Stage，不进入当前默认 full-trial
+- Stage-05 不是主链 Stage，不进入当前默认 source-to-PRD run
 - 它位于 `PRD -> Prototype Spec -> 外部 HTML 原型执行` 的桥接分支上
 
 ---
@@ -81,7 +81,7 @@ Stage-05 当前首版已补齐运行时主文件：
 
 但它当前仍属于可选桥接阶段：
 - 已完成 stage-pack 结构落位
-- 尚未接入默认 `run_phase1_full_trial.py`
+- 尚未接入默认 `run_phase1_source_to_prd.py`
 - 当前主交付物是 `prototype-spec.md`，不是 HTML 原型本身
 
 但其中文审计镜像与部分 authoring-time / verification 资产仍在继续对齐，因此此目录当前是：
@@ -175,14 +175,14 @@ Phase-1 当前已经足以作为“good input / cooperative path”的稳定主�
 
 那么当前最准确的答案是：
 
-> **真实案例的官方运行入口，不是手工逐 Stage 填模板，而是项目级 full trial runner。**
+> **真实案例的官方运行入口，不是手工逐 Stage 填模板，而是项目级 source-to-PRD runner。**
 
 也就是说，当前 Phase-1 的推荐使用方式是：
 
 - 先打开 `skills/wff-req/SKILL.md`
 - 再打开 `docs/phases/phase-1/phase-1-session-bootstrap.md`
 - 以 Stage runtime packs 作为方法/约束来源
-- 以 `scripts/phase1/run_phase1_full_trial.py` 作为真实案例的官方运行入口
+- 以 `scripts/phase1/run_phase1_source_to_prd.py` 作为真实案例的官方运行入口
 - 以 `scripts/phase1/run_phase1_convergence.py` 作为 gate / remediation 引擎
 
 手工逐 Stage 运行只保留给审计、调试和定向补救，不再作为正式交付路径。
@@ -202,12 +202,12 @@ Phase-1 当前已经足以作为“good input / cooperative path”的稳定主�
   - `docs/phases/phase-1/phase-1-session-bootstrap.md`
 - 实际 runtime 入口：
 
-- `scripts/phase1/run_phase1_full_trial.py`
+- `scripts/phase1/run_phase1_source_to_prd.py`
 
 推荐命令：
 
 ```bash
-python3 scripts/phase1/run_phase1_full_trial.py \
+python3 scripts/phase1/run_phase1_source_to_prd.py \
   --source <phase1-input.md> \
   --output-dir </tmp/software-lifecycle-skills/<case>/<trial>> \
   --version <trial-vN> \
@@ -291,7 +291,7 @@ Stage packs 仍然是权威方法资产：
 
 如果当前环境还没注册本地 Skill，也可以直接给 Agent 这种要求：
 
-> 请按仓库官方 Phase-1 full trial 链路运行真实案例。以 `scripts/phase1/run_phase1_full_trial.py` 为主入口，
+> 请按仓库官方 Phase-1 source-to-PRD 链路运行真实案例。以 `scripts/phase1/run_phase1_source_to_prd.py` 为主入口，
 > 输入源文件为 `<phase1-input.md>`，输出到 `<trial-output-dir>`，并保留 stage outputs、PRD、evidence、execution report 与 gates。
 
 ---
@@ -303,7 +303,7 @@ Stage packs 仍然是权威方法资产：
 - authoring 新的 Stage pack
 - 审计某个 Stage 的 contract / SOP / output surface
 - gate 失败后，定向检查某个 Stage 为什么过薄或 reasoning 不足
-- 在 rerun full trial 前，对单个弱点做 targeted remediation
+- 在 rerun source-to-PRD 前，对单个弱点做 targeted remediation
 
 它不适合：
 
@@ -313,7 +313,7 @@ Stage packs 仍然是权威方法资产：
 
 ### 7.1 正确的调试顺序
 
-1. 先看 full-trial 的 gate 失败点
+1. 先看 source-to-PRD 的 gate 失败点
 2. 确认是哪个 Stage / 哪个 artifact unit 过薄
 3. 再打开该 Stage 的：
    - `skill-contract.md`
@@ -321,7 +321,7 @@ Stage packs 仍然是权威方法资产：
    - `output-template.md`
    - `source-cards.md`
 4. 做定向修正，而不是从头手工重写整条链路
-5. 修正后重新运行 `scripts/phase1/run_phase1_full_trial.py`
+5. 修正后重新运行 `scripts/phase1/run_phase1_source_to_prd.py`
 
 ### 7.2 调试时要特别避免的错
 

@@ -6,7 +6,7 @@ This workflow closes the gap between:
 
 - a valid Phase-1 handoff
 - the official Phase-2 Stage family
-- a fresh Phase-2 case that can later be wrapped by `scripts/phase2/run_phase2_full_trial.py`
+- a fresh Phase-2 case that can later be closed by `scripts/phase2/run_phase2_manual_closure.py`
 
 It exists to prevent "rename v5 to v6 and patch the prose" from being treated as a valid skill-first Phase-2 run.
 
@@ -29,7 +29,7 @@ Interpretation:
 
 - `run_phase2_first_version.py`
   - official fresh-run entry
-- `run_phase2_full_trial.py`
+- `run_phase2_manual_closure.py`
   - closure wrapper over authored Stage outputs
   - still valid when manual/remediation-first authoring is intentional
 
@@ -177,12 +177,12 @@ If a `P2 Existing-System Architecture Change Intake Packet` is present:
 4. Stage-03: derive storage/interface/schema/scenario/tech-selection outputs from Stage-02, explicitly bind Phase-1 trace units via `upstream_trace_ids`, keep schema migration posture visible when rollout sequencing matters, and when multi-candidate tradeoff evaluation is active, close the full tradeoff bundle (`matrix -> baseline insufficiency -> optimum candidate -> key tradeoff decisions`) instead of stopping at the comparison table.
 5. Stage-04: converge the design into delivery slices, verification, readiness, Engineering Spec Pack input, auth/vendor/token lifecycle posture, and onboarding summary while preserving the upstream trace chain into replay and RBI rows.
 6. For the canonical one-shot mainline, use `scripts/phase2/run_phase2_first_version.py --run-wrapper`.
-7. Run `scripts/phase2/run_phase2_full_trial.py` directly only when Stage-01..04 are already authored and the current task is explicit closure / remediation.
+7. Run `scripts/phase2/run_phase2_manual_closure.py` directly only when Stage-01..04 are already authored and the current task is explicit closure / remediation.
 8. Let the runner classify the case complexity from the Phase-1 PRD (`auto`) unless there is a documented reason to override; if override is necessary, carry the justification into the execution report.
 
 ## Wrapper Rule
 
-`scripts/phase2/run_phase2_full_trial.py` is the official closure wrapper over already-authored Stage outputs.
+`scripts/phase2/run_phase2_manual_closure.py` is the official closure runner over already-authored Stage outputs.
 
 It is not the canonical fresh-run mainline entry.
 The canonical mainline entry is `scripts/phase2/run_phase2_first_version.py --run-wrapper`.

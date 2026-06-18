@@ -263,7 +263,7 @@ def workflow_scope_summary(context: dict[str, object]) -> str:
     objects = [str(item) for item in context.get("core_objects", []) if str(item).strip()]
     if objects:
         return " -> ".join(objects[:5])
-    return "source-defined workflow"
+    return "workflow scope unavailable pending source admission"
 
 
 def derive_complexity_profile(args: argparse.Namespace, phase1_prd: Path) -> tuple[str, dict[str, object]]:

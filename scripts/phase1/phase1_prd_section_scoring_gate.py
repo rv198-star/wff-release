@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Phase-1 PRD section scoring gate.
+Phase-1 PRD section scoring support.
 
-This gate turns "looks deep enough" into a reproducible closing acceptance test.
+This compatibility support script turns "looks deep enough" into a reproducible
+section-level scoring signal.
 Each critical PRD section is scored across five dimensions:
 - completeness
 - detail depth
@@ -10,8 +11,9 @@ Each critical PRD section is scored across five dimensions:
 - downstream usability
 - uncertainty / boundary honesty
 
-The closing bar is intentionally strict: every tracked section must reach the
-configured threshold, not just the average score.
+Direct invocation is advisory by default because this script is not a canonical
+Phase-1 closure entrypoint. Canonical runners may opt into strict mode when they
+need a return code for bundle-internal advisory failure reporting.
 """
 
 from __future__ import annotations
@@ -109,9 +111,7 @@ def canonicalize_heading(raw: str) -> str:
     value = re.sub(r"\s+", " ", value)
     aliases = {
         "module interface payload contract": "payload contract",
-        "recommendation payload contract": "payload contract",
         "deferred capability seam": "deferred seam",
-        "deferred attribution and conversion seam": "deferred seam",
     }
     value = aliases.get(value, value)
     return value
@@ -305,7 +305,7 @@ def score_section(text: str, rule: SectionRule, threshold: float) -> dict[str, o
 
 def main() -> int:
     emit_compatibility_warning("scripts/phase1/phase1_prd_section_scoring_gate.py")
-    parser = argparse.ArgumentParser(description="Phase-1 PRD section scoring gate")
+    parser = argparse.ArgumentParser(description="Phase-1 PRD section scoring support")
     parser.add_argument("--prd", required=True)
     parser.add_argument("--min-section-score", type=float, default=90.0)
     parser.add_argument(
@@ -315,6 +315,16 @@ def main() -> int:
         help="minimum score each scoring dimension must reach; prevents one thin dimension from being masked by others",
     )
     parser.add_argument("--output-json")
+    parser.add_argument(
+        "--result-mode",
+        choices=("advisory", "strict"),
+        default="advisory",
+        help=(
+            "advisory keeps direct compatibility-support runs exit-zero with FINAL: "
+            "ADVISORY-BLOCKED when scoring issues exist; strict returns exit 2 for "
+            "bundle-internal failure reporting"
+        ),
+    )
     args = parser.parse_args()
 
     prd_path = Path(args.prd).resolve()
@@ -336,7 +346,10 @@ def main() -> int:
         "prd": str(prd_path),
         "min_section_score": args.min_section_score,
         "min_dimension_score": args.min_dimension_score,
+        "result_mode": args.result_mode,
         "average_score": average,
+        "final_status": "PASS" if not blocked else ("BLOCKED" if args.result_mode == "strict" else "ADVISORY-BLOCKED"),
+        "blocked_sections": [str(item["name"]) for item in blocked],
         "sections": results,
     }
     if args.output_json:
@@ -344,12 +357,17 @@ def main() -> int:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print("== Phase-1 PRD Section Scoring Gate ==")
+    print("== Phase-1 PRD Section Scoring Support ==")
     print(f"prd: {prd_path}")
     print(f"min_section_score: {args.min_section_score}")
     print(f"min_dimension_score: {args.min_dimension_score}")
+    print(f"result_mode: {args.result_mode}")
+    print("claim_ceiling: compatibility support evidence only; canonical Phase-1 closure requires run_phase1_source_to_prd.py or run_phase1_convergence.py")
     for item in results:
-        print(f"\n[{item['verdict']}] {item['name']}: total={item['score']}/100")
+        display_verdict = str(item["verdict"])
+        if args.result_mode == "advisory" and display_verdict != "PASS":
+            display_verdict = "ADVISORY-BLOCKED"
+        print(f"\n[{display_verdict}] {item['name']}: total={item['score']}/100")
         for dimension in item["dimensions"]:
             if dimension["name"] == "detail_depth":
                 print(
@@ -369,6 +387,10 @@ def main() -> int:
     print(f"\naverage_score: {average}")
     if blocked:
         print(f"blocked_sections: {', '.join(item['name'] for item in blocked)}")
+        if args.result_mode == "advisory":
+            print("support_result: scoring issues found; support evidence only, not canonical Phase-1 closure state")
+            print("FINAL: ADVISORY-BLOCKED")
+            return 0
         print("FINAL: BLOCKED")
         return 2
 

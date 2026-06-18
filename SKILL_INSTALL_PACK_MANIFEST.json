@@ -510,7 +510,7 @@
     "wff-meta-source-unit-coverage-ledger",
     "wff-meta-stage-skill-construction-lifecycle"
   ],
-  "generated_at": "2026-06-11T17:03:49+00:00",
+  "generated_at": "2026-06-18T04:49:23+00:00",
   "included_base_skills": [
     "wff-base-traceability-management"
   ],
@@ -662,6 +662,7 @@
     "scripts/common/output_language.py",
     "scripts/common/reader_artifact_integrity.py",
     "scripts/common/script_data_assets.py",
+    "scripts/common/source_admission.py",
     "scripts/common/tvg_runtime_metadata.py",
     "scripts/common/wff_runtime_paths.py",
     "scripts/phase1/__init__.py",
@@ -694,6 +695,7 @@
     "scripts/phase1/phase1_version_contract.py",
     "scripts/phase1/run_phase1_convergence.py",
     "scripts/phase1/run_phase1_full_trial.py",
+    "scripts/phase1/run_phase1_source_to_prd.py",
     "scripts/phase2/__init__.py",
     "scripts/phase2/adr_depth_validator.py",
     "scripts/phase2/component_semantic_inventory.py",
@@ -882,21 +884,22 @@
   ],
   "official_release_eval_input_root": "",
   "official_release_eval_script": "",
-  "pack_name": "wff-v1.5.3-skills-install-pack",
+  "pack_name": "wff-v1.5.4-skills-install-pack",
   "pack_type": "skills-install-pack",
   "phase1_script_surface": {
     "bundle_internal_compatibility_scripts": [
       "scripts/phase1/phase1_artifact_consistency_gate.py",
       "scripts/phase1/phase1_prd_analysis_delta_gate.py",
       "scripts/phase1/phase1_prd_assembly_integrity_gate.py",
-      "scripts/phase1/phase1_prd_section_scoring_gate.py"
+      "scripts/phase1/phase1_prd_section_scoring_gate.py",
+      "scripts/phase1/run_phase1_full_trial.py"
     ],
     "canonical_mainline_gate_surface_scripts": [
       "scripts/phase1/phase1_prd_executability_gate.py",
       "scripts/phase1/phase1_prd_quality_gate.py",
       "scripts/phase1/phase1_stage_artifact_depth_gate.py",
       "scripts/phase1/run_phase1_convergence.py",
-      "scripts/phase1/run_phase1_full_trial.py"
+      "scripts/phase1/run_phase1_source_to_prd.py"
     ],
     "gate_authority": {
       "scripts/phase1/phase1_artifact_consistency_gate.py": {
@@ -956,7 +959,7 @@
         "validation_profile": "phase"
       },
       "scripts/phase1/run_phase1_convergence.py": {
-        "claim_ceiling": "P1 phase closure evidence for the selected full-trial or convergence path under declared inputs",
+        "claim_ceiling": "P1 phase closure evidence for the selected source-to-PRD or convergence path under declared inputs",
         "default_status": "default",
         "formal_p1_closure_authority": true,
         "path": "scripts/phase1/run_phase1_convergence.py",
@@ -964,15 +967,23 @@
         "validation_profile": "phase"
       },
       "scripts/phase1/run_phase1_full_trial.py": {
-        "claim_ceiling": "P1 phase closure evidence for the selected full-trial or convergence path under declared inputs",
+        "claim_ceiling": "bundle-internal compatibility support evidence only; not canonical P1 closure",
+        "default_status": "compatibility-only",
+        "formal_p1_closure_authority": false,
+        "path": "scripts/phase1/run_phase1_full_trial.py",
+        "script_surface_role": "bundle-internal-compatibility",
+        "validation_profile": "compatibility"
+      },
+      "scripts/phase1/run_phase1_source_to_prd.py": {
+        "claim_ceiling": "P1 phase closure evidence for the selected source-to-PRD or convergence path under declared inputs",
         "default_status": "default",
         "formal_p1_closure_authority": true,
-        "path": "scripts/phase1/run_phase1_full_trial.py",
+        "path": "scripts/phase1/run_phase1_source_to_prd.py",
         "script_surface_role": "canonical-mainline-gate-surface",
         "validation_profile": "phase"
       }
     },
-    "surface_truth_note": "Phase-1 canonical check surface is run_phase1_full_trial/run_phase1_convergence plus stage_depth/quality/executability; the four sub-checks remain install-pack-visible only as bundle-internal compatibility scripts."
+    "surface_truth_note": "Phase-1 canonical check surface is run_phase1_source_to_prd/run_phase1_convergence plus stage_depth/quality/executability; the four sub-checks remain install-pack-visible only as bundle-internal compatibility scripts."
   },
   "preview_tracks": [],
   "profile_audience": "mixed-user-and-maintainer",
@@ -1012,6 +1023,7 @@
     "scripts/release/bootstrap_mindthus_dependency.py",
     "scripts/release/run_release_dual_case_eval.py",
     "scripts/phase3/run_phase3_first_version.py",
+    "scripts/phase2/run_phase2_manual_closure.py",
     "scripts/phase2/run_phase2_full_trial.py"
   ],
   "profile_id": "full-pack",
@@ -1068,5 +1080,5 @@
     "wff-validation-closure-judgment",
     "wff-validation-evidence-execution"
   ],
-  "source_revision": "9a00d94c96149a011092e182e28c79cfa5b3afb6"
+  "source_revision": "e857fb0dc102849a8a69da651f4a8c2b3a48368a"
 }

@@ -161,7 +161,7 @@ That means:
 - if this is a new version, initialize a fresh case root with `scripts/phase2/scaffold_phase2_case.py`
 - follow `docs/phases/phase-2/phase-2-first-pass-generation-workflow-v1.0.md` for fresh first-pass generation
 - read the Phase-1 PRD's `Phase-2 Design Input Contract` before authoring Stage-01 and keep the absorption chain explicit through `P2-DTR-*`, `P2-CTR-*`, `P2-RP-*`, and `P2-RT-*`
-- use `scripts/phase2/run_phase2_full_trial.py` as the official closure wrapper once Stage-01..04 outputs are ready
+- use `scripts/phase2/run_phase2_manual_closure.py` as the manual closure wrapper once Stage-01..04 outputs are ready
 - use this directory as the authoritative Stage pack set
 - produce or update `docs/phases/phase-2/phase-2-execution-report-template.md`
 - initialize / bind / validate / report the coarse trace chain with `wff-base-traceability-management`

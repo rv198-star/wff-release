@@ -65,7 +65,7 @@ _SYSTEM_PROMPT = """You are a senior technical translator producing reader-facin
 ## Immutable Tokens (preserve exactly)
 These MUST remain unchanged in the output:
 - Trace IDs: P1-..., ARCH-..., WP-..., RBI-..., AC-..., WO-..., RQ-..., EP-..., BVS-..., DR-...
-- File names and paths (scripts/phase1/run_phase1_full_trial.py, engineering-spec-pack.md)
+- File names and paths (scripts/phase1/run_phase1_source_to_prd.py, engineering-spec-pack.md)
 - Code, API endpoints, schema field names, database column names
 - Object/class identifiers (TenantWorkspace, ActorRole, AuditRecord, TrackedScope)
 - Status enum values (pass, fail, warn, review-ready, downstream-start-safe, review-bound)
@@ -105,9 +105,9 @@ These MUST remain unchanged in the output:
 - task → 任务
 - baseline generation → 基线生成
 - claim ceiling → 声明上限
-- B2B marketing owner → B2B 营销负责人
-- business owner / growth owner → 业务负责人 / 增长负责人
-- content operator → 内容运营人员
+- primary decision owner → 核心决策负责人
+- decision owner / commitment owner → 决策负责人 / 投入负责人
+- supporting operator → 协作执行人员
 
 ### Chinese-First Rule (zh-CN)
 - Every business term, role name, workflow label, concept name, AND snake_case/kebab-case section label MUST appear Chinese-first with English in parentheses on first mention in each major section

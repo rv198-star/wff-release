@@ -502,6 +502,26 @@ def review_claim_ceiling_text(checks: dict[str, Any]) -> str:
     )
 
 
+LEGACY_REVIEW_CHECK_ALIASES = {
+    "human_review_red_team_present": "review_red_team_present",
+    "human_review_red_team_usable": "review_red_team_usable",
+    "human_review_red_team_status": "review_red_team_status",
+    "human_review_claim_ceiling_after_review": "review_claim_ceiling_after_review",
+    "human_review_return_or_followup_required": "review_return_or_followup_required",
+    "human_review_blocks_ready": "review_blocks_ready",
+}
+
+
+def display_review_check_items(checks: dict[str, Any]) -> list[tuple[str, Any]]:
+    displayed: dict[str, Any] = {}
+    for key, value in checks.items():
+        display_key = LEGACY_REVIEW_CHECK_ALIASES.get(key, key)
+        if display_key in displayed and key.startswith("human_review_"):
+            continue
+        displayed[display_key] = value
+    return list(displayed.items())
+
+
 def classify_mainline_verdict(
     phase1: dict[str, Any],
     phase2: dict[str, Any],
@@ -702,7 +722,8 @@ def build_markdown(
             lines.append(f"- phase_blockers_count: `{mainline_assessment.get('blockers_count', 0)}`")
             lines.append(f"- phase_review_bound_items_count: `{mainline_assessment.get('review_bound_items_count', 0)}`")
         lines.append("- checks:")
-        for key, value in phase.get("checks", {}).items():
+        checks = phase.get("checks", {})
+        for key, value in display_review_check_items(checks if isinstance(checks, dict) else {}):
             lines.append(f"  - {key}: `{markdown_check_value(value)}`")
         surface_contract = phase.get("surface_contract")
         if isinstance(surface_contract, dict) and surface_contract.get("present"):

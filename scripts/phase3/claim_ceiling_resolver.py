@@ -162,12 +162,28 @@ def build_phase3_claim_ceiling_report(
     same_source_risk_count = _as_int(checks.get("same_source_test_risk_count"))
     anti_cheat_negative_count = _as_int(checks.get("anti_cheat_negative_test_count"))
     empty_or_audit_shaped_count = _as_int(checks.get("empty_or_audit_shaped_service_count"))
+    raw_status_echo_count = _as_int(checks.get("raw_status_echo_transition_count"))
+    lifecycle_review_bound_count = _as_int(checks.get("lifecycle_review_bound_transition_count"))
     if empty_or_audit_shaped_count > 0:
         cap(
             FORMAL_STATE_RANK["implementation-in-progress"],
             "empty_or_audit_shaped_service",
             "implementation_review",
             "One or more service/repository targets are empty, audit-shaped, or fallback-shaped.",
+        )
+    if raw_status_echo_count > 0:
+        cap(
+            FORMAL_STATE_RANK["implementation-in-progress"],
+            "raw_status_echo_transition",
+            "state_transition_review",
+            "One or more generated services still accept caller status as transition truth.",
+        )
+    elif lifecycle_review_bound_count > 0:
+        cap(
+            FORMAL_STATE_RANK["implementation-ready"],
+            "lifecycle_transition_review_bound",
+            "state_transition_review",
+            "Lifecycle transition rules are explicitly review-bound; delivery-ready must wait for source-backed state-machine evidence.",
         )
     if same_source_risk_count > 0 and anti_cheat_negative_count == 0:
         cap(
@@ -203,6 +219,8 @@ def build_phase3_claim_ceiling_report(
             "same_source_test_risk_count": same_source_risk_count,
             "anti_cheat_negative_test_count": anti_cheat_negative_count,
             "empty_or_audit_shaped_service_count": empty_or_audit_shaped_count,
+            "raw_status_echo_transition_count": raw_status_echo_count,
+            "lifecycle_review_bound_transition_count": lifecycle_review_bound_count,
             "failure_count": len(failures),
             "warning_count": len(warnings),
         },

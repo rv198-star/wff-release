@@ -1,12 +1,12 @@
 # Skills 安装包审计
 
 ## 标识
-- 安装包名称: `wff-v1.5.3-skills-install-pack`
+- 安装包名称: `wff-v1.5.4-skills-install-pack`
 - pack_type: `skills-install-pack`
 - profile_id: `full-pack`
 - profile_status: `default`
 - profile_claim: `default-full-pack`
-- 源修订版本: `9a00d94c96149a011092e182e28c79cfa5b3afb6`
+- 源修订版本: `e857fb0dc102849a8a69da651f4a8c2b3a48368a`
 - 总体结论: `pass`
 
 ## 硬失败项
@@ -26,28 +26,28 @@
 - test_dirs: `0`
 
 ## Content Inventory
-- total_files: `605`
-- total_bytes: `6831486`
+- total_files: `607`
+- total_bytes: `6940581`
 - policy_findings: `0`
 - 无
 - top_level:
   - `AGENTS.md`: files=`1`, bytes=`2525`
-  - `INSTALL-PACK-README.en.md`: files=`1`, bytes=`7304`
-  - `INSTALL-PACK-README.md`: files=`1`, bytes=`7178`
-  - `INSTALL-PACK-README.zh-CN.md`: files=`1`, bytes=`7178`
-  - `README.en.md`: files=`1`, bytes=`7304`
-  - `README.md`: files=`1`, bytes=`7635`
-  - `README.zh-CN.md`: files=`1`, bytes=`7635`
-  - `SKILL_INSTALL_PACK_MANIFEST.json`: files=`1`, bytes=`46838`
+  - `INSTALL-PACK-README.en.md`: files=`1`, bytes=`7338`
+  - `INSTALL-PACK-README.md`: files=`1`, bytes=`7212`
+  - `INSTALL-PACK-README.zh-CN.md`: files=`1`, bytes=`7212`
+  - `README.en.md`: files=`1`, bytes=`7338`
+  - `README.md`: files=`1`, bytes=`8315`
+  - `README.zh-CN.md`: files=`1`, bytes=`8315`
+  - `SKILL_INSTALL_PACK_MANIFEST.json`: files=`1`, bytes=`47477`
   - `WFF-START-HERE.md`: files=`1`, bytes=`2884`
   - `WFF-START-HERE.zh-CN.md`: files=`1`, bytes=`2771`
-  - `config`: files=`3`, bytes=`75562`
-  - `docs`: files=`19`, bytes=`208009`
-  - `reference-packages`: files=`180`, bytes=`628023`
+  - `config`: files=`3`, bytes=`76135`
+  - `docs`: files=`19`, bytes=`208180`
+  - `reference-packages`: files=`180`, bytes=`627548`
   - `requirements.txt`: files=`1`, bytes=`12`
   - `runtime-deps`: files=`59`, bytes=`332481`
-  - `scripts`: files=`275`, bytes=`5258496`
-  - `skills`: files=`55`, bytes=`226405`
+  - `scripts`: files=`277`, bytes=`5363983`
+  - `skills`: files=`55`, bytes=`227609`
   - `templates`: files=`1`, bytes=`2936`
   - `wff-agent`: files=`1`, bytes=`168`
   - `wff-init`: files=`1`, bytes=`142`
@@ -71,8 +71,8 @@
 - checked `INSTALL-PACK-README.md`: `153` lines, markers=`(none)`
 - checked `INSTALL-PACK-README.zh-CN.md`: `153` lines, markers=`(none)`
 - checked `README.en.md`: `153` lines, markers=`(none)`
-- checked `README.md`: `158` lines, markers=`(none)`
-- checked `README.zh-CN.md`: `158` lines, markers=`(none)`
+- checked `README.md`: `166` lines, markers=`(none)`
+- checked `README.zh-CN.md`: `166` lines, markers=`(none)`
 - checked `WFF-START-HERE.md`: `33` lines, markers=`(none)`
 - checked `WFF-START-HERE.zh-CN.md`: `33` lines, markers=`(none)`
 
@@ -118,23 +118,24 @@
 - compatibility_file_count: `0`
 - missing_compatibility_files: `(none)`
 - 帮助探针:
-  - `scripts/phase1/run_phase1_full_trial.py --help` -> `pass`
+  - `scripts/phase1/run_phase1_source_to_prd.py --help` -> `pass`
 
 ### phase2
 - 分类: `install-pack-ready`
 - 必需文件数: `9`
 - 缺失文件: `(none)`
 - diagnostic_file_count: `3`
-- missing_diagnostic_files: `scripts/phase2/run_phase2_full_trial.py, scripts/phase2/validate_mermaid.py, scripts/phase2/cross_stage_consistency.py`
-- compatibility_file_count: `1`
-- missing_compatibility_files: `(none)`
+- missing_diagnostic_files: `scripts/phase2/run_phase2_manual_closure.py, scripts/phase2/validate_mermaid.py, scripts/phase2/cross_stage_consistency.py`
+- compatibility_file_count: `2`
+- missing_compatibility_files: `scripts/phase2/run_phase2_full_trial.py`
 - 帮助探针:
   - `scripts/phase2/run_phase2_fresh_generation.py --help` -> `pass`
   - `scripts/phase2/run_phase2_existing_system_intake.py --help` -> `pass`
 - diagnostic_help_probes:
-  - `scripts/phase2/run_phase2_full_trial.py --help` -> `skipped` (script not included in this install profile)
+  - `scripts/phase2/run_phase2_manual_closure.py --help` -> `skipped` (script not included in this install profile)
 - compatibility_help_probes:
   - `scripts/phase2/run_phase2_first_version.py --help` -> `pass`
+  - `scripts/phase2/run_phase2_full_trial.py --help` -> `skipped` (script not included in this install profile)
 
 ### phase3
 - 分类: `install-pack-ready`

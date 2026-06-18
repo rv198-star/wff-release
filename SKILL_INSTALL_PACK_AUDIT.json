@@ -1,15 +1,15 @@
 {
   "content_inventory": {
     "category_bytes": {
-      "install-pack-root-guidance": 25099,
+      "install-pack-root-guidance": 26493,
       "optional-runtime-dependency": 332481,
-      "other": 74475,
-      "runtime-config": 75562,
-      "user-facing-guidance": 208009,
-      "user-facing-reference-package": 628023,
+      "other": 75216,
+      "runtime-config": 76135,
+      "user-facing-guidance": 208180,
+      "user-facing-reference-package": 627548,
       "user-facing-template": 2936,
-      "user-runtime-script": 5258496,
-      "user-runtime-skill": 226405
+      "user-runtime-script": 5363983,
+      "user-runtime-skill": 227609
     },
     "category_counts": {
       "install-pack-root-guidance": 4,
@@ -19,7 +19,7 @@
       "user-facing-guidance": 19,
       "user-facing-reference-package": 180,
       "user-facing-template": 1,
-      "user-runtime-script": 275,
+      "user-runtime-script": 277,
       "user-runtime-skill": 55
     },
     "policy_findings": [],
@@ -30,37 +30,37 @@
         "path": "AGENTS.md"
       },
       {
-        "bytes": 7304,
+        "bytes": 7338,
         "files": 1,
         "path": "INSTALL-PACK-README.en.md"
       },
       {
-        "bytes": 7178,
+        "bytes": 7212,
         "files": 1,
         "path": "INSTALL-PACK-README.md"
       },
       {
-        "bytes": 7178,
+        "bytes": 7212,
         "files": 1,
         "path": "INSTALL-PACK-README.zh-CN.md"
       },
       {
-        "bytes": 7304,
+        "bytes": 7338,
         "files": 1,
         "path": "README.en.md"
       },
       {
-        "bytes": 7635,
+        "bytes": 8315,
         "files": 1,
         "path": "README.md"
       },
       {
-        "bytes": 7635,
+        "bytes": 8315,
         "files": 1,
         "path": "README.zh-CN.md"
       },
       {
-        "bytes": 46838,
+        "bytes": 47477,
         "files": 1,
         "path": "SKILL_INSTALL_PACK_MANIFEST.json"
       },
@@ -75,17 +75,17 @@
         "path": "WFF-START-HERE.zh-CN.md"
       },
       {
-        "bytes": 75562,
+        "bytes": 76135,
         "files": 3,
         "path": "config"
       },
       {
-        "bytes": 208009,
+        "bytes": 208180,
         "files": 19,
         "path": "docs"
       },
       {
-        "bytes": 628023,
+        "bytes": 627548,
         "files": 180,
         "path": "reference-packages"
       },
@@ -100,12 +100,12 @@
         "path": "runtime-deps"
       },
       {
-        "bytes": 5258496,
-        "files": 275,
+        "bytes": 5363983,
+        "files": 277,
         "path": "scripts"
       },
       {
-        "bytes": 226405,
+        "bytes": 227609,
         "files": 55,
         "path": "skills"
       },
@@ -125,8 +125,8 @@
         "path": "wff-init"
       }
     ],
-    "total_bytes": 6831486,
-    "total_files": 605
+    "total_bytes": 6940581,
+    "total_files": 607
   },
   "excluded_path_leaks": {
     "pyc_files": [],
@@ -144,8 +144,8 @@
   },
   "internal_reference_failures": [],
   "overall_verdict": "pass",
-  "pack_name": "wff-v1.5.3-skills-install-pack",
-  "pack_root": "/home/runner/work/software-lifecycle-skills/software-lifecycle-skills/tmp/public-runtime-release-build/wff-v1.5.3-skills-install-pack",
+  "pack_name": "wff-v1.5.4-skills-install-pack",
+  "pack_root": "/home/runner/work/software-lifecycle-skills/software-lifecycle-skills/tmp/public-runtime-release-build/wff-v1.5.4-skills-install-pack",
   "pack_type": "skills-install-pack",
   "phase_checks": {
     "phase1": {
@@ -156,7 +156,7 @@
       "diagnostic_help_probes": [],
       "help_probes": [
         {
-          "command": "scripts/phase1/run_phase1_full_trial.py --help",
+          "command": "scripts/phase1/run_phase1_source_to_prd.py --help",
           "detail": "",
           "ok": true
         }
@@ -168,19 +168,25 @@
     },
     "phase2": {
       "classification": "install-pack-ready",
-      "compatibility_file_count": 1,
+      "compatibility_file_count": 2,
       "compatibility_help_probes": [
         {
           "command": "scripts/phase2/run_phase2_first_version.py --help",
           "detail": "",
           "ok": true,
           "skipped": false
+        },
+        {
+          "command": "scripts/phase2/run_phase2_full_trial.py --help",
+          "detail": "script not included in this install profile",
+          "ok": false,
+          "skipped": true
         }
       ],
       "diagnostic_file_count": 3,
       "diagnostic_help_probes": [
         {
-          "command": "scripts/phase2/run_phase2_full_trial.py --help",
+          "command": "scripts/phase2/run_phase2_manual_closure.py --help",
           "detail": "script not included in this install profile",
           "ok": false,
           "skipped": true
@@ -198,9 +204,11 @@
           "ok": true
         }
       ],
-      "missing_compatibility_files": [],
+      "missing_compatibility_files": [
+        "scripts/phase2/run_phase2_full_trial.py"
+      ],
       "missing_diagnostic_files": [
-        "scripts/phase2/run_phase2_full_trial.py",
+        "scripts/phase2/run_phase2_manual_closure.py",
         "scripts/phase2/validate_mermaid.py",
         "scripts/phase2/cross_stage_consistency.py"
       ],
@@ -333,13 +341,13 @@
         "path": "README.en.md"
       },
       {
-        "line_count": 158,
+        "line_count": 166,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "README.md"
       },
       {
-        "line_count": 158,
+        "line_count": 166,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "README.zh-CN.md"
@@ -382,7 +390,7 @@
     }
   },
   "skill_name_mismatches": [],
-  "source_revision": "9a00d94c96149a011092e182e28c79cfa5b3afb6",
+  "source_revision": "e857fb0dc102849a8a69da651f4a8c2b3a48368a",
   "wff_project_init_support": {
     "help_probes": [
       {

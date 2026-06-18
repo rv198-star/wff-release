@@ -47,7 +47,7 @@
         },
         {
           "label": "operating_chain",
-          "regex": "primary object.*analysis cycle.*insight.*action.*review summary|signal.*action.*review|洞察.*动作.*复盘|经营链路|闭环|baseline.*insight.*action.*review|current-状态 snapshot.*recommendation.*review"
+          "regex": "primary object.*state.*action.*review|signal.*action.*review|证据.*动作.*评审|经营链路|闭环|source-grounded status.*next-step action.*review|状态证据.*下一步动作.*结果评审"
         },
         {
           "label": "state_visibility",
@@ -83,7 +83,7 @@
         },
         {
           "label": "open_truths",
-          "regex": "付费意愿|recommendation trust|next-step guidance trust|指标稳定性|真实门店采纳摩擦|范围接受度|经营分析需求"
+          "regex": "付费意愿|next-step guidance trust|指标稳定性|真实采纳摩擦|范围接受度|经营分析需求"
         },
         {
           "label": "source_vs_inference",
@@ -163,15 +163,15 @@
       "downstream_patterns": [
         {
           "label": "primary_operator",
-          "regex": "primary operator|核心业务操作者|receptionist|veterinarian|clinic manager|execution operator|decision owner|governance reviewer|marketing owner|content operator|business owner"
+          "regex": "primary operator|核心业务操作者|execution operator|decision owner|governance reviewer|supporting operator|review owner"
         },
         {
           "label": "execution_operator",
-          "regex": "content operator|execution operator|cashier|operator|veterinarian|marketing owner"
+          "regex": "supporting operator|execution operator|operator|role owner"
         },
         {
           "label": "decision_owner",
-          "regex": "business owner|decision owner|clinic manager"
+          "regex": "decision owner|review owner|governance reviewer"
         },
         {
           "label": "governance_role",
@@ -255,7 +255,7 @@
         },
         {
           "label": "task_consequence",
-          "regex": "finding.*recommendation|发现项.*recommendation|建议.*任务|insight.*任务|action recommendation.*业务动作|无法转成任务"
+          "regex": "source signal.*next-step action|发现项.*下一步动作|建议.*任务|insight.*任务|next-step action.*业务动作|无法转成任务"
         },
         {
           "label": "review_consequence",
@@ -503,7 +503,7 @@
           "regex": "mitigation"
         },
         {
-          "label": "recommendation_constraint",
+          "label": "next_step_constraint",
           "regex": "cannot silently auto-execute|manual confirmation|next_step_constraint"
         },
         {
@@ -535,7 +535,7 @@
       "title_pattern": "(?:10\\.\\s+)?Domain Model",
       "required_subheadings": [
         "Domain Model Direction",
-        "Deferred Attribution and Conversion Seam",
+        "Source-Defined Deferred Capability Seam",
         "Conceptual ER Diagram",
         "Key Relationships and Data Characteristics",
         "Business Subsystem Boundaries",
@@ -548,8 +548,8 @@
           "regex": "core entities"
         },
         {
-          "label": "attribution_seam",
-          "regex": "Deferred Capability Seam|Deferred Attribution and Conversion Seam|future seam entity/interface"
+          "label": "deferred_capability_seam",
+          "regex": "Source-Defined Deferred Capability Seam|Deferred Capability Seam|future seam entity/interface"
         },
         {
           "label": "entity_catalog",
@@ -583,7 +583,7 @@
         },
         {
           "label": "subsystem_boundaries",
-          "regex": "Scope & Governance|Review & Reporting|Business Subsystem Boundaries|module seam"
+          "regex": "Source Boundary|Review & Decision|Business Subsystem Boundaries|module seam"
         },
         {
           "label": "deferred_but_preserved",
@@ -608,8 +608,8 @@
           "regex": "assignee,\\s*(?:status|状态),\\s*due cycle"
         },
         {
-          "label": "attribution_fields",
-          "regex": "source_reference|source_tag|stage_placeholder|funnel_stage|outcome_event|conversion_event|multi-entry|cross-device|extension_context|future seam field|extension fields"
+          "label": "extension_fields",
+          "regex": "source_reference|source_tag|stage_placeholder|journey_stage|outcome_marker|multi-entry|cross-surface|extension_context|future seam field|extension fields"
         },
         {
           "label": "interface_payloads",
@@ -638,8 +638,8 @@
           "regex": "粗粒度归因|coarse attribution|不能在 MVP 假装财务级证明已成立|不能冒充首版已完成能力|must not overstate"
         },
         {
-          "label": "volume_growth",
-          "regex": "highest growth object|最高增长对象|throughput variance|traffic spikes|long-tail exceptions|admin reporting needs still need evidence"
+          "label": "evidence_gap_volume",
+          "regex": "highest evidence gap|最高证据缺口|throughput variance|traffic spikes|long-tail exceptions|admin reporting needs still need evidence"
         }
       ]
     },
@@ -848,11 +848,11 @@
         },
         {
           "label": "feature_carryover",
-          "regex": "mobile push|UTM|auto publish|auto A/B|deferred seam|carryover ledger|explicit out-of-scope|extension seam"
+          "regex": "mobile push|source tag|auto publish|auto A/B|deferred seam|carryover ledger|explicit out-of-scope|extension seam"
         },
         {
           "label": "execution_review_link",
-          "regex": "task-review linkage|Review 没有 Task 状态输入|Review 没有 work item 状态输入|work item-review linkage|closure and audit-ready review|terminal closure and audit review must stay linked"
+          "regex": "task-review linkage|action-review linkage|Review 没有 Task 状态输入|Review 没有 action record 状态输入|action-record-review linkage|closure and audit-ready review|terminal closure and audit review must stay linked"
         }
       ],
       "honesty_patterns": [
@@ -889,7 +889,7 @@
         "Primary User Story",
         "Supporting Use Cases",
         "Requirement Translation",
-        "Recommendation Payload Contract",
+        "Interface Payload Contract",
         "Extended Requirement Set",
         "Requirement Trace Matrix"
       ],
@@ -909,7 +909,7 @@
         },
         {
           "label": "payload_contract",
-          "regex": "Module Interface Payload Contract|Recommendation Payload Contract|\\| payload element \\| source capability detail preserved \\| first-wave representation \\| task/export implication \\| certainty / note \\|"
+          "regex": "Interface Payload Contract|\\| payload element \\| source capability detail preserved \\| first-wave representation \\| task/export implication \\| certainty / note \\|"
         },
         {
           "label": "payload_details",
@@ -935,7 +935,7 @@
         },
         {
           "label": "attribution_requirement",
-          "regex": "RQ-17|deferred extension|source reference|source tagging|multi-entry|cross-device|extension seam|seam 字段"
+          "regex": "RQ-17|deferred extension|source reference|source tagging|multi-entry|cross-surface|extension seam|seam 字段"
         },
         {
           "label": "carryover_requirement",
@@ -957,7 +957,7 @@
         },
         {
           "label": "attribution_fields",
-          "regex": "source_reference|source_tag|platform|stage_placeholder|outcome_event|conversion event|multi-entry|cross-device|extension_context|deferred seam"
+          "regex": "source_reference|source_tag|platform|stage_placeholder|outcome_event|conversion event|multi-entry|cross-surface|extension_context|deferred seam"
         },
         {
           "label": "acceptance_mapping",
@@ -1140,7 +1140,7 @@
         },
         {
           "label": "insight_action_bridge",
-          "regex": "insight[s]?\\s*->\\s*(?:action recommendation|next-step action|work item)|finding[s]?\\s*->\\s*task|issue signal.*work item|发现.*任务"
+          "regex": "evidence\\s*->\\s*(?:next-step action|action record)|finding[s]?\\s*->\\s*action|issue signal.*action record|发现.*动作"
         },
         {
           "label": "review_expression",
@@ -1148,11 +1148,11 @@
         },
         {
           "label": "core_object_chain",
-          "regex": "core business objects|核心业务对象|object_state_matrix|业务对象|Pet Profile\\s*/\\s*Visit Request|Payment Record\\s*/\\s*Clinical Note|Appointment Slot"
+          "regex": "core business objects|核心业务对象|object_state_matrix|业务对象|Business Object\\s*/\\s*Request Record|Transaction Record\\s*/\\s*Evidence Note|Schedule Slot"
         },
         {
           "label": "evolvable_boundaries",
-          "regex": "analysis|action recommendation|next-step action|work item|review/report|对象链|extension seam"
+          "regex": "source analysis|next-step action|action record|review/report|对象链|extension seam"
         },
         {
           "label": "boundary_first",

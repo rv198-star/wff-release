@@ -314,6 +314,38 @@ Use this packet structure:
 ## Handoff Note For wff-req
 ```
 
+Inside the packet, `## P1 Source Brief` is the product fact surface that P1 consumes. When generating a `P1 Source Input Packet`, use H3 headings (`### ...`) for source-brief subsections embedded inside `## P1 Source Brief`; do not generate new packet outputs that rely on H2 internal source-brief headings. H2 headings inside `## P1 Source Brief` are accepted only as compatibility input from standalone source briefs or older packets. If `Raw User Intent` or `Source Materials` contain authority facts that P1 should use, promote the authority facts into `## P1 Source Brief` with truth state instead of leaving them only in the pre-brief packet sections.
+
+When filling `## P1 Source Brief` inside a packet, use this embedded structure:
+
+```markdown
+### Project Context
+
+### Problem / Opportunity
+
+### User, Buyer, Operator, And Decision Roles
+
+### Current-State Baseline Or Substitute Path
+
+### Desired Outcome And Success Signals
+
+### Scope Boundary
+
+### Constraints
+
+### Key Workflows / Scenarios
+
+### Business Objects / Data Objects
+
+### Rules, Exceptions, Permissions, And Approvals
+
+### AI / Automation / Risk / Data / Migration Notes
+
+### Truth-State Ledger
+
+### Review-Bound Gaps
+```
+
 `Admission Decision` must be one of:
 
 - `ready-for-P1`

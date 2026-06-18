@@ -676,6 +676,7 @@ def render_stage_03(
         phase1_interactions=phase1_interactions,
         endpoint_specs=endpoint_specs,
         trace_rows=[],
+        object_alias_hints=context.get("object_alias_hints", {}),
     )[0] if phase1_interactions else []
     request_mapping_lookup = build_request_mapping_lookup(binding_preview_rows)
 
@@ -776,6 +777,7 @@ def render_stage_03(
         phase1_flow_rows=phase1_flow_rows,
         endpoint_specs=endpoint_specs,
         trace_rows=all_trace_rows,
+        object_alias_hints=context.get("object_alias_hints", {}),
     ) if phase1_interactions else ([], [], [])
 
     interaction_flow_rows: list[list[str]] = []

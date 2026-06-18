@@ -416,7 +416,7 @@ Interpretation rule:
 For a full real-case run from source document to final artifact bundle, the preferred Phase-1 entrypoint is:
 
 ```bash
-python3 scripts/phase1/run_phase1_full_trial.py \
+python3 scripts/phase1/run_phase1_source_to_prd.py \
   --source <structured-input.md> \
   --output-dir <trial-output-dir> \
   --version <trial-vN> \
@@ -427,7 +427,7 @@ Use `scripts/phase1/run_phase1_convergence.py` directly only when a PRD candidat
 
 Driver surface rule:
 
-- `scripts/phase1/run_phase1_full_trial.py`
+- `scripts/phase1/run_phase1_source_to_prd.py`
   - official runtime entry for one complete Phase-1 mainline run
 - `scripts/phase1/run_phase1_convergence.py`
   - convergence/remediation engine used inside the mainline and for explicit recheck of an existing artifact set
@@ -445,7 +445,7 @@ python3 scripts/phase1/run_phase1_convergence.py \
 ```
 
 Driver rule:
-- official Phase-1 delivery is invalid if it skips full-trial orchestration and only hand-fills stage output templates
+- official Phase-1 delivery is invalid if it skips source-to-PRD orchestration and only hand-fills stage output templates
 - if any gate fails, runtime state must move to `R11 Return / Remediation Needed` or `R12 Blocked`
 - no human summary override may promote the run to formal pass while executable gates are blocked
 

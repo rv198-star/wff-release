@@ -2,7 +2,7 @@
 """Compact Phase-2 closure runtime for default fresh P2 runs.
 
 This entry preserves the default P2 -> P3 handoff without shipping the large
-manual full-trial sidecar in ordinary install packs. The legacy
+manual-closure sidecar in ordinary install packs. The legacy
 ``run_phase2_full_trial.py`` remains available in the authoring repository and
 release/compatibility profiles for manual remediation closure.
 """
@@ -23,9 +23,12 @@ from datetime import datetime, timezone
 import re
 from typing import Any
 
+from common.contamination_boundary import build_output_contamination_report_for_paths
+from common.contamination_boundary import collect_text_output_paths
 from common.cross_phase_surface_policy import resolve_cross_phase_surface_path
 from common.markdown_table_tools import table_rows_with_required_headers
 from common.output_language import resolve_output_locale
+from common.source_admission import build_source_admission_report_for_paths
 
 try:
     from common.human_review_surface import emit_human_review_surface as _emit_full_review_surface
@@ -98,6 +101,18 @@ STAGE_DEFAULTS = {
     "stage_04": "stage-04-design-convergence-and-delivery-prototype.md",
 }
 OPTIONAL_STAGE_02_5_DEFAULT = "stage-02.5-third-party-integration-architecture-design.md"
+PHASE2_CLOSURE_BRIDGE_SURFACE_NAMES = (
+    "operation-design-source-registry.json",
+    "operation-source-obligation-matrix.json",
+    "p1-value-to-p2-operation-resolution-matrix.json",
+    "operation-behavior-semantics.json",
+    "implementation-depth-obligation-matrix.json",
+    "implementation-component-catalog.json",
+    "component-action-card-obligation-matrix.json",
+    "component-semantic-inventory.md",
+    "component-semantic-inventory.json",
+    "component-semantic-inventory.claim-control.json",
+)
 
 
 def utc_now_iso() -> str:
@@ -135,6 +150,102 @@ def resolve_optional_stage_path(output_dir: Path, explicit: str) -> Path | None:
         return Path(explicit).resolve()
     candidate = (output_dir / OPTIONAL_STAGE_02_5_DEFAULT).resolve()
     return candidate if candidate.exists() else None
+
+
+def phase2_closure_source_admission_report_path(output_dir: Path) -> Path:
+    return resolve_cross_phase_surface_path(output_dir, "phase2", "p1-to-p2-source-admission-report.json")
+
+
+def phase2_closure_output_contamination_report_path(output_dir: Path) -> Path:
+    return resolve_cross_phase_surface_path(output_dir, "phase2", "phase-2-output-contamination-report.json")
+
+
+def phase2_closure_source_paths(args: argparse.Namespace) -> list[Path]:
+    paths = [Path(args.phase1_prd).resolve()]
+    intake = str(getattr(args, "existing_system_architecture_change_intake", "") or "").strip()
+    if intake:
+        paths.append(Path(intake).resolve())
+    return paths
+
+
+def phase2_closure_source_text(source_paths: list[Path]) -> str:
+    return "\n\n".join(path.read_text(encoding="utf-8") for path in source_paths)
+
+
+def run_phase2_closure_source_admission_preflight(output_dir: Path, source_paths: list[Path]) -> dict[str, Any]:
+    return build_source_admission_report_for_paths(
+        source_paths,
+        boundary="p1-to-p2",
+        source_label="p1-to-p2 required sources",
+        output_path=phase2_closure_source_admission_report_path(output_dir),
+    )
+
+
+def phase2_closure_source_admission_exit_code(output_dir: Path, report: dict[str, Any]) -> int:
+    if report["overall_status"] != "blocked":
+        return 0
+    print(
+        "[BLOCKED] p1-to-p2 source admission failed: "
+        f"{phase2_closure_source_admission_report_path(output_dir)}"
+    )
+    print(f"classifications: {', '.join(report['classifications'])}")
+    return 2
+
+
+def phase2_closure_generated_output_contamination_paths(
+    *,
+    output_dir: Path,
+    stage_paths: dict[str, Path],
+    optional_stage_02_5: Path | None,
+) -> list[Path]:
+    expected_paths = [
+        *stage_paths.values(),
+        output_dir / "engineering-spec-pack.md",
+        output_dir / "phase-3-implementation-entry.md",
+        output_dir / "phase-2-execution-report.md",
+        output_dir / "phase-verdict.json",
+        output_dir / "phase-mainline-scorecard.md",
+        output_dir / "phase-acceptance-matrix.md",
+    ]
+    if optional_stage_02_5 is not None:
+        expected_paths.append(optional_stage_02_5)
+    expected_paths.extend(
+        resolve_cross_phase_surface_path(output_dir, "phase2", surface_name)
+        for surface_name in PHASE2_CLOSURE_BRIDGE_SURFACE_NAMES
+    )
+    expected_paths.extend(collect_text_output_paths(output_dir / ".phase2-diagnostics"))
+    return collect_text_output_paths(output_dir, expected_paths=expected_paths)
+
+
+def run_phase2_closure_generated_output_contamination_gate(
+    *,
+    output_dir: Path,
+    stage_paths: dict[str, Path],
+    optional_stage_02_5: Path | None,
+    source_fingerprint_text: str,
+) -> dict[str, Any]:
+    return build_output_contamination_report_for_paths(
+        phase2_closure_generated_output_contamination_paths(
+            output_dir=output_dir,
+            stage_paths=stage_paths,
+            optional_stage_02_5=optional_stage_02_5,
+        ),
+        source_fingerprint_text=source_fingerprint_text,
+        source_label="p1-to-p2 required sources",
+        boundary="phase-2-generated-output",
+        output_path=phase2_closure_output_contamination_report_path(output_dir),
+    )
+
+
+def phase2_closure_output_contamination_exit_code(output_dir: Path, report: dict[str, Any]) -> int:
+    if report["overall_status"] != "blocked":
+        return 0
+    print(
+        "[BLOCKED] Phase-2 generated output contamination failed: "
+        f"{phase2_closure_output_contamination_report_path(output_dir)}"
+    )
+    print(f"classifications: {', '.join(report['classifications'])}")
+    return 2
 
 
 def derive_case_name(output_dir: Path, explicit: str) -> str:
@@ -265,6 +376,196 @@ def api_rows(stage_03_text: str) -> list[dict[str, str]]:
             "failure_codes",
         },
     )
+
+
+def _snake_case(value: str) -> str:
+    words = re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?=[A-Z]|$)|\d+", value)
+    return "_".join(word.lower() for word in words if word)
+
+
+def _camel_case(value: str) -> str:
+    parts = [part for part in _snake_case(value).split("_") if part]
+    if not parts:
+        return value
+    return parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
+
+
+def _singular_word(value: str) -> str:
+    if len(value) > 3 and value.endswith("ies"):
+        return f"{value[:-3]}y"
+    if len(value) > 3 and value.endswith("s") and not value.endswith("ss"):
+        return value[:-1]
+    return value
+
+
+def _aggregate_from_operation(operation_id: str) -> str:
+    words = re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?=[A-Z]|$)|\d+", operation_id)
+    if words and words[0].lower() in {"update", "get", "list", "manage", "create", "record", "start"}:
+        words = words[1:]
+    if words and words[-1].lower() in {"status", "detail"}:
+        words = words[:-1]
+    if words:
+        words[-1] = _singular_word(words[-1])
+    return "".join(words) or operation_id
+
+
+def _operation_contract_rows(endpoint_rows: list[dict[str, str]]) -> dict[str, dict[str, str]]:
+    rows: dict[str, dict[str, str]] = {}
+    for row in endpoint_rows:
+        operation_id = str(row.get("endpoint_name", "")).strip()
+        if operation_id:
+            rows[operation_id] = row
+    return rows
+
+
+def _operation_lifecycle_rows(stage_02_text: str) -> list[dict[str, str]]:
+    return table_rows_with_required_headers(
+        stage_02_text,
+        {
+            "aggregate_name",
+            "owner_writer",
+            "state_set",
+            "trigger_events",
+            "mutation_guard",
+            "terminal_or_failure_exit",
+        },
+    )
+
+
+def _split_semantic_items(value: object) -> list[str]:
+    return [item for item in split_inline_items(str(value or "")) if item]
+
+
+def _evidence_keys_for_operation(aggregate: str, combined: str, *, include_version: bool = False) -> list[str]:
+    keys: list[str] = []
+    aggregate_id = f"{_snake_case(aggregate)}_id"
+    for key in (aggregate_id, "version", "trace_id", "tenant_id"):
+        camel = _camel_case(key)
+        if key in combined or camel in combined or key in {"trace_id"} or (include_version and key == "version"):
+            keys.append(key)
+    return list(dict.fromkeys(keys))
+
+
+def _lifecycle_operation_semantics(
+    operation_id: str,
+    lifecycle_rows: list[dict[str, str]],
+) -> dict[str, Any] | None:
+    aggregate = _aggregate_from_operation(operation_id)
+    normalized_operation = _snake_case(operation_id).replace("_", "")
+    for row in lifecycle_rows:
+        row_aggregate = str(row.get("aggregate_name", "")).strip().strip("`")
+        if not row_aggregate:
+            continue
+        normalized_aggregate = _snake_case(row_aggregate).replace("_", "")
+        if normalized_aggregate not in normalized_operation and normalized_operation not in normalized_aggregate:
+            continue
+        state_set = _split_semantic_items(row.get("state_set", ""))
+        trigger_events = _split_semantic_items(row.get("trigger_events", ""))
+        source_evidence = " | ".join(str(value) for value in row.values() if str(value).strip())
+        return {
+            "operation_id": operation_id,
+            "semantic_status": "resolved",
+            "source_authority": "p2-structured",
+            "owner_service": str(row.get("owner_writer", "")).strip().strip("`"),
+            "aggregate": row_aggregate,
+            "state_set": state_set,
+            "trigger_events": trigger_events,
+            "mutation_guard": str(row.get("mutation_guard", "")).strip(),
+            "terminal_or_failure_exit": str(row.get("terminal_or_failure_exit", "")).strip(),
+            "readonly_dependencies": [],
+            "evidence_keys": _evidence_keys_for_operation(row_aggregate, source_evidence, include_version=True),
+            "guard_conditions": [],
+            "operation_kind": "lifecycle",
+            "source_evidence": [source_evidence] if source_evidence else [],
+            "review_bound_reasons": [],
+        }
+    return None
+
+
+def _contract_operation_semantics(operation_id: str, row: dict[str, str] | None) -> dict[str, Any] | None:
+    if not row:
+        return None
+    aggregate = _aggregate_from_operation(operation_id)
+    request = row.get("request_example", "") or row.get("request_body_example", "")
+    response = row.get("response_example", "") or row.get("response_body_example", "")
+    combined = f"{request} {response}"
+    source_evidence = " | ".join(str(value) for value in row.values() if str(value).strip())
+    status_values = re.findall(r'"status"\s*:\s*"([^"]+)"', combined)
+    guard_conditions = []
+    if "expectedVersion" in combined or "expected_version" in combined:
+        guard_conditions.append("expectedVersion")
+    if operation_id.startswith("List"):
+        operation_kind = "read-list"
+        mutation_guard = f"read-only projection for {aggregate}; do not mutate durable state"
+        terminal_or_failure_exit = f"return bounded {aggregate} list with stable trace evidence"
+        state_set: list[str] = []
+    elif operation_id.startswith("Get"):
+        operation_kind = "read-detail"
+        mutation_guard = f"read-only projection for {aggregate}; do not mutate durable state"
+        terminal_or_failure_exit = f"reject missing {_snake_case(aggregate)}_id or inaccessible read scope"
+        state_set = []
+    elif operation_id.startswith("Update") and operation_id.endswith("Status"):
+        operation_kind = "status-update"
+        mutation_guard = f"apply bounded status update for {aggregate} with version guard"
+        terminal_or_failure_exit = f"reject missing {_snake_case(aggregate)}_id, stale version, or invalid status update"
+        state_set = list(dict.fromkeys(status_values)) or ["updated"]
+    else:
+        operation_kind = "command"
+        mutation_guard = f"apply bounded {operation_id} command for {aggregate} with request validation and trace evidence"
+        terminal_or_failure_exit = f"reject invalid {operation_id} request, inaccessible scope, duplicate command, or failed invariant"
+        state_set = list(dict.fromkeys(status_values))
+    evidence_keys = _evidence_keys_for_operation(
+        aggregate,
+        combined,
+        include_version=operation_kind in {"status-update", "command"},
+    )
+    return {
+        "operation_id": operation_id,
+        "semantic_status": "resolved",
+        "source_authority": "p2-structured",
+        "owner_service": "",
+        "aggregate": aggregate,
+        "state_set": state_set,
+        "trigger_events": [],
+        "mutation_guard": mutation_guard,
+        "terminal_or_failure_exit": terminal_or_failure_exit,
+        "readonly_dependencies": [key for key in evidence_keys if key not in {f"{_snake_case(aggregate)}_id", "version"}],
+        "evidence_keys": evidence_keys,
+        "guard_conditions": guard_conditions,
+        "operation_kind": operation_kind,
+        "source_evidence": [source_evidence] if source_evidence else [],
+        "review_bound_reasons": [],
+    }
+
+
+def build_compact_operation_behavior_semantics(
+    *,
+    stage_02_text: str,
+    endpoint_rows: list[dict[str, str]],
+    operation_ids: list[str],
+) -> dict[str, Any]:
+    lifecycle_rows = _operation_lifecycle_rows(stage_02_text)
+    contract_rows = _operation_contract_rows(endpoint_rows)
+    operations: list[dict[str, Any]] = []
+    for operation_id in operation_ids:
+        semantics = (
+            _lifecycle_operation_semantics(operation_id, lifecycle_rows)
+            or _contract_operation_semantics(operation_id, contract_rows.get(operation_id))
+        )
+        if semantics is None:
+            semantics = {
+                "operation_id": operation_id,
+                "semantic_status": "review_bound",
+                "source_authority": "p2-structured",
+                "review_bound_reasons": ["operation_semantics_not_found"],
+            }
+        operations.append(semantics)
+    return {
+        "artifact": "operation-behavior-semantics",
+        "schema_version": "v0.1",
+        "source_authority": "p2-structured",
+        "operations": operations,
+    }
 
 
 def _find_contract_row(operation_id: str, contract_rows: list[dict[str, str]]) -> dict[str, str] | None:
@@ -759,8 +1060,10 @@ def write_compact_cross_phase_bridge_surfaces(
     *,
     output_dir: Path,
     phase1_prd: Path,
+    stage_02: Path,
     stage_03: Path,
 ) -> dict[str, Any]:
+    stage_02_text = read_text(stage_02)
     stage_03_text = read_text(stage_03)
     endpoint_rows = api_rows(stage_03_text)
     trace_rows = contract_trace_rows(stage_03_text)
@@ -789,6 +1092,16 @@ def write_compact_cross_phase_bridge_surfaces(
         component_catalog_rows,
         implementation_depth_rows,
     )
+    operation_ids = [
+        str(row.get("operation_id", "")).strip()
+        for row in p1_value_resolution_rows
+        if str(row.get("operation_id", "")).strip()
+    ]
+    operation_semantic_payload = build_compact_operation_behavior_semantics(
+        stage_02_text=stage_02_text,
+        endpoint_rows=endpoint_rows,
+        operation_ids=list(dict.fromkeys(operation_ids)),
+    )
     component_inventory = emit_component_inventory(
         output_dir=output_dir,
         phase1_prd=phase1_prd,
@@ -802,6 +1115,7 @@ def write_compact_cross_phase_bridge_surfaces(
         "operation-design-source-registry.json": {"sources": operation_design_source_rows},
         "operation-source-obligation-matrix.json": {"operations": operation_source_obligation_rows},
         "p1-value-to-p2-operation-resolution-matrix.json": {"resolutions": p1_value_resolution_rows},
+        "operation-behavior-semantics.json": operation_semantic_payload,
         "implementation-depth-obligation-matrix.json": {"operations": implementation_depth_rows},
         "implementation-component-catalog.json": {"components": component_catalog_rows},
         "component-action-card-obligation-matrix.json": {"components": component_obligation_rows},
@@ -821,6 +1135,7 @@ def write_compact_cross_phase_bridge_surfaces(
             "operation_design_sources": len(operation_design_source_rows),
             "operation_source_obligations": len(operation_source_obligation_rows),
             "p1_value_resolutions": len(p1_value_resolution_rows),
+            "operation_behavior_semantics": len(operation_semantic_payload["operations"]),
             "implementation_depth_obligations": len(implementation_depth_rows),
             "implementation_components": len(component_catalog_rows),
             "component_action_card_obligations": len(component_obligation_rows),
@@ -1443,6 +1758,12 @@ def write_compact_mainline_artifacts(output_dir: Path, assessment: dict[str, Any
 def run_closure(args: argparse.Namespace) -> int:
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    source_paths = phase2_closure_source_paths(args)
+    source_admission_report = run_phase2_closure_source_admission_preflight(output_dir, source_paths)
+    source_admission_exit_code = phase2_closure_source_admission_exit_code(output_dir, source_admission_report)
+    if source_admission_exit_code:
+        return source_admission_exit_code
+    source_fingerprint_text = phase2_closure_source_text(source_paths)
     stage_paths = {
         "stage_01": resolve_stage_path(output_dir, args.stage_01, STAGE_DEFAULTS["stage_01"]),
         "stage_02": resolve_stage_path(output_dir, args.stage_02, STAGE_DEFAULTS["stage_02"]),
@@ -1455,7 +1776,7 @@ def run_closure(args: argparse.Namespace) -> int:
     handoff_state = compact_handoff_state(missing_stages)
     case_name = derive_case_name(output_dir, args.case_name)
     output_locale = resolve_output_locale(args.output_locale)
-    phase1_prd = Path(args.phase1_prd).resolve()
+    phase1_prd = source_paths[0]
 
     engineering_spec_pack = output_dir / "engineering-spec-pack.md"
     implementation_entry = output_dir / "phase-3-implementation-entry.md"
@@ -1463,6 +1784,7 @@ def run_closure(args: argparse.Namespace) -> int:
     bridge_surfaces = write_compact_cross_phase_bridge_surfaces(
         output_dir=output_dir,
         phase1_prd=phase1_prd,
+        stage_02=stage_paths["stage_02"],
         stage_03=stage_paths["stage_03"],
     )
 
@@ -1550,6 +1872,18 @@ def run_closure(args: argparse.Namespace) -> int:
     }
     write_json(output_dir / ".phase2-diagnostics" / "phase2-closure-runtime-report.json", report)
     emit_review_surface(output_dir, "phase2")
+    output_contamination_report = run_phase2_closure_generated_output_contamination_gate(
+        output_dir=output_dir,
+        stage_paths=stage_paths,
+        optional_stage_02_5=optional_stage_02_5,
+        source_fingerprint_text=source_fingerprint_text,
+    )
+    output_contamination_exit_code = phase2_closure_output_contamination_exit_code(
+        output_dir,
+        output_contamination_report,
+    )
+    if output_contamination_exit_code:
+        return output_contamination_exit_code
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
     return 2 if missing_stages else 0
 

@@ -29,5 +29,5 @@ Do not start by recursively reading every file in `scripts/`, `docs/`, or `refer
 - `INSTALL-PACK-README.md`: install layout, root commands, support-directory rules, and links to detailed runtime notes.
 - `AGENTS.md`: concise agent-facing operating guidance for this install pack.
 - `SKILL_INSTALL_PACK_MANIFEST.json`: exact included skills, scripts, docs, references, and profile metadata.
-- pack_name: `wff-v1.5.3-skills-install-pack`
+- pack_name: `wff-v1.5.4-skills-install-pack`
 - install_set_id: `full-pack`

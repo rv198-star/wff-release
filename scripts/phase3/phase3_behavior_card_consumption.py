@@ -660,11 +660,14 @@ def _typescript_condition_field_from_transition(transition: str) -> str:
 
 def _source_backed_transition_pairs(transition: str) -> list[tuple[str, str]]:
     pairs: list[tuple[str, str]] = []
-    for match in re.finditer(r"\b([A-Za-z][A-Za-z0-9_-]*)\s*(?:->|→)\s*([A-Za-z][A-Za-z0-9_-]*)\b", transition):
-        source = match.group(1).strip()
-        target = match.group(2).strip()
-        if source and target and (source, target) not in pairs:
-            pairs.append((source, target))
+    for chain_match in re.finditer(
+        r"\b[A-Za-z][A-Za-z0-9_-]*(?:\s*(?:->|→)\s*[A-Za-z][A-Za-z0-9_-]*)+",
+        transition,
+    ):
+        states = re.findall(r"[A-Za-z][A-Za-z0-9_-]*", chain_match.group(0))
+        for source, target in zip(states, states[1:]):
+            if source and target and (source, target) not in pairs:
+                pairs.append((source, target))
     return pairs
 
 

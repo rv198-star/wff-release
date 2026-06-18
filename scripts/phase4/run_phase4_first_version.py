@@ -20,9 +20,12 @@ from pathlib import Path
 from typing import Any
 
 from common.contamination_boundary import build_contamination_report
+from common.contamination_boundary import build_output_contamination_report_for_paths
+from common.contamination_boundary import collect_text_output_paths
 from common.cross_phase_surface_policy import resolve_cross_phase_surface_path
 from common.human_review_surface import emit_human_review_surface
 from common.output_language import resolve_output_locale
+from common.source_admission import build_source_admission_report_for_paths
 from phase4.phase4_common import (
     build_phase4_metadata_payload,
     build_phase4_mainline_assessment,
@@ -92,6 +95,14 @@ class Phase4ContaminationBoundaryError(RuntimeError):
     """Raised when the P3-to-P4 handoff contains configured contamination residue."""
 
 
+class Phase4SourceAdmissionError(RuntimeError):
+    """Raised when the P3-to-P4 handoff is empty or placeholder-only."""
+
+
+class Phase4GeneratedOutputContaminationError(RuntimeError):
+    """Raised when generated Phase-4 output contains configured contamination residue."""
+
+
 def build_phase4_runner_context(args: argparse.Namespace) -> Phase4RunnerContext:
     phase3_root = Path(args.phase3_root).resolve()
     output_dir = Path(args.output_dir).resolve()
@@ -111,14 +122,66 @@ def build_phase4_runner_context(args: argparse.Namespace) -> Phase4RunnerContext
     )
 
 
-def run_phase4_mainline(context: Phase4RunnerContext) -> Phase4RunnerResult:
+def phase4_handoff_source_paths(phase3_root: Path) -> list[Path]:
+    return [
+        phase3_root / "phase-3-acceptance-report.md",
+        phase3_root / "phase-3-execution-report.md",
+        phase3_root / "phase3-delivery-gate.json",
+        phase3_root / "phase-verdict.json",
+        phase3_root / "phase-mainline-scorecard.md",
+        phase3_root / "phase-acceptance-matrix.md",
+        phase3_root / "contracts" / "openapi.yaml",
+        phase3_root / "openapi-final.yaml",
+        phase3_root / "phase-3-trace-registry-final.json",
+        phase3_root / "implementation-bindings.json",
+    ]
+
+
+def phase4_required_handoff_source_paths(phase3_root: Path) -> list[Path]:
+    return [
+        phase3_root / "phase-3-acceptance-report.md",
+        phase3_root / "phase-3-execution-report.md",
+        phase3_root / "phase3-delivery-gate.json",
+        phase3_root / "phase-verdict.json",
+        phase3_root / "phase-mainline-scorecard.md",
+        phase3_root / "phase-acceptance-matrix.md",
+        phase3_root / "phase-3-trace-registry-final.json",
+        phase3_root / "implementation-bindings.json",
+    ]
+
+
+def phase4_openapi_handoff_source_group(phase3_root: Path) -> list[Path]:
+    return [
+        phase3_root / "contracts" / "openapi.yaml",
+        phase3_root / "openapi-final.yaml",
+    ]
+
+
+def read_existing_phase4_handoff_source_text(phase3_root: Path) -> str:
     phase3_text_parts: list[str] = []
-    for name in ("phase-3-acceptance-report.md", "phase-3-execution-report.md", "phase3-delivery-gate.json"):
-        path = context.phase3_root / name
+    for path in phase4_handoff_source_paths(phase3_root):
         if path.exists():
             phase3_text_parts.append(path.read_text(encoding="utf-8"))
+    return "\n\n".join(phase3_text_parts)
+
+
+def run_phase4_source_admission_preflight(context: Phase4RunnerContext) -> dict[str, Any]:
+    return build_source_admission_report_for_paths(
+        phase4_required_handoff_source_paths(context.phase3_root),
+        boundary="p3-to-p4",
+        source_label=str(context.phase3_root),
+        output_path=resolve_cross_phase_surface_path(
+            context.output_dir,
+            "phase4",
+            "p3-to-p4-source-admission-report.json",
+        ),
+        alternative_path_groups=[phase4_openapi_handoff_source_group(context.phase3_root)],
+    )
+
+
+def run_phase4_handoff_contamination_preflight(context: Phase4RunnerContext) -> dict[str, Any]:
     contamination_report = build_contamination_report(
-        "\n\n".join(phase3_text_parts),
+        read_existing_phase4_handoff_source_text(context.phase3_root),
         source_label=str(context.phase3_root),
         boundary="p3-to-p4",
         output_path=resolve_cross_phase_surface_path(
@@ -127,6 +190,56 @@ def run_phase4_mainline(context: Phase4RunnerContext) -> Phase4RunnerResult:
             "p3-to-p4-contamination-report.json",
         ),
     )
+    return contamination_report
+
+
+def phase4_generated_output_contamination_paths(context: Phase4RunnerContext) -> list[Path]:
+    expected_paths = [
+        context.metadata_path,
+        context.quality_path,
+        context.output_dir / "phase4-delivery-gate.json",
+        context.output_dir / "phase-verdict.json",
+        context.output_dir / "phase-mainline-scorecard.md",
+        context.output_dir / "phase-acceptance-matrix.md",
+        resolve_cross_phase_surface_path(context.output_dir, "phase4", "phase4-output-contract-report.json"),
+        resolve_cross_phase_surface_path(context.output_dir, "phase4", "phase4-output-contract-report.md"),
+        resolve_cross_phase_surface_path(context.output_dir, "phase4", "phase4-claim-control-report.json"),
+        resolve_cross_phase_surface_path(context.output_dir, "phase4", "phase4-claim-control-report.md"),
+        context.output_dir / "stage-01-acceptance-coverage-planning" / "stage-01-summary.json",
+        context.output_dir / "stage-02-evidence-execution-and-defect-identification" / "stage-02-summary.json",
+        context.output_dir / "stage-03-validation-closure-and-delivery-readiness-judgment" / "stage-03-summary.json",
+    ]
+    return collect_text_output_paths(context.output_dir, expected_paths=expected_paths)
+
+
+def run_phase4_generated_output_contamination_gate(
+    context: Phase4RunnerContext,
+    *,
+    source_fingerprint_text: str | None = None,
+) -> dict[str, Any]:
+    return build_output_contamination_report_for_paths(
+        phase4_generated_output_contamination_paths(context),
+        source_fingerprint_text=source_fingerprint_text
+        if source_fingerprint_text is not None
+        else read_existing_phase4_handoff_source_text(context.phase3_root),
+        source_label=str(context.phase3_root),
+        boundary="phase-4-generated-output",
+        output_path=resolve_cross_phase_surface_path(
+            context.output_dir,
+            "phase4",
+            "phase-4-output-contamination-report.json",
+        ),
+    )
+
+
+def run_phase4_mainline(context: Phase4RunnerContext) -> Phase4RunnerResult:
+    source_admission_report = run_phase4_source_admission_preflight(context)
+    if source_admission_report["overall_status"] == "blocked":
+        raise Phase4SourceAdmissionError(
+            "p3-to-p4 source admission failed: "
+            f"{resolve_cross_phase_surface_path(context.output_dir, 'phase4', 'p3-to-p4-source-admission-report.json')}"
+        )
+    contamination_report = run_phase4_handoff_contamination_preflight(context)
     if contamination_report["overall_status"] == "blocked":
         raise Phase4ContaminationBoundaryError(
             "p3-to-p4 contamination boundary failed: "
@@ -317,7 +430,7 @@ def main(argv: list[str] | None = None) -> int:
     context = build_phase4_runner_context(args)
     try:
         result = run_phase4_mainline(context)
-    except Phase4ContaminationBoundaryError as exc:
+    except (Phase4SourceAdmissionError, Phase4ContaminationBoundaryError) as exc:
         print(f"[BLOCKED] {exc}")
         return 2
     contract_report = write_phase4_runner_support_artifacts(context, result)
@@ -335,6 +448,14 @@ def main(argv: list[str] | None = None) -> int:
         update_phase4_runner_metadata_with_stage4(context, stage4_summary)
         update_phase4_runner_metadata_with_claim_control(context)
     emit_human_review_surface(context.output_dir, "phase4")
+    output_contamination_report = run_phase4_generated_output_contamination_gate(context)
+    if output_contamination_report["overall_status"] == "blocked":
+        print(
+            "[BLOCKED] Phase-4 generated output contamination failed: "
+            f"{resolve_cross_phase_surface_path(context.output_dir, 'phase4', 'phase-4-output-contamination-report.json')}"
+        )
+        print(f"classifications: {', '.join(output_contamination_report['classifications'])}")
+        return 2
     return emit_phase4_runner_summary(build_phase4_runner_summary(context, result, contract_report, stage4_summary))
 
 

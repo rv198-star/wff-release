@@ -34,6 +34,6 @@ Use it as the concise agent-facing guide for the WFF Skills shipped in this pack
 - Do not copy the repository-level `AGENTS.md` into business projects or install packs; it is repository maintenance context, not released user guidance.
 
 ## Pack Identity
-- pack_name: `wff-v1.5.3-skills-install-pack`
+- pack_name: `wff-v1.5.4-skills-install-pack`
 - install_set_id: `full-pack`
-- source_revision: `9a00d94c96149a011092e182e28c79cfa5b3afb6`
+- source_revision: `e857fb0dc102849a8a69da651f4a8c2b3a48368a`

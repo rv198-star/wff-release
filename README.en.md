@@ -5,9 +5,9 @@ This archive is the public install pack for WFF skills. It is smaller than the i
 First read: open `WFF-START-HERE.md` before scanning the full pack.
 
 ## Identity
-- pack_name: `wff-v1.5.3-skills-install-pack`
-- generated_at: `2026-06-11T17:03:49+00:00`
-- source_revision: `9a00d94c96149a011092e182e28c79cfa5b3afb6`
+- pack_name: `wff-v1.5.4-skills-install-pack`
+- generated_at: `2026-06-18T04:49:23+00:00`
+- source_revision: `e857fb0dc102849a8a69da651f4a8c2b3a48368a`
 
 ## Capability Boundary
 - `Phase 1` to `Phase 4`: GA mainline capability.
@@ -35,7 +35,7 @@ The installation unit is the whole skill directory, not just `SKILL.md`. Do not 
 
 ## Expected Directory Shape After Unzip
 ```text
-wff-v1.5.3-skills-install-pack/
+wff-v1.5.4-skills-install-pack/
 ├── AGENTS.md
 ├── README.md
 ├── wff-init
@@ -85,7 +85,7 @@ Installed skills still need access to the unpacked install-pack root or an equiv
 │       ├── wff-req/
 │       └── wff-x/
 ├── .wff/
-│   └── wff-v1.5.3-skills-install-pack/
+│   └── wff-v1.5.4-skills-install-pack/
 │       ├── scripts/
 │       ├── docs/
 │       ├── templates/
@@ -100,7 +100,7 @@ Use Layout A when the agent platform scans a fixed skills directory. Do not put 
 
 ```text
 /Users/edy/project/party/
-└── wff-v1.5.3-skills-install-pack/
+└── wff-v1.5.4-skills-install-pack/
     ├── skills/
     ├── scripts/
     ├── docs/
@@ -114,7 +114,7 @@ Layout B has the lowest risk of broken relative references.
 ## Project Init
 ```bash
 cd /path/to/your-project
-/path/to/wff-v1.5.3-skills-install-pack/wff-init
+/path/to/wff-v1.5.4-skills-install-pack/wff-init
 ```
 
 `wff-init` only creates or updates `.wff/` and stops on conflicts. Supported parameters:
@@ -124,9 +124,9 @@ cd /path/to/your-project
 
 ## Role-Agent Platform Adapter
 ```bash
-/path/to/wff-v1.5.3-skills-install-pack/wff-agent setup opencode all --project-root /path/to/your-project
-/path/to/wff-v1.5.3-skills-install-pack/wff-agent setup claude-code wff-programmer wff-reviewer --project-root /path/to/your-project
-/path/to/wff-v1.5.3-skills-install-pack/wff-agent setup codex wff-product-manager --project-root /path/to/your-project
+/path/to/wff-v1.5.4-skills-install-pack/wff-agent setup opencode all --project-root /path/to/your-project
+/path/to/wff-v1.5.4-skills-install-pack/wff-agent setup claude-code wff-programmer wff-reviewer --project-root /path/to/your-project
+/path/to/wff-v1.5.4-skills-install-pack/wff-agent setup codex wff-product-manager --project-root /path/to/your-project
 ```
 
 `wff-agent` exports role-agent files. It does not call an LLM, run an agent runtime, or replace WFF lifecycle skills and validation evidence. Read `docs/WFF-ROLE-AGENTS.zh-CN.md` for role guidance and `docs/public/wff-orientation-map.zh-CN.md` for the global route map.
@@ -150,4 +150,4 @@ cd /path/to/your-project
 
 ## Notes
 - `docs/` here is a selected runtime/support subset, not the full repository docs tree.
-- For Phase-1, the canonical check surface is `run_phase1_full_trial.py` / `run_phase1_convergence.py` plus `stage_depth/quality/executability`; the four assembly/analyze/section/consistency scripts remain only as bundle internal compatibility scripts for now. See `docs/phases/phase-1/phase-1-gate-authority-map-v0.1.md`.
+- For Phase-1, the canonical check surface is `run_phase1_source_to_prd.py` / `run_phase1_convergence.py` plus `stage_depth/quality/executability`; `run_phase1_full_trial.py` and the four assembly/analyze/section/consistency scripts remain only as bundle internal compatibility scripts for now. See `docs/phases/phase-1/phase-1-gate-authority-map-v0.1.md`.

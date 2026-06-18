@@ -29,5 +29,5 @@
 - `INSTALL-PACK-README.zh-CN.md`：安装布局、根命令、支持目录规则和详细运行说明入口。
 - `AGENTS.md`：面向 agent 的本安装包简短操作指引。
 - `SKILL_INSTALL_PACK_MANIFEST.json`：准确列出包含的 skills、scripts、docs、references 和 profile metadata。
-- pack_name: `wff-v1.5.3-skills-install-pack`
+- pack_name: `wff-v1.5.4-skills-install-pack`
 - install_set_id: `full-pack`

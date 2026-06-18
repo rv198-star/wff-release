@@ -1,19 +1,19 @@
 {
   "operator_library": {
     "segment-candidate-comparison": "segment candidate users by decision authority, execution-chain observability, and first-wave paid-adoption plausibility, then eliminate weak-fit segments",
-    "problem-mechanism-reframe": "separate visible symptoms, mechanism shift, and business consequence so the stage does not collapse into a dashboard-shaped problem statement",
+    "problem-mechanism-reframe": "separate visible symptoms, mechanism shift, and business consequence so the stage does not collapse into a single-screen problem statement",
     "evidence-layering-classification": "split observed fact, interpreted pattern, inferred assumption, and downstream prohibition before hardening any need framing",
     "whole-picture-structure-comparison": "compare candidate backbone shapes against loop completeness, stakeholder continuity, and downstream sliceability",
     "scenario-process-bridge": "walk actor -> system -> state change transitions and reject structures that stop at report interpretation without executable follow-through",
     "decision-endpoint-hardening": "compare reporting endpoints against decision endpoints and keep only the endpoint that can support continue or revise resource choices",
-    "priority-cutline-test": "test each capability against first-loop integrity and exclude anything that does not directly strengthen configure -> baseline -> task -> review",
+    "priority-cutline-test": "test each capability against first-loop integrity and exclude anything that does not directly strengthen the source-defined entry -> state evidence -> next action -> result review chain",
     "nfr-reverse-risk-prioritization": "prioritize quality attributes by reverse risk: identify which scenario breaks first if the attribute is weak",
     "object-chain-domain-modeling": "derive persistent objects and object transitions from the workflow so IA, state, and architecture can share one causal chain",
     "subsystem-boundary-grouping": "group objects and behaviors by ownership, change cadence, audit pressure, and failure consequence to make boundaries explicit",
     "workflow-first-ia-check": "compare entity-first, role-first, and workflow-first organization and keep the option that best preserves task continuity and object traceability",
     "stage03-slice-readiness-stress-test": "probe whether the specification can survive Stage-03 slicing by testing object dependencies, NFR forcing functions, and workflow completeness before the cutline is drawn",
-    "payload-contract-recompilation": "take detailed source recommendation features and recompile them into a typed recommendation payload contract so downstream tasking and review do not depend on prose inference",
-    "deferred-seam-preservation": "preserve deferred attribution or conversion capability as an explicit seam or extension boundary instead of silently dropping it or falsely pulling it into MVP",
+    "payload-contract-recompilation": "take detailed source action features and recompile them into a typed module interface payload contract so downstream action records and review do not depend on prose inference",
+    "deferred-seam-preservation": "preserve deferred source-defined measurement, integration, or outcome capability as an explicit seam or extension boundary instead of silently dropping it or falsely pulling it into MVP",
     "slice-alternative-comparison": "compare first-slice candidates by loop completeness, validation leverage, and risk of overreach rather than by feature count",
     "mvp-loop-viability": "remove candidate steps one by one and reject any slice that can no longer produce a complete decision-grade loop",
     "dependency-first-cutline": "map candidate capabilities onto object dependencies and NFR forcing functions, then reject any sequence that outruns its upstream evidence chain",
@@ -41,10 +41,10 @@
         ],
         "alternatives_compared": [
           "{primary_segment}",
-          "消费品牌",
-          "电商平台商家",
-          "内容创作者",
-          "本地服务商"
+          "adjacent buyer segment",
+          "platform operator segment",
+          "creator/operator segment",
+          "local service segment"
         ],
         "tradeoff_or_tension": "segment breadth vs first-wave validation speed and workflow clarity",
         "decision_effect": "锁定 {primary_segment} 为 primary boundary，其余客群降级为后续扩展候选",
@@ -64,7 +64,7 @@
         "title": "Problem Mechanism Reframe",
         "artifact_unit": "final problem statement",
         "loop_round_state": "deepening-round-1 -> deepening-round-2 -> freeze-with-review-bound-warning",
-        "weakness_trigger": "初始表述容易把需求压缩成 SEO dashboard，而非完整的经营问题",
+        "weakness_trigger": "初始表述容易把需求压缩成 single-view dashboard，而非完整的业务问题",
         "method_hints": [
           "problem-mechanism framing, not just symptom listing",
           "opportunity framing before solutioning"
@@ -73,21 +73,21 @@
           "problem-mechanism-reframe"
         ],
         "alternatives_compared": [
-          "SEO dashboard framing",
+          "single-view dashboard framing",
           "workflow intelligence + guided action",
           "automation-first operating engine"
         ],
         "tradeoff_or_tension": "沿用熟悉的话术模板 vs 正确表达业务机制变化",
-        "decision_effect": "把问题重定义为缺少 scope -> baseline -> finding -> recommendation -> review 的经营链，而不是缺少一个监控页面",
+        "decision_effect": "把问题重定义为缺少源定义入口、状态证据、下一步动作和结果评审之间的连续业务链，而不是缺少一个单点页面",
         "evidence_classification": [
-          "observed fact: source 同时提出监控、建议、竞品、转化、自动化等多类诉求",
+          "observed fact: source 同时提出监控、行动指引、对照信息、结果观察、自动化等多类诉求",
           "interpreted pattern: 单一 dashboard 无法承接从洞察到动作再到复盘的链路",
           "inferred assumption: 用户更愿意为可解释闭环而非单页报表持续使用产品",
           "decision: Stage-02a 必须优先做 workflow-first structure choice",
           "downstream prohibition: 后续阶段不得把产品机制退化成功能货架"
         ],
         "evidence_state": "provisional",
-        "remaining_unknown": "用户最先买单的是 baseline、recommendation 还是 review 仍需验证",
+        "remaining_unknown": "用户最先买单的是源事实状态、下一步动作可信度还是结果评审仍需验证",
         "downstream_handoff": "Stage-02a 需用 workflow story-map 而非 feature shelf 来承载问题机制",
         "freeze_rationale": "问题机制已足够约束结构方向；继续深挖价值主张需要 Stage-04 验证链支持"
       },
@@ -109,16 +109,16 @@
           "automation-first framing"
         ],
         "tradeoff_or_tension": "市场吸引力叙事 vs downstream honesty",
-        "decision_effect": "采用 workflow intelligence + guided action，同时把 payment intent、recommendation trust、metric stability、launch-platform feasibility 保留为 open truths",
+        "decision_effect": "采用 workflow intelligence + guided action，同时把 payment intent、next-step guidance trust、metric stability、launch-platform feasibility 保留为 open truths",
         "evidence_classification": [
           "observed fact: source 已给出验证对象与 unknown/provisional 区块",
           "interpreted pattern: 首版价值必须来自监控+建议+复盘，而不是过早承诺自动化",
-          "inferred assumption: recommendation trust 会成为 adoption 的关键门槛",
+          "inferred assumption: next-step guidance trust 会成为 adoption 的关键门槛",
           "decision: need framing 只承诺 guided action，不承诺自动执行",
           "downstream prohibition: Stage-02a/02b/03/04 不得把 open truths 升格为 confirmed fact"
         ],
         "evidence_state": "review-bound",
-        "remaining_unknown": "不同角色对 recommendation trust 和 ROI 方向性信号的接受门槛尚未获得真实样本",
+        "remaining_unknown": "不同角色对 next-step guidance trust 和结果方向性信号的接受门槛尚未获得真实样本",
         "downstream_handoff": "后续 stage 必须显式保留 review-bound truths，并把 forbidden assumptions 带进 validation chain",
         "freeze_rationale": "再往下推进只会重复措辞，不能替代真实 evidence acquisition"
       }
@@ -138,7 +138,7 @@
         ],
         "alternatives_compared": [
           "monitoring-first",
-          "recommendation-first",
+          "guided-action-first",
           "workflow-first"
         ],
         "tradeoff_or_tension": "conceptual simplicity vs preserving a repeatable operating loop",
@@ -156,10 +156,10 @@
         "freeze_rationale": "结构候选空间已经充分比较，继续迭代只会重复同一类 backbone 讨论"
       },
       {
-        "title": "Findings-to-Task Backbone Hardening",
+        "title": "Source-Signal-to-Action Backbone Hardening",
         "artifact_unit": "backbone activities + business process chain",
         "loop_round_state": "deepening-round-1 -> deepening-round-2 -> freeze",
-        "weakness_trigger": "如果 finding 只停留在解释层，产品会退化为只读 analytics 工具",
+        "weakness_trigger": "如果 source signal 只停留在解释层，产品会退化为只读 analysis 工具",
         "method_hints": [
           "structured analysis note building",
           "story-map construction"
@@ -169,28 +169,28 @@
         ],
         "alternatives_compared": [
           "passive report review",
-          "recommendation-only without task bridge",
-          "recommendation-to-task bridge"
+          "guidance-only without action-record bridge",
+          "guidance-to-action-record bridge"
         ],
         "tradeoff_or_tension": "较低 MVP 复杂度 vs 真实业务动作可达性",
-        "decision_effect": "将 interpret findings 与 execute work items 固化为 backbone 的强制步骤，而非可选增强项",
+        "decision_effect": "将 interpret source evidence 与 execute action records 固化为 backbone 的强制步骤，而非可选增强项",
         "evidence_classification": [
-          "observed fact: source 明确提出内容优化建议、任务执行、周期复盘等诉求",
-          "interpreted pattern: 没有 task bridge，recommendation 无法形成采用习惯",
-          "inferred assumption: content operator 需要 recommendation 与 task 在同一认知链路上出现",
-          "decision: Stage-02b 必须建 recommendation/task 对象和页面依赖",
+          "observed fact: source 明确提出行动指引、任务执行、周期复盘等诉求",
+          "interpreted pattern: 没有 action-record bridge，next-step guidance 无法形成采用习惯",
+          "inferred assumption: execution operator 需要 guidance 与 action record 在同一认知链路上出现",
+          "decision: Stage-02b 必须建 guidance/action-record 对象和页面依赖",
           "downstream prohibition: final PRD 不得把 task bridge 降格为 Phase-2 功能"
         ],
         "evidence_state": "provisional",
-        "remaining_unknown": "content operator 需要多细粒度的任务模板与外部工具集成仍未知",
-        "downstream_handoff": "Stage-02b 应显式建模 recommendation/task/object mapping，设计阶段需保证 finding 到 task 的一跳关系",
+        "remaining_unknown": "execution operator 需要多细粒度的任务模板与外部工具集成仍未知",
+        "downstream_handoff": "Stage-02b 应显式建模 guidance/action-record/object mapping，设计阶段需保证 source signal 到 action record 的一跳关系",
         "freeze_rationale": "当前业务过程已经能支撑 specification deepening，更多细节应留给对象和交互设计阶段"
       },
       {
         "title": "Review as Decision Endpoint",
         "artifact_unit": "cycle review endpoint",
         "loop_round_state": "deepening-round-2 -> deepening-round-3 -> freeze-with-review-bound-warning",
-        "weakness_trigger": "review 在源文中存在，但还不足以说明为什么 business owner 必须介入以及会做出什么决定",
+        "weakness_trigger": "review 在源文中存在，但还不足以说明为什么 decision owner 必须介入以及会做出什么决定",
         "method_hints": [
           "value / adaptation constraint discipline",
           "evidence-aware requirement framing"
@@ -206,10 +206,10 @@
         "tradeoff_or_tension": "分析中立性 vs 资源决策可判定性",
         "decision_effect": "把 Step 5 强化为 review + resource decision，而不是单纯查看报告",
         "evidence_classification": [
-          "observed fact: source 关注 ROI / 转化方向与后续分期决策",
+          "observed fact: source 关注结果方向与后续分期决策",
           "interpreted pattern: 如果 review 不产生资源判断，该方案很难成为持续经营动作",
-          "inferred assumption: business owner 需要趋势、阈值和开放真相并置的表达",
-          "decision: business owner 被纳入 adoption chain 的关键节点",
+          "inferred assumption: decision owner 需要趋势、阈值和开放真相并置的表达",
+          "decision: decision owner 被纳入 adoption chain 的关键节点",
           "downstream prohibition: Stage-03 不得把 review 砍掉后仍宣称保留完整 loop"
         ],
         "evidence_state": "review-bound",
@@ -231,7 +231,7 @@
         ],
         "alternatives_compared": [
           "把辅助内容自动化并入 P0",
-          "把页面级效果追踪并入 P0",
+          "把后续效果追踪并入 P0",
           "延后自动化执行与高级归因"
         ],
         "tradeoff_or_tension": "能力广度承诺 vs first-loop integrity",
@@ -239,12 +239,12 @@
         "evidence_classification": [
           "observed fact: source 提供了 P0/P1/P2 与多类增强能力",
           "interpreted pattern: 首版如果同时承诺广覆盖与自动化，会削弱核心闭环质量",
-          "inferred assumption: page-level tracking 价值真实但不是闭环成立前提",
+          "inferred assumption: post-loop outcome tracking 价值真实但不是闭环成立前提",
           "decision: exclusion logic 与 P0 cutline 被显式写入 Stage-02a",
           "downstream prohibition: Stage-03 slicing 不得重新把广覆盖能力偷渡回 first slice"
         ],
         "evidence_state": "review-bound",
-        "remaining_unknown": "page-level tracking 何时成为 trust-building 的必需项仍待后续验证",
+        "remaining_unknown": "post-loop outcome tracking 何时成为 trust-building 的必需项仍待后续验证",
         "downstream_handoff": "Stage-03 必须基于这条 cutline 划定 in-scope/out-of-scope 与 deferred honesty",
         "freeze_rationale": "优先级已经足够服务 MVP slicing，继续扩写不会替代真实验证"
       }
@@ -278,7 +278,7 @@
         ],
         "evidence_state": "provisional",
         "remaining_unknown": "趋势稳定性的可接受波动阈值仍需要后续实验或重复采样确认",
-        "downstream_handoff": "Stage-03 必须保留 baseline/review/task bridge；Stage-04 需把趋势稳定性与 recommendation trust 纳入验证对象",
+        "downstream_handoff": "Stage-03 必须保留源事实状态、下一步动作和结果评审之间的桥接；Stage-04 需把证据稳定性与下一步动作可信度纳入验证对象",
         "freeze_rationale": "NFR 优先级已经能约束切片边界，更多细化需要真实验证和技术实验"
       },
       {
@@ -295,19 +295,19 @@
         "alternatives_compared": [
           "feature-module list",
           "thin entity list",
-          "scope -> observation -> finding -> recommendation -> task -> review chain"
+          "source fact -> state evidence -> interpretation -> next action -> action record -> result review chain"
         ],
         "tradeoff_or_tension": "页面命名速度 vs architecture-ready domain integrity",
-        "decision_effect": "建立 Scope Definition -> Analysis Cycle -> Insight Record -> Action Recommendation -> Execution Task -> Review Summary 的对象链",
+        "decision_effect": "建立 Source Fact -> State Evidence -> Interpretation -> Next Action -> Action Record -> Result Review 的对象链",
         "evidence_classification": [
-          "observed fact: Stage-02a 已形成 configure -> baseline -> task -> review 业务骨架",
+          "observed fact: Stage-02a 已形成源定义入口、状态证据、下一步动作和结果评审之间的业务骨架",
           "interpreted pattern: 只有稳定对象链才能让页面、模块、状态机保持一致",
-          "inferred assumption: competitor snapshot 更像同 scope 下的派生对象而非完全独立主对象",
+          "inferred assumption: peer comparison snapshot 更像同 source context 下的派生对象而非完全独立主对象",
           "decision: Stage-02b 输出 entity catalog、ER diagram、object lifecycle",
           "downstream prohibition: Stage-03 不得围绕页面名而忽略对象依赖进行切片"
         ],
         "evidence_state": "provisional",
-        "remaining_unknown": "Competitor Snapshot 是否需要长期独立版本化仍待后续架构判断",
+        "remaining_unknown": "Peer Comparison Snapshot 是否需要长期独立版本化仍待后续架构判断",
         "downstream_handoff": "设计与架构都应围绕对象链，而不是围绕页面或文案术语做切分",
         "freeze_rationale": "对象粒度已足以支持 IA、模块责任和 PRD assembly，不需要在 Phase-1 过早做数据库级细化"
       },
@@ -325,27 +325,27 @@
         "alternatives_compared": [
           "single monolithic module",
           "UI-centric page modules",
-          "governance / observation / recommendation / review split"
+          "governance / observation / guidance / review split"
         ],
         "tradeoff_or_tension": "实现简单度 vs 责任清晰度与可演进性",
-        "decision_effect": "形成 Scope & Governance、Observation & Scoring、Recommendation & Tasking、Review & Reporting 四个 subsystem",
+        "decision_effect": "形成 Source Boundary、Evidence & Scoring、Guidance & Action Records、Review & Decision 四个 subsystem",
         "evidence_classification": [
           "observed fact: 不同对象在治理、采样、执行、复盘上的职责明显不同",
-          "interpreted pattern: boundary 不清会让 recommendation/task 与 observation/reporting 相互污染",
-          "inferred assumption: Phase-2 需要在这些边界上继续扩展自动化与高级归因",
+          "interpreted pattern: boundary 不清会让 guidance/action record 与 evidence/review 相互污染",
+          "inferred assumption: Phase-2 需要在这些边界上继续扩展自动化与高级测量",
           "decision: subsystem interface 被单独展开说明",
           "downstream prohibition: 架构阶段不得把所有能力简单塞进一个页面驱动模块树"
         ],
         "evidence_state": "provisional",
-        "remaining_unknown": "Observation 与 Recommendation 之间的 orchestration pattern 仍可在架构阶段进一步比较",
+        "remaining_unknown": "Observation 与 Guidance 之间的 orchestration pattern 仍可在架构阶段进一步比较",
         "downstream_handoff": "架构可据此开始设计 service/module responsibility 和 anti-corruption boundaries",
         "freeze_rationale": "当前 boundary 已足够支撑下阶段架构探索，无需在 Phase-1 预设技术部署形态"
       },
       {
-        "title": "Recommendation Payload Contract Recompilation",
-        "artifact_unit": "recommendation payload contract",
+        "title": "Module Interface Payload Contract Recompilation",
+        "artifact_unit": "module interface payload contract",
         "loop_round_state": "deepening-round-2 -> deepening-round-3 -> freeze",
-        "weakness_trigger": "source 明确列出评分、诊断、结构化字段和阻塞说明等细节，但 action recommendation 对象若只保留 generic advice，会在 handoff 时丢失执行语义",
+        "weakness_trigger": "source 明确列出评分、诊断、结构化字段和阻塞说明等细节，但 next-step action 对象若只保留 generic advice，会在 handoff 时丢失执行语义",
         "method_hints": [
           "source-capability-to-payload recompilation"
         ],
@@ -353,7 +353,7 @@
           "payload-contract-recompilation"
         ],
         "alternatives_compared": [
-          "generic free-text recommendation",
+          "generic free-text guidance",
           "free-text suggestion list",
           "typed action payload contract"
         ],
@@ -361,21 +361,21 @@
         "decision_effect": "把 score/diagnosis、structured fields、target object、blocked_reason、task export fields 显式编译进 action payload",
         "evidence_classification": [
           "observed fact: source 给出评分、结构化建议、对象指向、阻塞说明等执行语义细节",
-          "interpreted pattern: 若 action recommendation 只保留为文案段落，design / architecture / task export 会各自脑补不同字段",
-          "inferred assumption: 首发 recommendation trust 部分来自 payload 结构清晰，而不只是文案看起来像建议",
-          "decision: Stage-02b 输出 Recommendation Payload Contract",
-          "downstream prohibition: final PRD 与接口设计不得把 action recommendation 降格为自由文本"
+          "interpreted pattern: 若 next-step action 只保留为文案段落，design / architecture / task export 会各自脑补不同字段",
+          "inferred assumption: 首发 next-step guidance trust 部分来自 payload 结构清晰，而不只是文案看起来像建议",
+          "decision: Stage-02b 输出 Module Interface Payload Contract",
+          "downstream prohibition: final PRD 与接口设计不得把 next-step action 降格为自由文本"
         ],
         "evidence_state": "provisional",
         "remaining_unknown": "各 payload 字段在真实使用中的最小粒度仍需后续设计验证",
-        "downstream_handoff": "Stage-03、PRD assembly、design 与 architecture 都必须围绕同一 payload contract 组织 recommendation-to-task bridge",
+        "downstream_handoff": "Stage-03、PRD assembly、design 与 architecture 都必须围绕同一 payload contract 组织 guidance-to-action-record bridge",
         "freeze_rationale": "payload 层级已经清楚，后续深化应交给任务桥与交互验证，而不是继续在 Phase-1 里写散文建议"
       },
       {
         "title": "Workflow-First IA Direction",
         "artifact_unit": "information architecture direction",
         "loop_round_state": "deepening-round-2 -> deepening-round-3 -> freeze",
-        "weakness_trigger": "页面清单容易变成零散 screen sketch，无法保证用户沿着 finding -> task -> review 连续前进",
+        "weakness_trigger": "页面清单容易变成零散 screen sketch，无法保证用户沿着 source signal -> action record -> review 连续前进",
         "method_hints": [
           "information-architecture direction setting"
         ],
@@ -388,7 +388,7 @@
           "workflow-first"
         ],
         "tradeoff_or_tension": "领域概念纯度 vs 任务连续性与 onboarding clarity",
-        "decision_effect": "采用 workflow-first navigation，并为 overview/findings/tasks/competitors/reports/settings 建立 screen/object matrix",
+        "decision_effect": "采用 workflow-first navigation，并为 workflow surface set 建立 screen/object matrix",
         "evidence_classification": [
           "observed fact: Stage-02a backbone flow 已明确从配置到复盘的主线",
           "interpreted pattern: 用户更需要沿流程完成工作，而不是先理解内部领域术语",
@@ -397,39 +397,39 @@
           "downstream prohibition: final PRD 不得只保留导航词而丢失 screen/object dependency"
         ],
         "evidence_state": "provisional",
-        "remaining_unknown": "多角色场景下 overview 与 findings 的信息密度上限仍需设计验证",
+        "remaining_unknown": "多角色场景下首屏摘要与工作项明细的信息密度上限仍需设计验证",
         "downstream_handoff": "设计阶段应围绕 object mapping 出原型，架构阶段应保证 screen 可追溯到同一对象链",
         "freeze_rationale": "IA 方向已经能约束设计/架构启动，再深化属于 interaction design 而非 Phase-1 spec"
       },
       {
-        "title": "Deferred Attribution Seam Preservation",
-        "artifact_unit": "deferred attribution and conversion seam",
+        "title": "Deferred Capability Seam Preservation",
+        "artifact_unit": "deferred capability seam",
         "loop_round_state": "deepening-round-3 -> freeze-with-review-bound-warning",
-        "weakness_trigger": "source 对 ROI / UTM / funnel / cross-device 有明确诉求，但若 Stage-02b 不先保留 seam，后续会在 MVP 与 Phase-2 之间来回重写对象链",
+        "weakness_trigger": "source 对结果测量、source tags、journey stages、multi-entry identity 有明确诉求，但若 Stage-02b 不先保留 seam，后续会在 MVP 与 Phase-2 之间来回重写对象链",
         "method_hints": [
-          "deferred seam design for attribution / conversion"
+          "deferred seam design for source-defined measurement and outcome evidence"
         ],
         "operator_keys": [
           "deferred-seam-preservation"
         ],
         "alternatives_compared": [
-          "silently drop attribution detail",
-          "pull attribution into MVP promise",
-          "preserve attribution as deferred seam"
+          "silently drop source-defined measurement detail",
+          "pull deferred measurement into MVP promise",
+          "preserve source-defined capability as deferred seam"
         ],
         "tradeoff_or_tension": "MVP 克制度 vs future extensibility honesty",
-        "decision_effect": "保留 Attribution Signal、Conversion Event、Funnel Stage Snapshot、Identity Resolution Link 等 seam，而不承诺首版精确 ROI",
+        "decision_effect": "保留 Source Signal、Outcome Marker、Journey Stage Snapshot、Identity Link 等 seam，而不承诺首版精确结果证明",
         "evidence_classification": [
-          "observed fact: source 明确提到 AI 流量来源统计、用户行为路径、转化率、ROI、UTM、漏斗、跨设备追踪",
+          "observed fact: source 明确提到来源统计、用户行为路径、结果率、source tags、旅程阶段、跨入口追踪",
           "interpreted pattern: 这些能力商业价值高，但若直接塞入 MVP 会制造假完整感与接入复杂度",
-          "inferred assumption: 架构先保留 seam，比事后为归因重写 recommendation/review 对象链更稳妥",
-          "decision: Stage-02b 输出 Deferred Attribution and Conversion Seam",
+          "inferred assumption: 架构先保留 seam，比事后为结果测量重写 guidance/review 对象链更稳妥",
+          "decision: Stage-02b 输出 Deferred Capability Seam",
           "downstream prohibition: downstream 不得把 deferred seam 理解成已完成 capability"
         ],
         "evidence_state": "review-bound",
-        "remaining_unknown": "哪些 attribution fields 会在真实客户环境中最先接入仍未验证",
-        "downstream_handoff": "architecture 可以围绕 seam 预留接口，但 PRD/设计不得把它包装成已验证的 ROI proving loop",
-        "freeze_rationale": "继续细化 attribution 只会越界到 Phase-2；当前最重要的是把 seam 明确保留下来"
+        "remaining_unknown": "哪些 deferred capability fields 会在真实客户环境中最先接入仍未验证",
+        "downstream_handoff": "architecture 可以围绕 seam 预留接口，但 PRD/设计不得把它包装成已验证的 outcome proving loop",
+        "freeze_rationale": "继续细化 deferred measurement 只会越界到 Phase-2；当前最重要的是把 seam 明确保留下来"
       },
       {
         "title": "Stage-03 Slice-Readiness Pressure Test",
@@ -546,12 +546,12 @@
         "evidence_classification": [
           "observed fact: Stage-02b 已建立对象链与 reliability/usability/security forcing functions",
           "interpreted pattern: 顺序错误会让 recommendation、review 都失去解释前提",
-          "inferred assumption: competitor context 可以作为 baseline/finding 的派生输入而非独立 cutline",
+          "inferred assumption: external comparison context 可以作为 baseline/finding 的派生输入而非独立 cutline",
           "decision: dependency-first logic 被写入 Stage-03 的核心论证",
           "downstream prohibition: architecture 不得按 backlog 先后顺序替代对象依赖顺序"
         ],
         "evidence_state": "provisional",
-        "remaining_unknown": "competitor context 在 first slice 中的展现深度仍可继续优化",
+        "remaining_unknown": "external comparison context 在 first slice 中的展现深度仍可继续优化",
         "downstream_handoff": "PRD operational flow、state machine、acceptance criteria 都要服从这条 dependency chain",
         "freeze_rationale": "依赖顺序已经足以约束 implementation planning，更多细节应进入设计/架构阶段"
       },
@@ -577,7 +577,7 @@
         "evidence_classification": [
           "observed fact: source 和 Stage-02a/02b 都暴露了高级能力诉求与多项未知真相",
           "interpreted pattern: 这些高阶能力会制造“产品已经完整”的假象",
-          "inferred assumption: recommendation trust 和 metric stability 是高阶能力回归的前置门槛",
+          "inferred assumption: next-step guidance trust 和 metric stability 是高阶能力回归的前置门槛",
           "decision: non-goals 与 assumptions 被一起编入 Stage-03",
           "downstream prohibition: PRD 与设计/架构 handoff 不得把 deferred items 当作默认近期交付"
         ],
@@ -590,7 +590,7 @@
         "title": "Source Feature Carryover Classification",
         "artifact_unit": "source feature carryover ledger",
         "loop_round_state": "deepening-round-3 -> freeze-with-review-bound-warning",
-        "weakness_trigger": "source 里的 alert、mobile push、external tagging、funnel seam、automation 等细节若不逐条分类，会在 slicing 中被静默丢失",
+        "weakness_trigger": "source 里的 alert、mobile push、external tagging、journey-stage seam、automation 等细节若不逐条分类，会在 slicing 中被静默丢失",
         "method_hints": [
           "source-feature carryover classification"
         ],
@@ -605,7 +605,7 @@
         "tradeoff_or_tension": "MVP 聚焦 vs source-detail preservation honesty",
         "decision_effect": "建立 Source Feature Carryover Ledger，把关键 source detail 的去向写成显式分类，而不是让读者猜哪些被保留或放弃",
         "evidence_classification": [
-          "observed fact: source 在功能和页面设计中给出大量能力级细节，如 alerts、mobile push、external tagging、cross-device seam、自动 A/B 等",
+          "observed fact: source 在功能和页面设计中给出大量能力级细节，如 alerts、mobile push、external tagging、cross-surface seam、自动 A/B 等",
           "interpreted pattern: 不做分类会导致 final PRD 看起来更聚焦，但实际牺牲了 source preservation 与 roadmap honesty",
           "inferred assumption: 人类评审更需要看到 why kept / why deferred / why out，而不是只看消失后的干净边界",
           "decision: Stage-03 输出 Source Feature Carryover Ledger",
@@ -668,7 +668,7 @@
         "tradeoff_or_tension": "更高证据质量 vs 首轮验证速度与成本",
         "decision_effect": "先采用 interview + clickable prototype + sample report，并将 concierge pilot 后置",
         "evidence_classification": [
-          "observed fact: 当前最关键 targets 涉及 willingness-to-pay、recommendation trust、workflow 理解",
+          "observed fact: 当前最关键 targets 涉及 willingness-to-pay、next-step guidance trust、workflow 理解",
           "interpreted pattern: 这些问题需要用户面对中等保真度交互而不是纯 desk research",
           "inferred assumption: coded prototype 相比 clickable 带来的额外学习收益不足以覆盖成本",
           "decision: fidelity_chosen = clickable",
@@ -698,7 +698,7 @@
         "decision_effect": "明确标记 what_is_design_time_inference、what_is_real_evidence、what_remains_unknown，并写入 must_not_assume",
         "evidence_classification": [
           "observed fact: 当前真实输入来自源文和阶段分析，而非外部实验结果",
-          "interpreted pattern: recommendation trust、metric stability、payment intent 仍属于未验证关键真相",
+          "interpreted pattern: next-step guidance trust、metric stability、payment intent 仍属于未验证关键真相",
           "inferred assumption: 这些 review-bound truths 允许设计/架构探索，但不允许被默认为已证实",
           "decision: 采用 review-bound carryover 而不是假装已完成验证",
           "downstream prohibition: 不得把 ready-to-converge 误读为 fully validated"
@@ -751,7 +751,7 @@
         "blocker_to_next_delivery_state": "还缺 design prototype 细化、关键页面决策表达和 implementation-facing interface detail",
         "blocker_to_next_evidence_state": "还缺真实 walkthrough 反馈来证明 recommendation 是否真的可理解、可执行",
         "safe_downstream_action": "设计可围绕 onboarding -> overview -> findings -> task bridge -> review 做连续原型；架构可沿 object chain 预留边界",
-        "forbidden_assumptions": "recommendation trust 已被真实用户验证"
+        "forbidden_assumptions": "next-step guidance trust 已被真实用户验证"
       },
       {
         "subject": "commercial value proposition and willingness-to-pay",
@@ -789,7 +789,7 @@
         "evidence_confidence_state": "design-time-inference-heavy",
         "current_basis": "Stage-03/04 都已把自动化执行与高级归因明确延后到 Phase-2",
         "blocker_to_next_delivery_state": "必须先证明 MVP loop 成立，再决定是否扩展自动化和高精度归因",
-        "blocker_to_next_evidence_state": "还缺 recommendation trust、instrumentation feasibility、adoption willingness 的真实验证",
+        "blocker_to_next_evidence_state": "还缺 next-step guidance trust、instrumentation feasibility、adoption willingness 的真实验证",
         "safe_downstream_action": "只允许保留 extension point，不允许进入首版交付承诺",
         "forbidden_assumptions": "automation can be safely attached to MVP"
       }
@@ -811,7 +811,7 @@
         "evidence_confidence_state": "source-grounded-but-unvalidated",
         "current_basis": "Requirements structure、object chain、state machine、acceptance criteria 已把 {workflow_backbone} 编译为一个完整 loop",
         "blocker_to_next_delivery_state": "还缺交互细节、interface contract 和 implementation task breakdown",
-        "blocker_to_next_evidence_state": "还缺真实任务执行反馈，无法证明 finding -> recommendation -> task 的 adoption friction 足够低",
+        "blocker_to_next_evidence_state": "还缺真实执行反馈，无法证明 source evidence -> next action -> action record 的 adoption friction 足够低",
         "safe_downstream_action": "设计可做 workflow prototype，架构可先按 object chain / subsystem boundary 划分",
         "forbidden_assumptions": "task bridge adoption already validated"
       },
@@ -851,7 +851,7 @@
         "evidence_confidence_state": "design-time-inference-heavy",
         "current_basis": "PRD 已明确其属于 deferred / Phase-2 scope",
         "blocker_to_next_delivery_state": "必须先完成 MVP loop proof、boundary stabilization、task adoption evidence",
-        "blocker_to_next_evidence_state": "还缺真实 recommendation trust、instrumentation readiness、粗粒度归因接受度验证",
+        "blocker_to_next_evidence_state": "还缺真实 next-step guidance trust、instrumentation readiness、粗粒度结果接受度验证",
         "safe_downstream_action": "仅保留 extension points 和 non-goal honesty",
         "forbidden_assumptions": "automation or advanced attribution belongs in first release"
       }

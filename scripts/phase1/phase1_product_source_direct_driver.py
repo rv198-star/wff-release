@@ -7,11 +7,13 @@ import re
 from typing import Any
 
 from phase1.phase1_generation_kernel import (
+    REVIEW_BOUND_MISSING_SOURCE_STATUS_QUO,
     clean_source_text_value as _clean_text,
+    extract_target_user_rows as _extract_target_user_rows,
     find_markdown_block as _find_markdown_block,
+    source_fact_text as _kernel_source_fact_text,
 )
 from phase1.phase1_semantic_authoring_spine import build_semantic_authoring_spine
-from phase1.phase1_source_text_normalization import normalize_source_handoff_phrases
 
 
 DRIVER_ID = "p1-product-source-direct-driver.v1"
@@ -20,9 +22,7 @@ BUSINESS_COMPLETENESS_DRIVER_ID = "p1-business-completeness-direct-driver.v1"
 
 
 def _source_fact_text(source_text: str) -> str:
-    if not re.search(r"^#\s+P1 Source Input Packet\b", source_text, flags=re.IGNORECASE | re.MULTILINE):
-        return source_text
-    return normalize_source_handoff_phrases(_find_markdown_block(source_text, ("P1 Source Brief",)) or source_text)
+    return _kernel_source_fact_text(source_text)
 
 
 def _packet_open_truth_gap_items(source_text: str) -> list[str]:
@@ -149,6 +149,79 @@ def _section_items(
         if line and not line.startswith("|"):
             items.append(_clean_text(line))
     return [item for item in items if item]
+
+
+def _section_table_values(
+    source_text: str,
+    heading_patterns: tuple[str, ...],
+    *,
+    limit: int = 12,
+) -> list[str]:
+    values: list[str] = []
+    active = False
+    header_seen = False
+    header_cells: list[str] = []
+    for raw in source_text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            lowered = line.lower()
+            active = any(pattern in lowered for pattern in heading_patterns)
+            header_seen = False
+            header_cells = []
+            continue
+        if not active:
+            continue
+        if not (line.startswith("|") and line.endswith("|")):
+            if header_seen:
+                header_seen = False
+                header_cells = []
+            continue
+        cells = [_clean_text(cell) for cell in line.strip("|").split("|")]
+        if not cells or all(re.fullmatch(r":?-{3,}:?", cell.strip()) for cell in cells):
+            continue
+        if not header_seen:
+            header_seen = True
+            header_cells = cells
+            continue
+        if _table_row_has_deferred_priority(cells, header_cells):
+            continue
+        for cell in cells:
+            value = _clean_text(cell)
+            lowered = value.casefold()
+            if not value:
+                continue
+            if re.fullmatch(r"p\d+(?:\s*/\s*p\d+)*|后置|later", lowered, flags=re.IGNORECASE):
+                continue
+            if lowered in {
+                "优先级",
+                "闭环",
+                "内容",
+                "数据对象",
+                "主要字段",
+                "role",
+                "角色",
+                "core need",
+                "关键边界",
+            }:
+                continue
+            if value not in values:
+                values.append(value)
+            if len(values) >= limit:
+                return values
+    return values
+
+
+def _table_row_has_deferred_priority(cells: list[str], header_cells: list[str]) -> bool:
+    priority_headers = {"priority", "优先级", "phase", "阶段"}
+    deferred_values = {"later", "deferred", "future", "后置", "以后"}
+    for index, header in enumerate(header_cells):
+        if _clean_text(header).casefold() not in priority_headers:
+            continue
+        if index < len(cells) and _clean_text(cells[index]).casefold() in deferred_values:
+            return True
+    return False
 
 
 def _unique_preserve_order(values: list[str]) -> list[str]:
@@ -1176,13 +1249,24 @@ def build_product_source_direct_driver(
         if _looks_like_role_owner(role)
         and re.search(r"owner|lead|buyer|budget|sponsor|director|负责人|决策|预算|采购", role, flags=re.IGNORECASE)
     ]
+    kernel_roles = [
+        _strip_source_labels(str(row.get("Role", "")))
+        for row in _extract_target_user_rows(fact_text)
+        if _strip_source_labels(str(row.get("Role", "")))
+        and _strip_source_labels(str(row.get("Role", ""))).casefold()
+        not in {"primary operator", "secondary collaborator", "review stakeholder", "source-defined primary user"}
+    ]
     section_users = _section_items(fact_text, ("目标用户", "研究对象", "target user", "users", "roles"))
     section_substitutes = _section_items(fact_text, ("现状", "背景", "证据线索", "substitute", "status quo", "evidence"))
     section_pains = _section_items(fact_text, ("业务机会", "结构化问题", "问题清单", "痛点", "problem", "pain"))
-    section_goals = _section_items(fact_text, ("产品/业务目标", "目标方向", "机会清单", "business goal", "objective", "desired outcome"))
+    section_goals = _section_items(
+        fact_text,
+        ("产品/业务目标", "产品目标", "目标方向", "核心定位", "机会清单", "business goal", "objective", "desired outcome"),
+    )
     section_proof = _section_items(fact_text, ("证据线索", "验证对象", "判定信号", "evidence", "validation", "signal", "success signals"))
     operating_economics_proof = _operating_economics_proof_surface(fact_text)
     section_mvp = _section_items(fact_text, ("p0", "mvp", "必须有"))
+    section_mvp_table = _section_table_values(fact_text, ("p0", "mvp", "范围与优先级", "必须有"))
     label_mvp = _label_block_items(fact_text, ("P0",), limit=8)
     section_unknowns = _section_items(
         fact_text,
@@ -1190,7 +1274,7 @@ def build_product_source_direct_driver(
         exclude_heading_patterns=("provenance", "标记表", "marker", "ledger", "truth-state"),
     )
     packet_unknowns = _packet_open_truth_gap_items(source_text)
-    users = users or table_roles or section_users
+    users = users or kernel_roles or table_roles or section_users
     buyers = _unique_preserve_order(table_owner_roles + buyers)
     substitutes = substitutes or section_substitutes
     pains = pains or section_pains
@@ -1208,17 +1292,23 @@ def build_product_source_direct_driver(
             ]
         )
     if label_mvp or section_mvp:
-        mvp = label_mvp or section_mvp
+        mvp = _unique_preserve_order((label_mvp or section_mvp) + section_mvp_table)
+    elif section_mvp_table:
+        mvp = section_mvp_table
     if section_unknowns or packet_unknowns:
         unknowns = section_unknowns + [item for item in packet_unknowns if item not in section_unknowns]
     if unknowns:
         proof = [item for item in proof if item not in unknowns]
 
-    primary_user = _select_primary_user(users, buyers, "source-defined primary user")
+    primary_user = _select_primary_user(users, buyers, "review-bound missing source role")
     continuation_owner = _select_continuation_owner(users, buyers, _last(users, primary_user))
-    status_quo = _join(substitutes, "source-defined current workaround or substitute")
-    pain = _join(pains or goals, "source-defined product/business pressure")
-    product_goal = _join(section_goals or goals or pains, "resolve the source-defined product pressure")
+    zh = _source_has_chinese(fact_text or source_text)
+    business_pressure_fallback = "待评审确认的业务压力" if zh else "review-bound business pressure gap"
+    product_goal_fallback = "待评审确认的产品目标" if zh else "review-bound product goal gap"
+    status_quo_fallback = "待评审确认的现有替代方式" if zh else "review-bound current substitute gap"
+    status_quo = _join(substitutes, status_quo_fallback)
+    pain = _join(pains or goals, business_pressure_fallback)
+    product_goal = _join(section_goals or goals or pains or mvp, product_goal_fallback)
     decision_phrase = _decision_phrase(source_text)
     proof_fallback = (
         f"能改变 `{decision_phrase}` 判断的评审证据"

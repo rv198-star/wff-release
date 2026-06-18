@@ -2077,6 +2077,38 @@ def _operation_collision_slug(endpoint_name: str) -> str:
     return slug or "operation"
 
 
+def _runtime_route_shape(path: str) -> str:
+    parts = [
+        "{}" if re.fullmatch(r"{[^}/]+}", segment) else segment
+        for segment in str(path).split("/")
+        if segment
+    ]
+    return "/" + "/".join(parts)
+
+
+def _operation_path_available(
+    paths: dict[str, object],
+    *,
+    candidate_path: str,
+    method: str,
+    endpoint_name: str,
+) -> bool:
+    candidate_shape = _runtime_route_shape(candidate_path)
+    for existing_path, path_item in paths.items():
+        if not isinstance(path_item, dict) or method not in path_item:
+            continue
+        existing_operation = path_item.get(method, {})
+        if (
+            str(existing_path) == candidate_path
+            and isinstance(existing_operation, dict)
+            and str(existing_operation.get("operationId", "")).strip() == endpoint_name
+        ):
+            continue
+        if _runtime_route_shape(str(existing_path)) == candidate_shape:
+            return False
+    return True
+
+
 def _unique_operation_path(
     paths: dict[str, object],
     *,
@@ -2084,22 +2116,32 @@ def _unique_operation_path(
     method: str,
     endpoint_name: str,
 ) -> str:
-    path_item = paths.get(resolved_path, {})
-    if not isinstance(path_item, dict) or method not in path_item:
-        return resolved_path
-    existing_operation = path_item.get(method, {})
-    if isinstance(existing_operation, dict) and str(existing_operation.get("operationId", "")).strip() == endpoint_name:
+    if _operation_path_available(
+        paths,
+        candidate_path=resolved_path,
+        method=method,
+        endpoint_name=endpoint_name,
+    ):
         return resolved_path
 
     slug = _operation_collision_slug(endpoint_name)
     base = resolved_path.rstrip("/")
     candidate = f"{base}/{slug}"
-    if not isinstance(paths.get(candidate, {}), dict) or method not in paths.get(candidate, {}):
+    if _operation_path_available(
+        paths,
+        candidate_path=candidate,
+        method=method,
+        endpoint_name=endpoint_name,
+    ):
         return candidate
     for index in range(2, 100):
         candidate = f"{base}/{slug}-{index}"
-        candidate_item = paths.get(candidate, {})
-        if not isinstance(candidate_item, dict) or method not in candidate_item:
+        if _operation_path_available(
+            paths,
+            candidate_path=candidate,
+            method=method,
+            endpoint_name=endpoint_name,
+        ):
             return candidate
     raise ValueError(f"unable to allocate unique OpenAPI path for operation: {endpoint_name}")
 

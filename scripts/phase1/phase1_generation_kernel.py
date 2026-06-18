@@ -9,6 +9,18 @@ import re
 
 from phase1.phase1_source_text_normalization import normalize_source_handoff_phrases
 
+
+REVIEW_BOUND_MISSING_SOURCE_ROLE = "review-bound missing source role"
+REVIEW_BOUND_MISSING_SOURCE_STATUS_QUO = "review-bound missing source status quo"
+REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT = "review-bound missing source constraint"
+REVIEW_BOUND_MISSING_SOURCE_DEFERRED_SCOPE = "review-bound missing source deferred scope"
+REVIEW_BOUND_MISSING_SOURCE_OUT_OF_SCOPE = "review-bound missing source out-of-scope item"
+REVIEW_BOUND_MISSING_SOURCE_FLOW = "review-bound missing source flow"
+REVIEW_BOUND_MISSING_SOURCE_MODULE_CHAIN = "review-bound missing source module chain"
+REVIEW_BOUND_MISSING_SOURCE_MODULE_PAYLOAD = "review-bound missing source module payload"
+REVIEW_BOUND_MISSING_SOURCE_DETAIL = "review-bound missing source detail"
+
+
 def clean_source_text_value(value: object) -> str:
     text = str(value or "").strip()
     text = re.sub(r"\s+", " ", text)
@@ -81,6 +93,35 @@ SOURCE_PACKET_EVIDENCE_ALIASES: list[tuple[tuple[str, ...], list[str]]] = [
     (("第十二部分", "结论", "验收"), ["Admission Decision", "Handoff Note For wff-req"]),
 ]
 
+P1_SOURCE_INPUT_PACKET_PATTERN = re.compile(r"^#\s+P1 Source Input Packet\b", flags=re.IGNORECASE | re.MULTILINE)
+P1_SOURCE_BRIEF_HEADING_PATTERN = re.compile(
+    r"^##\s+(?:\d+(?:\.\d+)?\s+)?[^\n]*P1 Source Brief[^\n]*$",
+    flags=re.IGNORECASE | re.MULTILINE,
+)
+P1_PACKET_LEVEL_SECTION_TITLES = (
+    "Intake Metadata",
+    "Raw User Intent",
+    "Source Materials",
+    "Project Context Candidates",
+    "Product Truth Challenge Notes",
+    "Challenge Axis Coverage",
+    "Truth-State Ledger",
+    "Open Truth Gaps",
+    "Reviewer Concerns",
+    "Admission Decision",
+    "Recommended P1 Profile / Depth Notes",
+    "Handoff Note For wff-req",
+)
+P1_PACKET_ADMISSION_STATES = (
+    "not-admission-ready",
+    "provisional-ready-for-P1",
+    "ready-for-P1",
+)
+P1_PACKET_ADMISSION_FIELD_PATTERN = re.compile(
+    r"\badmission_(?:state|status)\b\s*[:：]\s*`?([^`\n]+)`?",
+    flags=re.IGNORECASE,
+)
+
 def source_packet_evidence_block(source_text: str, heading_pattern: str) -> str:
     """Map legacy P1 source evidence headings to source-input-packet sections.
 
@@ -92,19 +133,52 @@ def source_packet_evidence_block(source_text: str, heading_pattern: str) -> str:
 
     if not re.search(r"^#\s+P1 Source Input Packet\b", source_text, flags=re.IGNORECASE | re.MULTILINE):
         return ""
+    fact_text = source_fact_text(source_text)
+    if not fact_text:
+        return ""
     for triggers, packet_headings in SOURCE_PACKET_EVIDENCE_ALIASES:
         if not any(re.search(trigger, heading_pattern, flags=re.IGNORECASE) for trigger in triggers):
             continue
         for heading in packet_headings:
-            block = find_markdown_block(source_text, [heading])
+            block = find_markdown_block(fact_text, [heading])
             if block:
                 return f"## P1 Source Brief Evidence: {heading}\n{normalize_source_handoff_phrases(demote_headings(block))}"
-    block = source_fact_text(source_text)
-    if block:
-        lines = block.splitlines()
-        excerpt = normalize_source_handoff_phrases("\n".join(lines[: min(len(lines), 20)]).strip())
-        return f"## P1 Source Brief Evidence: excerpt\n{demote_headings(excerpt)}"
-    return ""
+    lines = fact_text.splitlines()
+    excerpt = normalize_source_handoff_phrases("\n".join(lines[: min(len(lines), 20)]).strip())
+    return f"## P1 Source Brief Evidence: excerpt\n{demote_headings(excerpt)}"
+
+
+def _normalized_heading_title(raw_heading: str) -> str:
+    title = re.sub(r"^#+\s+", "", str(raw_heading or "")).strip()
+    title = re.sub(r"^\d+(?:\.\d+)?\s+", "", title).strip()
+    title = re.sub(r"\s+", " ", title).strip(" `")
+    return title
+
+
+def _is_packet_fact_surface_terminator(raw_heading: str) -> bool:
+    title = _normalized_heading_title(raw_heading).casefold()
+    return any(title == keyword.casefold() or title.startswith(f"{keyword.casefold()}:") for keyword in P1_PACKET_LEVEL_SECTION_TITLES)
+
+
+def find_p1_source_brief_packet_block(source_text: str) -> str:
+    """Return the packet-embedded P1 Source Brief fact surface.
+
+    Req-Chat may embed a standalone source brief whose internal sections are
+    still H2 headings. Generic markdown block extraction would stop at the
+    first such H2, so packet parsing must end on packet process/admission
+    sections instead.
+    """
+
+    match = P1_SOURCE_BRIEF_HEADING_PATTERN.search(source_text)
+    if not match:
+        return ""
+    start = match.start()
+    tail = source_text[start:]
+    for heading in re.finditer(r"^##\s+[^\n]+$", tail[match.end() - start :], flags=re.MULTILINE):
+        raw_heading = heading.group(0)
+        if _is_packet_fact_surface_terminator(raw_heading):
+            return tail[: match.end() - start + heading.start()].strip()
+    return tail.strip()
 
 def flatten_bullets(block: str, limit: int) -> list[str]:
     if not block:
@@ -141,12 +215,48 @@ def source_fact_text(source_text: str) -> str:
     product nouns.
     """
 
-    if not re.search(r"^#\s+P1 Source Input Packet\b", source_text, flags=re.IGNORECASE | re.MULTILINE):
+    if not P1_SOURCE_INPUT_PACKET_PATTERN.search(source_text):
         return source_text
-    block = find_markdown_block(source_text, ["P1 Source Brief"])
+    block = find_p1_source_brief_packet_block(source_text)
     if block:
         return normalize_source_handoff_phrases(block)
-    return block or source_text
+    return ""
+
+def _normalize_packet_admission_state(value: str) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip(" `。.;；,，")
+    folded = text.casefold()
+    for state in P1_PACKET_ADMISSION_STATES:
+        if folded == state.casefold():
+            return state
+    for state in P1_PACKET_ADMISSION_STATES:
+        if re.search(rf"(?<![-\w]){re.escape(state)}(?![-\w])", text, flags=re.IGNORECASE):
+            return state
+    return ""
+
+def source_packet_admission_state(source_text: str) -> str:
+    """Return a source-input packet's explicit admission state when present."""
+
+    if not P1_SOURCE_INPUT_PACKET_PATTERN.search(source_text):
+        return ""
+    blocks = [
+        find_markdown_block(source_text, ["Admission Decision"]),
+        find_markdown_block(source_text, ["Intake Metadata"]),
+    ]
+    for block in blocks:
+        if not block:
+            continue
+        for match in P1_PACKET_ADMISSION_FIELD_PATTERN.finditer(block):
+            state = _normalize_packet_admission_state(match.group(1))
+            if state:
+                return state
+        for raw_line in block.splitlines():
+            bullet = re.match(r"^\s*-\s+`?([^`\n]+)`?\s*$", raw_line)
+            if not bullet:
+                continue
+            state = _normalize_packet_admission_state(bullet.group(1))
+            if state:
+                return state
+    return ""
 
 HANDOFF_QUALIFIER_PATTERN = re.compile(
     r"\b(?:role[- ]owned\s+|owner[- ]owned\s+|responsibility[- ]owned\s+)?next\s+(?:action|step)\b|"
@@ -262,60 +372,64 @@ def preserved_display_label(label: str, fallback: str = "Item") -> str:
         return cleaned
     return title_case_token(token)
 
+def _normalize_source_segment_candidate(value: str) -> str:
+    cleaned = str(value or "").strip().strip("`")
+    cleaned = re.sub(r"^\s*(?:主要用户|次要用户|评审用户)\s*[：:]\s*", "", cleaned).strip()
+    if not cleaned:
+        return ""
+    sentence_match = re.match(r"^(.{1,32}?)(?:负责(?!人)|需要|使用|创建|评审|审核|查看|操作|管理|完成|提交).*$", cleaned)
+    if sentence_match:
+        cleaned = sentence_match.group(1).strip(" ，,：:")
+    lowered = cleaned.casefold()
+    excluded_prefixes = ("客群边界", "使用边界", "边界", "首发不做", "不做", "非目标")
+    if any(lowered.startswith(prefix.casefold()) for prefix in excluded_prefixes):
+        return ""
+    if "不承诺" in cleaned or "不做" in cleaned:
+        return ""
+    return cleaned
+
 def detect_source_segments(source_text: str) -> list[str]:
     fact_text = source_fact_text(source_text)
-
-    def normalize_candidate(value: str) -> str:
-        cleaned = str(value or "").strip().strip("`")
-        cleaned = re.sub(r"^\s*(?:主要用户|次要用户|评审用户)\s*[：:]\s*", "", cleaned).strip()
-        if not cleaned:
-            return ""
-        lowered = cleaned.casefold()
-        excluded_prefixes = ("客群边界", "使用边界", "边界", "首发不做", "不做", "非目标")
-        if any(lowered.startswith(prefix.casefold()) for prefix in excluded_prefixes):
-            return ""
-        if "不承诺" in cleaned or "不做" in cleaned:
-            return ""
-        return cleaned
-
     candidate_block = find_h2_block(fact_text, r"2\.3\s+研究对象/目标用户边界")
-    candidates = [value for value in (normalize_candidate(item) for item in list_items_from_block(candidate_block)) if value]
+    candidates = [
+        value for value in (_normalize_source_segment_candidate(item) for item in list_items_from_block(candidate_block)) if value
+    ]
     if not candidates:
-        table_rows = parse_markdown_table(find_markdown_block(fact_text, ["User, Buyer, Operator", "2. Target Users", "Target Users", "目标用户"]))
+        table_rows = parse_markdown_table(
+            find_markdown_block(
+                fact_text, ["User, Buyer, Operator", "2. Target Users", "Target Users", "Target Roles", "目标用户", "用户与角色"]
+            )
+        )
         candidates = [
-            normalize_candidate(_row_value(row, "Role", "role", "角色", "persona", "user", "target_user"))
+            _normalize_source_segment_candidate(_row_value(row, "Role", "role", "角色", "persona", "user", "target_user"))
             for row in table_rows
-            if normalize_candidate(_row_value(row, "Role", "role", "角色", "persona", "user", "target_user"))
+            if _normalize_source_segment_candidate(_row_value(row, "Role", "role", "角色", "persona", "user", "target_user"))
         ]
     if not candidates:
         for headers, table_rows in iter_markdown_tables(fact_text):
             if not _table_has_header(headers, "Role", "role", "角色", "persona", "user", "target_user"):
                 continue
             candidates = [
-                normalize_candidate(_row_value(row, "Role", "role", "角色", "persona", "user", "target_user"))
+                _normalize_source_segment_candidate(_row_value(row, "Role", "role", "角色", "persona", "user", "target_user"))
                 for row in table_rows
-                if normalize_candidate(_row_value(row, "Role", "role", "角色", "persona", "user", "target_user"))
+                if _normalize_source_segment_candidate(_row_value(row, "Role", "role", "角色", "persona", "user", "target_user"))
             ]
             if candidates:
                 break
     if not candidates:
-        target_users_block = find_markdown_block(fact_text, ["User, Buyer, Operator", "Target Users", "目标用户"])
-        candidates = [value for value in (normalize_candidate(item) for item in list_items_from_block(target_users_block)) if value]
+        candidates = [
+            _normalize_source_segment_candidate(str(row.get("Role", "")))
+            for row in _light_structured_role_rows(fact_text)
+            if _normalize_source_segment_candidate(str(row.get("Role", "")))
+        ]
     if not candidates:
-        for line in fact_text.splitlines():
-            row = re.match(r"^\|\s*([^|]+?)\s*\|", line)
-            if row:
-                cell = normalize_candidate(row.group(1).strip())
-                if (
-                    cell
-                    and cell.lower() not in {"role", "---"}
-                    and cell not in {"角色", "文档状态", "目标阶段", "目标用户", "使用范围", "核心路线", "整理日期"}
-                    and "source section not found" not in cell.lower()
-                ):
-                    candidates.append(cell)
-            if len(candidates) >= 5:
-                break
-    return unique_preserve_order(candidates) or ["primary operator", "secondary collaborator", "review stakeholder"]
+        target_users_block = find_markdown_block(fact_text, ["User, Buyer, Operator", "Target Users", "Target Roles", "目标用户", "用户与角色"])
+        candidates = [
+            value
+            for value in (_normalize_source_segment_candidate(item) for item in list_items_from_block(target_users_block))
+            if value
+        ]
+    return unique_preserve_order(candidates)
 
 def extract_product_label(source_text: str) -> str:
     match = re.search(r"^#\s+(.+?)\s*$", source_text, flags=re.MULTILINE)
@@ -394,6 +508,51 @@ def _table_has_header(headers: list[str], *aliases: str) -> bool:
     return any(_normalized_header_key(alias) in normalized for alias in aliases)
 
 
+def _markdown_table_cells(line: str) -> list[str]:
+    return [cell.strip() for cell in str(line or "").strip().strip("|").split("|")]
+
+
+def _is_markdown_table_separator(line: str) -> bool:
+    return bool(re.match(r"^\s*\|?[\-:\s|]+\|?\s*$", str(line or "")))
+
+
+def _row_has_deferred_priority(row: dict[str, str]) -> bool:
+    priority = _row_value(row, "优先级", "Priority", "priority", "Phase", "phase", "阶段")
+    if not priority:
+        return False
+    normalized = _normalized_header_key(priority)
+    return normalized in {"later", "deferred", "future", "后置", "以后"}
+
+
+def _strip_deferred_priority_table_rows(markdown: str) -> str:
+    lines = str(markdown or "").splitlines()
+    kept: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if index + 1 >= len(lines) or "|" not in line or not _is_markdown_table_separator(lines[index + 1]):
+            kept.append(line)
+            index += 1
+            continue
+        headers = _markdown_table_cells(line)
+        kept.extend([line, lines[index + 1]])
+        index += 2
+        while index < len(lines) and "|" in lines[index]:
+            row_line = lines[index]
+            if _is_markdown_table_separator(row_line):
+                kept.append(row_line)
+                index += 1
+                continue
+            cells = _markdown_table_cells(row_line)
+            if len(cells) < len(headers):
+                cells.extend([""] * (len(headers) - len(cells)))
+            row = {headers[pos]: cells[pos] for pos in range(min(len(headers), len(cells)))}
+            if not _row_has_deferred_priority(row):
+                kept.append(row_line)
+            index += 1
+    return "\n".join(kept)
+
+
 def parse_markdown_table_padded(block: str) -> list[dict[str, str]]:
     table_lines = [line.strip() for line in block.splitlines() if line.strip().startswith("|")]
     if len(table_lines) < 3:
@@ -456,14 +615,14 @@ def extract_target_user_rows(source_text: str) -> list[dict[str, str]]:
     seen: set[str] = set()
     for item in list_items_from_block(candidate_block):
         match = re.match(r"^\s*(主要用户|次要用户|评审用户)\s*[：:]\s*(.+?)\s*$", item)
-        role_name = detect_source_segments(f"## 2.3 研究对象/目标用户边界\n- {item}")[0] if item else ""
+        role_name = _normalize_source_segment_candidate(match.group(2)) if match else ""
         description = match.group(1) if match else ""
         if role_name and role_name not in seen:
             rows.append({"Role": role_name, "Description": description})
             seen.add(role_name)
     if rows:
         return rows
-    rows = extract_table_rows(fact_text, ["User, Buyer, Operator", "2. Target Users", "Target Users", "目标用户"])
+    rows = extract_table_rows(fact_text, ["User, Buyer, Operator", "2. Target Users", "Target Users", "Target Roles", "目标用户", "用户与角色"])
     if rows:
         normalized_rows: list[dict[str, str]] = []
         for row in rows:
@@ -503,6 +662,9 @@ def extract_target_user_rows(source_text: str) -> list[dict[str, str]]:
             )
         if normalized_rows:
             return normalized_rows
+    light_structured_roles = _light_structured_role_rows(fact_text)
+    if light_structured_roles:
+        return light_structured_roles
     return [{"Role": value.strip("`"), "Description": ""} for value in detect_source_segments(fact_text)]
 
 def detect_source_style(source_text: str) -> str:
@@ -580,6 +742,259 @@ def _split_source_concepts(value: object, *, limit: int = 4) -> list[str]:
         if _clean_sentence_fragment(part)
     ]
     return unique_preserve_order(parts)[:limit]
+
+LIGHT_STRUCTURED_FACT_ALIASES: dict[str, tuple[str, ...]] = {
+    "role": (
+        "role",
+        "roles",
+        "target user",
+        "target users",
+        "user",
+        "users",
+        "persona",
+        "personas",
+        "operator",
+        "operators",
+        "buyer",
+        "buyers",
+        "review owner",
+        "decision owner",
+        "owner",
+        "owner role",
+        "角色",
+        "用户",
+        "目标用户",
+        "使用者",
+        "操作者",
+        "负责人",
+        "评审人",
+        "决策人",
+    ),
+    "module": (
+        "module",
+        "modules",
+        "capability",
+        "capabilities",
+        "feature",
+        "features",
+        "模块",
+        "能力",
+        "功能",
+    ),
+    "object": (
+        "object",
+        "objects",
+        "business object",
+        "business objects",
+        "core object",
+        "core objects",
+        "data object",
+        "data objects",
+        "entity",
+        "entities",
+        "对象",
+        "业务对象",
+        "核心对象",
+        "数据对象",
+        "实体",
+    ),
+    "workflow": (
+        "workflow",
+        "workflows",
+        "flow",
+        "flows",
+        "key workflow",
+        "key workflows",
+        "key workflows / scenarios",
+        "scenario",
+        "scenarios",
+        "main flow",
+        "工作流",
+        "流程",
+        "业务流程",
+        "主流程",
+        "场景",
+    ),
+    "constraint": (
+        "constraint",
+        "constraints",
+        "boundary",
+        "boundaries",
+        "nfr",
+        "nfrs",
+        "non-functional requirement",
+        "non-functional requirements",
+        "约束",
+        "边界",
+        "非功能需求",
+    ),
+}
+
+
+def _normalized_light_structured_label(value: object) -> str:
+    text = clean_source_text_value(value).casefold()
+    text = re.sub(r"[\*_`]+", "", text)
+    text = re.sub(r"\s*/\s*", " / ", text)
+    text = re.sub(r"\s+", " ", text).strip(" -")
+    return text
+
+
+def light_structured_fact_items(fact_text: str, group: str, *, limit: int = 12) -> list[str]:
+    aliases = {
+        _normalized_light_structured_label(alias)
+        for alias in LIGHT_STRUCTURED_FACT_ALIASES.get(group, ())
+    }
+    items: list[str] = []
+    for raw in fact_text.splitlines():
+        match = re.match(r"^\s*[-*]\s+`?([^`：:]{1,64})`?\s*[:：]\s*(.+?)\s*$", raw)
+        if not match:
+            continue
+        label = _normalized_light_structured_label(match.group(1))
+        if label not in aliases:
+            continue
+        value = clean_source_text_value(match.group(2))
+        if value and "source section not found" not in value.casefold():
+            items.append(value)
+        if len(items) >= limit:
+            break
+    return unique_preserve_order(items)
+
+
+def _split_light_structured_name_description(value: object) -> tuple[str, str]:
+    text = clean_source_text_value(value)
+    if not text:
+        return "", ""
+    for pattern in (r"\s+[–—-]\s+", r"\s*[：:]\s+"):
+        parts = re.split(pattern, text, maxsplit=1)
+        if len(parts) != 2:
+            continue
+        name = _clean_sentence_fragment(parts[0])
+        description = _clean_sentence_fragment(parts[1])
+        if name and len(name) <= 80 and description:
+            return name, description
+    return text, ""
+
+
+def _light_structured_role_rows(fact_text: str) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in light_structured_fact_items(fact_text, "role", limit=12):
+        role, description = _split_light_structured_name_description(item)
+        role = _clean_sentence_fragment(role).strip("`")
+        description = _clean_sentence_fragment(description)
+        if not role:
+            continue
+        key = _normalized_label_key(role)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append({"Role": role, "Description": description})
+    return rows
+
+
+def _light_structured_object_names(fact_text: str) -> list[str]:
+    object_names: list[str] = []
+    for item in light_structured_fact_items(fact_text, "object", limit=16):
+        object_names.extend(_split_source_concepts(item, limit=16))
+    return unique_preserve_order(object_names)
+
+
+def _light_structured_flow_rows(fact_text: str) -> list[dict[str, object]]:
+    flows: list[dict[str, object]] = []
+    for item in light_structured_fact_items(fact_text, "workflow", limit=8):
+        name, step_text = _split_light_structured_name_description(item)
+        if step_text:
+            steps = _source_steps_from_text(step_text, limit=8)
+            flow_name = name or "Primary Flow"
+        else:
+            steps = _source_steps_from_text(item, limit=8)
+            flow_name = "Primary Flow"
+        if not steps:
+            continue
+        flows.append({"name": flow_name, "steps": steps})
+    return flows
+
+
+def _plain_workflow_bullet_flow_rows(fact_text: str) -> list[dict[str, object]]:
+    flow_block = find_markdown_block(
+        fact_text,
+        ["6. Key Business Flows", "Key Business Flows", "Key Workflows", "Scenarios", "主流程"],
+    )
+    bullet_steps = flatten_bullets(flow_block, 8)
+    if not bullet_steps:
+        return []
+    return [{"name": "Primary Flow", "steps": bullet_steps}]
+
+
+SOURCE_OBJECT_TOKEN_PATTERN = re.compile(
+    r"\b[A-Z][A-Za-z0-9]*(?:Record|Plan|Feedback|Profile|Task|Case|State|Decision|Evidence|Result|Note|Item|Scope|Slot|Summary|Report)\b"
+)
+
+
+def _source_object_names_from_fact_text(fact_text: str) -> list[str]:
+    first_wave_fact_text = _strip_deferred_priority_table_rows(fact_text)
+    object_names = _light_structured_object_names(first_wave_fact_text)
+    object_names.extend(SOURCE_OBJECT_TOKEN_PATTERN.findall(first_wave_fact_text))
+    return unique_preserve_order(object_names)
+
+
+def _light_structured_module_rows(
+    fact_text: str,
+    roles: list[dict[str, str]],
+    *,
+    include_plain_workflow_inference: bool = True,
+) -> list[dict[str, str]]:
+    module_items = light_structured_fact_items(fact_text, "module", limit=8)
+    flow_rows = _light_structured_flow_rows(fact_text)
+    if include_plain_workflow_inference and not flow_rows:
+        flow_rows = _plain_workflow_bullet_flow_rows(fact_text)
+    object_names = _source_object_names_from_fact_text(fact_text)
+    if not module_items and flow_rows:
+        if object_names:
+            if len(object_names) >= 2:
+                module_items = [f"{object_names[0]} / {object_names[1]} Review Loop"]
+            else:
+                module_items = [f"{object_names[0]} Workflow"]
+        else:
+            first_steps = [str(step).strip() for step in flow_rows[0].get("steps", []) if str(step).strip()]
+            if first_steps:
+                module_items = [f"{first_steps[0]} -> {first_steps[-1]}"]
+    constraints = light_structured_fact_items(fact_text, "constraint", limit=8)
+    rows: list[dict[str, str]] = []
+    for item in module_items:
+        module_name, description = _split_light_structured_name_description(item)
+        if not module_name:
+            continue
+        contract = infer_fallback_module_contract(fact_text, module_name, roles)
+        flow_steps = [
+            str(step).strip()
+            for flow in flow_rows
+            for step in flow.get("steps", [])
+            if str(step).strip()
+        ]
+        rows.append(
+            contract
+            | {
+                "module": module_name,
+                "primary_actor": _choose_primary_actor_from_context(
+                    roles,
+                    module_name,
+                    description,
+                    " ".join(flow_steps),
+                    fallback=str(contract.get("primary_actor") or ""),
+                ),
+                "core_objects": ", ".join(object_names[:4]) or str(contract.get("core_objects") or ""),
+                "responsibility": description or str(contract.get("responsibility") or module_name),
+                "input": flow_steps[0] if flow_steps else str(contract.get("input") or ""),
+                "output": flow_steps[-1] if flow_steps else str(contract.get("output") or ""),
+                "architectural note": (
+                    constraints[0]
+                    if constraints
+                    else "preserve source evidence from light-structured Req-Chat facts"
+                ),
+            }
+        )
+    return rows
 
 
 def _module_keyword_tokens(module_name: str) -> list[str]:
@@ -751,7 +1166,7 @@ def _semantic_table_rows(source_text: str, required_headers: list[str]) -> list[
 def _source_object_names(source_text: str, *, limit: int = 8) -> list[str]:
     rows = extract_table_rows(
         source_text,
-        ["5. Core Business Objects", "Core Business Objects", "核心业务对象", "Core Objects", "数据与学习 WIKI"],
+        ["5. Core Business Objects", "Core Business Objects", "核心业务对象", "Core Objects", "数据对象", "Knowledge Base / Memory"],
     )
     if not rows:
         rows = _semantic_table_rows(source_text, ["数据对象"])
@@ -764,6 +1179,7 @@ def _source_object_names(source_text: str, *, limit: int = 8) -> list[str]:
             values.extend(_split_source_concepts(object_name, limit=3) or [_clean_sentence_fragment(object_name)])
         if len(values) >= limit:
             break
+    values.extend(_source_object_names_from_fact_text(source_text))
     return unique_preserve_order([value for value in values if value])[:limit]
 
 
@@ -911,7 +1327,9 @@ def extract_module_rows(source_text: str) -> list[dict[str, str]]:
         ["4. Module Responsibility Matrix", "Module Responsibility Matrix", "模块与实体清单"],
     )
     if rows:
-        return rows
+        first_wave_rows = [row for row in rows if not _row_has_deferred_priority(row)]
+        if first_wave_rows:
+            return first_wave_rows
     priority_rows: list[dict[str, str]] = []
     capability_rows: list[dict[str, str]] = []
     engine_rows: list[dict[str, str]] = []
@@ -919,6 +1337,8 @@ def extract_module_rows(source_text: str) -> list[dict[str, str]]:
     for headers, table_rows in iter_markdown_tables(fact_text):
         if _table_has_header(headers, "闭环") and _table_has_header(headers, "内容"):
             for row in table_rows:
+                if _row_has_deferred_priority(row):
+                    continue
                 module_name = _row_value(row, "闭环", "Module", "module", "能力", "Capability")
                 if not module_name or module_name in {"闭环", "后置"}:
                     continue
@@ -1000,12 +1420,27 @@ def extract_module_rows(source_text: str) -> list[dict[str, str]]:
                 else:
                     supporting.append(row)
         return primary or supporting[:6]
+    light_structured_rows = _light_structured_module_rows(
+        fact_text,
+        roles,
+        include_plain_workflow_inference=False,
+    )
+    if light_structured_rows:
+        return light_structured_rows[:6]
     fallbacks = flatten_bullets(find_markdown_block(fact_text, ["P0（MVP 必须有）"]), 6)
     if not fallbacks:
         fallbacks = label_block_items(fact_text, [r"P0"], limit=8)
     if not fallbacks:
         fallbacks = flatten_bullets(extract_main_flow_block(fact_text), 6)
     fallbacks = [item for item in fallbacks if not is_handoff_qualifier_label(item)]
+    if not fallbacks:
+        inferred_light_rows = _light_structured_module_rows(
+            fact_text,
+            roles,
+            include_plain_workflow_inference=True,
+        )
+        if inferred_light_rows:
+            return inferred_light_rows[:6]
     roles = extract_target_user_rows(fact_text)
     modules: list[dict[str, str]] = []
     for item in fallbacks:
@@ -1019,7 +1454,7 @@ def extract_object_rows(source_text: str) -> list[dict[str, str]]:
     fact_text = source_fact_text(source_text)
     rows = extract_table_rows(
         fact_text,
-        ["5. Core Business Objects", "Core Business Objects", "核心业务对象", "Core Objects", "数据与学习 WIKI"],
+        ["5. Core Business Objects", "Core Business Objects", "核心业务对象", "Core Objects", "数据对象", "Knowledge Base / Memory"],
     )
     if not rows:
         rows = _semantic_table_rows(fact_text, ["数据对象"])
@@ -1053,6 +1488,20 @@ def extract_object_rows(source_text: str) -> list[dict[str, str]]:
             )
         if normalized_rows:
             return normalized_rows
+    source_object_names = _source_object_names_from_fact_text(fact_text)
+    if source_object_names:
+        owner_module = ""
+        source_modules = extract_module_rows(fact_text)
+        if source_modules:
+            owner_module = str(source_modules[0].get("module", "")).strip()
+        return [
+            {
+                "Object": object_name,
+                "Owner Module": owner_module,
+                "Description": f"{object_name} from light-structured Req-Chat source facts",
+            }
+            for object_name in source_object_names[:8]
+        ]
     modules = extract_module_rows(fact_text)
 
     def fallback_object_name(module_name: str) -> str:
@@ -1091,12 +1540,12 @@ def extract_business_objectives(source_text: str) -> list[str]:
 def extract_non_functional_requirements(source_text: str) -> list[str]:
     fact_text = source_fact_text(source_text)
     block = find_markdown_block(fact_text, ["7. Non-functional Requirements", "Non-functional Requirements", "Constraints", "关键约束"])
-    return list_items_from_block(block)
+    return list_items_from_block(block) or light_structured_fact_items(fact_text, "constraint", limit=8)
 
 def extract_architectural_constraints(source_text: str) -> list[str]:
     fact_text = source_fact_text(source_text)
     block = find_markdown_block(fact_text, ["8. Architectural Constraints", "Architectural Constraints", "Constraints", "关键约束"])
-    return list_items_from_block(block)
+    return list_items_from_block(block) or light_structured_fact_items(fact_text, "constraint", limit=8)
 
 def extract_out_of_scope_items(source_text: str) -> list[str]:
     fact_text = source_fact_text(source_text)
@@ -1104,7 +1553,31 @@ def extract_out_of_scope_items(source_text: str) -> list[str]:
     items = label_block_items(block, [r"Out of scope"], limit=8)
     if not items:
         items = list_items_from_block(block)
+    if not items:
+        items = extract_negative_scope_items(fact_text)
     return items
+
+
+def extract_negative_scope_items(text: str, *, limit: int = 8) -> list[str]:
+    items: list[str] = []
+    patterns = (
+        r"\bmust\s+not\s+(?:invent|include|build|promise|claim|assume)\s+(.+?)(?:[.;\n]|$)",
+        r"\bdo\s+not\s+(?:invent|include|build|promise|claim|assume)\s+(.+?)(?:[.;\n]|$)",
+        r"不得(?:发明|纳入|包含|承诺|假设|建设|实现)\s*(.+?)(?:[。；;\n]|$)",
+        r"不(?:要|应|会)?(?:发明|纳入|包含|承诺|假设|建设|实现|做)\s*(.+?)(?:[。；;\n]|$)",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE | re.MULTILINE):
+            value = clean_source_text_value(match.group(1))
+            value = re.sub(r"^(?:P[0-9]\s+)?", "", value).strip()
+            if not value:
+                continue
+            for item in re.split(r"\s*(?:,|、|/|\bor\b|\band\b|或|以及|和)\s*", value):
+                item = clean_source_text_value(item)
+                item = re.sub(r"\b(?:scope|capability|feature|module)s?\b$", "", item, flags=re.IGNORECASE).strip()
+                if item:
+                    items.append(item)
+    return unique_preserve_order(items)[:limit]
 
 def extract_priority_bucket(source_text: str, heading: str) -> list[str]:
     fact_text = source_fact_text(source_text)
@@ -1151,6 +1624,7 @@ def is_generic_flow_container_title(title: str) -> bool:
         "business flow",
         "key workflows",
         "key workflows / scenarios",
+        "key workflows, objects, and scope",
         "scenarios",
         "main flow",
         "主流程",
@@ -1170,7 +1644,7 @@ def extract_flow_rows(source_text: str) -> list[dict[str, object]]:
             heading_title = heading.group(1).strip()
             if is_generic_flow_container_title(heading_title):
                 continue
-            if current_name:
+            if current_name and current_steps:
                 flows.append({"name": current_name, "steps": list(current_steps)})
             current_name = heading_title
             current_steps = []
@@ -1178,10 +1652,16 @@ def extract_flow_rows(source_text: str) -> list[dict[str, object]]:
         step = re.match(r"^\d+\.\s+(.+)$", line)
         if step:
             current_steps.append(step.group(1).strip())
-    if current_name:
+    if current_name and current_steps:
         flows.append({"name": current_name, "steps": list(current_steps)})
     if flows:
         return flows
+    light_structured_flows = _light_structured_flow_rows(fact_text)
+    if light_structured_flows:
+        return light_structured_flows
+    bullet_flows = flatten_bullets(flow_block, 8)
+    if bullet_flows:
+        return [{"name": "Primary Flow", "steps": bullet_flows}]
     main_flow = flatten_bullets(extract_main_flow_block(fact_text), 8)
     if main_flow:
         return [{"name": "Primary Flow", "steps": main_flow}]
@@ -1200,6 +1680,8 @@ def extract_flow_rows(source_text: str) -> list[dict[str, object]]:
                     table_flows.append({"name": name, "steps": steps})
         elif _table_has_header(headers, "闭环") and _table_has_header(headers, "内容"):
             for row in rows:
+                if _row_has_deferred_priority(row):
+                    continue
                 name = _row_value(row, "闭环", "Module", "module")
                 content = _row_value(row, "内容", "Description", "description")
                 steps = [
@@ -1220,7 +1702,7 @@ def derive_navigation_surfaces(module_rows: list[dict[str, str]], objectives: li
         surfaces.append("dashboard")
     if "report" in objective_text or "运营数据" in objective_text:
         surfaces.append("reports")
-    return unique_preserve_order(surfaces) or ["workflow-home", "operations", "reports"]
+    return unique_preserve_order(surfaces) or ["review-bound source surface"]
 
 def infer_first_slice_modules(module_rows: list[dict[str, str]], flow_rows: list[dict[str, object]]) -> list[str]:
     modules = [str(row.get("module", "")).strip() for row in module_rows if str(row.get("module", "")).strip()]
@@ -1238,15 +1720,15 @@ def infer_first_slice_modules(module_rows: list[dict[str, str]], flow_rows: list
 
 VALUE_SIGNAL_PATTERNS = (
     r"reduce|improve|increase|avoid|prevent|retain|grow|clarify|confidence|trust|quality|adoption|"
-    r"manual|fragment|blocked|review|result|follow-?up|treatment|closure|continuity|"
-    r"recommendation|finding|taskable|actionability|explainable|executable|"
-    r"降低|减少|提升|改善|避免|防止|留存|增长|清晰|信任|质量|采纳|人工|碎片|阻塞|复盘|结果|复诊|治疗|闭环|连续|"
-    r"建议|发现|可转任务|可执行|可解释"
+    r"manual|fragment|blocked|review|result|follow-?up|service execution|closure|continuity|"
+    r"next-step guidance|source signal|taskable|actionability|explainable|executable|"
+    r"降低|减少|提升|改善|避免|防止|留存|增长|清晰|信任|质量|采纳|人工|碎片|阻塞|复盘|结果|后续|执行|闭环|连续|"
+    r"下一步|来源信号|可转任务|可执行|可解释"
 )
 
 COMMERCIAL_DECISION_PATTERNS = (
     r"budget|pricing|package|pilot|pay|willingness|roi|quote|commercial|invest|investment|"
-    r"continue|revise|pause|business owner|decision owner|sponsor|"
+    r"continue|revise|pause|decision owner|commitment owner|sponsor|"
     r"预算|定价|试点|付费|意愿|报价|投入|继续|调整|暂停|业务负责人|决策负责人"
 )
 

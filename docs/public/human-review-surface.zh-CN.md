@@ -1,8 +1,8 @@
-# WFF human-review 阅读面
+# WFF AI / 外部 Review 阅读面
 
-WFF 会保留很多机器证据、trace、诊断报告和日志。它们对可审计性很重要，但不是第一次人工阅读的入口。
+WFF 会保留很多机器证据、trace、诊断报告和日志。它们对可审计性很重要，但不是第一次 review 的入口。
 
-从本版本开始，阶段 runner 会额外生成一个加法目录：
+阶段 runner 会额外生成一个加法目录：
 
 ```text
 <phase-output>/
@@ -15,7 +15,8 @@ WFF 会保留很多机器证据、trace、诊断报告和日志。它们对可�
       review/
 ```
 
-原有 canonical artifact 路径不移动、不改名，脚本、gate、trace 和历史 proof 仍以原路径为准。`human-review/` 只是把人类主读文件复制出来并生成索引。
+原有 canonical artifact 路径不移动、不改名，脚本、gate、trace 和历史 proof 仍以原路径为准。`human-review/` 只是把 review 主读文件复制出来并生成索引。
+`human-review/` 是历史兼容路径名；当前语义是 AI review / external red-team review 的阅读面。AI 或外部评审者只要记录了具体代码、trace、测试、claim ceiling 等锚点，就可以承担这个 review 角色。
 
 ## 先看什么
 
@@ -37,12 +38,13 @@ WFF 会保留很多机器证据、trace、诊断报告和日志。它们对可�
 
 如果 localized reader translation 已生成，`human-review/` 会优先复制 `*.reader.zh-CN.md`。
 
-如果没有启动 reader translation，`human-review/` 会复制 canonical 原文档作为 fallback。这样人工入口不会因为缺少翻译而消失。
+如果没有启动 reader translation，`human-review/` 会复制 canonical 原文档作为 fallback。这样 review 入口不会因为缺少翻译而消失。
 
 ## 边界
 
 - `human-review/` 不替代 PRD、ESP、Action Card、phase verdict、gate report、trace registry 或 retained proof。
 - `human-review/` 不提升 claim ceiling。
+- 未填写或缺少锚点的 review 记录必须保持 `review-bound`，不能被机器门禁自动升级。
 - 如果上游产物变化，应重新运行对应 phase runner，或运行 `scripts/common/human_review_surface.py` 刷新阅读面。
 
 手动刷新示例：

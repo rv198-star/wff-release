@@ -178,7 +178,8 @@ def refresh_human_review_surfaces(case_root: Path) -> list[dict]:
                 "output_dir": str(phase_root),
                 "status": "refreshed",
                 "artifact_count": len(surface.get("artifacts", [])),
-                "index": str(phase_root / "human-review" / "INDEX.md"),
+                "review_index": str(phase_root / "human-review" / "INDEX.md"),
+                "legacy_human_review_index": str(phase_root / "human-review" / "INDEX.md"),
             }
         )
     return refreshed
@@ -246,10 +247,10 @@ def _write_manifest(case_root: Path, locale: str, entries: list[dict],
         )
     if extra_fields and extra_fields.get("human_review_surfaces"):
         md_lines.append("")
-        md_lines.append("## Human Review Surfaces")
+        md_lines.append("## AI / External Review Surfaces")
         for item in extra_fields["human_review_surfaces"]:
             md_lines.append(
-                f"- {item['phase']}: `{item['status']}` index=`{item.get('index', '')}`"
+                f"- {item['phase']}: `{item['status']}` index=`{item.get('review_index') or item.get('index', '')}`"
             )
     md_path.write_text("\n".join(md_lines).rstrip() + "\n", encoding="utf-8")
 

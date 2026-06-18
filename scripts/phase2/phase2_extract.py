@@ -19,6 +19,12 @@ GENERIC_SUBSYSTEM_FIELD_KEYS = {
     "not_realtime_hard",
 }
 
+SOURCE_BACKED_OPERATIONAL_ALIAS_PHRASES = (
+    ("检查与治疗工作项", "treatment work item"),
+    ("接诊登记", "intake record"),
+    ("复诊任务", "follow-up task"),
+)
+
 
 def _safe_description_alias(raw: str) -> str:
     cleaned = str(raw or "").strip().strip("`")
@@ -74,6 +80,114 @@ def _split_values(raw: str) -> list[str]:
             continue
         results.append(value)
     return results
+
+
+def _split_source_labels(raw: str) -> list[str]:
+    cleaned = str(raw or "").replace("`", "")
+    parts = re.split(r"\s*(?:->|→|;|；|,|，|、|/|\|)\s*", cleaned)
+    return _unique([part.strip().strip("-").strip() for part in parts if part.strip().strip("-").strip()])
+
+
+def _extract_protected_business_nouns(prd_text: str) -> list[str]:
+    values: list[str] = []
+    for match in re.finditer(r"^[ \t]*-[ \t]*protected_business_nouns[ \t]*:[ \t]*(.+?)\s*$", prd_text, flags=re.MULTILINE):
+        values.extend(_split_source_labels(match.group(1)))
+    return _unique(values)
+
+
+def _extract_workflow_backbone_labels(prd_text: str) -> list[str]:
+    values: list[str] = []
+    for match in re.finditer(r"^[ \t]*-[ \t]*workflow backbone[ \t]*:[ \t]*(.+?)\s*$", prd_text, flags=re.MULTILINE | re.IGNORECASE):
+        values.extend(_split_source_labels(match.group(1)))
+    return _unique(values)
+
+
+def _source_backed_operational_alias(raw: str) -> str:
+    label = str(raw or "").strip().strip("`")
+    if not label:
+        return ""
+    explicit_labels = {
+        "接诊登记": "intake record",
+        "接诊登记记录": "intake record",
+        "检查与治疗工作项": "treatment work item",
+        "检查与治疗工作项记录": "treatment work item",
+        "复诊任务": "follow-up task",
+    }
+    if label in explicit_labels:
+        return explicit_labels[label]
+    for phrase, alias in SOURCE_BACKED_OPERATIONAL_ALIAS_PHRASES:
+        if label == phrase:
+            return alias
+    return ""
+
+
+def _has_strong_operational_alias_evidence(prd_text: str) -> bool:
+    protected = set(_extract_protected_business_nouns(prd_text))
+    backbone = set(_extract_workflow_backbone_labels(prd_text))
+    if not protected or not backbone:
+        return False
+    known_labels = {phrase for phrase, _ in SOURCE_BACKED_OPERATIONAL_ALIAS_PHRASES}
+    return bool(backbone & known_labels and any(label in protected for label in known_labels))
+
+
+def _source_backed_allowed_operational_labels(protected: set[str], backbone: set[str]) -> set[str]:
+    allowed = {label for label in backbone if _source_backed_operational_alias(label)}
+    for backbone_label in backbone:
+        record_label = f"{backbone_label}记录"
+        if record_label in protected and _source_backed_operational_alias(record_label):
+            allowed.add(record_label)
+    return allowed
+
+
+def _source_backed_operational_alias_hints(prd_text: str) -> dict[str, list[str]]:
+    if not _has_strong_operational_alias_evidence(prd_text):
+        return {}
+
+    protected = set(_extract_protected_business_nouns(prd_text))
+    backbone = set(_extract_workflow_backbone_labels(prd_text))
+    allowed_source_labels = _source_backed_allowed_operational_labels(protected, backbone)
+    hints: dict[str, list[str]] = {}
+
+    def has_exact_source_backing(label: str) -> bool:
+        return label in allowed_source_labels
+
+    def add_if_source_backed(label: str) -> None:
+        cleaned = str(label or "").strip().strip("`")
+        if not cleaned:
+            return
+        alias = _source_backed_operational_alias(cleaned)
+        if not alias:
+            return
+        if has_exact_source_backing(cleaned):
+            hints.setdefault(cleaned, [])
+            hints[cleaned].append(alias)
+
+    for label in allowed_source_labels:
+        add_if_source_backed(label)
+
+    for heading in ("Core Business Objects", "Entity Registry"):
+        block = _heading_block(prd_text, heading)
+        for row in parse_markdown_table(block):
+            primary_name = (
+                row.get("object")
+                or row.get("entity")
+                or row.get("name")
+                or row.get("core_object")
+                or ""
+            ).strip().strip("`")
+            module_name = (
+                row.get("module_name")
+                or row.get("module")
+                or row.get("domain_name")
+                or row.get("domain")
+                or ""
+            ).strip().strip("`")
+            if primary_name and has_exact_source_backing(primary_name):
+                add_if_source_backed(primary_name)
+            if module_name:
+                add_if_source_backed(module_name)
+
+    return {key: _unique(values) for key, values in hints.items() if _unique(values)}
 
 
 def extract_module_rows(prd_text: str) -> list[dict[str, str]]:
@@ -181,7 +295,7 @@ def extract_core_business_objects(prd_text: str) -> list[str]:
 
 
 def extract_object_alias_hints(prd_text: str) -> dict[str, list[str]]:
-    hints: dict[str, list[str]] = {}
+    hints: dict[str, list[str]] = _source_backed_operational_alias_hints(prd_text)
     for heading in ("Core Business Objects", "Entity Registry"):
         block = _heading_block(prd_text, heading)
         for row in parse_markdown_table(block):
@@ -226,6 +340,7 @@ def extract_module_definitions(prd_text: str, root_namespace: str) -> list[dict[
     module_rows = extract_module_rows(prd_text)
     subsystem_rows = extract_subsystem_rows(prd_text)
     core_objects = extract_core_business_objects(prd_text)
+    workflow_backbone_labels = set(_extract_workflow_backbone_labels(prd_text))
     if not module_rows and not subsystem_rows:
         raise SystemExit("需要先完成 WO-02b 的 P1 动态提取：P1 PRD 缺少 IA Spec Matrix 或等效的 module/entity 定义")
 
@@ -237,6 +352,8 @@ def extract_module_definitions(prd_text: str, root_namespace: str) -> list[dict[
             if not module_objects and idx <= len(subsystem_rows):
                 module_objects = list(subsystem_rows[idx - 1]["core_objects"])
             service_type = infer_service_type(" ".join(row.values()))
+            if service_type == "domain" and name.strip() in workflow_backbone_labels:
+                service_type = "transactional"
             primary_object = _choose_primary_object(name, module_objects)
             modules.append(
                 {
@@ -254,6 +371,8 @@ def extract_module_definitions(prd_text: str, root_namespace: str) -> list[dict[
             name = str(row["module_name"])
             module_objects = _pick_known_objects([str(item) for item in row["core_objects"]], core_objects)
             service_type = infer_service_type(name)
+            if service_type == "domain" and name.strip() in workflow_backbone_labels:
+                service_type = "transactional"
             primary_object = _choose_primary_object(name, module_objects)
             modules.append(
                 {

@@ -62,6 +62,14 @@ FORCE_ONLY_ERROR_PATTERN = re.compile(r"\bforce_[A-Za-z0-9_]+\b")
 OWNER_BOUNDARY_GUARD_PATTERN = re.compile(
     r"expectedOwnerService\s*!==\s*(?:undefined\s*&&\s*context\.expectedOwnerService\s*!==\s*)?[\"'][A-Za-z][A-Za-z0-9_]*Service[\"']"
 )
+RAW_STATUS_ECHO_PATTERN = re.compile(
+    r"status\s*:\s*(?:context\.)?(?:status|state)\s*\?\?\s*(?:current\.)?(?:status|state)"
+)
+SOURCE_BACKED_STATE_MACHINE_PATTERN = re.compile(
+    r"allowed[A-Za-z0-9_]*StateTransitions\s*=\s*new\s+Set\s*<\s*string\s*>\s*\([^)]*->[^)]*\)",
+    re.DOTALL,
+)
+LIFECYCLE_REVIEW_BOUND_PATTERN = re.compile(r"(?:lifecycle-review-bound|requested_status_review_bound)")
 REAL_AUTHORIZATION_PATTERNS = (
     re.compile(r"\bauth_context\b.*\bpermissions\b", re.IGNORECASE | re.DOTALL),
     re.compile(r"\bpermissions\b.*\bincludes\s*\(", re.IGNORECASE | re.DOTALL),
@@ -376,6 +384,18 @@ def has_service_name_owner_boundary_guard(text: str) -> bool:
 def has_real_authorization_evidence(text: str) -> bool:
     executable_text = strip_typescript_comments_and_strings(text)
     return any(pattern.search(executable_text) for pattern in REAL_AUTHORIZATION_PATTERNS)
+
+
+def has_raw_status_echo(text: str) -> bool:
+    return bool(RAW_STATUS_ECHO_PATTERN.search(strip_typescript_comments(text)))
+
+
+def has_source_backed_state_machine(text: str) -> bool:
+    return bool(SOURCE_BACKED_STATE_MACHINE_PATTERN.search(strip_typescript_comments(text)))
+
+
+def has_lifecycle_review_bound_transition(text: str) -> bool:
+    return bool(LIFECYCLE_REVIEW_BOUND_PATTERN.search(text))
 
 
 def strip_typescript_comments(text: str) -> str:
@@ -841,6 +861,9 @@ def analyze_implementation_targets(
     review_bound_depth_targets: list[str] = []
     owner_boundary_guard_targets: list[str] = []
     real_authorization_targets: list[str] = []
+    raw_status_echo_targets: list[str] = []
+    source_backed_state_machine_targets: list[str] = []
+    lifecycle_review_bound_targets: list[str] = []
     if not implementation_bindings:
         return {
             "placeholder_targets": placeholder_targets,
@@ -858,6 +881,9 @@ def analyze_implementation_targets(
             "review_bound_depth_targets": review_bound_depth_targets,
             "owner_boundary_guard_targets": owner_boundary_guard_targets,
             "real_authorization_targets": real_authorization_targets,
+            "raw_status_echo_targets": raw_status_echo_targets,
+            "source_backed_state_machine_targets": source_backed_state_machine_targets,
+            "lifecycle_review_bound_targets": lifecycle_review_bound_targets,
         }
 
     target_paths = sorted(
@@ -897,6 +923,12 @@ def analyze_implementation_targets(
             owner_boundary_guard_targets.append(target)
         if target.endswith((".controller.ts", ".service.ts", ".repository.ts")) and has_real_authorization_evidence(text):
             real_authorization_targets.append(target)
+        if target.endswith(".service.ts") and has_raw_status_echo(text):
+            raw_status_echo_targets.append(target)
+        if target.endswith(".service.ts") and has_source_backed_state_machine(text):
+            source_backed_state_machine_targets.append(target)
+        if target.endswith(".service.ts") and has_lifecycle_review_bound_transition(text):
+            lifecycle_review_bound_targets.append(target)
         if target.endswith((".ts", ".tsx")) and substantive_line_count(text) <= 3:
             thin_targets.append(target)
         if target.endswith((".controller.ts", ".service.ts", ".repository.ts")):
@@ -932,6 +964,9 @@ def analyze_implementation_targets(
         "review_bound_depth_targets": sorted(set(review_bound_depth_targets)),
         "owner_boundary_guard_targets": sorted(set(owner_boundary_guard_targets)),
         "real_authorization_targets": sorted(set(real_authorization_targets)),
+        "raw_status_echo_targets": sorted(set(raw_status_echo_targets)),
+        "source_backed_state_machine_targets": sorted(set(source_backed_state_machine_targets)),
+        "lifecycle_review_bound_targets": sorted(set(lifecycle_review_bound_targets)),
     }
 
 
@@ -1182,6 +1217,22 @@ def build_findings(
                 "evidence": ", ".join(target_analysis["write_only_semantic_evidence_targets"][:3]),
             }
         )
+    if target_analysis["raw_status_echo_targets"]:
+        findings.append(
+            {
+                "severity": "high",
+                "title": "Generated service state transitions still echo caller status as truth",
+                "evidence": ", ".join(target_analysis["raw_status_echo_targets"][:3]),
+            }
+        )
+    elif target_analysis["lifecycle_review_bound_targets"] and not target_analysis["source_backed_state_machine_targets"]:
+        findings.append(
+            {
+                "severity": "medium",
+                "title": "Lifecycle transitions remain review-bound without source-backed state-machine evidence",
+                "evidence": ", ".join(target_analysis["lifecycle_review_bound_targets"][:3]),
+            }
+        )
     if target_analysis["unknown_payload_targets"]:
         findings.append(
             {
@@ -1323,6 +1374,9 @@ def build_report_markdown(report: dict[str, Any], output_locale: str | None = No
             f"- frontend_contract_meta_surface_count: {summary['frontend_contract_meta_surface_count']}",
             f"- frontend_operability_gap_count: {summary['frontend_operability_gap_count']}",
             f"- frontend_contract_alignment_gap_count: {summary['frontend_contract_alignment_gap_count']}",
+            f"- raw_status_echo_target_count: {summary['raw_status_echo_target_count']}",
+            f"- source_backed_state_machine_target_count: {summary['source_backed_state_machine_target_count']}",
+            f"- lifecycle_review_bound_target_count: {summary['lifecycle_review_bound_target_count']}",
         ],
         findings=findings,
     )
@@ -1406,6 +1460,9 @@ def analyze_phase3_code_review(
             "real_authorization_enforced": real_authorization_enforced,
             "real_authorization_target_count": len(real_authorization_targets),
             "authorization_integration_warning_count": len(authorization_integration_warning_targets),
+            "raw_status_echo_target_count": len(target_analysis["raw_status_echo_targets"]),
+            "source_backed_state_machine_target_count": len(target_analysis["source_backed_state_machine_targets"]),
+            "lifecycle_review_bound_target_count": len(target_analysis["lifecycle_review_bound_targets"]),
             "mock_runtime_dependency_count": len(mock_runtime_dependencies),
             "stack_consistency_issue_count": len(stack_consistency_issues),
             "frontend_core_surface_gap_count": len(frontend_core_surface_gaps),
@@ -1436,6 +1493,20 @@ def analyze_phase3_code_review(
                 else "real authorization evidence present"
                 if real_authorization_targets
                 else "authorization evidence not present"
+            ),
+        },
+        "state_transition_depth": {
+            "raw_status_echo_targets": target_analysis["raw_status_echo_targets"],
+            "source_backed_state_machine_targets": target_analysis["source_backed_state_machine_targets"],
+            "lifecycle_review_bound_targets": target_analysis["lifecycle_review_bound_targets"],
+            "claim_boundary": (
+                "raw caller status echo detected"
+                if target_analysis["raw_status_echo_targets"]
+                else "source-backed state machine evidence present"
+                if target_analysis["source_backed_state_machine_targets"]
+                else "lifecycle transitions remain review-bound"
+                if target_analysis["lifecycle_review_bound_targets"]
+                else "state transition evidence not present"
             ),
         },
         "mock_runtime_dependencies": mock_runtime_dependencies,

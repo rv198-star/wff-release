@@ -4,6 +4,108 @@
 from __future__ import annotations
 
 from phase2.phase2_first_version_stage_renderers import *  # noqa: F401,F403
+from common.contamination_boundary import build_output_contamination_report_for_paths
+from common.contamination_boundary import collect_text_output_paths
+from common.source_admission import build_source_admission_report_for_paths
+
+
+def phase2_first_version_source_admission_report_path(output_dir: Path) -> Path:
+    return resolve_cross_phase_surface_path(output_dir, "phase2", "p1-to-p2-source-admission-report.json")
+
+
+def phase2_first_version_output_contamination_report_path(output_dir: Path) -> Path:
+    return resolve_cross_phase_surface_path(output_dir, "phase2", "phase-2-output-contamination-report.json")
+
+
+def phase2_first_version_source_paths_from_args(args: argparse.Namespace) -> list[Path]:
+    paths = [Path(args.phase1_prd).resolve()]
+    intake = str(getattr(args, "existing_system_architecture_change_intake", "") or "").strip()
+    if intake:
+        paths.append(Path(intake).resolve())
+    return paths
+
+
+def phase2_first_version_source_paths(context: Phase2FirstVersionContext) -> list[Path]:
+    paths = [context.phase1_prd]
+    if context.existing_system_architecture_change_intake is not None:
+        paths.append(context.existing_system_architecture_change_intake)
+    return paths
+
+
+def phase2_first_version_source_fingerprint_text(context: Phase2FirstVersionContext) -> str:
+    return "\n\n".join(path.read_text(encoding="utf-8") for path in phase2_first_version_source_paths(context))
+
+
+def run_phase2_first_version_source_admission_preflight(context: Phase2FirstVersionContext) -> dict[str, Any]:
+    return build_source_admission_report_for_paths(
+        phase2_first_version_source_paths(context),
+        boundary="p1-to-p2",
+        source_label="p1-to-p2 required sources",
+        output_path=phase2_first_version_source_admission_report_path(context.output_dir),
+    )
+
+
+def run_phase2_first_version_missing_source_admission_preflight(args: argparse.Namespace) -> dict[str, Any] | None:
+    source_paths = phase2_first_version_source_paths_from_args(args)
+    if all(path.exists() and path.is_file() for path in source_paths):
+        return None
+    output_dir = Path(args.output_dir).resolve()
+    return build_source_admission_report_for_paths(
+        source_paths,
+        boundary="p1-to-p2",
+        source_label="p1-to-p2 required sources",
+        output_path=phase2_first_version_source_admission_report_path(output_dir),
+    )
+
+
+def phase2_first_version_source_admission_exit_code(output_dir: Path, report: dict[str, Any]) -> int:
+    if report["overall_status"] != "blocked":
+        return 0
+    print(
+        "[BLOCKED] p1-to-p2 source admission failed: "
+        f"{phase2_first_version_source_admission_report_path(output_dir)}"
+    )
+    print(f"classifications: {', '.join(report['classifications'])}")
+    return 2
+
+
+def phase2_first_version_generated_output_contamination_paths(context: Phase2FirstVersionContext) -> list[Path]:
+    expected_paths = [
+        context.output_dir / "engineering-spec-pack.md",
+        context.output_dir / "phase-3-implementation-entry.md",
+        context.output_dir / "stage-01-architecture-definition-and-boundary-setting.md",
+        context.output_dir / "stage-02-domain-module-service-decomposition.md",
+        context.output_dir / "stage-02.5-third-party-integration-architecture-design.md",
+        context.output_dir / "stage-03-data-storage-and-interface-design.md",
+        context.output_dir / "stage-04-design-convergence-and-delivery-prototype.md",
+    ]
+    expected_paths.extend(collect_text_output_paths(context.output_dir / ".phase2-diagnostics"))
+    return collect_text_output_paths(context.output_dir, expected_paths=expected_paths)
+
+
+def run_phase2_first_version_generated_output_contamination_gate(
+    context: Phase2FirstVersionContext,
+) -> dict[str, Any]:
+    return build_output_contamination_report_for_paths(
+        phase2_first_version_generated_output_contamination_paths(context),
+        source_fingerprint_text=phase2_first_version_source_fingerprint_text(context),
+        source_label="p1-to-p2 required sources",
+        boundary="phase-2-generated-output",
+        output_path=phase2_first_version_output_contamination_report_path(context.output_dir),
+    )
+
+
+def phase2_first_version_output_contamination_exit_code(context: Phase2FirstVersionContext) -> int:
+    output_contamination_report = run_phase2_first_version_generated_output_contamination_gate(context)
+    if output_contamination_report["overall_status"] != "blocked":
+        return 0
+    print(
+        "[BLOCKED] Phase-2 generated output contamination failed: "
+        f"{phase2_first_version_output_contamination_report_path(context.output_dir)}"
+    )
+    print(f"classifications: {', '.join(output_contamination_report['classifications'])}")
+    return 2
+
 
 def emit_phase2_first_version_claim_control_sidecars(
     *,
@@ -141,8 +243,11 @@ def build_phase2_closure_runtime_command(
     return command
 
 
-def build_full_trial_wrapper_command(**kwargs: Any) -> list[str]:
+def build_manual_closure_wrapper_command(**kwargs: Any) -> list[str]:
     return build_phase2_closure_runtime_command(**kwargs)
+
+
+build_full_trial_wrapper_command = build_manual_closure_wrapper_command
 
 
 def run_wrapper(
@@ -485,18 +590,37 @@ def emit_phase2_first_version_summary(summary: dict[str, object]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_phase2_first_version_args(argv)
+    missing_source_admission_report = run_phase2_first_version_missing_source_admission_preflight(args)
+    if missing_source_admission_report is not None:
+        source_admission_exit_code = phase2_first_version_source_admission_exit_code(
+            Path(args.output_dir).resolve(),
+            missing_source_admission_report,
+        )
+        if source_admission_exit_code:
+            return source_admission_exit_code
     try:
         context = build_phase2_first_version_context(args)
     except ValueError as exc:
         print(f"[BLOCKED] {exc}")
         return 2
+    source_admission_report = run_phase2_first_version_source_admission_preflight(context)
+    source_admission_exit_code = phase2_first_version_source_admission_exit_code(
+        context.output_dir,
+        source_admission_report,
+    )
+    if source_admission_exit_code:
+        return source_admission_exit_code
     result = run_phase2_first_version(context)
+    emit_review_surface(context.output_dir, "phase2")
+    contamination_exit_code = phase2_first_version_output_contamination_exit_code(context)
+    if contamination_exit_code:
+        return contamination_exit_code
     emit_phase2_first_version_summary(build_phase2_first_version_summary(context, result))
 
     if not result.audit["passed"]:
         return 2
     if context.run_wrapper:
-        return run_wrapper(
+        wrapper_exit_code = run_wrapper(
             repo_root=context.repo_root,
             phase1_prd=context.phase1_prd,
             output_dir=context.output_dir,
@@ -515,7 +639,12 @@ def main(argv: list[str] | None = None) -> int:
             thinking_value_gain_output_profile=context.thinking_value_gain_output_profile,
             existing_system_architecture_change_intake=context.existing_system_architecture_change_intake,
         )
-    emit_review_surface(context.output_dir, "phase2")
+        if wrapper_exit_code:
+            return wrapper_exit_code
+        contamination_exit_code = phase2_first_version_output_contamination_exit_code(context)
+        if contamination_exit_code:
+            return contamination_exit_code
+        return 0
     return 0
 
 

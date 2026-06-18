@@ -8,7 +8,7 @@ This document defines the current Phase-1 script authority boundary. It does not
 
 Use these scripts for canonical Phase-1 mainline closure:
 
-- `scripts/phase1/run_phase1_full_trial.py`
+- `scripts/phase1/run_phase1_source_to_prd.py`
 - `scripts/phase1/run_phase1_convergence.py`
 
 Only these entrypoints can support a Phase-1 mainline closure claim. They may
@@ -31,6 +31,7 @@ runner consumed them as part of the selected Phase-1 path.
 
 These scripts remain in the bundle for compatibility, audit, direct diagnostics, and targeted remediation:
 
+- `scripts/phase1/run_phase1_full_trial.py`
 - `scripts/phase1/phase1_prd_assembly_integrity_gate.py`
 - `scripts/phase1/phase1_prd_analysis_delta_gate.py`
 - `scripts/phase1/phase1_prd_section_scoring_gate.py`

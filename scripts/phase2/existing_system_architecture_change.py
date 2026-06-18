@@ -1,11 +1,36 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 
 EXISTING_SYSTEM_ARCHITECTURE_CHANGE_INTAKE_FILENAME = (
     "existing-system-architecture-change-intake.md"
 )
+
+PLACEHOLDER_ONLY_RE = re.compile(
+    r"^(?:[-*>\s`_#|:.。；;,\[\](){}]+|tbd|todo|placeholder|n/?a|not decided|later|待定|待补充|占位|暂无|无|unknown|\.\.\.)+$",
+    re.IGNORECASE,
+)
+
+
+def _has_substantive_intake_line(text: str) -> bool:
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if PLACEHOLDER_ONLY_RE.fullmatch(line):
+            continue
+        return True
+    return False
+
+
+def validate_existing_system_architecture_change_intake(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    if not text.strip():
+        raise ValueError(f"existing-system architecture change intake is empty: {path}")
+    if not _has_substantive_intake_line(text):
+        raise ValueError(f"existing-system architecture change intake is placeholder-only: {path}")
 
 
 def resolve_existing_system_architecture_change_intake(raw_path: str) -> Path | None:
@@ -15,6 +40,7 @@ def resolve_existing_system_architecture_change_intake(raw_path: str) -> Path | 
     path = Path(cleaned).resolve()
     if not path.exists():
         raise FileNotFoundError(f"existing-system architecture change intake not found: {path}")
+    validate_existing_system_architecture_change_intake(path)
     return path
 
 
@@ -25,6 +51,7 @@ def materialize_existing_system_architecture_change_intake(
 ) -> Path | None:
     if source is None:
         return None
+    validate_existing_system_architecture_change_intake(source)
     target = output_dir / EXISTING_SYSTEM_ARCHITECTURE_CHANGE_INTAKE_FILENAME
     source_text = source.read_text(encoding="utf-8")
     if source.resolve() != target.resolve():

@@ -167,7 +167,7 @@ def build_manifest(
             "3. Stage-02.5 (optional, when third-party integration design is active)",
             "4. Stage-03",
             "5. Stage-04",
-            "6. `scripts/phase2/run_phase2_full_trial.py`",
+            "6. `scripts/phase2/run_phase2_manual_closure.py`",
             "",
         ]
     )

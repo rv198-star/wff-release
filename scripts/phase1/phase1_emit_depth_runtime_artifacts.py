@@ -305,7 +305,7 @@ def detect_operationally_rich_domain(text: str) -> bool:
 def detect_commercial_decision_domain(text: str) -> bool:
     growth_signal = has_signal(
         text,
-        r"geo|seo|marketing|growth|tenant|scope|observation|recommendation|visibility|competitor|roi|attribution|conversion",
+        r"marketing|growth|tenant|scope|observation|recommendation|visibility|competitor|roi|attribution|conversion",
     )
     commercial_signal = has_signal(
         text,
@@ -616,10 +616,7 @@ def build_reasoning_context(domain_context: dict[str, Any]) -> dict[str, Any]:
         "review",
         "competitor",
         "visibility",
-        "seo",
-        "geo",
         "roi",
-        "utm",
     )
     domain_posture = "growth-observation" if any(marker in posture_probe for marker in growth_markers) else "operational-service"
     depth_posture = resolve_depth_posture(posture_probe)
@@ -686,7 +683,7 @@ def score_coordination_density(text: str, roles: list[str]) -> int:
     count = 0
     count += int(mentioned_roles >= 2)
     count += int(has_signal(text, r"handoff", r"owner", r"reviewer", r"operator", r"doctor", r"nurse", r"协作", r"交接", r"角色"))
-    count += int(has_signal(text, r"decision owner", r"business owner", r"governance", r"审批", r"复核"))
+    count += int(has_signal(text, r"decision owner", r"review owner", r"governance", r"审批", r"复核"))
     return clamp_dimension(count)
 
 
@@ -869,23 +866,6 @@ CONTRACT_SPILLOVER_PATTERNS = (
 )
 
 
-NON_GROWTH_GROWTH_SEAM_PATTERNS = (
-    r"attribution",
-    r"conversion seam",
-    r"\bUTM\b",
-    r"funnel",
-    r"cross-device",
-    r"competitor snapshot",
-    r"recommendation payload contract",
-    r"归因",
-    r"转化缝",
-    r"漏斗",
-    r"跨设备",
-    r"竞品快照",
-    r"建议载荷契约",
-)
-
-
 def semantic_anchors_from_domain_context(domain_context: dict[str, Any]) -> list[str]:
     anchors: list[str] = []
     anchors.extend(str(item).strip() for item in domain_context.get("segments", []) if str(item).strip())
@@ -969,12 +949,6 @@ def proof_artifact_repetition_count(text: str) -> int:
     )
 
 
-def growth_seam_leakage_count(text: str, depth_posture: str) -> int:
-    if depth_posture in {"commercial-decision", "mixed"}:
-        return 0
-    return count_pattern_occurrences(text, NON_GROWTH_GROWTH_SEAM_PATTERNS)
-
-
 def score_thesis_sharpness(text: str) -> int:
     chain_overrender = chain_literalization_count(text)
     contract_overrender = contract_spillover_count(text)
@@ -1051,17 +1025,16 @@ def score_semantic_compression(
     chain_overrender = chain_literalization_count(text)
     proof_repetition = proof_artifact_repetition_count(text)
     contract_overrender = contract_spillover_count(text)
-    growth_leakage = growth_seam_leakage_count(text, depth_posture)
     contrast_or_decision = has_signal(
         text,
         r"continue|revise|pause|proof_artifact|decision trigger|instead of|rather than|not just|manual reconstruction|detached report",
         r"继续|调整|暂停|证明物|决策触发器|而不是|不仅仅|孤立页面|事后汇总|脱离主链的事后报告|手工重建|报表系统",
     )
-    if growth_leakage >= 2:
-        return 0
     if generic_filler_count >= 2 and anchor_hits == 0:
         return 0
-    if (chain_overrender >= 3 or proof_repetition >= 6 or contract_overrender >= 3) and anchor_hits == 0 and anchor_density <= 1:
+    if contract_overrender >= 3 and anchor_hits == 0:
+        return 0
+    if (chain_overrender >= 3 or proof_repetition >= 6) and anchor_hits == 0 and anchor_density <= 1:
         return 0
     if anchor_density >= 2 and (anchor_hits >= 2 or contrast_or_decision) and generic_filler_count <= 1:
         return 2
@@ -1151,12 +1124,12 @@ def score_buyer_budget_clarity(text: str) -> int:
     )
     owner_signal = has_signal(
         text,
-        r"decision sponsor|business owner|budget owner|commercial owner|tenant owner",
+        r"decision sponsor|decision owner|commitment owner|commercial owner|tenant owner|business\s+owner|budget\s+owner|operations\s+owner|continuation_owner|pain_holder",
         r"业务负责人|预算负责人|商业负责人|租户负责人|决策人",
     )
     continuation_signal = has_signal(
         text,
-        r"renew|expand|continue investing|cancel|purchase|adoption signal|pilot",
+        r"renew|expand|continue investing|continued investment|continued operating commitment|continue\s*/\s*revise\s*/\s*pause|cancel|purchase|adoption signal|pilot|continuation_signal|pilot continuation",
         r"续费|扩容|继续投入|取消|购买|采纳信号|试点",
     )
     chain_signal = has_signal(
@@ -2530,9 +2503,9 @@ def business_completeness_driver_context(driver_summary: dict[str, Any] | None) 
             "continued investment."
         ),
         (
-            "buyer_budget_chain: buyer / business owner / budget owner can judge continued investment; "
+            "buyer_budget_chain: decision owner / commitment owner can judge continued investment; "
             f"pain_holder: {pain_holder or 'pain holder'}; "
-            f"continuation_owner: {continuation_owner or 'business owner / budget owner'}; "
+            f"continuation_owner: {continuation_owner or 'decision owner / commitment owner'}; "
             f"spend_at_risk: {spend_at_risk or 'team time, budget, and continued operating commitment'}; "
             f"proof_artifact_for_continue: {proof_artifact or 'review summary plus decision record'}; "
             f"continuation_signal: {continuation_decision}; "

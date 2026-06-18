@@ -5,6 +5,63 @@ from __future__ import annotations
 
 from phase2.phase2_first_version_semantic_model import *  # noqa: F401,F403
 
+SOURCE_BACKED_INTERACTION_ALIAS_TOKENS = (
+    ("检查与治疗工作项", {"treatment", "work", "item", "treatmentworkitem"}, {"treatment", "work", "item"}),
+    ("接诊登记", {"intake", "record", "intakerecord"}, {"intake", "record"}),
+    ("复诊任务", {"follow", "up", "task", "followuptask"}, {"follow", "task"}),
+)
+
+
+def _source_backed_alias_tokens_for_label(value: str) -> set[str]:
+    label = str(value or "").strip().strip("`")
+    return {
+        token
+        for phrase, tokens_for_phrase, _ in SOURCE_BACKED_INTERACTION_ALIAS_TOKENS
+        if label == phrase or label == f"{phrase}记录"
+        for token in tokens_for_phrase
+    }
+
+
+def _source_backed_alias_tokens_for_labels(
+    values: list[str],
+    object_alias_hints: dict[str, list[str]] | None = None,
+) -> set[str]:
+    source_backed_tokens = {
+        token
+        for value in values
+        for token in _source_backed_alias_tokens_for_label(value)
+    }
+    for value in values:
+        for alias in (object_alias_hints or {}).get(str(value or "").strip().strip("`"), []):
+            source_backed_tokens.update(semantic_tokens(str(alias or "")))
+    return source_backed_tokens
+
+
+def _has_non_ascii_label(values: list[str]) -> bool:
+    return any(any(ord(char) > 127 for char in str(value or "")) for value in values)
+
+
+def _source_backed_alias_tokens_for_service(
+    value: str,
+    source_aliases: list[str] | None = None,
+) -> set[str]:
+    tokens = semantic_tokens(value)
+    source_backed_tokens = {
+        token
+        for phrase, tokens_for_phrase, required_tokens in SOURCE_BACKED_INTERACTION_ALIAS_TOKENS
+        if _source_backed_alias_tokens_for_label(phrase) and (
+            phrase in str(value or "")
+            or bool(required_tokens <= tokens)
+            or bool(tokens_for_phrase & tokens and any(compact in tokens for compact in tokens_for_phrase if len(compact) > 8))
+        )
+        for token in tokens_for_phrase
+    }
+    for alias in source_aliases or []:
+        alias_tokens = semantic_tokens(str(alias))
+        if alias_tokens and alias_tokens <= tokens:
+            source_backed_tokens.update(alias_tokens)
+    return source_backed_tokens
+
 def adr_content_for(
     *,
     title: str,
@@ -402,30 +459,81 @@ def distribute_phase1_ids(rows: list[str], bucket_count: int) -> list[list[str]]
     return [bucket if bucket else [rows[idx % len(rows)]] for idx, bucket in enumerate(buckets)] if rows else buckets
 
 
+def _operation_disambiguation_suffix(service: ServiceSpec, endpoint_name: str) -> str:
+    endpoint_key = re.sub(r"[^a-z0-9]+", "", endpoint_name.lower())
+    raw_candidates: list[str] = []
+    for raw in (service.home_module, service.domain, service.service_name, service.public_contract):
+        parts = [part for part in re.split(r"[^A-Za-z0-9]+", str(raw)) if part]
+        raw_candidates.extend(reversed(parts))
+        if len(parts) >= 2:
+            raw_candidates.append(" ".join(parts[-2:]))
+    for raw in raw_candidates:
+        candidate = to_pascal(raw)
+        candidate_key = re.sub(r"[^a-z0-9]+", "", candidate.lower())
+        if not candidate or candidate_key in {"service", "workflow", "query", "domain", "read"}:
+            continue
+        if candidate_key and candidate_key not in endpoint_key:
+            return candidate
+    stable = short_stable_suffix("|".join([service.home_module, service.public_contract, service.service_name]))
+    return f"Scope{stable.upper()}"
+
+
+def _with_unique_endpoint_name(service: ServiceSpec, endpoint_name: str) -> ServiceSpec:
+    primary_inbound = endpoint_name if service.primary_inbound == service.endpoint_name else service.primary_inbound
+    return ServiceSpec(
+        service.service_name,
+        service.domain,
+        service.home_module,
+        service.service_type,
+        service.owns_or_coordinates,
+        primary_inbound,
+        service.primary_outbound,
+        service.purpose,
+        service.public_contract,
+        endpoint_name,
+        service.method,
+        service.path,
+        technical_name=service.technical_name,
+        technical_slug=service.technical_slug,
+    )
+
+
 def build_stage_03_endpoint_specs(
     services: list[ServiceSpec],
     *,
     root_namespace: str,
     table_specs: list[dict[str, object]] | None = None,
 ) -> list[ServiceSpec]:
-    endpoint_specs = [*services]
+    endpoint_specs: list[ServiceSpec] = []
     existing_objects = {
         token
         for service in services
         for token in (to_snake(service.owns_or_coordinates), to_snake(service_technical_name(service)))
         if token
     }
-    existing_endpoints = {
-        (service.endpoint_name, service.method, service.path)
-        for service in endpoint_specs
-    }
+    existing_endpoint_names: set[str] = set()
+    existing_endpoints: set[tuple[str, str, str, str]] = set()
 
     def append_endpoint(spec: ServiceSpec) -> None:
-        key = (spec.endpoint_name, spec.method, spec.path)
-        if key in existing_endpoints:
+        original_key = (spec.public_contract, spec.endpoint_name, spec.method, spec.path)
+        if original_key in existing_endpoints:
             return
-        existing_endpoints.add(key)
-        endpoint_specs.append(spec)
+        endpoint_name = spec.endpoint_name
+        if endpoint_name in existing_endpoint_names:
+            suffix = _operation_disambiguation_suffix(spec, endpoint_name)
+            base_candidate = f"{endpoint_name}For{suffix}"
+            endpoint_name = base_candidate
+            counter = 2
+            while endpoint_name in existing_endpoint_names:
+                endpoint_name = f"{base_candidate}{counter}"
+                counter += 1
+        resolved = _with_unique_endpoint_name(spec, endpoint_name)
+        existing_endpoints.add(original_key)
+        existing_endpoint_names.add(resolved.endpoint_name)
+        endpoint_specs.append(resolved)
+
+    for service in services:
+        append_endpoint(service)
 
     for service in services:
         technical_name = service_technical_name(service)
@@ -688,6 +796,8 @@ def choose_service_match_for_interaction(
     interaction: dict[str, str],
     page_row: dict[str, str],
     endpoint_specs: list[ServiceSpec],
+    *,
+    object_alias_hints: dict[str, list[str]] | None = None,
 ) -> InteractionServiceMatch:
     if not endpoint_specs:
         return InteractionServiceMatch(
@@ -702,6 +812,18 @@ def choose_service_match_for_interaction(
     business_objects = split_inline_values(page_row.get("business_objects", ""))
     page_name = str(page_row.get("page_name", "")).strip()
     page_blueprint_type = normalize_blueprint_type(str(page_row.get("page_blueprint_type", "")).strip())
+    source_label_candidates = business_objects or [page_name]
+    source_backed_tokens = _source_backed_alias_tokens_for_labels(
+        source_label_candidates,
+        object_alias_hints,
+    )
+    source_aliases = [
+        str(alias)
+        for value in source_label_candidates
+        for alias in (object_alias_hints or {}).get(str(value or "").strip().strip("`"), [])
+        if str(alias or "").strip()
+    ]
+    review_bound_non_ascii_object = _has_non_ascii_label(source_label_candidates) and not source_backed_tokens
     goal_focus_tokens = semantic_focus_tokens(
         " ".join(
             [
@@ -745,7 +867,24 @@ def choose_service_match_for_interaction(
             ]
         )
         service_tokens = semantic_tokens(service_blob)
-        semantic_overlap = len(tokens & service_tokens)
+        service_source_blob = " ".join(
+            [
+                service.service_name,
+                service.domain,
+                service.home_module,
+                service.owns_or_coordinates,
+                service_technical_name(service),
+                service_technical_slug(service),
+                service.endpoint_name,
+                service.path,
+            ]
+        )
+        service_source_tokens = _source_backed_alias_tokens_for_service(
+            service_source_blob,
+            source_aliases,
+        )
+        normalized_overlap = len(source_backed_tokens & service_source_tokens)
+        semantic_overlap = len(tokens & service_tokens) + normalized_overlap
         score += semantic_overlap
         goal_overlap = len(goal_focus_tokens & service_tokens)
         score += goal_overlap * 2
@@ -763,6 +902,8 @@ def choose_service_match_for_interaction(
                 for obj in business_objects
             )
         )
+        if not has_object_overlap and source_backed_tokens and service_source_tokens:
+            has_object_overlap = bool(source_backed_tokens & service_source_tokens)
         if has_object_overlap:
             score += 4
         if action_type == "load_context" and service.service_type == "read-assembly":
@@ -795,9 +936,12 @@ def choose_service_match_for_interaction(
     best = scored[0]
     next_score = scored[1].score if len(scored) > 1 else -999
     strong_enough = (
-        best.has_object_overlap
-        or best.semantic_overlap >= 2
-        or (best.method_match and best.semantic_overlap >= 1 and best.score >= 8)
+        not review_bound_non_ascii_object
+        and (
+            best.has_object_overlap
+            or best.semantic_overlap >= 2
+            or (best.method_match and best.semantic_overlap >= 1 and best.score >= 8)
+        )
     )
     clearly_better = len(scored) == 1 or best.has_object_overlap or (best.score - next_score) >= 2
     if strong_enough and clearly_better and best.service is not None:
@@ -818,8 +962,15 @@ def choose_service_for_interaction(
     interaction: dict[str, str],
     page_row: dict[str, str],
     endpoint_specs: list[ServiceSpec],
+    *,
+    object_alias_hints: dict[str, list[str]] | None = None,
 ) -> ServiceSpec | None:
-    return choose_service_match_for_interaction(interaction, page_row, endpoint_specs).service
+    return choose_service_match_for_interaction(
+        interaction,
+        page_row,
+        endpoint_specs,
+        object_alias_hints=object_alias_hints,
+    ).service
 
 
 def binding_mode_for_interaction(interaction: dict[str, str]) -> str:
@@ -1206,6 +1357,7 @@ def build_binding_and_trace_rows(
     phase1_flow_rows: list[dict[str, str]] | None = None,
     endpoint_specs: list[ServiceSpec],
     trace_rows: list[dict[str, str]],
+    object_alias_hints: dict[str, list[str]] | None = None,
 ) -> tuple[list[list[str]], list[list[str]], list[list[str]]]:
     page_by_id = {
         str(row.get("page_id", "")).strip(): row
@@ -1231,7 +1383,12 @@ def build_binding_and_trace_rows(
         page_id = str(interaction.get("page_id", "")).strip()
         page_row = page_by_id.get(page_id, {})
         flow_row = flow_by_interaction.get(str(interaction.get("interaction_id", "")).strip(), {})
-        service_match = choose_service_match_for_interaction(interaction, page_row, endpoint_specs)
+        service_match = choose_service_match_for_interaction(
+            interaction,
+            page_row,
+            endpoint_specs,
+            object_alias_hints=object_alias_hints,
+        )
         service = service_match.service
         binding_mode = binding_mode_for_interaction(interaction)
         service_binding_id = (

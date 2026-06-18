@@ -6,7 +6,7 @@ from typing import Any
 
 
 CANONICAL_MAINLINE_GATE_SURFACE_SCRIPTS = {
-    "scripts/phase1/run_phase1_full_trial.py",
+    "scripts/phase1/run_phase1_source_to_prd.py",
     "scripts/phase1/run_phase1_convergence.py",
     "scripts/phase1/phase1_stage_artifact_depth_gate.py",
     "scripts/phase1/phase1_prd_quality_gate.py",
@@ -14,6 +14,7 @@ CANONICAL_MAINLINE_GATE_SURFACE_SCRIPTS = {
 }
 
 BUNDLE_INTERNAL_COMPATIBILITY_SCRIPTS = {
+    "scripts/phase1/run_phase1_full_trial.py",
     "scripts/phase1/phase1_prd_analysis_delta_gate.py",
     "scripts/phase1/phase1_prd_assembly_integrity_gate.py",
     "scripts/phase1/phase1_prd_section_scoring_gate.py",
@@ -21,7 +22,7 @@ BUNDLE_INTERNAL_COMPATIBILITY_SCRIPTS = {
 }
 
 PHASE1_CLOSURE_ENTRYPOINTS = {
-    "scripts/phase1/run_phase1_full_trial.py",
+    "scripts/phase1/run_phase1_source_to_prd.py",
     "scripts/phase1/run_phase1_convergence.py",
 }
 
@@ -37,7 +38,7 @@ def _closure_authority(relative_path: str) -> dict[str, Any]:
         "validation_profile": "phase",
         "default_status": "default",
         "formal_p1_closure_authority": True,
-        "claim_ceiling": "P1 phase closure evidence for the selected full-trial or convergence path under declared inputs",
+        "claim_ceiling": "P1 phase closure evidence for the selected source-to-PRD or convergence path under declared inputs",
     }
 
 
@@ -96,7 +97,7 @@ def phase1_gate_authority(relative_path: str) -> dict[str, Any]:
 def authority_warning_text(relative_path: str) -> str:
     return (
         f"[WFF Phase-1 authority] {relative_path} is a bundle-internal compatibility script, "
-        "not a canonical Phase-1 closure gate. Use run_phase1_full_trial.py or "
+        "not a canonical Phase-1 closure gate. Use run_phase1_source_to_prd.py or "
         "run_phase1_convergence.py for canonical Phase-1 mainline closure; direct results from "
         "this script are support evidence only."
     )

@@ -8,7 +8,7 @@ from __future__ import annotations
 from common.tvg_runtime_metadata import THINKING_VALUE_GAIN_OUTPUT_PROFILES
 
 
-OFFICIAL_RUNTIME_ENTRY = "scripts/phase1/run_phase1_full_trial.py"
+OFFICIAL_RUNTIME_ENTRY = "scripts/phase1/run_phase1_source_to_prd.py"
 CONVERGENCE_ENGINE = "scripts/phase1/run_phase1_convergence.py"
 PRD_CONVERGENCE_SCRIPT = "scripts/phase1/phase1_converge_prd.py"
 

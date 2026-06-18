@@ -93,10 +93,10 @@ over-design regression as a real failure mode.
 
 ## Entrypoint
 
-Run the official full-trial path:
+Run the official source-to-PRD path:
 
 ```bash
-python3 scripts/phase1/run_phase1_full_trial.py \
+python3 scripts/phase1/run_phase1_source_to_prd.py \
   --source <phase1-input.md> \
   --output-dir <phase1-output-dir> \
   --version <version-label> \

@@ -30,10 +30,41 @@ KNOWN_RESIDUE_TERMS: tuple[ResidueTerm, ...] = (
     ResidueTerm("recommendation/action", "foreign_domain_residue", "geo", "blocking"),
     ResidueTerm("tracked scope", "foreign_domain_residue", "geo", "blocking"),
     ResidueTerm("CreateTrackedScope", "default_operation_residue", "geo", "blocking"),
+    ResidueTerm("GetCompetitorSnapshot", "default_operation_residue", "geo", "blocking"),
+    ResidueTerm("StartObservationRun", "default_operation_residue", "geo", "blocking"),
+    ResidueTerm("GetAttributionSeamReference", "default_operation_residue", "geo", "blocking"),
+    ResidueTerm("ListVisibilityFindings", "default_operation_residue", "geo", "blocking"),
+    ResidueTerm("funnelStage", "foreign_field_residue", "geo", "blocking"),
+    ResidueTerm("attributionSeam", "foreign_field_residue", "geo", "blocking"),
+    ResidueTerm("competitorContext", "foreign_field_residue", "geo", "blocking"),
+    ResidueTerm("recommendationStatus", "foreign_field_residue", "geo", "blocking"),
 )
 
 DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
-    "geo": ("geo", "generative engine optimization"),
+    "geo": (
+        "geo",
+        "generative engine optimization",
+        "tracked scope",
+        "tracked_scope",
+        "CreateTrackedScope",
+        "observation run",
+        "observation_run",
+        "StartObservationRun",
+        "visibility finding",
+        "visibility_finding",
+        "optimization recommendation",
+        "optimization_recommendation",
+        "optimization task",
+        "optimization_task",
+        "competitor snapshot",
+        "competitor_snapshot",
+        "GetCompetitorSnapshot",
+        "attribution seam",
+        "attribution_seam",
+        "GetAttributionSeamReference",
+        "funnel stage",
+        "funnel_stage",
+    ),
     "invoice-adjustment": ("invoice adjustment", "billing", "invoice", "adjustment"),
     "order-query": ("order query", "order lookup", "order status", "buyer order"),
     "legacy-customer-id": ("legacy customer id", "customer identity", "partner callback"),
@@ -42,6 +73,28 @@ DOMAIN_HINTS: dict[str, tuple[str, ...]] = {
 }
 
 WEAK_DOMAIN_HINTS: dict[str, set[str]] = {
+    "geo": {
+        "tracked scope",
+        "tracked_scope",
+        "CreateTrackedScope",
+        "observation run",
+        "observation_run",
+        "StartObservationRun",
+        "visibility finding",
+        "visibility_finding",
+        "optimization recommendation",
+        "optimization_recommendation",
+        "optimization task",
+        "optimization_task",
+        "competitor snapshot",
+        "competitor_snapshot",
+        "GetCompetitorSnapshot",
+        "attribution seam",
+        "attribution_seam",
+        "GetAttributionSeamReference",
+        "funnel stage",
+        "funnel_stage",
+    },
     "invoice-adjustment": {"adjustment"},
 }
 
@@ -53,6 +106,62 @@ SOURCE_SPECIFIC_STOPWORDS = {
     "phase_verdict",
     "review_bound",
 }
+
+DEFAULT_TEXT_OUTPUT_SUFFIXES = frozenset(
+    {
+        ".cjs",
+        ".css",
+        ".csv",
+        ".html",
+        ".js",
+        ".json",
+        ".jsx",
+        ".md",
+        ".mjs",
+        ".prisma",
+        ".py",
+        ".sh",
+        ".sql",
+        ".toml",
+        ".ts",
+        ".tsv",
+        ".tsx",
+        ".txt",
+        ".xml",
+        ".yaml",
+        ".yml",
+    }
+)
+
+DEFAULT_TEXT_OUTPUT_FILENAMES = frozenset({"Dockerfile", "Makefile"})
+
+DEFAULT_OUTPUT_SCAN_EXCLUDED_DIR_NAMES = frozenset(
+    {
+        ".git",
+        ".cache",
+        ".next",
+        ".phase2-diagnostics",
+        ".phase2-evidence",
+        ".phase2-review",
+        ".phase3-diagnostics",
+        ".phase3-evidence",
+        ".phase3-review",
+        ".phase4-contract",
+        ".phase4-diagnostics",
+        ".phase4-evidence",
+        ".phase4-review",
+        ".pnpm-store",
+        ".pytest_cache",
+        ".turbo",
+        "__pycache__",
+        "build",
+        "cache",
+        "coverage",
+        "dist",
+        "node_modules",
+        "vendor",
+    }
+)
 
 
 def _normalize(text: str) -> str:
@@ -145,7 +254,7 @@ def infer_source_fingerprint(text: str, *, source_label: str = "") -> dict[str, 
                 weak_score += 1
             else:
                 strong_score += 1
-        score = strong_score + (weak_score if strong_score > 0 else 0)
+        score = strong_score + (weak_score if strong_score > 0 else weak_score if weak_score >= 2 else 0)
         if score:
             domain_scores[domain] = score
     domain = "unknown"
@@ -190,8 +299,11 @@ def _empty_source_signal_findings(text: str) -> list[dict[str, Any]]:
     return findings
 
 
-def scan_contamination(text: str, *, source_label: str = "") -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    fingerprint = infer_source_fingerprint(text, source_label=source_label)
+def scan_contamination_with_fingerprint(
+    text: str,
+    *,
+    fingerprint: dict[str, Any],
+) -> list[dict[str, Any]]:
     source_domain = str(fingerprint.get("domain") or "unknown")
     haystack = _normalize(text)
     findings: list[dict[str, Any]] = []
@@ -213,6 +325,12 @@ def scan_contamination(text: str, *, source_label: str = "") -> tuple[dict[str, 
             }
         )
     findings.extend(_empty_source_signal_findings(text))
+    return findings
+
+
+def scan_contamination(text: str, *, source_label: str = "") -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    fingerprint = infer_source_fingerprint(text, source_label=source_label)
+    findings = scan_contamination_with_fingerprint(text, fingerprint=fingerprint)
     return fingerprint, findings
 
 
@@ -238,8 +356,14 @@ def build_contamination_report(
     source_label: str,
     boundary: str,
     output_path: Path | None = None,
+    source_fingerprint: dict[str, Any] | None = None,
+    scanned_paths: list[str] | None = None,
 ) -> dict[str, Any]:
-    fingerprint, findings = scan_contamination(text, source_label=source_label)
+    if source_fingerprint is None:
+        fingerprint, findings = scan_contamination(text, source_label=source_label)
+    else:
+        fingerprint = dict(source_fingerprint)
+        findings = scan_contamination_with_fingerprint(text, fingerprint=fingerprint)
     classifications = sorted({str(finding.get("classification")) for finding in findings if finding.get("classification")})
     status = _overall_status(findings)
     report = {
@@ -256,6 +380,8 @@ def build_contamination_report(
             "It does not prove full semantic correctness."
         ),
     }
+    if scanned_paths is not None:
+        report["scanned_paths"] = scanned_paths
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -275,3 +401,147 @@ def build_contamination_report_for_path(
         boundary=boundary,
         output_path=output_path,
     )
+
+
+def _read_existing_text_paths(paths: list[Path]) -> tuple[str, list[str], list[str]]:
+    parts: list[str] = []
+    scanned_paths: list[str] = []
+    missing_paths: list[str] = []
+    for path in paths:
+        if not path.exists():
+            missing_paths.append(str(path.resolve()))
+            continue
+        if path.is_dir():
+            missing_paths.append(str(path.resolve()))
+            continue
+        parts.append(path.read_text(encoding="utf-8"))
+        scanned_paths.append(str(path.resolve()))
+    return "\n\n".join(parts), scanned_paths, missing_paths
+
+
+def build_contamination_report_for_paths(
+    paths: list[Path],
+    *,
+    boundary: str,
+    output_path: Path | None = None,
+    source_label: str = "",
+) -> dict[str, Any]:
+    if not paths:
+        raise ValueError("at least one source path is required")
+    if len(paths) == 1:
+        return build_contamination_report_for_path(paths[0], boundary=boundary, output_path=output_path)
+
+    sources: list[dict[str, Any]] = []
+    all_findings: list[dict[str, Any]] = []
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        fingerprint, findings = scan_contamination(text, source_label=str(path))
+        labeled_findings = [{**finding, "source_label": str(path)} for finding in findings]
+        sources.append(
+            {
+                "source_label": str(path),
+                "source_fingerprint": fingerprint,
+                "overall_status": _overall_status(findings),
+                "classifications": sorted(
+                    {str(finding.get("classification")) for finding in findings if finding.get("classification")}
+                ),
+                "finding_count": len(findings),
+            }
+        )
+        all_findings.extend(labeled_findings)
+
+    classifications = sorted(
+        {str(finding.get("classification")) for finding in all_findings if finding.get("classification")}
+    )
+    status = _overall_status(all_findings)
+    report = {
+        "artifact_kind": "cross-phase-contamination-boundary-report.v1",
+        "boundary": boundary,
+        "source_label": source_label or " + ".join(str(path) for path in paths),
+        "overall_status": status,
+        "claim_ceiling": _claim_ceiling(status),
+        "source_fingerprint": {
+            "mode": "multi-source",
+            "sources": [source["source_fingerprint"] for source in sources],
+        },
+        "sources": sources,
+        "classifications": classifications,
+        "findings": all_findings,
+        "policy": (
+            "This report detects configured contamination residues across supplied phase handoff sources. "
+            "It does not prove full semantic correctness."
+        ),
+    }
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return report
+
+
+def collect_text_output_paths(
+    root: Path,
+    *,
+    expected_paths: list[Path] | None = None,
+    excluded_dir_names: set[str] | frozenset[str] = DEFAULT_OUTPUT_SCAN_EXCLUDED_DIR_NAMES,
+    text_suffixes: set[str] | frozenset[str] = DEFAULT_TEXT_OUTPUT_SUFFIXES,
+    text_filenames: set[str] | frozenset[str] = DEFAULT_TEXT_OUTPUT_FILENAMES,
+) -> list[Path]:
+    """Return expected paths plus discovered generated text files under root."""
+
+    candidates: list[Path] = []
+    seen: set[str] = set()
+
+    def add(path: Path) -> None:
+        key = str(path.resolve())
+        if key not in seen:
+            candidates.append(path)
+            seen.add(key)
+
+    for path in expected_paths or []:
+        add(path)
+
+    if not root.exists() or not root.is_dir():
+        return candidates
+
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        try:
+            relative = path.relative_to(root)
+        except ValueError:
+            continue
+        if any(part in excluded_dir_names for part in relative.parts[:-1]):
+            continue
+        if path.suffix.casefold() not in text_suffixes and path.name not in text_filenames:
+            continue
+        add(path)
+    return candidates
+
+
+def build_output_contamination_report_for_paths(
+    paths: list[Path],
+    *,
+    source_fingerprint_text: str,
+    source_label: str,
+    boundary: str,
+    output_path: Path | None = None,
+) -> dict[str, Any]:
+    source_fingerprint = infer_source_fingerprint(source_fingerprint_text, source_label=source_label)
+    output_text, scanned_paths, missing_paths = _read_existing_text_paths(paths)
+    report = build_contamination_report(
+        output_text,
+        source_label=source_label,
+        boundary=boundary,
+        output_path=output_path,
+        source_fingerprint=source_fingerprint,
+        scanned_paths=scanned_paths,
+    )
+    report["missing_paths"] = missing_paths
+    report["scan_coverage"] = {
+        "candidate_path_count": len(paths),
+        "scanned_path_count": len(scanned_paths),
+        "missing_path_count": len(missing_paths),
+    }
+    if output_path is not None:
+        output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return report

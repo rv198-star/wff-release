@@ -293,7 +293,8 @@ def project_phase3_trace_registry_to_trace_db(
             if not source_id:
                 skipped_rows.append({"source_id": "", "reason": "missing_source_id"})
                 continue
-            if not _artifact_exists(conn, project_scope, source_id):
+            source_registered = _artifact_exists(conn, project_scope, source_id)
+            if not source_registered:
                 phase3_source_type = _phase3_source_artifact_type(source_type)
                 if not phase3_source_type:
                     skipped_rows.append({"source_id": source_id, "reason": "source_artifact_not_registered"})
@@ -308,6 +309,9 @@ def project_phase3_trace_registry_to_trace_db(
                     source_path=source_path_text,
                     source_anchor=source_id.lower(),
                 )
+                source_registered = True
+            if source_registered:
+                indexed_source_ids.add(source_id)
             test_targets = sorted({str(item).strip() for item in row.get("test_targets", []) if str(item).strip()})
             implementation_targets = sorted(
                 {str(item).strip() for item in row.get("implementation_targets", []) if str(item).strip()}
@@ -316,7 +320,6 @@ def project_phase3_trace_registry_to_trace_db(
                 skipped_rows.append({"source_id": source_id, "reason": "missing_test_or_implementation_target"})
                 continue
 
-            indexed_source_ids.add(source_id)
             evidence_anchor = source_id.lower()
             row_test_artifact_ids: set[str] = set()
             for test_target in test_targets:

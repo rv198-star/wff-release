@@ -26,8 +26,20 @@ from pathlib import Path
 
 from phase1.phase1_source_text_normalization import normalize_source_handoff_phrases
 from phase1.phase1_generation_kernel import (
+    REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT,
+    REVIEW_BOUND_MISSING_SOURCE_DEFERRED_SCOPE,
+    REVIEW_BOUND_MISSING_SOURCE_DETAIL,
+    REVIEW_BOUND_MISSING_SOURCE_FLOW,
+    REVIEW_BOUND_MISSING_SOURCE_MODULE_CHAIN,
+    REVIEW_BOUND_MISSING_SOURCE_MODULE_PAYLOAD,
+    REVIEW_BOUND_MISSING_SOURCE_OUT_OF_SCOPE,
+    REVIEW_BOUND_MISSING_SOURCE_ROLE,
     build_source_semantic_profile,
     compact_signal_line,
+    extract_architectural_constraints as kernel_extract_architectural_constraints,
+    extract_non_functional_requirements as kernel_extract_non_functional_requirements,
+    extract_out_of_scope_items as kernel_extract_out_of_scope_items,
+    extract_target_user_rows,
     is_generic_flow_container_title,
     normalize_signal_candidate,
     parse_markdown_table_normalized as parse_markdown_table,
@@ -456,11 +468,9 @@ def slugify(raw: str) -> str:
 
 def derive_output_path(requested_output: Path, document_name: str) -> Path:
     if requested_output.suffix:
-        if requested_output.stem.endswith("rpd-main-document-assembled") or requested_output.name.startswith(
-            "geo-rpd-main-document-assembled"
-        ):
+        if requested_output.stem.endswith("rpd-main-document-assembled"):
             return requested_output.with_name(f"{slugify(document_name)}-main-document-assembled.md")
-        if requested_output.stem.endswith("rpd-main-document") or requested_output.name.startswith("geo-rpd-main-document"):
+        if requested_output.stem.endswith("rpd-main-document"):
             return requested_output.with_name(f"{slugify(document_name)}-main-document.md")
         return requested_output
     return requested_output / f"{slugify(document_name)}-main-document.md"
@@ -598,7 +608,7 @@ def looks_like_placeholder(value: str) -> bool:
         "source-defined trigger",
         "source-defined entry condition",
         "source-defined information objects",
-        "source-defined module payload",
+        REVIEW_BOUND_MISSING_SOURCE_MODULE_PAYLOAD,
         "source-defined core objects",
         "next workflow object",
     }:
@@ -1129,6 +1139,14 @@ def extract_target_user_roles_from_brief(source_text: str) -> list[str]:
             return ""
         return cleaned
 
+    source_roles = [
+        role
+        for role in (normalize_role(str(row.get("Role", "")).strip()) for row in extract_target_user_rows(source_text))
+        if role and role.casefold() not in {"primary operator", "source-defined primary user"}
+    ]
+    if source_roles:
+        return list(dict.fromkeys(source_roles))
+
     for row in rows:
         role = row.get("role") or row.get("user") or row.get("persona") or row.get("target_user") or ""
         role = normalize_role(role)
@@ -1252,7 +1270,7 @@ def clean_source_label_phrase(value: object) -> str:
 
 
 def clean_runtime_label_item(value: str) -> str:
-    text = compact_signal_line(value)
+    text = reader_facing_internal_gap_label(compact_signal_line(value))
     text = re.sub(r"`([^`\n]+)`", r"\1", text).replace("`", "")
     text = re.sub(r"\.\s*(?=与|并|因此|作为|足以|否则|但)", "，", text)
     text = re.sub(r"\.([。；，,])", r"\1", text)
@@ -1260,10 +1278,33 @@ def clean_runtime_label_item(value: str) -> str:
     return text.strip("。；;:： ")
 
 
+def reader_facing_internal_gap_label(value: str) -> str:
+    text = str(value)
+    replacements = {
+        REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT: "待评审确认的约束缺口",
+        "review-bound missing source status quo": "待评审确认的现有替代方式",
+    }
+    for internal, reader_facing in replacements.items():
+        text = re.sub(re.escape(internal), reader_facing, text, flags=re.IGNORECASE)
+    return text
+
+
+def runtime_context_has_chinese(runtime_context: dict[str, object]) -> bool:
+    probe = " ".join(
+        [
+            str(runtime_context.get("source_text", "")),
+            str(runtime_context.get("source_semantic_profile", "")),
+            str(runtime_context.get("primary_segment", "")),
+            " ".join(str(item) for item in runtime_context.get("target_user_roles", []) if str(item).strip()),
+        ]
+    )
+    return bool(re.search(r"[\u4e00-\u9fff]", probe))
+
+
 def plain_label_surface(labels: list[str], fallback: str, *, limit: int = 3) -> str:
     picked = [clean_runtime_label_item(label) for label in labels if clean_runtime_label_item(label)]
     if not picked:
-        return fallback
+        return reader_facing_internal_gap_label(fallback)
     rendered = picked[:limit]
     if len(rendered) == 1:
         return rendered[0]
@@ -1333,8 +1374,9 @@ def runtime_source_semantic_profile(
         "profile_id": "source-semantic-profile.v1",
         "domain_profile": "source-grounded-operating-loop",
         "module_name": module_hint or "source-defined capability",
-        "primary_actor": str(runtime_context.get("primary_segment", "")).strip() or (roles[0]["Role"] if roles else "primary operator"),
-        "role_names": [row["Role"] for row in roles],
+        "primary_actor": str(runtime_context.get("primary_segment", "")).strip()
+        or (roles[0]["Role"] if roles else REVIEW_BOUND_MISSING_SOURCE_ROLE),
+        "role_names": [row["Role"] for row in roles] or [REVIEW_BOUND_MISSING_SOURCE_ROLE],
         "core_objects": objects or ["business record"],
         "flow_steps": flow_steps,
         "source_evidence": dedupe_runtime_phrases(evidence)[:8],
@@ -1418,7 +1460,7 @@ def build_scope_promise_line(source_text: str, runtime_context: dict[str, object
         runtime_context,
         source_text,
         key="constraints",
-        fallback="source-defined constraints",
+        fallback=REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT,
         limit=2,
     )
     return (
@@ -1459,7 +1501,13 @@ def render_problem_signal_lines(source_text: str, runtime_context: dict[str, obj
     profile = runtime_source_semantic_profile(runtime_context, source_text)
     objects = semantic_profile_phrase(runtime_context, source_text, key="core_objects", fallback="核心业务对象", limit=3)
     evidence = semantic_profile_phrase(runtime_context, source_text, key="source_evidence", fallback="source facts", limit=3)
-    constraints = semantic_profile_phrase(runtime_context, source_text, key="constraints", fallback="source-defined constraints", limit=2)
+    constraints = semantic_profile_phrase(
+        runtime_context,
+        source_text,
+        key="constraints",
+        fallback=REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT,
+        limit=2,
+    )
     lines = [
         f"- top_problem_clusters: {summarize_structured_items(problem_items, 'source-defined business problems still need explicit recompilation')}",
         f"- top_opportunity_clusters: {summarize_structured_items(opportunity_items, 'source-defined business opportunities still need explicit recompilation')}",
@@ -1512,7 +1560,7 @@ def extract_key_business_flows_from_brief(
 
 def extract_out_of_scope_items_from_brief(source_text: str) -> list[str]:
     block = extract_markdown_section(source_text, ["Out of Scope", "Out of Scope (MVP)", "范围外"], level_pattern=r"##")
-    return list_items_from_markdown(block)
+    return list_items_from_markdown(block) or kernel_extract_out_of_scope_items(source_text)
 
 
 def extract_non_functional_requirements_from_brief(source_text: str) -> list[str]:
@@ -1527,7 +1575,7 @@ def extract_non_functional_requirements_from_brief(source_text: str) -> list[str
             ["Non-functional Requirements", "NFR", "非功能需求"],
             level_pattern=r"##",
         )
-    return list_items_from_markdown(block)
+    return list_items_from_markdown(block) or kernel_extract_non_functional_requirements(source_text)
 
 
 def extract_architectural_constraints_from_brief(source_text: str) -> list[str]:
@@ -1536,7 +1584,7 @@ def extract_architectural_constraints_from_brief(source_text: str) -> list[str]:
         ["Architectural Constraints", "Architecture Constraints", "架构约束"],
         level_pattern=r"##",
     )
-    return list_items_from_markdown(block)
+    return list_items_from_markdown(block) or kernel_extract_architectural_constraints(source_text)
 
 
 def render_module_capability_lines(rows: list[dict[str, str]]) -> list[str]:
@@ -1555,7 +1603,7 @@ def module_names(runtime_context: dict[str, object], limit: int | None = None) -
 
 def module_chain_text(runtime_context: dict[str, object], limit: int | None = None) -> str:
     names = module_names(runtime_context, limit)
-    return " -> ".join(names) if names else "source-defined module chain"
+    return " -> ".join(names) if names else REVIEW_BOUND_MISSING_SOURCE_MODULE_CHAIN
 
 
 def core_object_names(runtime_context: dict[str, object], limit: int | None = None) -> list[str]:
@@ -1578,13 +1626,17 @@ def detect_domain_baseline_pack(runtime_context: dict[str, object]) -> dict[str,
     objects = semantic_profile_list(profile, "core_objects", core_object_names(runtime_context, 4) or ["source-defined business record"])
     flow_steps = semantic_profile_list(profile, "flow_steps", canonical_operational_flow_steps(runtime_context)[:4] or module_names(runtime_context, 4) or ["source-defined workflow step"])
     roles = semantic_profile_list(profile, "role_names", list(runtime_context.get("target_user_roles", [])) or ["primary operator"])
-    constraints = semantic_profile_list(profile, "constraints", list(runtime_context.get("non_functional_requirements", [])) or ["source-defined boundary conditions"])
+    constraints = semantic_profile_list(
+        profile,
+        "constraints",
+        list(runtime_context.get("non_functional_requirements", [])) or [REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT],
+    )
     object_phrase = plain_label_surface(objects[:3], "source-defined business record", limit=3)
     first_step = flow_steps[0]
     last_step = flow_steps[-1]
     primary_role = roles[0]
     downstream_role = roles[1] if len(roles) > 1 else primary_role
-    constraint_phrase = plain_label_surface(constraints[:2], "source-defined boundary conditions", limit=2)
+    constraint_phrase = plain_label_surface(constraints[:2], REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT, limit=2)
     return {
         "domain": "source_semantic_profile",
         "overview_lines": [
@@ -1753,7 +1805,7 @@ def scenario_has_commercial_context(runtime_context: dict[str, object], bundle: 
     ).casefold()
     return bool(
         re.search(
-            r"budget|pricing|roi|pilot|invest|investment|business owner|decision owner|continue|revise|pause|"
+            r"budget|pricing|roi|pilot|invest|investment|decision owner|commitment owner|continue|revise|pause|"
             r"commercial|marketing|growth|package|willingness[- ]to[- ]pay|"
             r"预算|定价|投入|试点|业务负责人|决策负责人|继续|调整|暂停|经营|增长|市场|付费",
             probe,
@@ -1823,7 +1875,7 @@ def build_mainline_scenario_bundles(runtime_context: dict[str, object]) -> list[
                 "output_anchor": output_anchor or (clean_step_title(str(step_groups[idx][-1])) if step_groups[idx] else "source-defined business outcome"),
                 "downstream_dependency": downstream_dependency or output_anchor or "source-defined downstream dependency",
                 "downstream_owner": downstream_owner,
-                "path_steps": path_steps or [f"{' -> '.join(modules) if modules else 'source-defined module chain'}"],
+                "path_steps": path_steps or [f"{' -> '.join(modules) if modules else REVIEW_BOUND_MISSING_SOURCE_MODULE_CHAIN}"],
                 "primary_segment": primary_segment,
             }
             bundle["commercial_context"] = scenario_has_commercial_context(runtime_context, bundle)
@@ -2009,16 +2061,23 @@ def render_dynamic_er_diagram(runtime_context: dict[str, object]) -> list[str]:
         return [
             "```mermaid",
             "erDiagram",
-            "    ENTITY_A ||--o{ ENTITY_B : relates_to",
+            "    %% review-bound missing source object relationship",
             "```",
         ]
     lines = ["```mermaid", "erDiagram"]
-    for left, right in zip(objects, objects[1:]):
-        left_id = re.sub(r"[^A-Z0-9]+", "_", left.upper()).strip("_") or "ENTITY_A"
-        right_id = re.sub(r"[^A-Z0-9]+", "_", right.upper()).strip("_") or "ENTITY_B"
+    for idx, (left, right) in enumerate(zip(objects, objects[1:]), start=1):
+        left_id = mermaid_er_entity_id(left, fallback=f"REVIEW_BOUND_OBJECT_{idx}")
+        right_id = mermaid_er_entity_id(right, fallback=f"REVIEW_BOUND_OBJECT_{idx + 1}")
         lines.append(f"    {left_id} ||--o{{ {right_id} : flows_to")
     lines.append("```")
     return lines
+
+
+def mermaid_er_entity_id(value: str, *, fallback: str) -> str:
+    entity_id = re.sub(r"[^\w]+", "_", value, flags=re.UNICODE).strip("_").upper()
+    if entity_id and entity_id[0].isdigit():
+        entity_id = f"OBJ_{entity_id}"
+    return entity_id or fallback
 
 
 def extract_payload_fields(value: str) -> list[str]:
@@ -2115,15 +2174,15 @@ def build_dynamic_signal_snapshot(source_text: str) -> dict[str, list[str]]:
 
 VALUE_SIGNAL_PATTERNS = (
     r"reduce|improve|increase|avoid|prevent|retain|grow|clarify|confidence|trust|quality|adoption|"
-    r"manual|fragment|blocked|review|result|follow-?up|treatment|closure|continuity|"
-    r"recommendation|finding|taskable|actionability|explainable|executable|"
-    r"降低|减少|提升|改善|避免|防止|留存|增长|清晰|信任|质量|采纳|人工|碎片|阻塞|复盘|结果|复诊|治疗|闭环|连续|"
-    r"建议|发现|可转任务|可执行|可解释"
+    r"manual|fragment|blocked|review|result|follow-?up|service execution|closure|continuity|"
+    r"next-step guidance|source signal|taskable|actionability|explainable|executable|"
+    r"降低|减少|提升|改善|避免|防止|留存|增长|清晰|信任|质量|采纳|人工|碎片|阻塞|复盘|结果|后续|执行|闭环|连续|"
+    r"下一步|来源信号|可转任务|可执行|可解释"
 )
 
 COMMERCIAL_DECISION_PATTERNS = (
     r"budget|pricing|package|pilot|pay|willingness|roi|quote|commercial|invest|investment|"
-    r"continue|revise|pause|business owner|decision owner|sponsor|"
+    r"continue|revise|pause|decision owner|commitment owner|sponsor|"
     r"预算|定价|试点|付费|意愿|报价|投入|继续|调整|暂停|业务负责人|决策负责人"
 )
 
@@ -2523,7 +2582,7 @@ def render_operational_flow_spec_lines(runtime_context: dict[str, object]) -> li
     base_steps = canonical_operational_flow_steps(runtime_context)
     lines = [f"{idx}. {step}" for idx, step in enumerate(base_steps, start=1)]
     if not lines:
-        lines = ["1. source brief 未提供可展开的业务流程步骤。"]
+        lines = [f"1. {REVIEW_BOUND_MISSING_SOURCE_FLOW}."]
     rendered_lines: list[str] = []
     for idx, line in enumerate(lines, start=1):
         step_match = re.match(r"^\s*(?P<num>\d+)\.\s+(?P<body>.+?)\s*$", line)
@@ -2546,7 +2605,7 @@ def render_flow_titles(flows: list[dict[str, object]]) -> list[str]:
     for idx, flow in enumerate(flows, start=1):
         title = str(flow.get("title", "")).strip() or f"Flow {idx}"
         lines.append(f"- Scenario {idx}: {title}")
-    return lines or ["- Scenario 1: source-defined primary business flow"]
+    return lines or [f"- Scenario 1: {REVIEW_BOUND_MISSING_SOURCE_FLOW}"]
 
 
 def render_flow_steps(flows: list[dict[str, object]]) -> list[str]:
@@ -2560,11 +2619,13 @@ def render_flow_steps(flows: list[dict[str, object]]) -> list[str]:
         else:
             lines.append("- step_sequence: source brief 未给出该流程的细化步骤。")
         lines.append("")
-    return lines or ["1. source brief 未提供可展开的业务流程步骤。"]
+    return lines or [f"1. {REVIEW_BOUND_MISSING_SOURCE_FLOW}."]
 
 
 def render_bullet_lines(items: list[str], fallback: str) -> list[str]:
-    return [f"- {item}" for item in items] if items else [f"- {fallback}"]
+    return [f"- {reader_facing_internal_gap_label(item)}" for item in items] if items else [
+        f"- {reader_facing_internal_gap_label(fallback)}"
+    ]
 
 
 def build_generic_primary_user_story(runtime_context: dict[str, object]) -> str:
@@ -2763,7 +2824,10 @@ def render_phase1_nfr_quality_lines(runtime_context: dict[str, object]) -> list[
         "- maintainability",
         "",
         "### NFR / Quality Requirements",
-        *render_bullet_lines(list(runtime_context["non_functional_requirements"]), "source brief 未提供显式非功能需求。"),
+        *render_bullet_lines(
+            list(runtime_context["non_functional_requirements"]),
+            f"{REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT}.",
+        ),
         "",
         *render_nfr_detail_lines(runtime_context),
         "",
@@ -2783,7 +2847,10 @@ def render_phase1_nfr_quality_lines(runtime_context: dict[str, object]) -> list[
         *render_module_detail_lines(runtime_context),
         "",
         "### Architecture Consequence",
-        *render_bullet_lines(list(runtime_context["architectural_constraints"]), "source brief 未提供显式架构后果。"),
+        *render_bullet_lines(
+            list(runtime_context["architectural_constraints"]),
+            f"{REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT}.",
+        ),
         "",
         "### Specification Stress-Test",
         "- deprioritized_attributes: exact vendor benchmarking, advanced forecasting, external integrations",
@@ -2819,19 +2886,37 @@ def render_phase1_domain_model_lines(runtime_context: dict[str, object]) -> list
         "### Business Subsystem Boundaries",
         render_subsystem_interfaces(runtime_context),
         "",
-        "- Scope & Governance: account boundary, auth, audit, retention boundary",
-        "- Review & Reporting: operations dashboard, audit review, closure history",
-        "- sensitivity: source-defined business records are operationally sensitive",
+        *render_business_subsystem_boundary_lines(runtime_context),
         "- not realtime-hard: the first wave favors trusted state transitions over realtime-hard dashboards",
         f"### {payload_contract_heading(runtime_context)}",
         render_payload_contract_table(runtime_context),
         "",
-        "### Domain Object Growth and Evidence Gaps",
+        "### Domain Object Evolution and Evidence Gaps",
         *render_domain_growth_lines(runtime_context),
         "",
         "### Object-to-Workflow Mapping",
         render_workflow_mapping_table(runtime_context),
         "",
+    ]
+
+
+def render_business_subsystem_boundary_lines(runtime_context: dict[str, object]) -> list[str]:
+    module_name = ""
+    for row in runtime_context.get("ia_matrix", []):
+        if isinstance(row, dict) and str(row.get("module", "")).strip():
+            module_name = str(row.get("module", "")).strip()
+            break
+    module_name = module_name or str(runtime_context.get("workflow_backbone", "")).strip() or "first-wave workflow"
+    object_names = [
+        str(row.get("object", "")).strip()
+        for row in runtime_context.get("core_business_objects", [])
+        if isinstance(row, dict) and str(row.get("object", "")).strip()
+    ]
+    object_phrase = ", ".join(object_names[:3]) or str(runtime_context.get("object_chain", "")).strip() or "business records"
+    return [
+        f"- Source Boundary: {object_phrase} access, audit, and retention boundary",
+        f"- Review & Decision: {module_name} review surface, audit review, closure history",
+        f"- sensitivity: {object_phrase} are operationally sensitive",
     ]
 
 
@@ -3173,7 +3258,7 @@ def render_phase1_decision_handoff_lines(
         "- every future-phase module belongs in MVP",
         "- downstream integrations can be added without explicit contracts",
         "- auditability can be postponed safely",
-        "- review report or operations dashboard alone can replace the workflow backbone",
+        f"- review report or {module_chain_text(runtime_context, 2)} dashboard alone can replace the workflow backbone",
         "- out-of-scope items are implicitly approved for first-wave delivery",
         f"- {runtime_context['primary_segment']}-first boundary is still subject to real validation evidence",
         "",
@@ -3468,7 +3553,7 @@ def render_phase1_users_stakeholders_lines(source_text: str, runtime_context: di
         "",
         "## 4. Stakeholder Analysis",
         "### Stakeholder Chain Summary",
-        *render_bullet_lines(list(runtime_context["target_user_roles"]), "source brief 未提供干系人链。"),
+        *render_bullet_lines(list(runtime_context["target_user_roles"]), f"{REVIEW_BOUND_MISSING_SOURCE_ROLE}."),
         "",
         "### Adoption Fragility",
         "- 若用户只能看到零散页面而不是同一条业务主线，产品会退化成被动报表或记录工具。",
@@ -3476,7 +3561,7 @@ def render_phase1_users_stakeholders_lines(source_text: str, runtime_context: di
         "- 若 MVP 边界与范围外项不明确，实施阶段会快速失控。",
         "",
         "### Integrated Stakeholder Evidence",
-        *render_bullet_lines(list(runtime_context["target_user_roles"]), "source brief 未提供更多干系人证据。"),
+        *render_bullet_lines(list(runtime_context["target_user_roles"]), f"{REVIEW_BOUND_MISSING_SOURCE_ROLE}."),
         "",
     ]
 
@@ -3497,7 +3582,7 @@ def render_phase1_requirements_structure_lines(runtime_context: dict[str, object
         *(list(runtime_context["module_capabilities"]) if runtime_context["module_capabilities"] else ["- source brief 尚未提供结构化模块矩阵。"]),
         "",
         "### Structure Alternatives Comparison",
-        render_structure_alternatives_table(),
+        render_structure_alternatives_table(runtime_context),
         "",
         "### Problem-to-Structure Mapping",
         render_problem_to_structure_mapping(runtime_context),
@@ -3671,7 +3756,7 @@ def render_phase1_role_boundary_lines(source_text: str, runtime_context: dict[st
     primary_segment = str(runtime_context.get("primary_segment", "primary segment")).strip() or "primary segment"
     roles = list(runtime_context.get("target_user_roles", []))
     execution_operator = str(roles[1]).strip() if len(roles) > 1 else primary_segment
-    decision_owner = str(roles[-1]).strip() if roles else "source-defined decision owner"
+    decision_owner = str(roles[-1]).strip() if roles else "review-bound missing source decision owner"
     boundary_lines = render_segment_landscape_boundary(source_text, primary_segment)
     lines = [
         "### Primary Boundary",
@@ -3692,7 +3777,7 @@ def render_phase1_role_boundary_lines(source_text: str, runtime_context: dict[st
             "### Secondary / Supporting Roles",
             *render_bullet_lines(
                 [role for role in roles if role != primary_segment],
-                "source brief 未提供额外协作角色。",
+                f"{REVIEW_BOUND_MISSING_SOURCE_ROLE}.",
             ),
             "",
             "### Out-of-scope Users",
@@ -3708,7 +3793,7 @@ def render_phase1_role_boundary_lines(source_text: str, runtime_context: dict[st
             "- Reasoning Unit 1: Primary Boundary Lock",
             "- boundary_lock_reasoning: keep the primary boundary narrow enough to avoid a false multi-role shell.",
             "- tradeoff_or_tension: coverage vs focus",
-            f"- primary operator: `{primary_segment}` remains the first-wave entry operator.",
+            f"- first-wave entry role: `{primary_segment}` remains the first-wave entry operator.",
             (
                 f"- execution operator: `{execution_operator}` keeps the mid-flow handoff executable."
                 if len(roles) > 1
@@ -3716,7 +3801,7 @@ def render_phase1_role_boundary_lines(source_text: str, runtime_context: dict[st
             ),
             f"- decision owner: `{decision_owner}` decides whether the first-wave workflow is strong enough to continue."
             if roles
-            else "- decision owner: `source-defined decision owner` decides whether the first-wave workflow is strong enough to continue.",
+            else "- decision owner: `review-bound missing source decision owner` remains unresolved until the source names the continuation owner.",
             "- governance reviewer: IT/legal reviewer or governance reviewer inspects retention, permission, and accountability boundaries when the organization requires formal review.",
             "",
         ]
@@ -3881,13 +3966,14 @@ def render_design_requirements_extraction(runtime_context: dict[str, object]) ->
     )
 
 
-def render_structure_alternatives_table() -> str:
+def render_structure_alternatives_table(runtime_context: dict[str, object]) -> str:
+    workflow_backbone = module_chain_text(runtime_context, 4)
     return markdown_table(
         ["candidate", "backbone shape", "strength", "failure risk", "verdict"],
         [
             ["record-first", "object onboarding -> object maintenance", "good domain clarity", "can hide cross-module workflow continuity", "rejected"],
             ["module-first", "module silos", "easy to map to menus", "can break the end-to-end source-defined workflow", "rejected"],
-            ["workflow-first", "source-defined module chain", "preserves operational continuity", "needs stronger state and role modeling", "chosen"],
+            ["workflow-first", workflow_backbone, "preserves operational continuity", "needs stronger state and role modeling", "chosen"],
         ],
     )
 
@@ -3950,7 +4036,7 @@ def render_workflow_state_detail(runtime_context: dict[str, object]) -> list[str
         lines.append(f"- Step {idx}: {module}; state: {module_key}_active")
         lines.append(f"- Step {idx} transition: {input_name} -> {output_name}")
     if not lines:
-        lines.append("- Step 1: source-defined module flow; state: source_state_active")
+        lines.append(f"- Step 1: {REVIEW_BOUND_MISSING_SOURCE_MODULE_CHAIN}; state: source_state_active")
     return [
         f"- state: {' -> '.join(states) if len(states) > 1 else 'source_state_active'}",
         *lines,
@@ -3963,7 +4049,12 @@ def render_constraint_stress_test(runtime_context: dict[str, object]) -> str:
     constraints = list(runtime_context.get("architectural_constraints", []))
     rows = [
         ["business constraints", "workflow continuity across modules", "breaks the source-defined operating loop if weak", "review-bound"],
-        ["technical constraints", constraints[0] if constraints else "source-defined technical constraint", "raises implementation risk if ignored", "review-bound"],
+        [
+            "technical constraints",
+            constraints[0] if constraints else reader_facing_internal_gap_label(REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT),
+            "raises implementation risk if ignored",
+            "review-bound",
+        ],
         ["compliance/privacy constraints", "all state transitions must be auditable", "cannot safely launch if weak", "review-bound"],
     ]
     return markdown_table(
@@ -4057,10 +4148,12 @@ def render_subsystem_interfaces(runtime_context: dict[str, object]) -> str:
         rows.append([
             str(row.get("module", "")).strip() or "source module",
             f"{str(row.get('input', '')).strip() or 'upstream input'} -> {str(row.get('output', '')).strip() or 'downstream output'} interface",
-            str(row.get("core_objects", "")).strip() or str(row.get("responsibility", "")).strip() or "source-defined module payload",
+            str(row.get("core_objects", "")).strip()
+            or str(row.get("responsibility", "")).strip()
+            or REVIEW_BOUND_MISSING_SOURCE_MODULE_PAYLOAD,
         ])
     if not rows:
-        rows = [["source module", "upstream input -> downstream output interface", "source-defined module payload"]]
+        rows = [["source module", "upstream input -> downstream output interface", REVIEW_BOUND_MISSING_SOURCE_MODULE_PAYLOAD]]
     return markdown_table(["subsystem", "subsystem_interfaces", "what"], rows)
 
 
@@ -4163,6 +4256,22 @@ def render_expanded_ia_spec_matrix(runtime_context: dict[str, object]) -> str:
             "the chosen record re-enters the workflow with intact context",
             "depends on stable labels, navigation, and cross-module object identity",
         ],
+        [
+            "scope boundary ledger",
+            roles[-1] if roles else "governance actor",
+            "in-scope / later-slice / out-of-scope / non-goal decision",
+            "first-wave scope is reviewed or changed",
+            "scope decision remains visible before downstream design starts",
+            "depends on explicit carryover and non-goal classification",
+        ],
+        [
+            "validation evidence workspace",
+            roles[-1] if roles else "governance actor",
+            "assumption / evidence source / pass-fail threshold / review note",
+            "a product assumption must be validated or kept review-bound",
+            "validation outcome updates the next product decision",
+            "depends on traceable source evidence and explicit claim ceilings",
+        ],
     ]
     while len(rows) < 8 and supplemental_rows:
         rows.append(supplemental_rows.pop(0))
@@ -4190,7 +4299,9 @@ def render_scope_boundary_lines(runtime_context: dict[str, object]) -> list[str]
         f"- in-scope: {', '.join(module_names(runtime_context, 5)) if module_names(runtime_context, 5) else 'source-defined core modules'}",
         "- later slice: richer admin visibility, deeper secondary workflows, advanced analytics",
         "- deferred seam: external integrations, multi-instance support, advanced automation layers",
-        "- explicit out-of-scope: " + ", ".join(runtime_context.get("out_of_scope_items", [])) if runtime_context.get("out_of_scope_items") else "- explicit out-of-scope: source-defined out-of-scope items",
+        "- explicit out-of-scope: " + ", ".join(runtime_context.get("out_of_scope_items", []))
+        if runtime_context.get("out_of_scope_items")
+        else f"- explicit out-of-scope: {REVIEW_BOUND_MISSING_SOURCE_OUT_OF_SCOPE}",
         "- non-goals: do not promise a full ecosystem platform in the first wave",
     ]
 
@@ -4199,7 +4310,12 @@ def render_slice_lists(runtime_context: dict[str, object]) -> list[str]:
     profile = runtime_source_semantic_profile(runtime_context)
     objects = semantic_profile_list(profile, "core_objects", core_object_names(runtime_context, 2) or ["source-defined business record"])
     flow_steps = semantic_profile_list(profile, "flow_steps", canonical_operational_flow_steps(runtime_context)[:3] or ["entry", "execution", "closure"])
-    minimum_loop = f"a single {plain_label_surface(objects[:2], 'source-defined business record', limit=2)} can move through {plain_label_surface(flow_steps[:3], 'entry to closure', limit=3)} without manual reconstruction"
+    object_surface = plain_label_surface(objects[:2], "source-defined business record", limit=2)
+    flow_surface = plain_label_surface(flow_steps[:3], "entry to closure", limit=3)
+    if runtime_context_has_chinese(runtime_context):
+        minimum_loop = f"单个 {object_surface} 能沿 {flow_surface} 连续推进，且无需人工重建上下文"
+    else:
+        minimum_loop = f"a single {object_surface} can move through {flow_surface} with explicit handoff context"
     later_slices = "broader role surfaces, richer review analytics, integrations, and automation layers"
     return [
         "- chosen_slice_strategy: workflow-loop-first",
@@ -4249,11 +4365,11 @@ def render_value_loop_notes(runtime_context: dict[str, object]) -> list[str]:
 
 def render_domain_growth_lines(runtime_context: dict[str, object]) -> list[str]:
     objects = core_object_names(runtime_context, 8)
-    growth_anchor = objects[-1] if objects else "primary business record"
+    evidence_anchor = objects[-1] if objects else "primary business record"
     return [
-        f"- highest growth object: `{growth_anchor}` is the first candidate to accumulate cross-step history and operational variance",
-        "- throughput variance, traffic spikes, long-tail exceptions, and admin reporting needs still need evidence",
-        "- volume_growth_risk: keep the object seam extensible now, but do not overstate actual scale behavior before field evidence exists",
+        f"- highest evidence-gap object: `{evidence_anchor}` is the first candidate to accumulate cross-step history and operational variance",
+        "- throughput variance, volume variance, long-tail exceptions, and admin reporting needs still need evidence",
+        "- evolution_risk: keep the object seam extensible now, but do not overstate actual scale behavior before field evidence exists",
     ]
 
 
@@ -4335,7 +4451,7 @@ def deferred_seam_heading(runtime_context: dict[str, object]) -> str:
 
 def render_deferred_seam_table(runtime_context: dict[str, object]) -> str:
     out_of_scope = [str(item).strip() for item in runtime_context.get("out_of_scope_items", []) if str(item).strip()]
-    future_items = out_of_scope[:4] or ["source-defined deferred capability"]
+    future_items = out_of_scope[:4] or [REVIEW_BOUND_MISSING_SOURCE_DEFERRED_SCOPE]
     rows: list[list[str]] = []
     for item in future_items:
         slug = re.sub(r"[^a-z0-9]+", "_", item.lower()).strip("_") or "source_defined_deferred_capability"
@@ -4484,7 +4600,7 @@ def render_role_detail_lines(runtime_context: dict[str, object]) -> list[str]:
             ]
         )
     if not rows:
-        return ["- source brief 未提供角色 detail ledger。"]
+        return [f"- {REVIEW_BOUND_MISSING_SOURCE_DETAIL}."]
     return [
         markdown_table(
             ["role", "first-wave inclusion rule", "required outcome", "governance / review note"],
@@ -4502,7 +4618,7 @@ def render_nfr_detail_lines(runtime_context: dict[str, object]) -> list[str]:
                 f"- why prioritized now: `{item}` directly shapes first-wave rollout safety",
                 f"- decision_effect: keep `{item}` visible in design and architecture handoff",
                 f"- alternatives_compared: do not replace `{item}` with a weaker placeholder promise",
-                "- recommendation_constraint / next_step_constraint: cannot silently auto-execute or bypass human confirmation where safety matters",
+                "- next_step_constraint: cannot silently auto-execute or bypass human confirmation where safety matters",
             ]
         )
     return lines
@@ -4594,13 +4710,13 @@ def render_loop_value_deepening_lines(runtime_context: dict[str, object]) -> lis
             )
         if "user_task_experience" in focus:
             lines.append(
-                f"- user_task_experience target: `{short_title}` must show how the workflow reduces waiting, re-entry, coordination friction, or manual reconstruction for the real operator path."
+                f"- user_task_experience target: `{short_title}` must show how the workflow reduces waiting, re-entry, coordination friction, or context re-entry for the real operator path."
             )
     return list(dict.fromkeys(lines))
 
 
 def plain_truth_text(value: str) -> str:
-    text = compact_signal_line(value)
+    text = reader_facing_internal_gap_label(compact_signal_line(value))
     text = re.sub(r"`([^`\n]+)`", r"\1", text)
     return text.strip().strip("。.;:：")
 
@@ -4624,7 +4740,7 @@ READER_FACING_TERM_GLOSSARY = {
     "evidence set": "证据集合",
     "execution status": "执行状态",
     "explainable evidence": "可解释证据",
-    "follow-up need": "后续动作需求",
+    "follow-up action": "后续动作需求",
     "follow-up plan": "后续动作计划",
     "freshness status": "新鲜度状态",
     "intake handoff context": "入口交接上下文",
@@ -6067,6 +6183,17 @@ def derive_business_value_signal_profile(signal: str) -> dict[str, str]:
     }
 
 
+def replace_business_value_placeholder_surfaces(signal: str, runtime_context: dict[str, object]) -> str:
+    primary_segment = str(runtime_context.get("primary_segment", "")).strip()
+    workflow_label = generic_workflow_label(runtime_context)
+    updated = signal
+    if primary_segment:
+        updated = re.sub(r"\bprimary operator\b", primary_segment, updated, flags=re.IGNORECASE)
+    if workflow_label and not workflow_label.casefold().startswith("source-defined"):
+        updated = re.sub(r"\bsource-defined business loop\b", workflow_label, updated, flags=re.IGNORECASE)
+    return updated
+
+
 def p1_requirement_trace_id(index: int) -> str:
     return f"P1-REQ-{index:03d}"
 
@@ -6078,6 +6205,7 @@ def build_business_value_signal_registry(runtime_context: dict[str, object]) -> 
         signal = compact_reader_facing_commercial_phrase(raw_signal)
         if signal and reader_facing_truth_is_spliced(raw_signal, signal):
             signal = compact_value_mechanism_phrase(runtime_context)
+        signal = replace_business_value_placeholder_surfaces(signal, runtime_context)
         if signal and not reader_facing_truth_is_spliced(signal, signal):
             signals.append(signal)
     rows: list[dict[str, str]] = []
@@ -6254,7 +6382,7 @@ def render_semantic_authoring_implication_lines(runtime_context: dict[str, objec
     if role:
         label = compact_semantic_display_label(
             str(role.get("source_excerpt", "")),
-            fallback="source-defined decision owner",
+            fallback=continuation_owner_surface(runtime_context),
         )
         lines.append(f"- 责任线: {label} 必须和权限、责任边界一起保留。")
     if gap:
@@ -6357,7 +6485,7 @@ def source_grounded_proof_phrase(runtime_context: dict[str, object]) -> str:
 def source_grounded_experience_phrase(runtime_context: dict[str, object]) -> str:
     return signal_phrase(
         list(runtime_context.get("user_experience_signals", [])),
-        "waiting, handoff friction, and manual reconstruction",
+        "review-bound operator experience friction",
         limit=2,
     )
 
@@ -6576,7 +6704,7 @@ def render_loop_business_scenario_lines(
                 )
         if "user_task_experience" in focus:
             lines.append(
-                "- user_task_experience_gain: the same chain should reduce waiting, handoff friction, confusion, and manual reconstruction so the real operator path feels clearer and more actionable."
+                "- user_task_experience_gain: the same chain should reduce waiting, handoff friction, confusion, and context re-entry so the real operator path feels clearer and more actionable."
             )
         return lines
 
@@ -6615,7 +6743,7 @@ def render_loop_business_scenario_lines(
         [str(item) for item in runtime_context.get("architectural_constraints", [])]
         + [str(item) for item in runtime_context.get("non_functional_requirements", [])]
     )
-    selected_constraint = source_constraints[0] if source_constraints else "source-defined constraint / NFR"
+    selected_constraint = source_constraints[0] if source_constraints else REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT
     upstream_role = coordination_roles[0] if coordination_roles else str(runtime_context.get("primary_segment", "primary operator")).strip()
     downstream_role = (
         coordination_roles[1]
@@ -6675,7 +6803,13 @@ def render_reasoning_units(source_text: str, runtime_context: dict[str, object])
     profile = runtime_source_semantic_profile(runtime_context, source_text)
     objects = semantic_profile_phrase(runtime_context, source_text, key="core_objects", fallback="核心业务对象", limit=3)
     evidence = semantic_profile_phrase(runtime_context, source_text, key="source_evidence", fallback="source facts", limit=3)
-    constraints = semantic_profile_phrase(runtime_context, source_text, key="constraints", fallback="source-defined constraints", limit=2)
+    constraints = semantic_profile_phrase(
+        runtime_context,
+        source_text,
+        key="constraints",
+        fallback=REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT,
+        limit=2,
+    )
     problem_mechanism = f"{objects} 的状态、owner、证据与下一步动作若不能沿显式主链推进，业务执行会重新回到人工拼接。"
     decision_effect = f"recompile the source into one operating chain grounded in {evidence} rather than isolated pages or audit-shaped records"
     out_of_scope = [str(item).strip() for item in runtime_context.get("out_of_scope_items", []) if str(item).strip()]
@@ -6737,19 +6871,8 @@ def sanitize_assembled_text(text: str, runtime_context: dict[str, object]) -> st
     primary_segment = str(runtime_context.get("primary_segment", "")).strip() or "primary operator"
     profile = runtime_source_semantic_profile(runtime_context)
     domain_posture = str(profile.get("domain_profile") or "source-grounded-operating-loop")
-    replacement_pairs = [
-        ("current-状态 snapshot", "业务状态快照"),
-        ("action recommendation", "建议动作"),
-        ("Insight Record", "业务记录"),
-        ("Review Summary", "结果摘要"),
-        ("Analysis Cycle", "业务处理周期"),
-        ("business context Definition", "业务配置记录"),
-        ("peer Snapshot", "对照记录"),
-        ("review report", "结果页"),
-    ]
-    for old, new in replacement_pairs:
-        if old and new:
-            text = text.replace(old, new)
+    text = reader_facing_internal_gap_label(text)
+    text = re.sub(r"\baction recommendation\b", "建议动作", text, flags=re.IGNORECASE)
     text = re.sub(r"当前\s+source\s+支持", "当前素材支持", text, flags=re.IGNORECASE)
     text = re.sub(r"当前\s+source\s+(?:所)?描述", "当前素材描述", text, flags=re.IGNORECASE)
     text = text.replace("source 所描述", "素材描述")
@@ -6757,7 +6880,7 @@ def sanitize_assembled_text(text: str, runtime_context: dict[str, object]) -> st
     text = re.sub(r"source-defined\s+业务", "素材定义业务", text, flags=re.IGNORECASE)
     text = re.sub(r",、", "、", text)
     text = text.replace("(source section not found)", primary_segment)
-    return str(
+    sanitized = str(
         sanitize_domain_default_truth(
             text,
             context={
@@ -6788,6 +6911,7 @@ def sanitize_assembled_text(text: str, runtime_context: dict[str, object]) -> st
             },
         )
     )
+    return reader_facing_internal_gap_label(sanitized)
 
 
 def render_flow_process_table(
@@ -7060,7 +7184,7 @@ def build_phase1_semantic_acceptance_extension_rows(
     out_of_scope = [str(item).strip() for item in runtime_context.get("out_of_scope_items", []) if str(item).strip()]
     object_phrase = plain_label_surface(objects[:2], "business record", limit=2)
     flow_phrase = plain_label_surface(flow_steps[:3], "source-defined workflow", limit=3)
-    deferred_phrase = plain_label_surface(out_of_scope[:2], "source-defined deferred capability", limit=2)
+    deferred_phrase = plain_label_surface(out_of_scope[:2], REVIEW_BOUND_MISSING_SOURCE_DEFERRED_SCOPE, limit=2)
     return [
         [
             "AC-13",
@@ -7202,7 +7326,7 @@ def build_phase1_semantic_requirement_extension_rows(runtime_context: dict[str, 
     out_of_scope = [str(item).strip() for item in runtime_context.get("out_of_scope_items", []) if str(item).strip()]
     object_phrase = plain_label_surface(objects[:2], "business record", limit=2)
     flow_phrase = plain_label_surface(flow_steps[:3], "source-defined workflow", limit=3)
-    deferred_phrase = plain_label_surface(out_of_scope[:2], "source-defined deferred capability", limit=2)
+    deferred_phrase = plain_label_surface(out_of_scope[:2], REVIEW_BOUND_MISSING_SOURCE_DEFERRED_SCOPE, limit=2)
     return [
         [
             "RQ-16",
@@ -8161,7 +8285,7 @@ def build_phase1_primary_problem_context(
     primary_segment = (
         ("" if is_missing_placeholder(stage_primary_segment) else stage_primary_segment)
         or (target_user_items[0] if target_user_items else "")
-        or "primary operator"
+        or REVIEW_BOUND_MISSING_SOURCE_ROLE
     )
 
     product_vision = extract_markdown_section(
@@ -8380,7 +8504,7 @@ def build_phase1_provisional_runtime_context(
     business_world_context: Phase1BusinessWorldContext,
 ) -> dict[str, object]:
     business_value_signals = signal_context.business_value_signals
-    return {
+    context = {
         "primary_segment": primary_problem_context.primary_segment,
         "target_user_roles": primary_problem_context.target_user_items,
         "executive_summary": primary_problem_context.executive_summary,
@@ -8395,7 +8519,6 @@ def build_phase1_provisional_runtime_context(
         "non_functional_requirements": source_structure_context.non_functional_requirements,
         "architectural_constraints": source_structure_context.architectural_constraints,
         "business_value_signals": business_value_signals,
-        "business_value_signal_registry": build_business_value_signal_registry({"business_value_signals": business_value_signals}),
         "pressure_signals": signal_context.pressure_signals,
         "commercial_decision_signals": signal_context.commercial_decision_signals,
         "decision_proof_signals": signal_context.decision_proof_signals,
@@ -8412,6 +8535,8 @@ def build_phase1_provisional_runtime_context(
         "ordinary_real_world_baseline_definition": business_world_context.ordinary_real_world_baseline_definition,
         "protected_business_nouns": signal_context.protected_business_nouns,
     }
+    context["business_value_signal_registry"] = build_business_value_signal_registry(context)
+    return context
 
 
 def build_runtime_context(
@@ -8477,6 +8602,12 @@ def build_runtime_context(
         module_name=module_hint,
         roles=[{"Role": str(role)} for role in primary_problem_context.target_user_items if str(role).strip()],
     )
+    if not primary_problem_context.target_user_items:
+        source_semantic_profile = {
+            **source_semantic_profile,
+            "primary_actor": REVIEW_BOUND_MISSING_SOURCE_ROLE,
+            "role_names": [REVIEW_BOUND_MISSING_SOURCE_ROLE],
+        }
     provisional_context = {
         **provisional_context,
         "source_semantic_profile": source_semantic_profile,

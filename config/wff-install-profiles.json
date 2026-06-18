@@ -219,6 +219,7 @@
         "scripts/release/bootstrap_mindthus_dependency.py",
         "scripts/release/run_release_dual_case_eval.py",
         "scripts/phase3/run_phase3_first_version.py",
+        "scripts/phase2/run_phase2_manual_closure.py",
         "scripts/phase2/run_phase2_full_trial.py"
       ],
       "id": "full-pack",
@@ -329,7 +330,7 @@
       "explicit_runtime_dep_dirs": [],
       "explicit_scripts": [
         "scripts/release/wff_init.py",
-        "scripts/phase1/run_phase1_full_trial.py",
+        "scripts/phase1/run_phase1_source_to_prd.py",
         "scripts/phase1/run_phase1_convergence.py",
         "scripts/common/emit_reader_translation.py",
         "scripts/common/reader_artifact_integrity.py"
@@ -384,6 +385,7 @@
       "excluded_scripts": [
         "scripts/release/run_release_dual_case_eval.py",
         "scripts/phase2/phase2_quality_check.py",
+        "scripts/phase2/run_phase2_manual_closure.py",
         "scripts/phase2/run_phase2_full_trial.py",
         "scripts/phase2/cross_stage_consistency.py",
         "scripts/phase2/validate_mermaid.py",
@@ -723,6 +725,7 @@
         "scripts/phase3/delivery_report_rendering.py",
         "scripts/phase3/phase3_delivery_gate_full.py",
         "scripts/phase3/run_phase3_first_version.py",
+        "scripts/phase2/run_phase2_manual_closure.py",
         "scripts/phase2/run_phase2_full_trial.py"
       ],
       "explicit_docs": [
@@ -743,7 +746,7 @@
       ],
       "explicit_scripts": [
         "scripts/release/wff_init.py",
-        "scripts/phase1/run_phase1_full_trial.py",
+        "scripts/phase1/run_phase1_source_to_prd.py",
         "scripts/phase1/run_phase1_convergence.py",
         "scripts/phase2/run_phase2_fresh_generation.py",
         "scripts/phase2/run_phase2_existing_system_intake.py",
@@ -883,7 +886,8 @@
       ],
       "standalone_claim": "profile-runnable",
       "status": "supported",
-      "target_package": "brownfield-change"
+      "target_package": "brownfield-change",
+      "excluded_scripts": []
     },
     {
       "audience": "wff-maintainer",
@@ -917,7 +921,8 @@
       ],
       "standalone_claim": "profile-runnable",
       "status": "supported",
-      "target_package": "project-startup"
+      "target_package": "project-startup",
+      "excluded_scripts": []
     },
     {
       "audience": "wff-maintainer",
@@ -959,7 +964,8 @@
       ],
       "standalone_claim": "profile-runnable",
       "status": "supported",
-      "target_package": "project-startup"
+      "target_package": "project-startup",
+      "excluded_scripts": []
     },
     {
       "audience": "business-project-user",
@@ -1006,7 +1012,8 @@
       ],
       "standalone_claim": "adapter-export-only",
       "status": "supported",
-      "target_package": "full-lifecycle"
+      "target_package": "full-lifecycle",
+      "excluded_scripts": []
     },
     {
       "audience": "wff-maintainer",
@@ -1022,7 +1029,7 @@
         },
         {
           "evidence": [
-            "scripts/phase1/run_phase1_full_trial.py",
+            "scripts/phase1/run_phase1_source_to_prd.py",
             "scripts/phase2/run_phase2_first_version.py",
             "scripts/phase3/run_phase3_first_version.py",
             "scripts/phase4/run_phase4_first_version.py"
@@ -1094,7 +1101,8 @@
       ],
       "standalone_claim": "not-standalone-blocked",
       "status": "analysis-only",
-      "target_package": "full-lifecycle"
+      "target_package": "full-lifecycle",
+      "excluded_scripts": []
     },
     {
       "audience": "role-skill-implementer",
@@ -1154,7 +1162,8 @@
       ],
       "standalone_claim": "not-standalone-blocked",
       "status": "analysis-only",
-      "target_package": "implementation-worker-kit"
+      "target_package": "implementation-worker-kit",
+      "excluded_scripts": []
     },
     {
       "audience": "role-skill-implementer",
@@ -1199,7 +1208,8 @@
       "skills": [],
       "standalone_claim": "not-standalone-blocked",
       "status": "analysis-only",
-      "target_package": "implementation-worker-kit"
+      "target_package": "implementation-worker-kit",
+      "excluded_scripts": []
     },
     {
       "audience": "wff-maintainer",
@@ -1244,7 +1254,8 @@
       "skills": [],
       "standalone_claim": "not-user-install-profile",
       "status": "analysis-only",
-      "target_package": "release-proof-kit"
+      "target_package": "release-proof-kit",
+      "excluded_scripts": []
     },
     {
       "audience": "business-project-user",
@@ -1292,7 +1303,8 @@
       ],
       "standalone_claim": "minimal supported PhaseX / PX entry profile for code-backed existing-system assessment",
       "status": "supported",
-      "target_package": "brownfield-change"
+      "target_package": "brownfield-change",
+      "excluded_scripts": []
     }
   ],
   "resource_modules": [
@@ -1339,6 +1351,7 @@
     {
       "id": "phase1-runtime-scripts",
       "paths": [
+        "scripts/phase1/run_phase1_source_to_prd.py",
         "scripts/phase1/run_phase1_full_trial.py",
         "scripts/phase1/run_phase1_convergence.py"
       ],
@@ -1392,11 +1405,12 @@
       "type": "phase-runtime"
     },
     {
-      "id": "phase2-full-trial-manual-sidecar-scripts",
+      "id": "phase2-manual-closure-compatibility-scripts",
       "paths": [
+        "scripts/phase2/run_phase2_manual_closure.py",
         "scripts/phase2/run_phase2_full_trial.py"
       ],
-      "type": "manual-closure-sidecar"
+      "type": "manual-closure-compatibility-sidecar"
     },
     {
       "id": "phase2-reference-package",
@@ -1901,7 +1915,7 @@
         "phase1-runtime-scripts",
         "phase1-reference-package",
         "phase2-runtime-scripts",
-        "phase2-full-trial-manual-sidecar-scripts",
+        "phase2-manual-closure-compatibility-scripts",
         "phase2-reference-package",
         "phase3-runtime-scripts",
         "p3-impl-core-runtime",

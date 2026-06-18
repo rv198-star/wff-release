@@ -167,8 +167,8 @@
     "Findings-to-Task Translation": "将发现转为任务 (Findings-to-Task Translation)",
     "Post-Optimization Review": "优化后复盘 (Post-Optimization Review)",
     "[Primary Operator] Establish Initial Baseline": "[核心操作者] 建立初始基线 ([Primary Operator] Establish Initial Baseline)",
-    "[Content Operator] Translate Finding into Action": "[Operator] Translate Finding into Action",
-    "[Business Owner] Review Next-cycle Outcome": "[Decision Owner] Review Next-cycle Outcome",
+    "[Supporting Operator] Translate Signal into Action": "[Operator] Translate Signal into Action",
+    "[Decision Owner] Review Next-cycle Outcome": "[Decision Owner] Review Next-cycle Outcome",
     "Primary Boundary Lock": "锁定核心边界",
     "Problem Mechanism Reframe": "重构问题机制",
     "Need Framing and Open-Truth Discipline": "需求 framing 与开放真相纪律",
@@ -631,14 +631,14 @@
     "clickable prototype": "可点击原型 (clickable prototype)",
     "sample report": "样例报告 (sample report)",
     "reviewer": "评审者 (reviewer)",
-    "appointment": "预约 (appointment)",
+    "reservation": "预约 (reservation)",
     "payment": "支付 (payment)",
     "invoice": "账单 (invoice)",
-    "prescription": "处方 (prescription)",
-    "clinical note": "临床记录 (clinical note)",
-    "visit request": "就诊请求 (visit request)",
-    "pet profile": "宠物档案 (pet profile)",
-    "appointment slot": "预约时段 (appointment slot)"
+    "service instruction": "服务指令 (service instruction)",
+    "service note": "服务记录 (service note)",
+    "service request": "服务请求 (service request)",
+    "subject profile": "对象档案 (subject profile)",
+    "reservation slot": "预约时段 (reservation slot)"
   },
   "inline_phrase_map": {
     "workflow story-map": "工作流故事地图 (workflow story-map)",
@@ -958,13 +958,13 @@
     "[\\u4e00-\\u9fff][^（）\\n|`]{0,80}（[A-Za-z0-9][A-Za-z0-9 _/.-]{0,80}）"
   ],
   "protected_literal_phrases": [
-    "overview / findings / tasks / reports",
-    "overview / findings / tasks / competitors / reports / settings",
-    "overview / insights / work items / competitors / reports / settings",
-    "task-review linkage",
-    "work item-review linkage",
+    "entry / evidence / actions / review",
+    "entry / evidence / actions / review / settings",
+    "source facts / evidence / action records / review / settings",
+    "action-review linkage",
+    "action-record-review linkage",
     "Review 没有 Task 状态输入",
-    "Review 没有 work item 状态输入"
+    "Review 没有 action record 状态输入"
   ],
   "machine_delta_ledger_fields": [
     "analytical_inference",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a human-review surface without moving canonical WFF artifacts."""
+"""Generate an AI/external review surface without moving canonical WFF artifacts."""
 
 from __future__ import annotations
 
@@ -28,6 +28,8 @@ from common.script_data_assets import load_script_json_asset
 
 HUMAN_REVIEW_DIRNAME = "human-review"
 REVIEW_SURFACE_DISPLAY_NAME = "AI / External Red-Team Review"
+REVIEW_SURFACE_SCHEMA_VERSION = "review-surface.v1"
+LEGACY_HUMAN_REVIEW_SURFACE_SCHEMA_VERSION = "human-review-surface.v1"
 ARTIFACTS_DIRNAME = "artifacts"
 RED_TEAM_FINDINGS_FILENAME = "RED_TEAM_FINDINGS.md"
 UNFILLED_REVIEW_VALUES = {"", "unfilled", "todo", "tbd", "not-filled", "not filled"}
@@ -552,12 +554,14 @@ def emit_human_review_surface(output_dir: Path, phase: str) -> dict[str, Any]:
         "authority": "AI/external red-team review must record findings before reading or relying on scores/final verdicts",
     }
     manifest = {
-        "schema_version": "human-review-surface.v1",
+        "schema_version": REVIEW_SURFACE_SCHEMA_VERSION,
+        "legacy_schema_version": LEGACY_HUMAN_REVIEW_SURFACE_SCHEMA_VERSION,
         "generated_at": utc_now_iso(),
         "phase": normalized_phase,
         "title": config.title,
         "surface_dir": HUMAN_REVIEW_DIRNAME,
         "review_surface_dir": HUMAN_REVIEW_DIRNAME,
+        "legacy_human_review_surface_dir": HUMAN_REVIEW_DIRNAME,
         "review_model": REVIEW_SURFACE_DISPLAY_NAME,
         "primary_instruction": config.primary_instruction,
         "artifacts": artifacts,
@@ -1016,7 +1020,7 @@ def render_index(manifest: dict[str, Any]) -> str:
         f"## {manifest.get('review_model') or REVIEW_SURFACE_DISPLAY_NAME}",
         "",
         "- AI/external red-team review can satisfy this review role when concrete anchors are recorded.",
-        "- Legacy `human-review/` paths remain readable for compatibility.",
+        "- `human-review/` remains the legacy review path for compatibility.",
         "",
         "## How to Read",
         "",
@@ -1057,7 +1061,7 @@ def render_index(manifest: dict[str, Any]) -> str:
             f"- resolved_formal_state: `{claim_report.get('resolved_formal_state') or 'unknown'}`",
             f"- blocks_ready: `{'yes' if manifest.get('claim_ceiling_blocks_ready') else 'no'}`",
             "- review_authority: AI/external red-team review may confirm or lower this ceiling; it must not upgrade it.",
-            "- legacy_human_review_authority: human review may confirm or lower this ceiling; it must not upgrade it.",
+            "- legacy review compatibility: older human-review records remain readable and follow the same no-upgrade rule.",
         ]
     )
     reasons = claim_report.get("reasons", []) if isinstance(claim_report.get("reasons"), list) else []
@@ -1088,7 +1092,7 @@ def render_index(manifest: dict[str, Any]) -> str:
                 str(artifact["source_kind"]),
             ]
         )
-    lines.extend(render_table(["Artifact", "Kind", "Human copy", "Canonical source", "Source mode"], artifact_rows) or ["No artifacts copied."])
+    lines.extend(render_table(["Artifact", "Kind", "Review copy", "Canonical source", "Source mode"], artifact_rows) or ["No artifacts copied."])
 
     required_missing = [item for item in manifest["missing_artifacts"] if not item.get("optional")]
     optional_missing = [item for item in manifest["missing_artifacts"] if item.get("optional")]
@@ -1134,7 +1138,7 @@ def render_index(manifest: dict[str, Any]) -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Generate WFF human-review artifact copies and INDEX.md.")
+    parser = argparse.ArgumentParser(description="Generate WFF AI/external review artifact copies and INDEX.md.")
     parser.add_argument("--phase", required=True, choices=sorted(PHASE_ALIASES))
     parser.add_argument("--output-dir", required=True)
     parser.add_argument(
@@ -1153,7 +1157,17 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"red_team_findings_status": status}, ensure_ascii=False))
         return 0 if status.get("status") == "completed" else 1
     manifest = emit_human_review_surface(Path(args.output_dir), args.phase)
-    print(json.dumps({"human_review_index": str(Path(args.output_dir) / HUMAN_REVIEW_DIRNAME / "INDEX.md"), "artifact_count": len(manifest["artifacts"])}, ensure_ascii=False))
+    review_index = str(Path(args.output_dir) / HUMAN_REVIEW_DIRNAME / "INDEX.md")
+    print(
+        json.dumps(
+            {
+                "review_index": review_index,
+                "legacy_human_review_index": review_index,
+                "artifact_count": len(manifest["artifacts"]),
+            },
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

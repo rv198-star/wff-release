@@ -23,7 +23,11 @@ from pathlib import Path
 
 from common.tvg_runtime_metadata import THINKING_VALUE_GAIN_OUTPUT_PROFILES
 from common.contamination_boundary import build_contamination_report
+from common.contamination_boundary import build_output_contamination_report_for_paths
+from common.contamination_boundary import collect_text_output_paths
+from common.cross_phase_surface_policy import find_cross_phase_surface_path
 from common.cross_phase_surface_policy import resolve_cross_phase_surface_path
+from common.source_admission import build_source_admission_report_for_paths
 from phase3.foundation_bootstrap import (
     emit_phase3_bootstrap_artifacts,
     load_phase2_source_texts,
@@ -400,7 +404,111 @@ def build_phase3_runner_context(args: argparse.Namespace) -> Phase3RunnerContext
     )
 
 
+def phase3_handoff_source_paths(phase2_root: Path) -> list[Path]:
+    surface_names = [
+        "engineering-spec-pack.md",
+        "stage-03-data-storage-and-interface-design.md",
+        "stage-04-design-convergence-and-delivery-prototype.md",
+        "phase-3-implementation-entry.md",
+        "operation-design-source-registry.json",
+        "operation-source-obligation-matrix.json",
+        "p1-value-to-p2-operation-resolution-matrix.json",
+        "operation-behavior-semantics.json",
+        "implementation-depth-obligation-matrix.json",
+        "implementation-component-catalog.json",
+        "component-action-card-obligation-matrix.json",
+    ]
+    return [find_cross_phase_surface_path(phase2_root, "phase2", surface_name) for surface_name in surface_names]
+
+
+def read_existing_phase3_handoff_source_text(phase2_root: Path) -> str:
+    parts: list[str] = []
+    for path in phase3_handoff_source_paths(phase2_root):
+        if path.exists():
+            parts.append(path.read_text(encoding="utf-8"))
+    return "\n\n".join(parts)
+
+
+def run_phase3_source_admission_preflight(context: Phase3RunnerContext) -> dict[str, object]:
+    return build_source_admission_report_for_paths(
+        phase3_handoff_source_paths(context.phase2_root),
+        boundary="p2-to-p3",
+        source_label=str(context.phase2_root),
+        output_path=resolve_cross_phase_surface_path(
+            context.output_dir,
+            "phase3",
+            "p2-to-p3-source-admission-report.json",
+        ),
+    )
+
+
+def run_phase3_handoff_contamination_preflight(context: Phase3RunnerContext) -> dict[str, object]:
+    return build_contamination_report(
+        read_existing_phase3_handoff_source_text(context.phase2_root),
+        source_label=str(context.phase2_root),
+        boundary="p2-to-p3",
+        output_path=resolve_cross_phase_surface_path(
+            context.output_dir,
+            "phase3",
+            "p2-to-p3-contamination-report.json",
+        ),
+    )
+
+
+def phase3_generated_output_contamination_paths(output_dir: Path) -> list[Path]:
+    expected_paths = [
+        output_dir / "phase-3-acceptance-report.md",
+        output_dir / "phase-3-execution-report.md",
+        output_dir / "phase3-delivery-gate.json",
+        output_dir / "phase3-quality-check.json",
+        output_dir / "phase-verdict.json",
+        output_dir / "phase-mainline-scorecard.md",
+        output_dir / "phase-acceptance-matrix.md",
+        output_dir / "contracts" / "openapi.yaml",
+        output_dir / "packages" / "shared-types" / "index.ts",
+        output_dir / "packages" / "api-client" / "index.ts",
+    ]
+    expected_paths.extend(collect_text_output_paths(output_dir / ".phase3-review"))
+    return collect_text_output_paths(output_dir, expected_paths=expected_paths)
+
+
+def run_phase3_generated_output_contamination_gate(
+    context: Phase3RunnerContext,
+    *,
+    source_fingerprint_text: str | None = None,
+) -> dict[str, object]:
+    return build_output_contamination_report_for_paths(
+        phase3_generated_output_contamination_paths(context.output_dir),
+        source_fingerprint_text=source_fingerprint_text
+        if source_fingerprint_text is not None
+        else read_existing_phase3_handoff_source_text(context.phase2_root),
+        source_label=str(context.phase2_root),
+        boundary="phase-3-generated-output",
+        output_path=resolve_cross_phase_surface_path(
+            context.output_dir,
+            "phase3",
+            "phase-3-output-contamination-report.json",
+        ),
+    )
+
+
 def run_phase3_bootstrap_stage(args: argparse.Namespace, context: Phase3RunnerContext) -> int:
+    source_admission_report = run_phase3_source_admission_preflight(context)
+    if source_admission_report["overall_status"] == "blocked":
+        print(
+            "[BLOCKED] p2-to-p3 source admission failed: "
+            f"{resolve_cross_phase_surface_path(context.output_dir, 'phase3', 'p2-to-p3-source-admission-report.json')}"
+        )
+        print(f"classifications: {', '.join(source_admission_report['classifications'])}")
+        return 2
+    contamination_report = run_phase3_handoff_contamination_preflight(context)
+    if contamination_report["overall_status"] == "blocked":
+        print(
+            "[BLOCKED] p2-to-p3 contamination boundary failed: "
+            f"{resolve_cross_phase_surface_path(context.output_dir, 'phase3', 'p2-to-p3-contamination-report.json')}"
+        )
+        print(f"classifications: {', '.join(contamination_report['classifications'])}")
+        return 2
     summary = run_phase3_bootstrap_stage_impl(
         args=args,
         phase2_root=context.phase2_root,
@@ -411,6 +519,14 @@ def run_phase3_bootstrap_stage(args: argparse.Namespace, context: Phase3RunnerCo
     summary["thinking_value_gain_mode"] = context.thinking_value_gain_mode
     summary["thinking_value_gain_output_profile"] = context.thinking_value_gain_output_profile
     emit_human_review_surface(context.output_dir, "phase3")
+    output_contamination_report = run_phase3_generated_output_contamination_gate(context)
+    if output_contamination_report["overall_status"] == "blocked":
+        print(
+            "[BLOCKED] Phase-3 generated output contamination failed: "
+            f"{resolve_cross_phase_surface_path(context.output_dir, 'phase3', 'phase-3-output-contamination-report.json')}"
+        )
+        print(f"classifications: {', '.join(output_contamination_report['classifications'])}")
+        return 2
     return emit_phase3_runner_summary(summary)
 
 
@@ -520,17 +636,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 def run_phase3_foundation_mainline(args: argparse.Namespace, context: Phase3RunnerContext) -> int:
+    source_admission_report = run_phase3_source_admission_preflight(context)
+    if source_admission_report["overall_status"] == "blocked":
+        print(
+            "[BLOCKED] p2-to-p3 source admission failed: "
+            f"{resolve_cross_phase_surface_path(context.output_dir, 'phase3', 'p2-to-p3-source-admission-report.json')}"
+        )
+        print(f"classifications: {', '.join(source_admission_report['classifications'])}")
+        return 2
     esp_text, stage_03_text, stage_04_text = load_phase2_source_texts(context.phase2_root)
-    contamination_report = build_contamination_report(
-        "\n\n".join([esp_text, stage_03_text, stage_04_text]),
-        source_label=str(context.phase2_root),
-        boundary="p2-to-p3",
-        output_path=resolve_cross_phase_surface_path(
-            context.output_dir,
-            "phase3",
-            "p2-to-p3-contamination-report.json",
-        ),
-    )
+    contamination_report = run_phase3_handoff_contamination_preflight(context)
     if contamination_report["overall_status"] == "blocked":
         print(
             "[BLOCKED] p2-to-p3 contamination boundary failed: "
@@ -578,6 +693,17 @@ def run_phase3_foundation_mainline(args: argparse.Namespace, context: Phase3Runn
     summary["thinking_value_gain_mode"] = context.thinking_value_gain_mode
     summary["thinking_value_gain_output_profile"] = context.thinking_value_gain_output_profile
     emit_human_review_surface(context.output_dir, "phase3")
+    output_contamination_report = run_phase3_generated_output_contamination_gate(
+        context,
+        source_fingerprint_text=read_existing_phase3_handoff_source_text(context.phase2_root),
+    )
+    if output_contamination_report["overall_status"] == "blocked":
+        print(
+            "[BLOCKED] Phase-3 generated output contamination failed: "
+            f"{resolve_cross_phase_surface_path(context.output_dir, 'phase3', 'phase-3-output-contamination-report.json')}"
+        )
+        print(f"classifications: {', '.join(output_contamination_report['classifications'])}")
+        return 2
     return emit_phase3_runner_summary(summary)
 
 

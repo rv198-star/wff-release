@@ -18,118 +18,7 @@ from common.markdown_table_tools import (
 )
 
 
-NON_GROWTH_DOMAIN_CONTAMINATION_REPLACEMENTS: list[tuple[str, str]] = [
-    (r"\bSEO dashboard\b", "single-view dashboard"),
-    (r"\bpage-level tracking\b", "surface-level event logging"),
-    (r"\bcompetitor snapshot\b", "peer comparison snapshot"),
-    (r"\bcompetitor context\b", "peer comparison context"),
-    (r"\brecommendation-first\b", "guidance-first"),
-    (r"\brecommendation-only\b", "guidance-only"),
-    (r"\bRecommendation Payload Contract\b", "Module Interface Payload Contract"),
-    (r"\brecommendation payload contract\b", "module interface payload contract"),
-    (r"\bsource-level recommendation detail\b", "source-level structured capability detail"),
-    (r"\brecommendation detail\b", "structured capability detail"),
-    (r"\bdetailed recommendation outputs\b", "detailed structured outputs"),
-    (r"\bdetailed recommendation capability\b", "detailed structured capability"),
-    (r"\baction recommendation payload\b", "structured action payload"),
-    (r"\brecommendation capability\b", "structured capability"),
-    (r"\brecommendation outputs\b", "structured outputs"),
-    (r"\brecommendation trust\b", "next-step guidance trust"),
-    (r"\brecommendation-to-task bridge\b", "next-step-guidance-to-task bridge"),
-    (r"\brecommendation\s*/\s*task\s*/\s*review\b", "evidence / next action / result judgment"),
-    (r"\brecommendation\s+与\s+task\b", "next-step guidance 与 downstream execution"),
-    (r"\brecommendation/task\b", "next-step-guidance/downstream-execution"),
-    (r"\bDeferred Attribution and Conversion Seam\b", "Deferred Capability Seam"),
-    (r"\bdeferred attribution / conversion seam\b", "deferred capability seam"),
-    (r"\battribution\s*/\s*conversion\b", "future measurement / downstream outcome"),
-    (r"\bfuture measurement seam\s*/\s*conversion\b", "future measurement seam / downstream outcome"),
-    (r"\battribution\b", "future measurement seam"),
-    (r"\bUTM\b", "source tag"),
-    (r"\bfunnel\b", "journey stage"),
-    (r"\bcross-device\b", "multi-entry"),
-]
-
-
-def _semantic_guard_role_labels(context: dict[str, Any] | None) -> dict[str, str]:
-    if not isinstance(context, dict):
-        return {
-            "primary_segment": "primary operator",
-            "supporting_role": "supporting operator",
-            "decision_role": "decision reviewer",
-        }
-    roles = [str(item).strip() for item in context.get("role_labels", []) if str(item).strip()]
-    primary_segment = str(context.get("primary_segment", "")).strip() or (roles[0] if roles else "primary operator")
-    supporting_role = (
-        str(context.get("supporting_role_label", "")).strip()
-        or (roles[1] if len(roles) > 1 else "")
-        or "supporting operator"
-    )
-    decision_role = (
-        str(context.get("decision_role_label", "")).strip()
-        or (roles[-1] if roles else "")
-        or primary_segment
-        or "decision reviewer"
-    )
-    return {
-        "primary_segment": primary_segment,
-        "supporting_role": supporting_role,
-        "decision_role": decision_role,
-    }
-
-
-def _non_growth_domain_contamination_replacements(context: dict[str, Any] | None) -> list[tuple[str, str]]:
-    labels = _semantic_guard_role_labels(context)
-    return [
-        (r"\bmarketing owner\b", labels["primary_segment"]),
-        (r"\bMarketing Owner\b", labels["primary_segment"]),
-        (r"\bcontent operator\b", labels["supporting_role"]),
-        (r"\bContent Operator\b", labels["supporting_role"]),
-        (r"\bbusiness owner\b", labels["decision_role"]),
-        (r"\bBusiness Owner\b", labels["decision_role"]),
-        *NON_GROWTH_DOMAIN_CONTAMINATION_REPLACEMENTS,
-    ]
-
-
-def _contextual_domain_purity_replacements(context: dict[str, Any] | None) -> list[tuple[str, str]]:
-    if not isinstance(context, dict):
-        return []
-    if str(context.get("domain_posture", "")).strip() == "growth-observation":
-        return []
-    mainline_surface_catalog = str(context.get("mainline_surface_catalog", "")).strip() or "mainline workflow surfaces"
-    mainline_subsystem_catalog = str(context.get("mainline_subsystem_catalog", "")).strip() or mainline_surface_catalog
-    upstream_downstream_boundary_label = str(context.get("upstream_downstream_boundary_label", "")).strip() or "上游记录与下游动作"
-    object_dependency_chain = str(context.get("object_dependency_chain", "")).strip() or "source-defined workflow chain"
-    workflow_entry_and_detail = str(context.get("workflow_entry_and_detail_label", "")).strip() or "关键工作入口与记录详情"
-    supporting_context_label = str(context.get("supporting_context_label", "")).strip() or "secondary supporting context"
-    return [
-        (r"overview\s*/\s*findings\s*/\s*tasks\s*/\s*competitors\s*/\s*reports\s*/\s*settings", mainline_surface_catalog),
-        (r"\boverview 与 findings\b", workflow_entry_and_detail),
-        (r"scope\s*->\s*observation.*?review chain", object_dependency_chain),
-        (
-            r"Scope Definition\s*->\s*Analysis Cycle\s*->\s*Insight Record\s*->\s*next-step action\s*->\s*Execution Task\s*->\s*Review Summary",
-            object_dependency_chain,
-        ),
-        (
-            r"Scope\s*&\s*Governance、Observation\s*&\s*Scoring、next-step guidance\s*&\s*Tasking、Review\s*&\s*Reporting",
-            mainline_subsystem_catalog,
-        ),
-        (r"governance\s*/\s*observation\s*/\s*next-step guidance\s*/\s*review split", mainline_subsystem_catalog),
-        (r"Observation 与 next-step guidance", upstream_downstream_boundary_label),
-        (r"\bcompetitor context\b", supporting_context_label),
-        (r"\bdashboard-only\b", "summary-only"),
-    ]
-
-
 def sanitize_domain_default_truth(value: Any, context: dict[str, Any] | None = None) -> Any:
-    if isinstance(value, str):
-        sanitized = value
-        replacements: list[tuple[str, str]] = []
-        if isinstance(context, dict) and str(context.get("domain_posture", "")).strip() != "growth-observation":
-            replacements.extend(_non_growth_domain_contamination_replacements(context))
-            replacements.extend(_contextual_domain_purity_replacements(context))
-        for pattern, replacement in replacements:
-            sanitized = re.sub(pattern, replacement, sanitized, flags=re.IGNORECASE)
-        return sanitized
     if isinstance(value, dict):
         return {key: sanitize_domain_default_truth(item, context=context) for key, item in value.items()}
     if isinstance(value, list):
@@ -141,32 +30,32 @@ PHASE1_PRD_ARTIFACT_ID = "P1-PRD-MAIN-0001"
 
 EPIC_DECOMPOSITION: list[tuple[str, str]] = [
     ("EP-01", "Business Context and Intake Foundation"),
-    ("EP-02", "Insight-to-Action Decisioning"),
+    ("EP-02", "Source Evidence and Next-Action Decisioning"),
     ("EP-03", "Execution and Review Closure"),
 ]
 
 PRIMARY_USER_STORY = (
-    "作为核心业务操作者，我希望在一个连续周期内完成业务上下文配置、当前状态分析、洞察解读、工作项发起和复盘判断，以便判断该方案是否值得持续投入。"
+    "作为核心业务操作者，我希望在一个连续周期内完成源事实登记、状态推进、下一步动作和结果评审，以便判断该方案是否值得持续投入。"
 )
 
 SUPPORTING_USE_CASES: list[tuple[str, str]] = [
     ("Use Case 1", "识别关键缺口并定位到待处理的目标记录或资产。"),
-    ("Use Case 2", "结合对比信息决定本周期优先推进的对象或页面。"),
-    ("Use Case 3", "在复盘中判断 structured next action 执行后是否出现方向性改善。"),
-    ("Use Case 4", "当 structured next action 无法执行时，能把异常作为正式输入带回下一轮决策。"),
+    ("Use Case 2", "结合源事实和当前状态决定本周期优先推进的对象或环节。"),
+    ("Use Case 3", "在结果评审中判断下一步动作执行后是否出现方向性改善。"),
+    ("Use Case 4", "当下一步动作无法执行时，能把异常作为正式输入带回下一轮决策。"),
 ]
 
 EXTENDED_REQUIREMENTS: list[tuple[str, str]] = [
     ("RQ-01", "系统必须支持业务上下文配置与版本记录。"),
     ("RQ-02", "系统必须校验当前状态分析所需的最小输入完整性。"),
-    ("RQ-03", "系统必须可重复生成当前状态快照，并记录分析窗口。"),
-    ("RQ-04", "系统必须输出核心指标，并提供口径说明。"),
-    ("RQ-05", "系统必须支持同类对象或外部参照的对比视图。"),
-    ("RQ-06", "系统必须把 insight 映射为 structured next action。"),
+    ("RQ-03", "系统必须可重复生成源事实状态快照，并记录处理窗口。"),
+    ("RQ-04", "系统必须输出源定义的核心结果，并提供口径说明。"),
+    ("RQ-05", "系统必须在源素材存在时支持相关对象、证据或参照信息的可追踪视图。"),
+    ("RQ-06", "系统必须把源证据和评审结论映射为 structured next action。"),
     ("RQ-07", "structured next action 必须具备动作描述、优先级、目标对象指向和执行阻塞说明。"),
-    ("RQ-08", "structured next action 必须可导出为 work item 清单并支持状态跟踪。"),
-    ("RQ-09", "系统必须记录 work item 执行状态、责任角色与执行备注。"),
-    ("RQ-10", "review summary 必须提供 delta 视图、阈值和 uncertainty note。"),
+    ("RQ-08", "structured next action 必须可导出为 action record 清单并支持状态跟踪。"),
+    ("RQ-09", "系统必须记录 action record 执行状态、责任角色与执行备注。"),
+    ("RQ-10", "review record 必须提供变化说明、阈值和 uncertainty note。"),
     ("RQ-11", "系统必须显式标记 review-bound truths，禁止静默升级为 confirmed。"),
     ("RQ-12", "首版必须显式声明 out-of-scope 与 non-goals。"),
     ("RQ-13", "governance reviewer 必须能看到权限与留存边界。"),
@@ -189,12 +78,12 @@ EXTENDED_REQUIREMENTS: list[tuple[str, str]] = [
 ACCEPTANCE_CRITERIA: list[tuple[str, str]] = [
     ("AC-01", "用户可以创建 versioned business context，并保留最小对象集合。"),
     ("AC-02", "当 business context 缺少最小必填项时，系统阻止当前状态分析并提示缺失字段。"),
-    ("AC-03", "current-state report 至少展示三类核心结果，并保留解释口径。"),
-    ("AC-04", "insight 详情必须同时展示 gap explanation、comparison context 和 structured next action。"),
-    ("AC-05", "structured next action 必须包含评分/诊断、结构化建议、焦点提示，以及目标对象指向，才能生成 work item。"),
-    ("AC-06", "execution operator 可以把 structured next action 导出或创建为 work item，并记录责任人和状态。"),
-    ("AC-07", "work item 状态至少支持 created / accepted / executed / blocked 四种状态。"),
-    ("AC-08", "review summary 必须关联上一周期分析与 work item 执行结果，形成 delta interpretation。"),
+    ("AC-03", "source-grounded status report 至少展示三类核心结果，并保留解释口径。"),
+    ("AC-04", "evidence detail 必须同时展示 gap explanation、source context 和 structured next action。"),
+    ("AC-05", "structured next action 必须包含评分/诊断、结构化建议、焦点提示，以及目标对象指向，才能生成 action record。"),
+    ("AC-06", "execution operator 可以把 structured next action 导出或创建为 action record，并记录责任人和状态。"),
+    ("AC-07", "action record 状态至少支持 created / accepted / executed / blocked 四种状态。"),
+    ("AC-08", "review record 必须关联上一周期分析与 action record 执行结果，形成 delta interpretation。"),
     ("AC-09", "当指标趋势不可解释时，系统必须显式标记 uncertainty note，而不是输出确定性结论。"),
     ("AC-10", "系统必须保留 in-scope / later slice / deferred seam / explicit out-of-scope / non-goals 的边界说明。"),
     ("AC-11", "核心页面必须沿着同一对象链可跳转。"),

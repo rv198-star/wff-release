@@ -179,19 +179,34 @@ def parse_section_scores(gate_map: dict[str, dict[str, object]]) -> list[tuple[s
     return rows
 
 
+def advisory_subgate_names(bundle_gate: dict[str, object]) -> set[str]:
+    raw_names = bundle_gate.get("advisory_failed_subgates", [])
+    names = {str(name).strip() for name in raw_names if str(name).strip()} if isinstance(raw_names, list) else set()
+    summary = str(bundle_gate.get("summary") or "")
+    for match in re.finditer(r"^-\s+([^:\n]+):\s+ADVISORY-BLOCKED\b", summary, flags=re.MULTILINE):
+        name = match.group(1).strip()
+        if name:
+            names.add(name)
+    return names
+
+
 def bundle_internal_gate_rows(gate_map: dict[str, dict[str, object]]) -> list[tuple[str, str, str]]:
     bundle_gate = gate_map.get("prd_mainline_gate_bundle")
     if isinstance(bundle_gate, dict):
         subgates = bundle_gate.get("subgates")
         if isinstance(subgates, list):
             rows: list[tuple[str, str, str]] = []
+            advisory_names = advisory_subgate_names(bundle_gate)
             for gate in subgates:
                 if not isinstance(gate, dict):
                     continue
                 name = str(gate.get("name") or "").strip()
                 if not name:
                     continue
-                verdict = "PASS" if gate.get("returncode") == 0 else "BLOCKED"
+                if name in advisory_names:
+                    verdict = "ADVISORY-BLOCKED"
+                else:
+                    verdict = "PASS" if gate.get("returncode") == 0 else "BLOCKED"
                 command = str(gate.get("command") or "(not run)")
                 rows.append((name, verdict, command))
             if rows:
@@ -806,7 +821,7 @@ def main() -> int:
         choices=THINKING_VALUE_GAIN_OUTPUT_PROFILES,
         default="coverage_rich",
     )
-    parser.add_argument("--run-owner", default="Codex Phase-1 full runner")
+    parser.add_argument("--run-owner", default="Codex Phase-1 source-to-PRD runner")
     parser.add_argument("--gate-json")
     parser.add_argument("--output", required=True)
     parser.add_argument("--output-locale", default=resolve_output_locale())

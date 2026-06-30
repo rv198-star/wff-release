@@ -121,6 +121,8 @@ Read:
 
 Work one bounded packet at a time.
 
+When `subagent_slice_packets` are present in the assigned backend worker packet, treat each slice as the smallest executable Action Card contract. A slice may be delegated to an independent SubAgent only within its `allowed_edit_files`, using its listed targeted/unit evidence commands and returning the declared `subagent_return_contract`. A blocked slice must be returned as blocked rather than widened into unrelated files, upstream truth edits, or broad packet implementation.
+
 1. Read the assigned backend worker packet and extract:
    - `contract_operations`
    - `implementation_targets`

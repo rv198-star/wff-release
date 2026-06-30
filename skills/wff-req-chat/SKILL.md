@@ -299,6 +299,8 @@ Use this packet structure:
 
 ## Product Truth Challenge Notes
 
+## Canonical Product Language Candidates
+
 ## Challenge Axis Coverage
 
 ## Truth-State Ledger
@@ -315,6 +317,23 @@ Use this packet structure:
 ```
 
 Inside the packet, `## P1 Source Brief` is the product fact surface that P1 consumes. When generating a `P1 Source Input Packet`, use H3 headings (`### ...`) for source-brief subsections embedded inside `## P1 Source Brief`; do not generate new packet outputs that rely on H2 internal source-brief headings. H2 headings inside `## P1 Source Brief` are accepted only as compatibility input from standalone source briefs or older packets. If `Raw User Intent` or `Source Materials` contain authority facts that P1 should use, promote the authority facts into `## P1 Source Brief` with truth state instead of leaving them only in the pre-brief packet sections.
+
+`## Canonical Product Language Candidates` is a terminology candidate visibility surface. It helps downstream readers and phases notice source-backed recurring terms, aliases, and labels to avoid without creating a second source of truth.
+
+Use this candidate shape:
+
+```yaml
+- term:
+  preferred_label:
+  aliases:
+  avoid_labels:
+  source_ref:
+  truth_state:
+  downstream_use:
+  needs_review:
+```
+
+Only include source-backed or explicitly review-bound terms. This section must not become source authority, must not override `## P1 Source Brief`, and must not turn uncertain wording into canonical truth. Review-bound terms must remain review-bound until a human or source artifact resolves them.
 
 When filling `## P1 Source Brief` inside a packet, use this embedded structure:
 

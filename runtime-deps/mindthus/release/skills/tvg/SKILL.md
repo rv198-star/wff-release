@@ -1,148 +1,116 @@
 ---
 name: tvg
-description: Use as a value-driven thinking-depth enhancer when an AI-generated bounded module or artifact looks rigorous and standard but is hollow, shallow, random, or weak in judgment, evidence, trade-offs, downstream handoff, reuse, or practical decision/action value.
+description: Use as a value-directed strengthening loop for bounded AI artifacts that need clearer judgment, evidence, trade-offs, handoff, reuse, or action value.
 ---
 
 # TVG / Thinking Value-Gain
 
 ## Core Claim
 
-Thinking Value-Gain is a state-driven value-gain loop for AI-generated bounded modules.
+Thinking Value-Gain is a value-directed text/artifact transformation loop for AI-generated bounded modules.
+It runs as a state-driven value-gain loop for artifacts that look complete but are still thin, generic, over-expanded, weak in judgment, or hard to use downstream.
 
-It addresses a common AI-output failure mode: the artifact looks complete, rigorous,
-standardized, and fluent, but the substance is hollow, shallow, random, over-expanded,
-or too weak for real judgment, decision, action, review, reuse, or handoff.
+> TVG moves a bounded text or artifact closer to a defined standard of "good".
 
-TVG is not a thickness-expansion method. Sufficient thinking thickness is the substrate
-of value, Grounded Insight Yield is the core output, and Value Density is the delivery
-quality.
+TVG audit is internal to the TVG loop. It is not a standalone audit method; it judges
+whether an active TVG run can exit; not code, release, workflow, factual, method, strategy, or requirement-boundary audits.
 
-Short rule:
+Short boundary:
 
-> Do not deepen by default. First judge whether the module needs depth formation,
-> grounded insight generation, value refinement, compact strengthening, warning
-> calibration, or honest exit.
+> No active TVG loop, no TVG audit.
+>
+> No bounded artifact value-gain target, no TVG.
 
-Two core inputs keep TVG from becoming generic improvement:
+That standard comes from `expected_value`, the active `value_profile`, evidence
+boundaries, veto constraints, and the exit gate. TVG is for artifacts that look complete
+but remain hollow, shallow, random, over-expanded, or too weak for judgment, action,
+review, reuse, or handoff.
 
-- `veto_constraints`: explicit unacceptable states for this module and use. They are not value-gain axes. If one is triggered, the module must not exit as `freeze`.
-- `independent_auditor`: for high-impact, high-uncertainty, or handoff-critical modules, the exit audit should be performed by a reviewer that reads the final module, intended use, evidence, and veto constraints, not the generator's working process.
+TVG is not a generic prompt trick or length expansion method. Thinking Thickness is the substrate of value, Grounded Insight Yield is the core output, and Value Density is the delivery quality.
 
-Optional delivery control:
+Core inputs:
 
-- `output_profile`: `insight_dense | balanced | coverage_rich`. This is delivery bias, not an internal workflow fork. It may affect final expression shape, but it must not lower the standard for `Thinking Thickness`, `Grounded Insight Yield`, or `Value Density`.
+- `expected_value`: Agent input contract for target artifact, artifact job, useful outcome, hard constraints, evidence boundary, and output bias. Gate is an internal stop condition, not a user-facing configuration burden.
+- `value_profile`: optional value definition package. If absent, use the default practical-value profile. Resolve as `default | supplied | inferred-with-warning`; profiles may define `value_semantics`, optional `realization_surface`, and optional `gain_policy`.
+- `veto_constraints`: explicit unacceptable states. They are not value-gain axes; if triggered, the module must not exit as `freeze`.
+- `independent_auditor`: for high-impact, high-uncertainty, or handoff-critical modules, separate generator work from the exit auditor.
+- `output_profile`: `insight_dense | balanced | coverage_rich`. This is delivery bias, not an internal workflow fork; it must not lower standards for `Thinking Thickness`, `Grounded Insight Yield`, or `Value Density`.
 
-Profile guardrails live in `resources/methodology.md`: `insight_dense` should preserve calibrated claim tension, `balanced` should avoid unnecessary synthetic machinery, and `coverage_rich` should preserve useful review or handoff structure.
+Runtime references:
+
+- `debug_log`: default-off round detail for `candidate_pool`, Gate checks, veto checks, next-round hypotheses, decisions, and rationales.
+- `value_gain_scoring_reference`: always-on 0-5 reference for comparing rounds. Scores help compare, not compute decisions.
+- `pressure`: resource investment pressure, not quality score. Default pressure value is 2; accepted range is 1-5, and 5 implies roughly 5-7 rounds while positive value remains plausible.
+
+Value profiles can specialize value axes, observable surfaces, gain policies, veto constraints, and audit prompts. They cannot override evidence honesty, claim ceilings, user constraints, safety boundaries, or hard veto constraints.
 
 ## Mainline / 主路径
 
 ### When To Use
 
-Use this skill when:
-
-- a module exists but may still be thin
-- a document looks complete but downstream use would require invention
-- an AI output looks rigorous but feels hollow, surface-level, or randomly assembled
-- a review needs to distinguish value gain from added length
-- a bounded deepening loop needs trace discipline
-- a bounded module needs a value-driven depth pass before review, reuse, handoff, or exit
-
-Do not use this skill to reopen whole-project strategy or to add process weight to low-risk work.
+Use when a bounded module already exists but downstream use would still require invention, judgment repair, evidence recovery, trade-off clarification, review structure, or handoff strengthening. Do not use TVG to reopen whole-project strategy or add process weight to low-risk work.
+Do not use TVG merely because a user says audit, review, or check. Route external
+audits by object first: code correctness, release readiness, workflow health, factual
+verification, method correctness, strategic direction, or requirement boundaries need
+their own evidence, review, or Mindthus owner before TVG is considered.
 
 ### Operating Flow
 
-1. Name the smallest module that can be independently frozen, returned, or blocked.
-2. Read `resources/methodology.md` only as needed.
-3. Name any module-specific veto constraints before deepening.
-4. Check the current module state using `Thinking Thickness`, `Grounded Insight Yield`,
-   and `Value Density`.
-5. Pass the thickness gate before applying density optimization or `output_profile`.
-6. Perform the routed value-gain action: `deepen`, targeted depth formation, `refine`,
-   `compact-strengthen`, warning calibration, `return-remediate`, `blocked`, or `freeze`.
-7. Apply `output_profile` only as exit-side graded refinement.
-8. For high-impact, high-uncertainty, or handoff-critical modules, separate generator work from the exit auditor.
-9. Validate trace shape with `scripts/trace/validate.py`.
-10. Persist the trace with `scripts/trace/persist.py` when useful.
-11. Make the exit decision by agentic audit, not by script output.
+1. Name the smallest module that can be frozen, returned, or blocked.
+2. Resolve `expected_value` and the active `value_profile`.
+3. Compile the internal `exit_gate` from expected value, TVG bottom lines, downstream use, active profile, veto constraints, and next-round positive value.
+4. Check `Thinking Thickness`, `Grounded Insight Yield`, and `Value Density`.
+5. Pass the thickness gate before density optimization or `output_profile`.
+6. Select value-gain axes from the default or supplied profile.
+7. Run the value-gain move: `deepen`, targeted depth formation, `refine`, `compact-strengthen`, warning calibration, `return-remediate`, `blocked`, or `freeze`.
+8. Apply `output_profile` only as exit-side graded refinement.
+9. For high-impact, high-uncertainty, or handoff-critical modules, use an independent exit audit.
+10. Validate and persist trace shape when useful; make the exit decision by agentic audit, not script output.
+
+Read `resources/methodology.md` for full gate, profile, pressure, and scoring guidance.
 
 ## Guardrails / 从属补漏
 
 ### Hard Boundary
 
-Scripts support bookkeeping and calibration only. They must never replace agentic judgment.
+Scripts support bookkeeping only. They may initialize traces, validate required fields, persist records, and report factual completeness issues. They must not replace agentic judgment.
 
-Scripts may:
-
-- initialize trace records
-- validate trace shape and required fields
-- persist trace records
-- report factual completeness issues
-
-Scripts must not:
-
-- choose value-gain types or axes
-- create, waive, or satisfy veto constraints
-- decide whether another round is worth doing
-- score value gain, demo risk, or overfitting risk
-- write or change `exit_state`
-- decide whether independent auditor separation is required
-- promote patterns
-- output `PASS` as an audit verdict
-- score `Thinking Thickness`, `Grounded Insight Yield`, or `Value Density`
-- choose TVG state routes
-- choose `output_profile`
-- decide `compact-strengthen`, `refine`, `deepen`, or `freeze`
+Scripts must not create, waive, or satisfy veto constraints; decide whether another round is worth doing; write or change `exit_state`; decide whether independent auditor separation is required; output `PASS`; score `Thinking Thickness`, `Grounded Insight Yield`, or `Value Density`; choose TVG state routes or `output_profile`; decide whether `expected_value`, `value_profile`, `realization_surface`, `gain_policy`, scores, pressure, gates, or final quality are correct; or choose `compact-strengthen`, `refine`, `deepen`, or `freeze`.
 
 Every script result means only:
 
 > `No schema violations were detected; agentic audit is still required.`
 
+### Value Profile Boundary
+
+Default practical-value profile is the fallback. Supplied profiles may specialize what "good" means and how improvement should show up, but optional layers must not turn TVG into a domain-specific workflow. Inferred profiles must be marked `inferred-with-warning`, and profile source conflicts with the artifact being improved should be treated as contamination risk.
+
+Scripts validate profile shape only and must not decide whether a value profile is true, complete, aesthetically successful, thick enough, or sufficient for exit.
+
 ### Common Mistakes
 
 - Treating schema validation as audit completion.
-- Letting scripts decide `exit_state`.
 - Running TVG on an unbounded document instead of a named module.
 - Adding another round without a named positive-value hypothesis.
+- Running a default TVG pass without making the expected output value visible.
+- Inferring a specialized value profile from the flawed artifact sample.
+- Treating loop-assisted artifact success as proof that the profile itself is strong.
 - Exposing TVG internal vocabulary in final customer/business/architecture deliverables.
+
+## Runtime Support
+
+Trace scripts: `python3 skills/tvg/scripts/trace/init.py`, `python3 skills/tvg/scripts/trace/validate.py`, and `python3 skills/tvg/scripts/trace/persist.py`; use `init.py --pressure-value 2` by default.
+
+Add `--debug-log` only when the iteration process itself needs inspection. Debug Log Mode is default-off and observation-only; it may record `candidate_pool`, `gate_checks`, and `next_round_positive_value_hypothesis`, but scripts still cannot decide candidate quality, gate success, next-round value, or exit.
+
+Value-Gain Scoring Reference is enabled by default as an always-on reference for comparing rounds. It uses 0-5 ordinal anchors as reference, not measurement; scores help compare rounds, not compute decisions or exit.
+
+Fidelity support: use `resources/fidelity-contract.md`, `templates/fidelity-output.json`, and `scripts/validate_tvg_output.py`; this is a fidelity contract shape check, not semantic approval.
+
+Resources: `resources/methodology.md`, `resources/exit-audit-template.md`, `resources/trace-record-schema.json`, `resources/value-profiles/profile-construction.md`.
 
 ## Boundaries / 边界
 
-- Do not use TVG to reopen whole-project strategy.
 - Do not deepen for length, polish, or template completeness.
-- Do not add process weight to low-risk work.
-- Block rather than deepen when the missing input is evidence, domain input, runtime proof, or stakeholder judgment.
-
-## Runtime Support / 支撑材料
-
-### Trace Commands
-
-Initialize:
-
-```bash
-python3 skills/tvg/scripts/trace/init.py \
-  --module-id example-module \
-  --module-title "Example module" \
-  --module-type methodology \
-  --veto-constraint "do not freeze if evidence boundaries are hidden" \
-  --output /tmp/tvg-trace.json
-```
-
-Validate:
-
-```bash
-python3 skills/tvg/scripts/trace/validate.py /tmp/tvg-trace.json
-```
-
-Persist:
-
-```bash
-python3 skills/tvg/scripts/trace/persist.py \
-  /tmp/tvg-trace.json \
-  --store .tvg/traces
-```
-
-### Resource Files
-
-- `resources/methodology.md` — full Thinking Value-Gain methodology
-- `resources/exit-audit-template.md` — human/LLM audit template
-- `resources/trace-record-schema.json` — script validation schema
+- Do not require a supplied `value_profile` for ordinary tasks.
+- Block rather than deepen when missing input is evidence, domain input, runtime proof, or stakeholder judgment.

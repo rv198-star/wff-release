@@ -240,11 +240,6 @@ def analyze_execution_dispatch(
     for row in rows:
         if row["runtime_environment_available"]:
             continue
-        if row["current_state"] in {"ready", "queued"}:
-            row["current_state"] = "implemented"
-            if row.get("wp_gate_rollup") == "unknown":
-                row["wp_gate_rollup"] = "runtime-blocked"
-            continue
         if row["current_state"] == "blocked" and row.get("wp_gate_rollup") in {"pass", "runtime-blocked", "unknown"}:
             row["current_state"] = "implemented"
             if row.get("wp_gate_rollup") in {"pass", "unknown"}:
@@ -261,8 +256,11 @@ def analyze_execution_dispatch(
     dispatchable_packets: list[dict[str, Any]] = []
     for row in rows:
         if row["current_state"] == "ready":
-            row["dispatch_decision"] = "dispatch-now"
-            dispatchable_packets.append(row)
+            if row["runtime_environment_available"]:
+                row["dispatch_decision"] = "dispatch-now"
+                dispatchable_packets.append(row)
+            else:
+                row["dispatch_decision"] = "await-runtime-environment"
         elif row["current_state"] == "queued":
             row["dispatch_decision"] = "wait-prior-wave"
         elif row["current_state"] == "in-progress":

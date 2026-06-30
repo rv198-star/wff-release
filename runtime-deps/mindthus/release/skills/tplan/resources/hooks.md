@@ -22,10 +22,154 @@ Initial hooks:
 | `chain_role` | low immediate value but possible path dependency | `wae` | evidence-linked chain-role claim with confidence cap |
 | `selection` | multiple candidate runtime nodes exist | `sela` | next active node or escalation |
 | `loopback` | feedback contradicts current definition | `3l5s` | return to Discovery, Definition, or Resolution |
-| `depth_audit` | bounded artifact looks complete but shallow | `tvg` | deepen, accept, or escalate |
+| `artifact_value_gain` | bounded artifact needs value-gain and TVG value-gain exit check | `tvg` | deepen, return-remediate, block, or freeze |
+
+`artifact_value_gain` is a decision hook, not a Mission Pulse `next_gate`. Pulse routes
+observable Mission signals to existing Gates such as `mission_review`, `selection`,
+`subtraction`, or `loopback`; a resulting decision packet may then call TVG for bounded
+artifact value-gain.
+
+TVG internal outcomes such as `deepen`, `return-remediate`, `block`, and `freeze` are
+not `apply_decision` recommendations. Convert any Mission-facing action to the normal
+tplan recommendation vocabulary before applying Mission mutations.
 
 Hook output must include recommendation, rationale, confidence, evidence links,
 proposed mutations, and requires_human.
+
+## Snapshot / Pulse / Gate Control Surface
+
+TPLAN review control has three layers:
+
+- `Snapshot`: scripts expose runtime state only. Examples: checkpoint, survey,
+  validation findings, active task, recent evidence, task logs, and active shared
+  risks. Snapshot does not decide semantic truth.
+- `Pulse`: a lightweight Mission-level routing note. It asks whether the active path
+  can continue locally or should enter an existing Gate. Pulse is not a new judgment
+  center and does not mutate Mission state by default.
+- `Gate`: existing decision centers such as `continuation_authorization`,
+  `anti_spiral_audit`, `selection`, `subtraction`, `loopback`, `mission_review`,
+  `risk_assessment`, and `stop_report`.
+
+Short rule:
+
+> Scripts observe. Pulse routes. Gates decide.
+
+`mission_pulse` is optional and route-only. Use it only when a Mission-level review
+signal needs routing before another local action. The v0.2 route engine is explicit:
+
+```text
+Snapshot -> Candidate Collection -> Candidate Shape Validation -> Gate Arbitration -> Pulse Output -> Gate
+```
+
+Snapshot reports observable state. Pulse routes observable signals to an existing Gate.
+Gate makes the semantic decision and owns any mutation.
+
+```json
+{
+  "review_trigger_candidates": [
+    {
+      "signal": "mission_boundary_review",
+      "candidate_next_gate": "mission_review",
+      "scope": "mission",
+      "source_kind": "trigger",
+      "source_ids": [],
+      "priority_class": "mission_boundary",
+      "severity": "high",
+      "freshness": "current_trigger",
+      "reason": "Freeze, handoff, or stop is a Mission-facing boundary.",
+      "context": {
+        "trigger": "before_freeze"
+      }
+    }
+  ],
+  "winning_candidate": {
+    "signal": "mission_boundary_review",
+    "candidate_next_gate": "mission_review",
+    "scope": "mission",
+    "source_kind": "trigger",
+    "source_ids": [],
+    "priority_class": "mission_boundary",
+    "severity": "high",
+    "freshness": "current_trigger",
+    "reason": "Freeze, handoff, or stop is a Mission-facing boundary.",
+    "context": {
+      "trigger": "before_freeze"
+    }
+  },
+  "suppressed_candidates": [],
+  "arbitration_trace": [
+    {
+      "signal": "mission_boundary_review",
+      "priority_class": "mission_boundary",
+      "candidate_next_gate": "mission_review",
+      "severity": "high",
+      "decision": "selected",
+      "reason": "highest-ranked candidate"
+    }
+  ],
+  "mission_pulse": {
+    "schema_version": "tplan.pulse.v0.2",
+    "trigger": "before_freeze",
+    "scope": "mission",
+    "signals": ["mission_boundary_review"],
+    "evidence_delta": "unclear",
+    "branch_disposition": "defer",
+    "systemic_probe": "needs_gate",
+    "next_gate": "mission_review",
+    "rationale": "Mission boundary triggers should route to Mission Review before freeze, handoff, or stop.",
+    "evidence_links": []
+  }
+}
+```
+
+Candidate Collection reports all observable route candidates before Gate Arbitration
+selects one controlling route. Lower-priority candidates remain visible under
+`suppressed_candidates` and the selection rationale is exposed through
+`arbitration_trace`. Candidate fields include `signal`, `candidate_next_gate`, `scope`,
+`source_kind`, `source_ids`, `priority_class`, `severity`, `freshness`, `reason`, and
+`context`.
+
+Pulse consumption is a separate runtime action. Use `scripts/consume_pulse.py` when a
+Gate or operator has already handled a candidate and later identical pulses should not
+keep re-winning by accident. The consumption record is written to Mission state
+`pulse_state.consumed_candidates` and mirrored into `evidence.jsonl` as
+`event_type=pulse_consumed`. Later identical candidates may surface as
+`candidate_state=stale`, while signals that remain active by design still stay active.
+
+Pulse may report observable signals and candidate gates. It must not compute ROI,
+classify defects, decide evidence sufficiency, redefine acceptance authority, or
+declare the Mission healthy or unhealthy. Pulse is not a new judgment center.
+`next_gate=continue` never bypasses high-impact requirements. `next_gate=health_check`
+routes to the existing shared-risk/Mission-health judgment surface. Health check is a
+route, not a standalone undefined gate.
+
+Use `scripts/mission_pulse.py` for a standalone read-only route note. Use
+`survey --pulse --pulse-trigger <trigger>` when the route note should travel with the
+ordinary Mission survey; in that wrapper, the full Pulse payload is nested under
+`survey["pulse"]`. Both outputs are shape-only inputs for agentic judgment, not gate
+decisions. The runtime output also includes Snapshot-side diagnostics that explain what
+the route saw: recent evidence summary, active task log summary, evidence-link lint,
+review trigger candidates, `winning_candidate`, `suppressed_candidates`,
+`arbitration_trace`, and `pulse_shape_findings`.
+
+Do not run Pulse as a fixed full-review ritual after every active task. Trigger it from
+events: same-path continuation, freeze or handoff, repeated local touch, weak evidence
+delta, user negative feedback, blocker or surprise, active shared risk, active-task
+switch candidate, branch cleanup, or a small batch of checkpoints with no acceptance
+evidence movement. Low-risk routine checkpoints stay Snapshot-only.
+
+Implemented read-only routes:
+
+- `before_continue` -> `continuation_authorization`
+- `before_freeze`, `before_handoff`, or `before_stop` -> `mission_review`
+- third touch of the same active-task local object -> `anti_spiral_audit`
+- `feedback` trigger with feedback evidence -> `loopback`
+- blocker, failure, interruption, or surprise evidence -> `mission_review`
+- active shared risk -> `health_check` as the shared-risk/Mission-health route
+- `branch_cleanup` or `active_switch_candidate` -> `selection`
+- Mission status `requires_human` -> `stop`
+- routine `checkpoint_batch` with no trigger candidate -> `continue`
+- checkpoint batch without fresh acceptance evidence movement -> `continuation_authorization`
 
 ## Anti-Spiral Runtime Gate
 
@@ -33,9 +177,9 @@ proposed mutations, and requires_human.
 Mission can activate the Anti-Spiral Self-Audit without relying on the agent to notice
 its own loop.
 
-Trigger it when:
+Do not run it on a fixed step-count interval by default. Trigger it when observable
+signals show that local repair may be replacing Mission progress:
 
-- the active run reaches the configured step-count interval
 - the same file, parameter, prompt segment, task node, or local object is touched for
   the third time
 - user feedback reports that the result is not good enough, should be tried again, or
@@ -98,7 +242,78 @@ it can produce decision-constraining evidence.
 When weak evidence delta combines with repeated local edits or additive layering,
 route through `anti_spiral_audit` before authorizing same-path continuation.
 
+### Continuation Authorization
+
+Mission-facing same-path `continue` decisions require `continuation_authorization`.
+This keeps same-path continuation inside the Linear Continuation Gate instead of adding
+separate pressure-case-specific lint, generation, rerun, or defect-queue workflows.
+
+```json
+{
+  "continuation_authorization": {
+    "trigger_reasons": ["repeated_same_path_attempt"],
+    "evidence_shape_lint": "pass | fail | not_applicable | unclear",
+    "defect_classification": "none | acceptance_blocking | batchable_detail | unclear",
+    "expected_evidence_delta": "new_evidence_expected | weak_evidence_expected | no_new_evidence_expected | unclear",
+    "authorized_action": "continue_same_path | targeted_fix | batch_details | mission_review | anti_spiral_audit | stop"
+  }
+}
+```
+
+count-based reminders are triggers, not decisions. A third touch, repeated same-path
+attempt, post-continuation defect, repeated negative feedback, high-cost or
+high-blast-radius continuation, or weak evidence delta only routes the decision into
+this gate. It does not automatically stop the Mission or authorize continuation.
+
+Evidence-shape lint is shape-only evidence. Scripts may flag placeholder anchors,
+sample evidence, empty anchors, template residue, or evidence links not bound to real
+artifacts. Scripts must not decide whether human review is substantively credible or
+whether release readiness is semantically true.
+
+## Shared Risk Context Gate
+
+Shared Risk Context carries Mission-level risk signals that can change risk-adjusted
+value assessment for later decisions. It is deliberately not cross-task log sharing:
+execution units do not read each other's task logs. A unit publishes a scoped signal
+when a blocker, degraded shared condition, invalid evidence risk, abnormal cost, or
+recovery result can affect other units.
+
+Risk context is recorded through `risk_context_update` and `risk_context_recovery`
+evidence events, with live state in `mission.shared_context.risk_signals`.
+
+Mission Shared Context Memory is loaded before hooks through Mission identity preflight.
+The project-level file is `.tplan/shared_contexts/tplan_mission_shared_context-<mission_id>.md`.
+Use `preflight_mission.py` to distinguish `continue_existing`, `create_new`, and
+`needs_agentic_selection` before runtime initialization. `source_contexts` may inform a
+new Mission, but they do not create a derived Mission status or transfer acceptance
+authority.
+
+When a high-impact hook output is produced while active shared risks exist, include:
+
+```json
+{
+  "risk_assessment": {
+    "shared_context_used": ["R1"],
+    "invalid_evidence_risk": "low | medium | high | unclear",
+    "failure_risk": "low | medium | high | unclear",
+    "risk_adjusted_value": "positive | weak | negative | unclear",
+    "next_gate": "continue | health_check | switch | stop | escalate"
+  }
+}
+```
+
+Workflow validates only object shape and enum values. Agentic judgment decides whether
+the shared signal applies to the active decision, how much it changes risk-adjusted
+value, and whether the next gate is continuation, health check, switch, stop, or
+escalation.
+
+If a decision ignores active shared risks, its rationale should explain why the risk is
+out of scope, or set `risk_adjusted_value` to `unclear`.
+
 ## Alignment And Mission Review Gates
+
+Adaptive runtime levels reduce packet frequency, not risk sensitivity. In any runtime
+level, high-impact changes still require alignment or review before mutation.
 
 Ordinary SubTask and Step hooks are parent-relative. Before a hook output can justify
 an ordinary child mutation, it must state:
@@ -106,10 +321,18 @@ an ordinary child mutation, it must state:
 - `parent_alignment`: how the recommendation advances the parent node.
 - `mission_trace`: the lightweight path from child -> parent -> Mission evidence.
 
-High-impact hooks remain Mission-relative. Use `mission_alignment` when the decision
-materially affects Mission convergence.
+Use three decision handling levels:
 
-High-impact decisions use the full gate:
+- `inline alignment`: ordinary Step/SubTask choices with a short `parent_alignment`
+  note and lightweight `mission_trace`.
+- `light packet`: subpath switch, blocker, repeated failed attempt, or meaningful
+  uncertainty that may affect the parent node.
+- `full mission review`: high-impact Mission-facing choices that can materially affect
+  convergence or authority.
+
+High-impact hooks remain Mission-relative. Use `mission_alignment` when the decision
+materially affects Mission convergence. The `full mission review` path uses the full
+gate:
 
 - `mission_review.objective_alignment`: how the decision relates to the current Mission
   objective.

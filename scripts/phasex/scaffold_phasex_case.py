@@ -183,6 +183,7 @@ def build_manifest(
         "",
         f"- case_name: `{case_name}`",
         f"- version: `{version}`",
+        "- artifact_version: `v1`",
         f"- system_root: `{display_path(system_root)}`",
         f"- output_dir: `{display_path(output_dir)}`",
         f"- selected_profile: `{profile}`",

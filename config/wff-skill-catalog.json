@@ -1,0 +1,251 @@
+{
+  "schema_version": "v1.0-wff-skill-catalog",
+  "authority": "config/wff-skill-catalog.json",
+  "categories": [
+    "usage-router",
+    "phase-entry",
+    "phase-worker",
+    "base",
+    "meta",
+    "project-support",
+    "role-agent-adapter",
+    "compatibility",
+    "retired-legacy"
+  ],
+  "release_postures": [
+    "published-runtime-facing",
+    "published-support",
+    "published-preview",
+    "published-optional",
+    "published-compatibility",
+    "authoring-only",
+    "retired-not-published"
+  ],
+  "install_profile_reference_values": [
+    "allowed",
+    "forbidden"
+  ],
+  "skills": [
+    {
+      "name": "using-wff",
+      "category": "usage-router",
+      "release_posture": "published-runtime-facing",
+      "install_profile_reference": "allowed",
+      "notes": "Top-level user router for WFF entry selection."
+    },
+    {
+      "name": "wff-arch",
+      "category": "phase-entry",
+      "phase": "phase2",
+      "release_posture": "published-runtime-facing",
+      "install_profile_reference": "allowed",
+      "notes": "Official Phase-2 design and architecture entry."
+    },
+    {
+      "name": "wff-base-reader-translation",
+      "category": "base",
+      "release_posture": "published-support",
+      "install_profile_reference": "allowed",
+      "notes": "Reader-facing localized artifact translation support."
+    },
+    {
+      "name": "wff-base-traceability-management",
+      "category": "base",
+      "release_posture": "published-support",
+      "install_profile_reference": "allowed",
+      "notes": "Shared traceability infrastructure."
+    },
+    {
+      "name": "wff-help",
+      "category": "compatibility",
+      "release_posture": "published-compatibility",
+      "install_profile_reference": "allowed",
+      "notes": "Deprecated init-only compatibility helper; use using-wff for routing."
+    },
+    {
+      "name": "wff-impl",
+      "category": "phase-entry",
+      "phase": "phase3",
+      "release_posture": "published-runtime-facing",
+      "install_profile_reference": "allowed",
+      "notes": "Official Phase-3 implementation entry."
+    },
+    {
+      "name": "wff-impl-action-cards",
+      "category": "phase-worker",
+      "phase": "phase3",
+      "release_posture": "published-support",
+      "install_profile_reference": "allowed",
+      "notes": "Phase-3 action-card generation support."
+    },
+    {
+      "name": "wff-impl-api-docs",
+      "category": "phase-worker",
+      "phase": "phase3",
+      "release_posture": "published-support",
+      "install_profile_reference": "allowed",
+      "notes": "Phase-3 API documentation support."
+    },
+    {
+      "name": "wff-impl-backend",
+      "category": "phase-worker",
+      "phase": "phase3",
+      "release_posture": "published-support",
+      "install_profile_reference": "allowed",
+      "notes": "Phase-3 backend/API implementation support."
+    },
+    {
+      "name": "wff-impl-db-schema",
+      "category": "phase-worker",
+      "phase": "phase3",
+      "release_posture": "published-support",
+      "install_profile_reference": "allowed",
+      "notes": "Phase-3 database schema and migration support."
+    },
+    {
+      "name": "wff-impl-frontend",
+      "category": "phase-worker",
+      "phase": "phase3",
+      "release_posture": "published-support",
+      "install_profile_reference": "allowed",
+      "notes": "Phase-3 frontend implementation support."
+    },
+    {
+      "name": "wff-impl-handoff",
+      "category": "phase-worker",
+      "phase": "phase3",
+      "release_posture": "published-support",
+      "install_profile_reference": "allowed",
+      "notes": "Phase-3 delivery handoff support."
+    },
+    {
+      "name": "wff-impl-review",
+      "category": "phase-worker",
+      "phase": "phase3",
+      "release_posture": "published-support",
+      "install_profile_reference": "allowed",
+      "notes": "Phase-3 structural review support."
+    },
+    {
+      "name": "wff-impl-security",
+      "category": "phase-worker",
+      "phase": "phase3",
+      "release_posture": "published-support",
+      "install_profile_reference": "allowed",
+      "notes": "Phase-3 security audit support."
+    },
+    {
+      "name": "wff-impl-verification",
+      "category": "phase-worker",
+      "phase": "phase3",
+      "release_posture": "published-support",
+      "install_profile_reference": "allowed",
+      "notes": "Phase-3 verification/test-pack support."
+    },
+    {
+      "name": "wff-meta-book-to-skills-extraction",
+      "category": "meta",
+      "release_posture": "authoring-only",
+      "install_profile_reference": "forbidden",
+      "notes": "Design-time book-to-skill extraction capability."
+    },
+    {
+      "name": "wff-meta-corpus-extraction-governance",
+      "category": "meta",
+      "release_posture": "authoring-only",
+      "install_profile_reference": "forbidden",
+      "notes": "Design-time corpus extraction governance capability."
+    },
+    {
+      "name": "wff-meta-skills-release-bundling",
+      "category": "meta",
+      "release_posture": "authoring-only",
+      "install_profile_reference": "forbidden",
+      "notes": "Authoring-only release bundle preparation capability."
+    },
+    {
+      "name": "wff-meta-source-unit-coverage-ledger",
+      "category": "meta",
+      "release_posture": "authoring-only",
+      "install_profile_reference": "forbidden",
+      "notes": "Design-time source coverage ledger capability."
+    },
+    {
+      "name": "wff-meta-stage-skill-construction-lifecycle",
+      "category": "meta",
+      "release_posture": "authoring-only",
+      "install_profile_reference": "forbidden",
+      "notes": "Design-time stage-skill construction lifecycle capability."
+    },
+    {
+      "name": "wff-project-context",
+      "category": "project-support",
+      "release_posture": "published-support",
+      "install_profile_reference": "allowed",
+      "notes": "Project-level WFF context management support."
+    },
+    {
+      "name": "wff-req",
+      "category": "phase-entry",
+      "phase": "phase1",
+      "release_posture": "published-runtime-facing",
+      "install_profile_reference": "allowed",
+      "notes": "Official Phase-1 product requirements entry."
+    },
+    {
+      "name": "wff-req-chat",
+      "category": "phase-entry",
+      "phase": "pre-phase1",
+      "release_posture": "published-runtime-facing",
+      "install_profile_reference": "allowed",
+      "notes": "Optional pre-Phase-1 intake entry."
+    },
+    {
+      "name": "wff-role-agents",
+      "category": "role-agent-adapter",
+      "release_posture": "published-optional",
+      "install_profile_reference": "allowed",
+      "notes": "Optional role-agent companion and platform adapter surface."
+    },
+    {
+      "name": "wff-validation",
+      "category": "phase-entry",
+      "phase": "phase4",
+      "release_posture": "published-runtime-facing",
+      "install_profile_reference": "allowed",
+      "notes": "Official Phase-4 validation and closure entry."
+    },
+    {
+      "name": "wff-validation-acceptance-planning",
+      "category": "retired-legacy",
+      "phase": "phase4",
+      "release_posture": "retired-not-published",
+      "install_profile_reference": "forbidden",
+      "notes": "Retired Phase-4 Stage-01 surface retained for history; responsibilities now live inside wff-validation."
+    },
+    {
+      "name": "wff-validation-closure-judgment",
+      "category": "retired-legacy",
+      "phase": "phase4",
+      "release_posture": "retired-not-published",
+      "install_profile_reference": "forbidden",
+      "notes": "Retired Phase-4 Stage-03 surface retained for history; responsibilities now live inside wff-validation."
+    },
+    {
+      "name": "wff-validation-evidence-execution",
+      "category": "retired-legacy",
+      "phase": "phase4",
+      "release_posture": "retired-not-published",
+      "install_profile_reference": "forbidden",
+      "notes": "Retired Phase-4 Stage-02 surface retained for history; responsibilities now live inside wff-validation."
+    },
+    {
+      "name": "wff-x",
+      "category": "phase-entry",
+      "phase": "phasex",
+      "release_posture": "published-preview",
+      "install_profile_reference": "allowed",
+      "notes": "Phase X brownfield entry."
+    }
+  ]
+}

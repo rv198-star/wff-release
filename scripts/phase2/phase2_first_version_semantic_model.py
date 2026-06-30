@@ -419,6 +419,19 @@ def phase3_executable_business_objects(context: dict[str, object], values: list[
     ]
 
 
+def source_contract_business_objects(context: dict[str, object], values: list[str]) -> list[str]:
+    source_contract_keys = {
+        to_snake(item)
+        for item in context.get("source_contract_objects", [])
+        if str(item).strip()
+    }
+    return [
+        value
+        for value in unique_preserve([item for item in values if to_snake(item) in source_contract_keys])
+        if context_label_can_enter_phase3_surface(context, value)
+    ]
+
+
 def _module_with_phase3_executable_primary(
     context: dict[str, object],
     module: dict[str, object],
@@ -434,6 +447,37 @@ def _module_with_phase3_executable_primary(
     executable = dict(module)
     executable["primary_object"] = primary_object
     executable["core_objects"] = candidates
+    executable["technical_primary_object"] = context_technical_name(context, primary_object)
+    executable["technical_primary_slug"] = context_technical_slug(context, primary_object)
+    if not technical_name_can_enter_phase3_surface(
+        str(executable.get("technical_module_name", "")),
+        str(executable.get("technical_module_slug", "")),
+    ):
+        executable["technical_module_name"] = executable["technical_primary_object"]
+        executable["technical_module_slug"] = executable["technical_primary_slug"]
+        executable["home_namespace"] = ""
+    executable["primary_endpoint"] = ""
+    executable["event"] = ""
+    return executable
+
+
+def _module_with_source_contract_primary(
+    context: dict[str, object],
+    module: dict[str, object],
+) -> dict[str, object] | None:
+    candidates = source_contract_business_objects(
+        context,
+        [module_primary_object(module), *module_core_objects(module)],
+    )
+    if not candidates:
+        return None
+
+    primary_object = candidates[0]
+    executable = dict(module)
+    executable["primary_object"] = primary_object
+    executable["core_objects"] = candidates
+    executable["service_type"] = "read-assembly"
+    executable["source_contract_only"] = True
     executable["technical_primary_object"] = context_technical_name(context, primary_object)
     executable["technical_primary_slug"] = context_technical_slug(context, primary_object)
     if not technical_name_can_enter_phase3_surface(
@@ -522,15 +566,29 @@ def release_slice_guardrail() -> str:
     return "相邻能力域只能只读消费，不接管本域写入权"
 
 
-def release_handoff_rule() -> str:
+def release_handoff_rule(source_contract_read_only: bool = False) -> str:
+    if source_contract_read_only:
+        return "先确认源契约读取上下文，再向下游传播 trace-preserving projection"
     return "先在本域完成权威写入，再向下游传播变更"
 
 
-def release_consistency_boundary(home_module: str, primary_object: str) -> str:
+def release_consistency_boundary(
+    home_module: str,
+    primary_object: str,
+    source_contract_read_only: bool = False,
+) -> str:
+    if source_contract_read_only:
+        return f"在 {home_module} 内保留 {primary_object} 的源契约读取边界"
     return f"在 {home_module} 内保留 {primary_object} 的权威边界"
 
 
-def release_change_propagation_note(service_name: str, endpoint_name: str) -> str:
+def release_change_propagation_note(
+    service_name: str,
+    endpoint_name: str,
+    source_contract_read_only: bool = False,
+) -> str:
+    if source_contract_read_only:
+        return f"{service_name} 刷新源契约读取投影，再经 {endpoint_name} 向下游提供 trace-preserving context"
     return f"{service_name} 先完成权威写入，再经 {endpoint_name} 向下游传播"
 
 
@@ -586,6 +644,54 @@ def _objects_from_prototype_pages(prototype_pages: list[dict[str, str]]) -> list
     return unique_preserve(values)
 
 
+def _looks_like_source_technical_object(value: str) -> bool:
+    cleaned = str(value or "").strip().strip("`")
+    if looks_like_generic_object_descriptor(cleaned):
+        return False
+    if len(technical_ascii_words(cleaned)) < 2:
+        return False
+    return bool(
+        re.search(r"[a-z0-9][A-Z]", cleaned)
+        or re.search(r"[_-][A-Za-z0-9]", cleaned)
+    )
+
+
+def _source_contract_objects_from_prototype_pages(prototype_pages: list[dict[str, str]]) -> list[str]:
+    return [
+        obj
+        for obj in _objects_from_prototype_pages(prototype_pages)
+        if _looks_like_source_technical_object(obj)
+    ]
+
+
+def _merge_source_contract_modules(
+    modules: list[dict[str, object]],
+    prototype_modules: list[dict[str, object]],
+    source_contract_objects: list[str],
+) -> list[dict[str, object]]:
+    if not prototype_modules or not source_contract_objects:
+        return modules
+    present = {to_snake(obj) for module in modules for obj in module_core_objects(module)}
+    merged = list(modules)
+    for prototype_module in prototype_modules:
+        module_objects = [
+            obj
+            for obj in module_core_objects(prototype_module)
+            if obj in source_contract_objects and to_snake(obj) not in present
+        ]
+        if not module_objects:
+            continue
+        enriched = dict(prototype_module)
+        enriched["core_objects"] = module_objects
+        enriched["primary_object"] = module_objects[0]
+        enriched["service_type"] = str(enriched.get("service_type") or "read-assembly")
+        enriched["primary_endpoint"] = ""
+        enriched["event"] = ""
+        merged.append(enriched)
+        present.update(to_snake(obj) for obj in module_objects)
+    return merged
+
+
 def _module_definitions_from_prototype_pages(
     prototype_pages: list[dict[str, str]],
     root_namespace: str,
@@ -608,7 +714,11 @@ def _module_definitions_from_prototype_pages(
             if _prototype_page_value(page, "page_blueprint_type").lower() in {"dashboard", "review-decision"}
             else "domain"
         )
-        primary_object = module_objects[-1] if module_objects else module_name.strip()
+        primary_object = (
+            module_objects[0]
+            if service_type == "read-assembly" and module_objects
+            else module_objects[-1] if module_objects else module_name.strip()
+        )
         module_stub = {
             "module_name": module_name.strip(),
             "primary_object": primary_object,
@@ -695,6 +805,7 @@ def parse_phase1_context(
     object_alias_hints = extract_object_alias_hints(text)
     prototype_modules = _module_definitions_from_prototype_pages(prototype_pages, root_namespace)
     prototype_objects = _objects_from_prototype_pages(prototype_pages)
+    source_contract_objects = _source_contract_objects_from_prototype_pages(prototype_pages)
     extracted_objects = persistent_business_objects(extract_dynamic_objects(text))
     authoritative_business_truth = _has_authoritative_phase1_business_truth(
         core_entities=durable_core_entities,
@@ -708,7 +819,18 @@ def parse_phase1_context(
     if not extracted_modules and authoritative_business_truth:
         extracted_modules = _module_definitions_from_business_objects(extracted_objects, root_namespace)
     modules = extracted_modules if authoritative_business_truth or not prototype_modules else prototype_modules
-    modules = sanitize_phase2_modules(modules, root_namespace=root_namespace)
+    modules = sanitize_phase2_modules(
+        modules,
+        root_namespace=root_namespace,
+        source_contract_objects=source_contract_objects,
+    )
+    if authoritative_business_truth:
+        modules = _merge_source_contract_modules(modules, prototype_modules, source_contract_objects)
+    modules = sanitize_phase2_modules(
+        modules,
+        root_namespace=root_namespace,
+        source_contract_objects=source_contract_objects,
+    )
     technical_name_hints: dict[str, str] = {}
     technical_slug_hints: dict[str, str] = {}
     unresolved_technical_names: list[dict[str, str]] = []
@@ -782,15 +904,19 @@ def parse_phase1_context(
                 technical_slug=object_technical_slug,
                 source_kind="core_object",
             )
-    dynamic_objects = persistent_business_objects(unique_preserve(
-        extracted_objects + prototype_objects if authoritative_business_truth else prototype_objects + extracted_objects
-    ))
-    primary_object_seed = (
-        persistent_business_objects(unique_preserve(durable_core_entities + extracted_objects))
-        if authoritative_business_truth
-        else persistent_business_objects(unique_preserve(prototype_objects + durable_core_entities))
+    dynamic_objects = unique_preserve(
+        persistent_business_objects(unique_preserve(extracted_objects + prototype_objects))
+        + source_contract_objects
+    ) if authoritative_business_truth else unique_preserve(
+        persistent_business_objects(unique_preserve(prototype_objects + extracted_objects))
+        + source_contract_objects
     )
-    objects = persistent_business_objects(unique_preserve(primary_object_seed + dynamic_objects))
+    primary_object_seed = (
+        unique_preserve(persistent_business_objects(unique_preserve(durable_core_entities + extracted_objects)) + source_contract_objects)
+        if authoritative_business_truth
+        else unique_preserve(persistent_business_objects(unique_preserve(prototype_objects + durable_core_entities)) + source_contract_objects)
+    )
+    objects = unique_preserve(persistent_business_objects(unique_preserve(primary_object_seed + dynamic_objects)) + source_contract_objects)
     aggregate_target = max(profile_minimum(complexity_profile, "stage_02_aggregate_catalog"), 6)
     while dynamic_objects and len(objects) < aggregate_target + 3:
         additions = [item for item in dynamic_objects if item not in objects]
@@ -903,6 +1029,7 @@ def parse_phase1_context(
         "all_trace_rows": flatten_trace_units(trace_units),
         "quality_attributes": quality_attrs,
         "prototype_pages": prototype_pages,
+        "source_contract_objects": source_contract_objects,
         "object_alias_hints": object_alias_hints,
         "technical_name_hints": technical_name_hints,
         "technical_slug_hints": technical_slug_hints,
@@ -921,6 +1048,16 @@ def build_service_specs(context: dict[str, object], complexity_profile: str) -> 
         executable
         for module in modules
         if (executable := _module_with_phase3_executable_primary(context, module)) is not None
+    ]
+    executable_module_keys = {
+        (module_name(module), to_snake(module_primary_object(module)))
+        for module in executable_modules
+    }
+    source_contract_modules = [
+        executable
+        for module in modules
+        if (executable := _module_with_source_contract_primary(context, module)) is not None
+        and (module_name(executable), to_snake(module_primary_object(executable))) not in executable_module_keys
     ]
     specs: list[ServiceSpec] = []
     seen_service_names: set[str] = set()
@@ -981,6 +1118,33 @@ def build_service_specs(context: dict[str, object], complexity_profile: str) -> 
                     technical_slug=technical_slug,
                 )
             )
+    for module in source_contract_modules:
+        service_type = "read-assembly"
+        primary_object = module_primary_object(module)
+        technical_object = module_technical_primary_object(module)
+        technical_slug = module_technical_object_slug(module)
+        if not technical_name_can_enter_phase3_surface(technical_object, technical_slug):
+            continue
+        home_namespace = infer_home_namespace(root_namespace, module)
+        endpoint_name = infer_primary_endpoint(module, service_type)
+        add_service(
+            ServiceSpec(
+                infer_service_name(module, service_type),
+                module_name(module),
+                home_namespace,
+                service_type,
+                primary_object,
+                endpoint_name,
+                infer_event_name(module, service_type),
+                infer_service_purpose(module, service_type, primary_object),
+                infer_public_contract(home_namespace, primary_object, technical_object),
+                endpoint_name,
+                infer_http_method(service_type, endpoint_name),
+                infer_endpoint_path(module, service_type, primary_object),
+                technical_name=technical_object,
+                technical_slug=technical_slug,
+            )
+        )
     if specs:
         add_service(
             ServiceSpec(

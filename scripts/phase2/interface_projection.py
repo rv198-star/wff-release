@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 from phase2.schema_projection import flatten_schema_fields, unique_preserve
 from phase2.technical_naming import choose_technical_pascal, choose_technical_snake
@@ -49,6 +50,19 @@ def infer_collection_alias(endpoint_name: str) -> str:
 
 
 def semantic_service_key(service: ServiceProjectionSpec) -> str:
+    object_signature = " ".join(
+        [
+            service.service_name,
+            service.owns_or_coordinates,
+            service.primary_inbound,
+            service.primary_outbound,
+            service.public_contract,
+            service.endpoint_name,
+            service.path,
+            service.technical_name,
+            service.technical_slug,
+        ]
+    ).lower()
     signature = " ".join(
         [
             service.service_name,
@@ -63,6 +77,10 @@ def semantic_service_key(service: ServiceProjectionSpec) -> str:
             service.path,
         ]
     ).lower()
+    explicit_review_report = bool(
+        re.search(r"(?<![a-z0-9])review[-_\s]?report(s)?(?![a-z0-9])", object_signature)
+        or "/reviews/generate" in object_signature
+    )
     if "access-policy" in signature or ("tenant" in signature and "access" in signature and "policy" in signature):
         return "tenant_access_policy"
     if "trackedscope" in signature or "tracked scope" in signature or "create tracked scope" in signature:
@@ -79,7 +97,7 @@ def semantic_service_key(service: ServiceProjectionSpec) -> str:
         return "optimization_task"
     if "content asset" in signature:
         return "content_asset"
-    if "review" in signature and "report" in signature:
+    if explicit_review_report:
         return "review_report"
     if "audit" in signature:
         return "audit_record"
@@ -133,12 +151,13 @@ def set_nested_request_example_path(example: dict[str, object], target_path: str
 def enrich_request_example_with_request_mappings(
     example: dict[str, object],
     service: ServiceProjectionSpec,
-    request_mapping_lookup: dict[tuple[str, str], list[str]] | None = None,
+    request_mapping_lookup: dict[tuple[str, ...], list[str]] | None = None,
 ) -> dict[str, object]:
     if not request_mapping_lookup:
         return example
     enriched = dict(example)
-    for mapping_text in request_mapping_lookup.get((service.path, service.method.upper()), []):
+    mapping_key = (service.service_name, service.path, service.method.upper())
+    for mapping_text in request_mapping_lookup.get(mapping_key, []):
         for raw_entry in mapping_text.split(";"):
             entry = raw_entry.strip()
             if not entry or "->" not in entry:
@@ -153,7 +172,7 @@ def enrich_request_example_with_request_mappings(
 
 def request_example(
     service: ServiceProjectionSpec,
-    request_mapping_lookup: dict[tuple[str, str], list[str]] | None = None,
+    request_mapping_lookup: dict[tuple[str, ...], list[str]] | None = None,
 ) -> dict[str, object]:
     semantic_key = semantic_service_key(service)
     if semantic_key == "tenant_access_policy":
@@ -211,6 +230,28 @@ def request_example(
             example["status"] = "draft"
             example["input"] = {"summary": f"{service.owns_or_coordinates} workflow input"}
     return enrich_request_example_with_request_mappings(example, service, request_mapping_lookup)
+
+
+def response_mapping_fields(
+    service: ServiceProjectionSpec,
+    request_mapping_lookup: dict[tuple[str, ...], list[str]] | None = None,
+) -> list[str]:
+    if not request_mapping_lookup:
+        return []
+    fields: list[str] = []
+    mapping_key = (service.service_name, service.path, service.method.upper())
+    for mapping_text in request_mapping_lookup.get(mapping_key, []):
+        for raw_entry in mapping_text.split(";"):
+            entry = raw_entry.strip()
+            if not entry or "->" not in entry:
+                continue
+            source, _target = [part.strip() for part in entry.split("->", 1)]
+            if not source.startswith("response."):
+                continue
+            field = source.split(".")[-1].replace("[]", "").strip()
+            if field:
+                fields.append(field)
+    return unique_preserve(fields)
 
 
 def response_example(service: ServiceProjectionSpec) -> dict[str, object]:
@@ -271,7 +312,7 @@ def response_example(service: ServiceProjectionSpec) -> dict[str, object]:
 
 def contract_schema_fields(
     service: ServiceProjectionSpec,
-    request_mapping_lookup: dict[tuple[str, str], list[str]] | None = None,
+    request_mapping_lookup: dict[tuple[str, ...], list[str]] | None = None,
 ) -> list[str]:
     request = request_example(service, request_mapping_lookup=request_mapping_lookup)
     response = response_example(service)
@@ -281,8 +322,12 @@ def contract_schema_fields(
     fields = flatten_schema_fields(request, prefix="request")
     if isinstance(data, list) and collection_alias:
         fields.extend(flatten_schema_fields(data, prefix=f"response.data.{collection_alias}"))
+        for field in response_mapping_fields(service, request_mapping_lookup):
+            fields.append(f"response.data.{collection_alias}[].{field}: string")
     else:
         fields.extend(flatten_schema_fields(data, prefix="response.data"))
+        for field in response_mapping_fields(service, request_mapping_lookup):
+            fields.append(f"response.data.{field}: string")
     if isinstance(meta, dict):
         fields.extend(flatten_schema_fields(meta, prefix="response.meta"))
     fields.extend(

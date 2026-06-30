@@ -1,8 +1,25 @@
-# tplan / Mission-oriented project manager
+# tplan / OKR-Runtime
 
 ## 这是什么
 
-`tplan` 是一个 Mission-oriented project manager 和 control plane。它不是普通待办清单，也不是把任务写得更长的格式工具，而是为长任务提供稳定 Mission、任务树状态、证据记录、停止条件和决策入口。
+`tplan` 是给 AI agent 用的 OKR-Runtime：把稳定 Mission 转成任务状态、验收证据、决策钩子和可恢复执行。
+
+![TPlan 架构示意图：OKR-Runtime 在执行中持续对齐目标、共享风险、纠偏收束](assets/tplan-okr-runtime.png)
+
+项目地址：<https://github.com/rv198-star/Mindthus>
+
+如果说 OKR 帮人类团队把 initiatives 对齐到 objectives 和 key results，`tplan` 就是帮 agent 把长任务对齐到 Mission 和 acceptance evidence。它不是普通待办清单，也不是把任务写得更长的格式工具，而是给 agent 一个可以恢复、检查、停止和决策的运行时。
+
+术语上可以直接和 OKR 对齐，作为对外主口径；`tplan` 的名字不变。当前 runtime/schema 仍保留 `Mission`、`evidence`、`task tree` 和 `decision hook`，不是为了兼容旧用户，而是因为这些词承载了 agent runtime 里 OKR 原词没有覆盖的状态恢复、证据约束和决策权限语义：
+
+- `Mission` 对齐 `Objective`：稳定目标，说明这轮长任务到底要达成什么。
+- `acceptance criteria / acceptance evidence` 对齐 `Key Results`：验收面和证据，说明目标是否真的更接近完成。
+- `Task / SubTask / Step` 对齐 `initiatives / actions`：承载行动，而不是替代目标。
+- `checkpoint / evidence / blocker / decision hook` 对齐短周期 `check-in / review signals`：让运行时能及时调整任务树。
+
+这样对外可以直接说“tplan 是 agent 的 OKR-Runtime”；对内先保持 `Mission`、`evidence`、`task tree` 和 `decision hook` 这些更适合 agent runtime 的精确术语。未来如果进入 schema v1 级迁移，可以再考虑把 `objective / key_results / initiatives` 做成一等字段或正式别名，但那应该作为 schema migration，而不是文档措辞顺手改名。
+
+它也比普通 OKR 管理更动态。普通 OKR 往往按周、月、季度复盘；`tplan` 的迭代周期可以短到一次 checkpoint、一次 evidence、一个 blocker、一条用户反馈或一个 decision hook。Mission 保持稳定，但每次 checkpoint、evidence、blocker 或 decision hook 都能触发任务树调整，所以它更像动态工作流：`OKR + dynamic workflow runtime`。
 
 长任务最容易出的问题，不是没有任务，而是任务不断漂移：一开始要解决 A，中途被某个文件、某个测试、某段 prompt 带走，最后 logs 很多，改动很多，却没人能说清 Mission 是否更接近完成。`tplan` 处理的就是这种运行时失控。
 
@@ -21,11 +38,100 @@
 - 长任务出现局部修补螺旋，需要运行时 brake。
 - 用户需要看到当前 Mission 到底推进到了哪里，而不是只看到“我继续改了”。
 
-`tplan` 的价值不是让项目管理更隆重，而是让 agent 在长时间运行时不丢目标函数。
+`tplan` 的价值不是让项目管理更隆重，而是让 agent 在长时间运行时不丢目标函数。它把 OKR 里的“目标和关键结果”翻译成 agent runtime 能使用的对象：Mission、acceptance criteria、task state、evidence 和 decision hooks，并允许工作流按短周期运行信号动态调整。
+
+## 自适应运行策略
+
+`tplan` 应该按风险展开。平时它像一个轻薄的 Mission 状态机，只守住目标、验收面、当前节点、最新状态和必要证据；关键时刻才展开成完整控制面，启用 decision packet、Mission Review、强 evidence link 或 Anti-Spiral brake。
+
+这不是低配 tplan。轻量化只能降低记录密度和运行仪式，不能降低关键风险触发强度。无论处于什么运行级别，以下能力都不能丢：
+
+- Mission objective 和 acceptance criteria 必须可恢复。
+- active node 必须能被下一轮 agent 找回。
+- logs 和 evidence 必须分离。
+- 高影响变更必须有 alignment、review 或 decision hook。
+- 不能安全继续时必须 stop，而不是靠猜测继续。
+
+可以把运行级别理解成三档：
+
+- `lite`：低风险、短路径、可逆、目标清楚。只保存恢复所需的最小状态，不把每个微动作都建成 Step。
+- `normal`：默认 Mission 运行。有任务树、必要 SubTask/Step、稀疏 evidence 和轻量 parent alignment。
+- `strict`：高风险、长期、多分支、需要审计或人类授权。使用完整 decision packet、Mission Review、强 evidence link 和触发式审计。
+
+因此，优化方向不是把 `tplan` 变成 TODO，而是让它在普通场景下少打扰，在风险信号出现时仍然完整接管控制边界。
+
+轻启动的推荐路径是：先用 `init_lite.py` 建立 Mission 和一个 active Task，把 latest state 写进 narrative；然后用 `checkpoint` 记录普通本地 log 或稀疏 evidence。此时可以没有 Step，因为 Step 只在需要恢复、验收、回滚、引用证据或动作膨胀成多步时才实体化。
+
+实现上可以用 `checkpoint` 压缩普通运行成本：一次记录可选本地 log、可选稀疏 evidence，并返回当前 survey。它只减少脚本调用次数，不替代状态变更、decision packet、Mission Review 或 stop report。
+
+### 共享风险上下文
+
+长任务里的失败不一定只属于当前执行单元。如果失败暴露的是共享环境、共享依赖、共享数据源、证据通道或权限边界的问题，它会改变后续任务的风险调整后的行动价值。
+
+`tplan` 的处理方式不是让执行单元互相读取日志。执行单元不读彼此的 task logs；它们只在局部阻碍、不及预期、无效证据风险、异常成本或恢复信号会影响其他任务时，把 scoped risk signal 上浮到 Mission 的共享风险上下文。后续 decision packet 读取 active risk signals，用来判断下一步行动是否仍然有风险调整后的行动价值。
+
+这能避免两个偏差：
+
+- 单个任务只看到原目标重要，于是高估继续执行的价值。
+- 全局读取所有日志，导致噪音、耦合和错误传播。
+
+共享风险上下文只记录会影响其他任务价值评估的信号。普通顺利进展不需要上浮；验收成功或恢复成功可以作为 evidence 记录，因为它们关闭 claim 或恢复共享面的可信度。
+
+简单理解：如果某个子任务发现的问题只影响自己，就留在本地任务里；如果它会影响其他子任务对“还值不值得继续”的判断，就上浮成共享风险。比如存储不稳定、测试证据不可信、外部接口不可用、同一数据源被证明有缺陷、某个恢复条件还没满足，都应该进入共享风险上下文。普通进展、局部日志、一次性失败和已经被局部修掉的小问题，不应该上浮成 Mission 级噪音。
+
+### Mission 级共享记忆
+
+共享风险只是共享上下文的一部分。长任务真正需要恢复时，还要知道 Mission 目标、
+验收面、当前状态、重要发现、来源上下文和恢复提示。因此 `tplan` 使用项目级
+Markdown 作为 Mission 级共享记忆：
+
+```text
+.tplan/shared_contexts/tplan_mission_shared_context-<mission_id>.md
+```
+
+这个文件是人和 agent 都能读的主记忆面；`mission.json.shared_context` 只是脚本用的
+运行时索引，保存 context 文件位置、`source_contexts` 和 active risk signals 等结构化字段。
+
+启动前要先做 Mission identity preflight：如果 objective、acceptance evidence 和权限边界
+连续，就是继续旧 Mission；如果目标或验收面已经换了，就是新建 Mission。基于旧 Mission
+开新目标时，可以把旧文件列入 `source_contexts`，但这不是一个独立的派生状态，也不会继承
+旧 Mission 的验收权威。
+
+一句话：继续旧 Mission 是同一个目标没走完；新建 Mission 是目标或验收权威变了；
+`source_contexts` 只是背景记忆，不是状态。
+
+## 用户可读输出
+
+`tplan` 内部需要 `T1`、`E2` 这类稳定编号，否则恢复、验证和 evidence link 会乱。但普通用户输出不要把 T1、E2 这类内部编号放在普通回复开头。
+
+面向用户时，先讲：
+
+- 当前目标是什么
+- 当前在推进什么
+- 已经确认了什么
+- 下一步为什么合理
+- 是否需要用户决定什么
+
+内部编号只在调试、审计、严格 review、恢复锚点或用户明确要求时出现，而且应该放在“内部恢复引用”这类次要段落里。
+
+## 只读 SubAgent 加速
+
+SubAgent 是侦察，不是控制器。
+
+当一个 Mission 里有多个彼此独立的调查分支时，`tplan` 可以用 SubAgent 并行读文件、搜索文档、检查测试覆盖、比较候选方案或做只读 review。这样可以降低发现成本，而且不需要用户理解新的开关。
+
+边界必须很硬：
+
+- SubAgent 只能做只读调查。
+- SubAgent 产出的是候选发现，不默认等于 evidence。
+- 主 agent 负责验证、合并、判断和写入。
+- 只有主 agent 可以记录 evidence、更新 Mission 状态、修改任务树、应用 decision 或给用户最终结论。
+
+因此，SubAgent 不改变 `tplan` 的控制结构。它只是让发现阶段更快；Mission 状态、证据边界和决策权仍然由主 agent 和 tplan runtime 控制。
 
 ## 核心判断
 
-`tplan` 的核心判断是：Mission 是上位对象，task/subtask/step 都必须相对 Mission 才有意义。
+`tplan` 的核心判断是：Mission 是上位对象，task/subtask/step 都必须相对 Mission 才有意义。换成 OKR 语言，Mission 接近 Objective，acceptance evidence 接近 Key Results，Task/SubTask/Step 接近 initiatives 和 actions；但 `tplan` 额外负责运行时状态、恢复、停止和决策权限。
 
 它重点管理四件事：
 
@@ -42,13 +148,14 @@
 
 一个标准 `tplan` 运行大致是：
 
-1. 初始化 Mission，写清目标、范围、authority 和验收面。
+1. 低风险短路径用 `init_lite.py` 轻启动；需要完整任务树时再用 expanded startup。
 2. 用 `3L5S` 或人工判断提出初始任务树。
 3. 通过脚本新增、切换、关闭或归档节点，避免手改状态造成漂移。
 4. 记录 step logs，但不把 logs 当 evidence。
 5. 对关键 claim 记录 evidence，并说明它支撑什么判断。
 6. 遇到路径切换、任务删除、Mission 关闭或高影响继续时，输出 decision packet。
 7. 出现第三次局部处理、负反馈、加层冲动或弱 evidence-delta continuation 时，触发 Anti-Spiral gate。
+8. 继续同一路径前，先写 `continuation_authorization`：当前路径为什么仍值得继续、下一步会带来什么新证据，不能用次数或惯性替代判断。
 
 实操中，`tplan` 不需要覆盖所有任务。短小、低风险、一次性工作直接执行即可。它适合那些“如果不记录状态就会漂移”的 Mission。
 
@@ -67,16 +174,71 @@ flowchart TD
   F -->|"缺信息 / 权限 / 判断"| I["blocker / stop report<br/>停止并交还最小上下文"]
   F -->|"目标或路径存疑"| J["decision packet<br/>路由到 3L5S / SELA / EDSP / WAE / TVG"]
   F -->|"同一路径反复修补"| K["Anti-Spiral gate<br/>先刹车再判断"]
+  F -->|"同一路径继续"| N["continuation_authorization<br/>继续授权 / 证据形态 / 缺陷分流"]
 
   H --> B
   J --> B
   K --> J
+  N --> J
   G --> L{"Mission 是否完成"}
   L -->|"否"| C
   L -->|"是"| M["Mission closure<br/>用 evidence 支撑收口"]
 ```
 
 这张图的重点是循环，而不是阶段。执行不会随手重写计划；执行只产生 `logs`、`evidence`、`split`、`blocker`、`decision packet` 或 `Anti-Spiral` 信号。任务树的调整必须经过这些信号和对应 authority，避免 agent 一边执行、一边现场改目标、一边宣布完成。
+
+### Snapshot / Pulse / Gate
+
+为了防止 review 逻辑散落在多个 gate 里，`tplan` 使用三层控制面来理解运行时回顾：
+
+- `Snapshot`：脚本只报告状态，例如 checkpoint、survey、active task、最近 evidence、logs、shared risk 和 validation findings。它不判断 Mission 是否健康。
+- `Pulse`：轻量路由层，先做 Candidate Collection，再通过 Gate Arbitration 选择一个 `next_gate`。它不做 pass/fail、health score 或自动 mutation。
+- `Gate`：真正的判断中心，例如 `continuation_authorization`、`anti_spiral_audit`、`selection`、`subtraction`、`loopback`、`mission_review`、`risk_assessment` 和 `stop_report`。
+
+一句话：
+
+> Scripts observe. Pulse routes. Gates decide.
+
+Pulse 不是每个 active task 后的固定复盘。低风险普通 checkpoint 只停留在 Snapshot。只有出现事件信号时才进入 Pulse：同路径继续、准备 freeze/handoff/stop、第三次触碰同一局部对象、弱 evidence delta、用户负反馈、blocker/surprise、active shared risk、active task switch 候选、分支清理，或一小批 checkpoint 后验收 evidence 没有移动。
+
+运行时入口是 `scripts/mission_pulse.py`，或 `survey --pulse --pulse-trigger <trigger>`。它的输出必须能说明“为什么路由到这个 gate”：最近 evidence 摘要、active task log 摘要、evidence link lint、`review_trigger_candidates`、`winning_candidate`、`suppressed_candidates`、`arbitration_trace` 和 shape 自检都要留在输出里；但它仍然不能给 health score、pass/fail 或自动修改 Mission。
+
+如果某个候选已经被下游 Gate 或操作者处理过，不要靠 agent 反复“记住自己已经看过了”。用 `scripts/consume_pulse.py` 显式记录消费：Mission 当前态里保留去重索引，`evidence.jsonl` 里保留 append-only 审计事件。之后同一来源增量不变的候选可以被标成 `stale`，但像 shared risk、same-path continuation 这种按设计就该持续活跃的信号，仍然保持 `active`。
+
+场景回放：
+
+- 普通低风险推进：`checkpoint -> Snapshot -> continue`。不触发 full Mission Review，也不要求 agent 写一堆额外字段。
+- 同一路径准备继续：`Snapshot -> Pulse(next_gate=continuation_authorization) -> Gate`。Pulse 只负责叫醒继续授权，真正判断继续是否值得由 `path_assessment` 和 `continuation_authorization` 完成。
+- 第三次局部修补或又想加 fallback：`Snapshot -> Pulse(next_gate=anti_spiral_audit 或 subtraction) -> Gate`。如果进入红色，只允许回上游、减法或等量替换。
+- 共享风险影响后续任务：`risk_context_update -> Snapshot -> Pulse(next_gate=health_check) -> risk_assessment`。这里的 `health_check` 不是新 gate，而是把 active shared risk 带回风险调整后的 Mission 判断。
+- Mission 边界和共享风险同时出现：`before_freeze -> Snapshot -> Pulse(next_gate=mission_review, suppressed=active_shared_risk) -> Gate`。边界审查赢得仲裁，但共享风险不会丢失。
+- 多分支开始膨胀：`Snapshot -> Pulse(branch_disposition=close|merge|defer|prune) -> selection/subtraction/mission_review`。Pulse 不负责删分支，只把分支卫生问题交给已有 gate。
+- Mission 目标、验收面或权限不清：`Snapshot -> Pulse(next_gate=mission_review|stop|escalate) -> Gate`。如果继续需要 invent intent、authority 或 acceptance criteria，就进入 stop report 或请求人类授权。
+
+这层设计的边界也很硬：如果 Pulse 只能说“记得反思一下”，那它没有新增价值，因为 Gate Probes 和 Primitive Activation 已经覆盖。Pulse 唯一值得存在的理由，是把可观察运行时信号更早、更清楚地路由到已有 gate。
+
+当前实现里，Pulse 不再是散落在各个场景里的 if-else。它先收集所有可观察候选，再按统一优先级仲裁一个 `winning_candidate`，并把其他候选保留在 `suppressed_candidates` 和 `arbitration_trace`。这让 Mission boundary、shared risk、feedback、third touch、weak evidence delta、branch cleanup 和 same-path continuation 可以在同一个口径下比较，而不是每补一个场景就撞到另一个优先级角落。
+
+这层仲裁现在还有一个最小闭环：候选可以被显式消费，而不是永远靠静态优先级重复胜出。被消费且来源没有变化的候选会降成 `stale`，继续留在输出里给 Gate 看；但那些“本来就应该每次都继续压住局面”的 sticky 信号不会因为被记录过一次就静默失效。
+
+这也解释了为什么它不需要每个 active task 都运行。普通 checkpoint 没有候选时，Pulse 输出 `continue`；第三次局部触碰、负反馈、阻塞、共享风险或边界事件出现时，才把路线交给对应 Gate。也就是说，TPlan 的反思不是固定频率的仪式，而是基于 Mission signal 的轻量路由。
+
+### 继续授权
+
+`continuation_authorization` 是 Linear Continuation Gate 的一部分。它管的是这种场景：下一步还想沿着同一路径继续，而当前路径的价值、证据增量、缺陷性质或替代路径还需要被说清楚。
+
+次数提醒只负责叫醒，不负责判停。第三次碰同一局部对象、同路径反复继续、继续后出现新缺陷、连续负反馈、高成本/高影响继续或弱 evidence delta，只说明需要进入继续授权，不自动停止，也不自动允许继续。
+
+继续授权只问一个中心问题：继续同一路径凭什么被授权？
+
+这里的重点不是多写一份表，而是阻止 agent 把“看起来只差一点”误当成继续理由。授权要说明下一步会带来什么新的验收证据、当前缺陷属于阻断验收还是可批处理细节、有没有更便宜的替代路径，以及继续失败时要不要转 Mission Review 或停止。
+
+- `evidence_shape_lint`：placeholder、sample evidence、空 anchor、模板残留或未绑定 artifact 的 evidence link 是否存在。
+- `defect_classification`：新缺陷是 `acceptance_blocking`、`batchable_detail` 还是 `unclear`。
+- `expected_evidence_delta`：下一轮是否能产生约束验收判断的新证据。
+- `authorized_action`：继续同路径、定向修复、批处理细节、Mission Review、Anti-Spiral 审计或停止。
+
+脚本只能提供 shape-only evidence 和枚举校验；是否阻断验收、是否值得继续，仍由 agentic judgment 决定。
 
 ## 具体案例
 
@@ -106,7 +268,7 @@ flowchart TD
 
 `tplan` 不适合非常短、明确、一次性、低风险的任务。直接执行更有效。
 
-它不替代项目管理工具，也不追求覆盖团队协作的全部现实复杂度。它的重点是 agent runtime：让 agent 在一个 Mission 里知道当前状态、下一步、证据和停止条件。
+它不替代项目管理工具，也不追求人类团队 OKR 管理的全部现实复杂度。它的重点是 agent runtime：让 agent 在一个 Mission 里知道当前状态、下一步、证据和停止条件。
 
 当问题定义不清时，先用 `3L5S`。当控制边界不清时，用 `WAE`。当同一路径反复修补时，先触发 `Anti-Spiral`，不要继续加任务节点。
 

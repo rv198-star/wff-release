@@ -7,6 +7,7 @@ import sys
 
 from common.markdown_table_tools import normalize_snake_table_header
 from common.markdown_table_tools import parse_markdown_table as parse_common_markdown_table
+from phase2.technical_naming import unresolved_technical_pascal
 
 GENERIC_SUBSYSTEM_FIELD_KEYS = {
     "module_detail",
@@ -39,6 +40,56 @@ def _safe_description_alias(raw: str) -> str:
     if re.search(r"\b(?:primary|supporting)\b.*\bobject\b.*\bfor\b", lowered):
         return ""
     return cleaned
+
+
+def _has_non_ascii(raw: str) -> bool:
+    return any(ord(char) > 127 for char in str(raw or ""))
+
+
+def _semantic_candidate_row(
+    *,
+    source_label: str,
+    aliases: list[str],
+    authority: str,
+    source_surface: str,
+    reason: str,
+) -> dict[str, object]:
+    return {
+        "source_label": source_label,
+        "aliases": _unique([alias for alias in aliases if _safe_explicit_alias(alias)]),
+        "authority": authority,
+        "source_surface": source_surface,
+        "reason": reason,
+    }
+
+
+def _safe_explicit_alias(raw: str) -> str:
+    cleaned = str(raw or "").strip().strip("`")
+    if not cleaned or any(ord(char) > 127 for char in cleaned):
+        return ""
+    if len(cleaned) > 64 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _-]*", cleaned):
+        return ""
+    words = re.findall(r"[A-Za-z0-9]+", cleaned)
+    if not 1 <= len(words) <= 6:
+        return ""
+    return cleaned
+
+
+def _explicit_aliases_for_row(row: dict[str, str]) -> list[str]:
+    return _unique(
+        [
+            alias
+            for alias in (
+                [
+                    candidate
+                    for field in ("alias", "english_name", "technical_name")
+                    for candidate in _split_values(row.get(field, ""))
+                ]
+                + [_safe_description_alias(row.get("description", ""))]
+            )
+            if _safe_explicit_alias(alias)
+        ]
+    )
 
 
 def _heading_block(text: str, heading: str) -> str:
@@ -294,8 +345,21 @@ def extract_core_business_objects(prd_text: str) -> list[str]:
     return _unique(values)
 
 
-def extract_object_alias_hints(prd_text: str) -> dict[str, list[str]]:
-    hints: dict[str, list[str]] = _source_backed_operational_alias_hints(prd_text)
+def extract_semantic_enrichment_candidates(prd_text: str) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+
+    operational_hints = _source_backed_operational_alias_hints(prd_text)
+    for label, aliases in operational_hints.items():
+        rows.append(
+            _semantic_candidate_row(
+                source_label=label,
+                aliases=aliases,
+                authority="source_backed",
+                source_surface="Protected Business-World Truth Spine / Requirements Structure",
+                reason="source-backed-operational-alias",
+            )
+        )
+
     for heading in ("Core Business Objects", "Entity Registry"):
         block = _heading_block(prd_text, heading)
         for row in parse_markdown_table(block):
@@ -308,31 +372,63 @@ def extract_object_alias_hints(prd_text: str) -> dict[str, list[str]]:
             ).strip().strip("`")
             if not primary_name:
                 continue
-            candidates = _unique(
-                _split_values(
-                    " / ".join(
-                        [
-                            row.get("alias", ""),
-                            row.get("english_name", ""),
-                            row.get("technical_name", ""),
-                            _safe_description_alias(row.get("description", "")),
-                        ]
+            explicit_aliases = _explicit_aliases_for_row(row)
+            if explicit_aliases:
+                rows.append(
+                    _semantic_candidate_row(
+                        source_label=primary_name,
+                        aliases=explicit_aliases,
+                        authority="source_backed",
+                        source_surface=heading,
+                        reason="explicit-alias-field",
                     )
                 )
-            )
-            if candidates:
-                hints.setdefault(primary_name, [])
-                hints[primary_name].extend(candidates)
-            module_name = (
-                row.get("module_name")
-                or row.get("module")
-                or row.get("domain_name")
-                or row.get("domain")
+                continue
+            if _has_non_ascii(primary_name):
+                rows.append(
+                    _semantic_candidate_row(
+                        source_label=primary_name,
+                        aliases=[unresolved_technical_pascal(primary_name)],
+                        authority="review_bound",
+                        source_surface=heading,
+                        reason="source-native-label-without-explicit-english-anchor",
+                    )
+                )
+    return rows
+
+
+def extract_object_alias_hints(prd_text: str) -> dict[str, list[str]]:
+    hints: dict[str, list[str]] = {}
+    for row in extract_semantic_enrichment_candidates(prd_text):
+        if row.get("authority") != "source_backed":
+            continue
+        source_label = str(row.get("source_label") or "").strip()
+        aliases = [str(alias) for alias in row.get("aliases", []) if str(alias).strip()]
+        if source_label and aliases:
+            hints.setdefault(source_label, [])
+            hints[source_label].extend(aliases)
+
+    for heading in ("Core Business Objects", "Entity Registry"):
+        block = _heading_block(prd_text, heading)
+        for table_row in parse_markdown_table(block):
+            primary_name = (
+                table_row.get("object")
+                or table_row.get("entity")
+                or table_row.get("name")
+                or table_row.get("core_object")
                 or ""
             ).strip().strip("`")
-            if module_name and candidates:
+            module_name = (
+                table_row.get("module_name")
+                or table_row.get("module")
+                or table_row.get("domain_name")
+                or table_row.get("domain")
+                or ""
+            ).strip().strip("`")
+            explicit_aliases = _explicit_aliases_for_row(table_row)
+            if module_name and explicit_aliases:
                 hints.setdefault(module_name, [])
-                hints[module_name].extend(candidates)
+                hints[module_name].extend(explicit_aliases)
     return {key: _unique(values) for key, values in hints.items() if _unique(values)}
 
 

@@ -2,7 +2,363 @@
 
 ## Unreleased
 
-暂无。
+## v1.4.1
+
+发布日期：2026-06-29
+
+[完整发布日志](docs/releases/v1.4.1.md)
+
+说明：本版是 v1.4 输入定框审计的强化发布。它把真实有效的“先审题、后回答”提示词纪律回灌进 `using-mindthus`，并补上解释权、主导承载和系统主体三类校准，减少 agent 被局部正确、专业口吻或实现层事实带偏后继续自洽的风险。
+
+### 新增
+
+- `using-mindthus` 明确输入审计第一任务：先判断用户是否把问题带到错误层级，再回答。
+- 输入审计输出顺序补齐为 `true_question -> implicit_premises -> local_validity_and_layer_shift -> reframed_question -> formal_answer`，并新增 `leading_point` 识别。
+- 新增 `scripts/log-mindthus-runtime.py`，可输出 repo、本地 marketplace 和 Codex cache 的 sha256、mtime 与关键 marker，用来确认热更新是否真正生效。
+
+### 修复
+
+- 强化 `Explanatory Authority Check / 解释权校准`：局部正确不自动拥有整体解释权。
+- 强化 `Dominant Carrier Check / 主导承载校准`：先判断当前对象真正由什么机制承载，避免把辅助机制误当主体。
+- 强化 `System Subject Check / 系统主体校准`：当对象是系统时，先判断主稳定性来自 workflow、state、gate、evidence、authority 还是模型局部推理。
+- release pack 现在携带 runtime diagnostic script，Codex / Claude Code 插件包可直接用于版本指纹核验。
+
+### 边界
+
+- 本版不针对某个 skills/prompt 示例作弊；新增规则必须服务通用定框、解释权和系统主体判断。
+- 本版不声明已稳定达到 95+ 行为水平；SKILLS/prompt reduction 实测显示，连续 scope correction 下仍可能退回局部正确。
+- 本版不把输入审计扩展成所有任务的模板；低风险、事实足够、直接执行类任务仍直接做。
+- runtime 日志脚本只证明文件版本、hash 和 marker 是否一致，不证明模型一定按规则执行。
+
+### 验证
+
+- `python3 -m unittest discover -s tests -q`
+- `git diff --check`
+- `python3 scripts/build-release-pack.py --package plugins --out /tmp/mindthus-release-plugins-check --force`
+- `python3 scripts/build-release-pack.py --package skills --out /tmp/mindthus-release-skills-check --force`
+- `python3 scripts/log-mindthus-runtime.py --strict`
+
+## v1.4.0
+
+发布日期：2026-06-29
+
+[完整发布日志](docs/releases/v1.4.0.md)
+
+说明：本版把 Mindthus 的入口判断能力正式提升为公开版本面：`Frame Fitness Check / 定框适配检查` 作为认知原语进入总纲，并在 `using-mindthus` 中落地为 `Input Framing Audit / 输入定框审计` 强约束入口协议。它解决的是 agent 容易被局部正确、带有倾向性的输入、实现层真相或单一证据信号带偏的问题。
+
+### 新增
+
+- `Frame Fitness Check`：新增局部框架适配检查，用来判断当前 framing 应保留、限定、重构，还是因证据不足阻断。
+- `Input Framing Audit`：`using-mindthus` 在方法路由前支持结构化输入审计，包含 `true_question`、`packed_premises`、`layer_risks`、`frame_status`、`reframed_question` 和 `routing_decision`。
+- primitive activation manifest 增加 `output_shape`、`frame_status_values` 和 `routing_effect`，让 runtime support 能暴露形状约束，但不替代 agentic judgment。
+
+### 修复
+
+- README 整体叙事从“方法工具箱 / 选对刀”升级为“先纠偏、再路由”：强调 Mindthus 能帮助 AI 避免被局部正确和带有倾向性的输入带偏。
+- 明确 `Framing-risk signals, not keyword rules`：关键词只是高置信线索；没有关键词但出现打包结论、层级偷换或局部机制冒充整体解释，也应触发。
+- 明确边界：没有 frame-risk signal 不触发；没有执行影响就省略；用户价值、偏好、审美和风险姿态是判断约束，不能被当成偏见抹掉。
+- primitive validator 增加 `routing_effect` schema 约束，要求 key 与 `frame_status_values` 对齐，同时保持 shape-only，不判断语义正确性。
+
+### 边界
+
+- 本版不新增 `frame` 或 `anti-sycophancy` 独立 skill。
+- 本版不把输入审计变成所有任务的强制模板；清楚、低风险、事实足够的任务仍直接执行。
+- 本版不允许输入审计替代证据获取、领域事实或正式方法分析。
+
+### 验证
+
+- `python3 -m unittest discover -s tests -v`
+- `git diff --check`
+- `python3 scripts/build-release-pack.py --package plugins --out /tmp/mindthus-release-plugins-check --force`
+- `python3 scripts/build-release-pack.py --package skills --out /tmp/mindthus-release-skills-check --force`
+
+## v1.3.0
+
+发布日期：2026-06-27
+
+[完整发布日志](docs/releases/v1.3.0.md)
+
+说明：本版把 Mindthus 最近三条相关改动收束成一次统一 release：plugin startup context 新增轻量 Activation Router，WAE 被收窄到 agentic-system control-boundary，TVG 的 exit audit 被收回到 TVG loop 内部。它因此更适合记作一次 minor release，而不是零散 patch。
+
+### 新增
+
+- Claude Code plugin 增加轻量 activation router `SessionStart` hook：只提醒 hard judgment point 时优先考虑 `mindthus:using-mindthus`，清楚低风险任务直接做，事实不足先补证据；它不是强制流程，也不复制 Superpowers Brainstorm。
+- Codex plugin `defaultPrompt` 同步为同一套 activation router 语义的短版，用于提高 Mindthus 在 hard judgment point 场景的唤醒概率；Codex 端文案保持在 128 字节以内，避免被插件加载器忽略。
+
+### 修复
+
+- WAE 路由边界收紧为 agentic-system control-boundary mismatch：没有 agentic system，不进 WAE；没有 controller mismatch，也不进 WAE。普通概念边界、组织责任、产品分类或 issue 粒度问题不再被 WAE 吸走。
+- TVG exit audit 明确收回为 TVG loop 内部退出判断，不再因为用户说了 audit / review / check 就被外部化为通用审计路线；release、code、workflow、factual、method、strategy 和 requirement-boundary 审计按对象路由。
+- tplan 术语和 runtime 合同同步收口：`artifact_value_gain` 是 decision hook，不是 Mission Pulse `next_gate`；新增负测锁住这条边界，避免把 TVG 内部动作误接到 Mission mutation 路径。
+
+### 边界
+
+- Mindthus 不 vendoring Superpowers Brainstorm，也不占用 Superpowers 命名空间；设计/创意/行为变更等需要展开需求的任务仍推荐搭配 Superpowers Brainstorm。
+- 如果上游已有 brainstorming / design workflow，Mindthus 不重复需求澄清，只在剩余问题属于 hard judgment point 时介入。
+- 本版关闭的是 `#64`、`#65`、`#66` 这组三联边界修复，不宣称 `#50` 的 wake-up lift 已完成真实 replay 级行为认证。
+
+### 验证
+
+- `python3 -m unittest discover -s tests -v`
+- `git diff --check`
+- `python3 scripts/build-release-pack.py --package plugins --out /tmp/mindthus-release-plugins-check --force`
+- `python3 scripts/build-release-pack.py --package skills --out /tmp/mindthus-release-skills-check --force`
+
+## v1.2.0
+
+发布日期：2026-06-24
+
+[完整发布日志](docs/releases/v1.2.0.md)
+
+说明：本版把 Mindthus 从单一 skills-pack 分发，扩展为 Codex / Claude Code 可识别的插件产品壳，同时保留 `skills/` 作为唯一行为源码。推荐安装入口是 GitHub Release 里的预构建 release pack；plugin mode 使用 `mindthus-plugins-1.2.0.tar.gz`，skills-pack mode 使用 `mindthus-skills-1.2.0.tar.gz`。Codex 新增 `codex-plugin/mindthus` release artifact；Claude Code 继续使用既有 plugin artifact；OpenCode 继续使用 skills-pack，不用 command、hook 或 custom tool 模拟 native skills。插件里的提示只是一句 router-only 纪律，不是强制 startup hook。
+
+### 新增
+
+- Codex plugin packaging：release builder 新增 `codex-plugin/mindthus/`，包含 `.codex-plugin/plugin.json`、同源 `skills/`、公开 methodology docs、license 和 release scripts。
+- Claude Code plugin 文档化：明确 `claude-code/claude-plugin/` 是插件模式，Claude Code plugin mode 使用 `/mindthus:using-mindthus` 这样的命名空间；personal skills mode 仍是 `/<skill>` 或自动调用。
+- README 安装说明改为 release-pack-first：plugin mode 下载 `mindthus-plugins-1.2.0.tar.gz`，skills-pack mode 下载 `mindthus-skills-1.2.0.tar.gz`；源码 clone 只作为开发者 fallback。
+- Codex plugin release pack 新增 `.agents/plugins/marketplace.json`，使 `codex plugin marketplace add <release>/codex-plugin` 后可以直接 `codex plugin add mindthus@mindthus`。
+- 轻量 router-only 指引：Codex plugin metadata 可以注入一句路由纪律，提醒战略判断、结构歧义、路径波动、控制边界和产物价值厚度问题优先用 `using-mindthus` 选择最小充分方法；清楚低风险任务直接执行。
+
+### 修复
+
+- Codex plugin 的 discoverable `skills/` 目录只包含真正的 skill；共享 runtime support 放在 plugin root 的 `_runtime/`，避免 `skills/_runtime` 被识别成缺少 `SKILL.md` 的伪 skill。
+- release packaging tests 增加 Codex plugin manifest、artifact cleanliness、OpenCode plugin 缺省不生成、以及 plugin / skills-pack 文档边界检查。
+- release packaging 改为插件包和 skills 包分离：Codex + Claude Code 插件合在 `mindthus-plugins-1.2.0.tar.gz`；Codex + Claude Code + OpenCode skills-pack 合在 `mindthus-skills-1.2.0.tar.gz`。
+- release pack 不再携带 methodology 文档图片等二进制大图资产；图文版文档保留在 GitHub 仓库和官网文档入口。
+
+### 边界
+
+- OpenCode 继续使用 skills-pack。当前不发布 `opencode-plugin/`，因为 OpenCode plugin API 尚未验证能原生贡献 `SKILL.md` skills；不会用 hook、command 或 custom tool 模拟 native skills。
+- plugin packaging 是 distribution shell，不是 skills fork。`skills/` 仍是唯一行为源码。
+- router-only 指引不能替代事实补充、证据约束或 agentic judgment，也不能强制低风险确定性任务进入 Mindthus。
+
+### 验证
+
+- `python3 -m unittest tests.test_packaging_docs -v`
+- `python3 -m unittest discover -s tests -v`
+- `python3 scripts/build-release-pack.py --package plugins --out /tmp/mindthus-plugins --force`
+- `python3 scripts/build-release-pack.py --package skills --out /tmp/mindthus-skills --force`
+- Codex plugin validator passed for generated `codex-plugin/mindthus`.
+- Claude Code strict validation passed for generated plugin and marketplace.
+- Codex CLI smoke passed: temporary marketplace add / list / install enabled `mindthus@mindthus-smoke`.
+
+## v1.1.2
+
+发布日期：2026-06-23
+
+[完整发布日志](docs/releases/v1.1.2.md)
+
+说明：本版把 TPlan 的长任务回顾控制面正式收束为 `Snapshot / Pulse / Gate`：脚本只观察运行时状态，Pulse 只把可观察信号路由到既有 Gate，真正的继续、反螺旋、回路、选择、Mission Review 或停止仍由 Gate 和 agentic judgment 决定。它也补上 router wake-up 认证门槛，避免薄样本或缺桶样本冒充行为提升证明。
+
+### 新增
+
+- TPlan Mission Pulse：新增只读 `mission_pulse.py` 路由面，输出 recent evidence summary、active task log summary、evidence-link lint、review trigger candidates、winning / suppressed candidates、arbitration trace 和 shape findings。
+- TPlan Snapshot / Pulse / Gate 文档：公开方法页补齐当前实现口径，明确 routine checkpoint 只停留在 Snapshot；同路径继续、第三次局部触碰、弱 evidence delta、负反馈、blocker / surprise、shared risk、branch cleanup、freeze / handoff / stop 等事件才进入 Pulse。
+- Mission Pulse 场景回放：新增并固化 routine checkpoint、same-path continuation、Anti-Spiral third touch、feedback loopback、blocker Mission Review、shared risk health check、branch selection、requires-human stop、无 active task runtime integrity 等多场景测试。
+
+### 修复
+
+- Pulse 仲裁模型从零散场景判断收束为统一候选模型：Candidate Collection -> Candidate Shape Validation -> Gate Arbitration -> Pulse Output -> Gate。低优先级候选保留在 `suppressed_candidates` 和 `arbitration_trace`，避免信号被静默丢失。
+- Anti-Spiral runtime gate 现在由 active task logs 中的 `object_id` touch count 和 additive layering 信号触发，第三次触同一局部对象会路由到 `anti_spiral_audit`。
+- Lite Mission narrative state 与 runtime state 同步，避免轻启动后的恢复说明和机器状态脱节。
+- Router wake-up A/B runner 增加 `minimum-pairs` 与 overuse stress 桶覆盖门槛：known / holdout / real-use replay 低于最小 paired routing moments 不允许认证，overuse 缺 direct、missing-evidence、deterministic、`tvg` 或 `3l5s` 桶也会失败。
+
+### 边界
+
+- Pulse 不是 health score、pass/fail verdict、语义判断中心或 mutation authority。`next_gate=continue` 也不能绕过高影响 review、authority 或 stop 边界。
+- Anti-Spiral 不替代正常调试；明确 failing test、明确报错和机械验证进展仍可沿因果链修复。它拦的是没有新证据、只靠局部补丁和加层冲动继续的循环。
+- Router certification gate 只防止 claim 过强；它不声明低频方法 wake-up lift 已被真实 replay 证明。
+
+### 验证
+
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.tplan.test_mission_pulse -v`
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.tplan.test_mission_health_pulse_experiment -v`
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.tplan.test_continuation_authorization_ab_simulator -v`
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_router_wakeup_ab_runner -v`
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py'`
+- `python3 scripts/build-release-pack.py --out /tmp/mindthus-v1.1.2-check --force`
+
+## v1.1.1
+
+发布日期：2026-06-17
+
+[完整发布日志](docs/releases/v1.1.1.md)
+
+说明：本版把最近两波 agent runtime 改动收成一个小版本：TPlan 增加 Mission 级共享记忆文件和启动前身份预检，Mindthus router 增加 SELA / MPG / EDSP 的低频方法唤醒 canary。它们都服务同一个目标：让 agent 在长任务和方法选择时少丢上下文、少被高频默认路径吸走。
+
+### 新增
+
+- TPlan Mission Shared Context Memory：在项目级 `.tplan/shared_contexts/` 下保存 Mission 共享记忆 Markdown，路径形如 `.tplan/shared_contexts/tplan_mission_shared_context-<mission_id>.md`。`preflight_mission.py` 在启动前区分 `continue_existing`、`create_new` 和 `needs_agentic_selection`，`init_lite.py` / `init_mission.py` 可以加载或创建对应 context。
+- Router wake-up canary：`using-mindthus` 增加 `SELA`、`MPG`、`EDSP` 的轻量唤醒探针，并在 `AGENTS.md` 中明确 `3L5S` 不是默认判断归宿，避免结构歧义、战略系统/局部取舍和主线承载问题被高频方法吸收。
+- 新增 router wake-up A/B 分析脚本、fixture、实验设计和弱提示校准记录，用于后续比较 baseline / treatment 的 positive wake-up recall、skip precision、execution impact、adjacent absorption 和 overuse 风险。
+
+### 边界
+
+- `source_contexts` / `derived_from` 只是新 Mission 的背景记忆和来源关系，不继承旧 Mission 的 acceptance authority；脚本只做路径、字段和 preflight shape 检查，不判断两个 Mission 是否语义相同。
+- 这次 canary 不声明已经证明低频方法唤醒率显著提升。已完成的 known set 和 weak-cue v1 pilot 都触发 baseline-ceiling，说明当前样本没有足够区分度；后续需要真实 replay 或更间接的多轮边界样本继续认证。
+
+### 验证
+
+- `python3 -m unittest discover -s tests -v`
+- `python3 -m unittest tests.tplan.test_mission_shared_context tests.tplan.test_mission_shared_context_agent_simulator tests.tplan.test_skill_contract -v`
+- `python3 -m py_compile skills/tplan/scripts/*.py scripts/router-wakeup-ab.py tests/tplan/mission_shared_context_agent_simulator.py tests/test_router_wakeup_ab_runner.py`
+- `python3 scripts/build-release-pack.py --out /tmp/mindthus-v1.1.1-check --force`
+
+## v1.1.0
+
+发布日期：2026-06-11
+
+[完整发布日志](docs/releases/v1.1.0.md)
+
+说明：本版让 Mindthus 在两类真实使用中更稳：TVG 可以按任务自定义“什么才算好”，TPlan 可以让子任务之间共享已经发现的阻塞和风险。同时修复 TPlan 晚期小问题反复沿同一路径续跑的漂移，并补齐 Codex 安装、技能发现和安装包边界上的小问题。
+
+### 新增
+
+- TVG Value Profile：让 TVG 除了默认通用实用价值外，可以支持自定义价值锚点：这个任务里什么算好、什么算跑偏、哪些约束不能破、优先增强哪类价值。也就是用户可以自己定义希望文本靠近的“好”标准，并让 TVG 按这个方向迭代优化。
+- TVG 示例 profile：随包包含默认通用价值 profile，以及邵氏清水湾棚拍时代武侠 / 神怪、胡金铨武侠电影两个影视提示词 / 分镜方向的示范 profile。它们用于展示有明确边界的 profile 怎么写，不是电影史分类结论，也不是对所有图像模型的风格稳定性保证。
+- TPlan Shared Risk Context：让子任务共享阻塞项和风险。某个子任务发现的阻塞、环境问题、证据风险或共享依赖风险，可以提升到 Mission 级别，让其他子任务和后续决策也能看到。在评估下一步是否继续、切换路径、健康检查、暂停或收束时，Agent 会综合这些阻塞和风险，判断任务可行性和综合价值。
+
+### 修复
+
+- TPlan continuation authorization：晚期小缺陷、证据形态缺陷或局部未收敛时，Agent 不能只是沿同一路径“再试一下”；继续前必须说明为什么这条路径仍然值得继续，以及授权依据是什么。
+- Codex 安装路径：`scripts/install-skills.sh codex` 现在默认安装到 `${CODEX_HOME:-~/.codex}/skills/mindthus`，不再把 Codex skills 链到 `.agents` 路径。
+- Codex App 技能发现：修复 `tplan` 在 Codex CLI 可见、但 Codex App 看不到的问题。`tplan` frontmatter 现在保持严格 YAML 兼容，Mindthus 各个 `SKILL.md` 入口也都控制在 8KiB 以内，避免入口文件过长影响发现。
+- Release pack 边界：安装包构建会过滤 `tests/`、`logs/`、`.tplan/`、`.tvg/`、运行产物、图片/视频和临时文件；包内只保留必要的 skill、公开方法文档、安装脚本和 `tplan/templates/evidence.jsonl` 模板。
+
+### 边界
+
+- TVG profile 定义价值锚点、输出厚度倾向和迭代检查问题，但脚本仍只校验 profile 形状；不会替 agent 判断 profile 是否审美成功、证据是否足够、是否可以退出，或是否具备稳定视觉泛化能力。
+- TPlan 共享风险上下文让风险在 Mission 内可见，不等于自动停止或自动改计划；是否继续仍要看目标价值、证据、阻塞和用户授权。
+
+### 验证
+
+- `python3 -m unittest discover -s tests`
+- `python3 scripts/build-release-pack.py --out /tmp/mindthus-v1.1.0-check --force`
+- release pack 审计测试会检查包内没有测试、日志、运行产物或生成图片混入。
+
+## v1.0.1
+
+发布日期：2026-06-08
+
+[完整发布日志](docs/releases/v1.0.1.md)
+
+说明：本版是当时的 1.0 系列推荐安装版本：它包含 `v1.0` 的正式发布面，包括 MPG、授权口径、忠实度评审自动化、退出审查和跨模型小样本；同时新增一个极简使用日志入口，让每次真实 fidelity judge 结果可以脱敏记录、持续积累，为后续“用数据判断哪些方法有约束增益”打底。
+
+### 新增
+
+- 新增 `scripts/log-fidelity-usage.py`，可追加或校验 `data/fidelity-usage-log.jsonl` usage log。
+- usage log 记录 `scenario`、`method`、`model`、`baseline_score`、`constrained_score`、`max_score`、`constraint_helped`、`source` 和 `tags` 等字段；没有 baseline 时也允许记录 constrained 分，降低真实使用记录门槛。
+- 新增 `data/README.md` 和 `docs/internal/fidelity-usage-log.md`，明确日志只保存脱敏摘要，脚本只检查字段形状，不判断方法价值。
+- release pack 增加 `scripts/log-fidelity-usage.py`，三平台包可以同时保留 judge 校验和 usage log 记录入口。
+
+### 边界
+
+- `v1.0.1` 只建立数据飞轮的最小记录习惯，不声明已经有跨方法统计结论。
+- usage log 是项目资产种子，不是 benchmark 结论；样本量不足时不能用它证明某个方法有效或无效。
+
+## v1.0
+
+发布日期：2026-06-08
+
+[完整发布日志](docs/releases/v1.0.md)
+
+说明：本版新增 `MPG / 主线-路径博弈`，把“看见长期主线”之后最容易出错的路径波动、对抗力量和载体承受力，收束成可交付的主线承载方法。
+
+`v1.0 Method Fidelity Framework` 把现有 `tplan`、`3L5S`、`TVG` 的校验经验与 `SELA`、`MPG` 的 fidelity pilots 收束为统一方向：约束关键判断动作，不约束判断结论。该版本完成 v0.9 之后的发布前置项，可以作为 Mindthus 第一版正式发布面。
+
+### 1.0 blocker closure
+
+- LICENSE blocker closed：新增 AGPLv3 `LICENSE`，并通过 `COMMERCIAL-LICENSE.md` 明确闭源商业使用需要单独授权。
+- judge automation blocker closed：新增 `scripts/run-fidelity-judge.py`，自动生成 judge prompt 并校验 judge JSON 结果。
+- challenge_premise escape blocker closed：SELA judge rubric 和 runner 要求 `not_applicable`、`transfer`、`challenge_premise` 必须做 escape review，不能自动放行。
+- cross-model baseline blocker closed：新增 SELA 跨模型 baseline 小样本，包含 `opencode/deepseek-v4-flash-free` 记录，并明确不声明普适鲁棒性。
+
+### 新增
+
+- 新增 `MPG / 主线-路径博弈` 独立方法、skill 入口、方法页、资源页和压力测试，用来处理主线兑现前的路径波动。
+- 新增 AGPLv3 + 商业双授权口径：开源使用、开源改造和开源部署按 AGPLv3；闭源商业产品、私有 SaaS、商业平台集成或不公开对应源代码的商业用途需要单独商业授权。
+- 新增 `scripts/run-fidelity-judge.py`，用于生成可复现 judge prompt 并校验 judge JSON 结果；脚本只检查 rubric 记录形状、分数和 escape-review 覆盖，不替代语义判断。
+- 新增 SELA 跨模型 baseline 记录：在既有 v0.9 packet 之外，补跑 `opencode/deepseek-v4-flash-free` 的 baseline-vs-constrained 小样本，作为 v1.0 发布证据而非普适鲁棒性声明。
+- 新增 Method Fidelity Harness 设计、SELA/MPG pilot contract、共享 Shape & Evidence Risk Report、fidelity core、以及 3L5S / TVG 既有 validator 对齐记录，作为 v0.9 验收材料。
+- 新增 3L5S、EDSP、WAE、TVG、using-mindthus 的 fidelity output template 与 shared-core validator；本轮不迁移 `tplan` runtime。
+- MPG 交付 `Path-Carrying Strategy / 主线承载方案`，不只判断行动者能不能穿过波动，还要给出暴露预算、可选性、触发器、熔断点和证据缺口。
+- 新增 `Human-Readable First / 先讲人话` 输出纪律：先讲“这对你意味着什么”，再给结构字段，避免方法分析变成术语墙。
+- 新增 `Reasoning Durability / 推演耐久性` 回放标准：用当时信息面检查推演逻辑是否禁得起推敲，而不是用事后结果命中率粗暴打分。
+- 新增 `MPG-AQM Visibility Layer / 主线-路径显影层`：复杂主线-路径关系可用非精准量化显影显出主线强度、路径阻力、载体脆弱度、信息缺口和触发器强度，但 MPG 仍负责判断，AQM 只负责显影变量。
+
+### 调整
+
+- `AGENTS.md` 与 README 同步 MPG 的独立定位、SELA 之后的使用关系、表达纪律和滥用边界。
+- `using-mindthus` 路由补齐 MPG：SELA 看整体趋势，MPG 判断并设计主线如何穿过具体路径波动。
+
+### 验收
+
+- 新增 MPG contract tests，锁定 skill frontmatter、方法分层、交付物、边界、表达纪律和 AQM 主从关系。
+- 新增 packaging docs sync test，避免 README、AGENTS 和 changelog 在 MPG 迭代后停留在旧口径。
+
+## v0.6.3
+
+发布日期：2026-06-05
+
+[完整发布日志](docs/releases/v0.6.3.md)
+
+这版主要让 `tplan` 用起来更轻、更像人在沟通，同时保留长任务运行时最重要的安全边界。
+
+对使用者来说，变化很直接：
+
+- 低风险、短路径任务不会一上来就进入完整项目管理流程。
+- 普通进度更新会先讲“当前在做什么、确认了什么、下一步是什么”，不再默认用 `T1`、
+  `E2` 这类内部编号开头。
+- 多条只读调查线索可以交给 SubAgent 并行检查，减少等待时间。
+- SubAgent 只能做侦察，不能改文件、写 evidence、改任务树或替主 agent 下最终结论。
+- 遇到目标变更、关键删除、阻塞或不能安全继续时，`tplan` 仍会触发 review、decision
+  hook 或 graceful stop。
+
+维护者视角：这是 `v0.6` 判断内核后的第三个 patch release，重点是收尾 tplan 运行时优化。
+它不缩小 `tplan` 的能力边界，而是把运行成本从“全程常开”调整为“按风险触发”：
+通过自适应记录密度让普通场景更轻，同时让关键风险仍然触发 alignment、decision hook、
+Mission Review 或 graceful stop。
+
+### 新增
+
+- `tplan` 增加 Adaptive Runtime Policy：`lite / normal / strict` 是运行仪式和记录密度
+  的内部层级，不是削弱能力的模式。
+- 新增 `init_lite.py` 与 `checkpoint.py`：低风险短路径可以只保存 Mission objective、
+  acceptance criteria、active node、latest state 和必要 evidence / blocker / decision
+  摘要。
+- 新增用户可读输出适配：普通回复先讲当前目标、进展、已确认事项和下一步，不再默认用
+  `T1`、`E2` 这类内部编号开头。
+- 新增只读 SubAgent 加速规则：SubAgents are scouts, not controllers；SubAgent 只做
+  read-only investigation，候选发现必须由主 agent 验证后才能写入 evidence 或影响决策。
+
+### 调整
+
+- Step 延迟实体化：普通执行动作可以先作为本地 log 或 checkpoint，只有需要恢复、验收、
+  回滚、引用 evidence 或动作膨胀成多步时才提升为 Step。
+- Evidence 稀疏化：`evidence.jsonl` 只承载 acceptance、blocker、feedback、decision、
+  state transition 或 key finding，不再吸收普通过程流水账。
+- Decision handling 分成 inline alignment、light packet 和 full mission review，
+  降低普通选择的 packet 成本，同时保留高影响变更的触发强度。
+- Release pack 边界复查：确认生成包不包含仓库测试、内部设计目录、`.git` 或
+  `__pycache__`，新增 tplan 运行资源进入三平台发布目标。
+
+### 验收
+
+- 新版 tplan 与旧版 tplan 做过 A/B 对比：新版能保持 Mission、evidence、decision hook
+  与 stop 能力，同时减少常规 Step 实体化和脚本调用密度。
+- A/B 结论保守处理：由于现场 agent 仍查了不少 help/source，并有外部连接重试污染，
+  不把这次结果宣称为干净性能证明，只作为行为方向验证。
+- 只读 SubAgent pressure scenario 固化了禁止 SubAgent 修改文件、Mission state、
+  evidence、task tree 或 decisions 的边界。
+
+### 校验
+
+- `python3 -m unittest tests/tplan/test_skill_contract.py -v`
+- `python3 -m unittest discover -s tests/tplan -v`
+- `python3 -m py_compile skills/tplan/scripts/*.py`
+- `python3 -m unittest discover -s tests -v`
+- `python3 scripts/build-release-pack.py --out /tmp/mindthus-release-audit-13 --force`
 
 ## v0.6.2
 

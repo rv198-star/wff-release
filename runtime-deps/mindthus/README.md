@@ -8,7 +8,7 @@ Tracked files:
 - `mindthus.lock.json`: the pinned upstream repo, tag, commit, local source
   cache directory name, and release payload directory name.
 - `release/`: the committed Mindthus release payload shipped inside WFF install
-  packs and release bundles. It is a curated `v0.6.2` release payload, not the
+  packs and release bundles. It is a curated `v1.4.1` release payload, not the
   upstream git checkout.
 - `README.md`: this operating note.
 

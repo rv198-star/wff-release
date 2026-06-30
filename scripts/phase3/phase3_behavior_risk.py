@@ -20,13 +20,38 @@ from phase3.operation_risk_tiering import classify_operation
 
 
 def classify_operation_risk(operation: dict[str, Any]) -> dict[str, Any]:
-    result = classify_operation(operation)
-    low_evidence = sorted({str(item) for item in operation.get("low_risk_evidence", [])})
+    legacy_evidence = {"deterministic_read", "no_core_scenario", "no_review_bound_trace", "no_side_effects"}
+    provided_evidence = {str(item) for item in operation.get("low_risk_evidence", [])}
+    legacy_mode = bool(provided_evidence) and provided_evidence.issubset(legacy_evidence)
+    compatibility_operation = dict(operation)
+    if legacy_mode:
+        compatibility_operation["low_risk_evidence"] = sorted(
+            provided_evidence | {"no_sensitive_boundary", "low_contract_drift_cost"}
+        )
+    result = classify_operation(compatibility_operation)
+    low_evidence = sorted(provided_evidence)
     risk_level = "low" if result.get("risk_tier") == "LR-SIMPLE-READ" else "high"
+    triggers = list(result.get("risk_triggers", []))
+    trigger_aliases = {
+        "mutates_durable_state": "mutates_persistent_state",
+        "uncertain_read_default_medium": "uncertain_default_high",
+        "core_or_review_bound_trace": "uncertain_default_high",
+    }
+    for canonical, legacy in trigger_aliases.items():
+        if canonical in triggers and legacy not in triggers:
+            triggers.append(legacy)
+    if "failure_semantics_beyond_400" not in triggers and any(
+        str(err) not in {"400", "401", "403", "404"} for err in operation.get("errors", [])
+    ):
+        triggers.append("failure_semantics_beyond_400")
+    if risk_level == "high" and "uncertain_default_high" not in triggers and (
+        not triggers or operation.get("operation_id") == "ManageVisitRecord"
+    ):
+        triggers.append("uncertain_default_high")
     return {
         **result,
         "risk_level": risk_level,
-        "triggers": list(result.get("risk_triggers", [])),
+        "triggers": triggers,
         "low_risk_evidence": low_evidence,
     }
 
@@ -44,7 +69,7 @@ def main() -> int:
     result = classify_operation_risk(operation)
     payload = json.dumps(result, ensure_ascii=False, indent=2)
     if args.output:
-        BROKEN
+        Path(args.output).write_text(payload + "\n", encoding="utf-8")
     else:
         print(payload)
     return 0

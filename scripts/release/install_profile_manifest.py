@@ -9,6 +9,8 @@ from pathlib import Path
 import json
 from typing import Any
 
+from release.skill_catalog import catalog_by_name, load_skill_catalog
+
 
 MANIFEST_PATH = Path("config/wff-install-profiles.json")
 BUILDABLE_PROFILE_STATUSES = {"default", "supported", "preview"}
@@ -74,14 +76,15 @@ def validate_install_profile_manifest(repo_root: Path, manifest: dict[str, Any])
     target_package_ids = _collect_id_set(manifest, "target_packages", errors)
     capability_ids = _collect_id_set(manifest, "capability_packages", errors)
     resource_module_ids = _collect_id_set(manifest, "resource_modules", errors)
+    skill_catalog = _load_skill_catalog_for_manifest(repo_root, errors)
 
     _validate_target_packages(manifest, capability_ids, resource_module_ids, errors)
-    _validate_capability_packages(repo_root, manifest, resource_module_ids, errors)
+    _validate_capability_packages(repo_root, manifest, resource_module_ids, skill_catalog, errors)
     _validate_resource_modules(repo_root, manifest, errors)
 
     for profile in profiles:
         profile_id = str(profile.get("id", "")).strip() or "<missing>"
-        _validate_profile(repo_root, profile_id, profile, target_package_ids, capability_ids, resource_module_ids, errors)
+        _validate_profile(repo_root, profile_id, profile, target_package_ids, capability_ids, resource_module_ids, skill_catalog, errors)
 
     return errors
 
@@ -152,6 +155,7 @@ def _validate_capability_packages(
     repo_root: Path,
     manifest: dict[str, Any],
     resource_module_ids: set[str],
+    skill_catalog: dict[str, dict[str, Any]],
     errors: list[str],
 ) -> None:
     for capability in manifest.get("capability_packages", []):
@@ -164,6 +168,13 @@ def _validate_capability_packages(
         for skill_name in capability.get("skills", []):
             if not (repo_root / "skills" / str(skill_name) / "SKILL.md").exists():
                 errors.append(f"capability_package {capability_id} references missing skill: {skill_name}")
+                continue
+            _validate_skill_catalog_reference(
+                f"capability_package {capability_id}",
+                str(skill_name),
+                skill_catalog,
+                errors,
+            )
         _validate_id_refs(
             capability_id,
             "resource_modules",
@@ -198,6 +209,7 @@ def _validate_profile(
     target_package_ids: set[str],
     capability_ids: set[str],
     resource_module_ids: set[str],
+    skill_catalog: dict[str, dict[str, Any]],
     errors: list[str],
 ) -> None:
     for required_key in (
@@ -231,6 +243,8 @@ def _validate_profile(
     for skill_name in profile.get("skills", []):
         if not (repo_root / "skills" / str(skill_name) / "SKILL.md").exists():
             errors.append(f"{profile_id} references missing skill: {skill_name}")
+            continue
+        _validate_skill_catalog_reference(profile_id, str(skill_name), skill_catalog, errors)
 
     for key in (
         "explicit_scripts",
@@ -264,3 +278,25 @@ def _validate_profile(
         for key in ("type", "reason", "evidence", "future_action"):
             if not blocker.get(key):
                 errors.append(f"{profile_id} blocker {blocker_index} missing {key}")
+
+
+def _load_skill_catalog_for_manifest(repo_root: Path, errors: list[str]) -> dict[str, dict[str, Any]]:
+    try:
+        return catalog_by_name(load_skill_catalog(repo_root))
+    except Exception as exc:
+        errors.append(f"skill catalog invalid: {exc}")
+        return {}
+
+
+def _validate_skill_catalog_reference(
+    owner: str,
+    skill_name: str,
+    skill_catalog: dict[str, dict[str, Any]],
+    errors: list[str],
+) -> None:
+    catalog_entry = skill_catalog.get(skill_name)
+    if catalog_entry is None:
+        errors.append(f"{owner} references uncataloged skill: {skill_name}")
+        return
+    if catalog_entry.get("install_profile_reference") != "allowed":
+        errors.append(f"{owner} references non-installable skill: {skill_name}")

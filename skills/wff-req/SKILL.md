@@ -60,6 +60,8 @@ When the input packet has `packet_subtype: existing-system-change`, also read:
 When the input is a `P1 source input packet`, consume its `Admission Decision`,
 `Open Truth Gaps`, and `Reviewer Concerns` before generation. P1 must preserve review-bound gaps and must not invent missing product truth.
 
+If the packet includes `Canonical Product Language Candidates`, P1 must treat terminology candidates as advisory labels for source-backed naming continuity. They may help avoid accidental relabeling, but they must not replace source materials, the P1 source brief, or the truth-state ledger. P1 must not promote review-bound terminology into confirmed product truth.
+
 ## Demand Change Evaluation
 
 For `existing-system-change` packets, run a light Demand Change Evaluation

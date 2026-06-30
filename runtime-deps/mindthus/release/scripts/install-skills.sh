@@ -8,7 +8,7 @@ Usage:
   scripts/install-skills.sh claude [--repo DIR] [--force]
 
 Modes:
-  codex   Install Mindthus as a namespaced skills pack at ~/.agents/skills/mindthus.
+  codex   Install Mindthus as a namespaced skills pack at ${CODEX_HOME:-~/.codex}/skills/mindthus.
   claude  Link each skill into ~/.claude/skills without a namespace prefix.
 
 Options:
@@ -76,15 +76,20 @@ fi
 
 case "${mode}" in
   codex)
-    link_path "${skills_dir}" "${HOME}/.agents/skills/mindthus" "${force}"
-    echo "installed Mindthus skills pack: ${HOME}/.agents/skills/mindthus -> ${skills_dir}"
+    codex_home="${CODEX_HOME:-${HOME}/.codex}"
+    target="${codex_home}/skills/mindthus"
+    link_path "${skills_dir}" "${target}" "${force}"
+    echo "installed Mindthus skills pack: ${target} -> ${skills_dir}"
     ;;
   claude)
     for skill in "${skills_dir}"/*; do
       [[ -d "${skill}" ]] || continue
+      [[ "$(basename "${skill}")" == "_runtime" ]] && continue
       link_path "${skill}" "${HOME}/.claude/skills/$(basename "${skill}")" "${force}"
     done
     echo "installed Mindthus skills into ${HOME}/.claude/skills"
+    echo "note: claude mode links skills back to this repo checkout; validators keep using the repo-local _runtime"
+    echo "note: for copied release-pack installs, follow README Claude Code Personal Skills Mode and copy _runtime separately"
     ;;
   *)
     echo "unknown mode: ${mode}" >&2

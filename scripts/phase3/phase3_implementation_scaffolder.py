@@ -58,6 +58,11 @@ from phase3.contract_tools import (
     extract_nested_bullet_items,
     load_openapi_document,
 )
+from phase3.frontend_route_segments import (
+    frontend_route_file_segment,
+    route_slug,
+    sanitize_route_segment,
+)
 from phase3.implementation_binding_tools import (
     append_generated_sql_test_bindings,
     append_generated_unit_test_bindings,
@@ -86,18 +91,6 @@ def _module_synthesis_tools():
 
 def _frontend_scaffold_renderer():
     return importlib.import_module("phase3.frontend_scaffold_renderer")
-
-
-def sanitize_route_segment(route_value: str, fallback_surface: str) -> str:
-    candidates = [part for part in str(route_value).split("/") if part.strip()]
-    normalized = [stable_slug(part, fallback="surface") for part in candidates]
-    if normalized:
-        return "/".join(normalized)
-    return stable_slug(fallback_surface, fallback="surface")
-
-
-def route_slug(surface: str) -> str:
-    return stable_slug(surface, fallback="surface")
 
 
 def infer_targets_from_scope(
@@ -139,10 +132,6 @@ def infer_targets_from_scope(
 
 def load_ui_pages(*args: Any, **kwargs: Any) -> Any:
     return _frontend_scaffold_renderer().load_ui_pages(*args, **kwargs)
-
-
-def frontend_route_file_segment(*args: Any, **kwargs: Any) -> str:
-    return _frontend_scaffold_renderer().frontend_route_file_segment(*args, **kwargs)
 
 
 def merge_preferred_ui_sections(*args: Any, **kwargs: Any) -> Any:

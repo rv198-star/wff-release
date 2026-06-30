@@ -27,6 +27,7 @@ from phase3.review_support import (
     finding_severity_counts,
     load_json,
     load_json_if_exists,
+    render_findings_markdown,
     read_text_if_exists,
     render_review_report_markdown,
     support_gate_exit_code,
@@ -34,6 +35,9 @@ from phase3.review_support import (
 from phase3.surface_policy import phase3_surface_exists
 from phase3.trace_gap_checks import trace_registry_blocking_gap_count
 
+
+STRUCTURAL_QUALITY_BUCKET = "structural-quality"
+CONTRACT_SPEC_SOURCE_DRIFT_BUCKET = "contract-spec-source-drift"
 
 PLACEHOLDER_PATTERNS = (
     re.compile(r"\bTODO\b", re.IGNORECASE),
@@ -1351,6 +1355,61 @@ def build_findings(
     return findings
 
 
+def classify_finding_bucket(finding: dict[str, Any]) -> str:
+    title = str(finding.get("title") or "").lower()
+    evidence = str(finding.get("evidence") or "").lower()
+    drift_markers = (
+        "trace",
+        "openapi",
+        "contract",
+        "source",
+        "action card",
+        "behavior card",
+        "ia-required",
+        "implementation bindings reference",
+        "missing implementation routes",
+    )
+    if any(marker in title or marker in evidence for marker in drift_markers):
+        return CONTRACT_SPEC_SOURCE_DRIFT_BUCKET
+    return STRUCTURAL_QUALITY_BUCKET
+
+
+def annotate_finding_buckets(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    annotated: list[dict[str, Any]] = []
+    for finding in findings:
+        row = dict(finding)
+        row["finding_bucket"] = classify_finding_bucket(row)
+        annotated.append(row)
+    return annotated
+
+
+def finding_bucket_counts(findings: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        "structural_quality_findings": sum(
+            1 for finding in findings if finding.get("finding_bucket") == STRUCTURAL_QUALITY_BUCKET
+        ),
+        "contract_spec_source_drift_findings": sum(
+            1 for finding in findings if finding.get("finding_bucket") == CONTRACT_SPEC_SOURCE_DRIFT_BUCKET
+        ),
+    }
+
+
+def render_bucketed_findings_markdown(findings: list[dict[str, Any]]) -> list[str]:
+    structural_findings = [
+        finding for finding in findings if finding.get("finding_bucket") == STRUCTURAL_QUALITY_BUCKET
+    ]
+    drift_findings = [
+        finding for finding in findings if finding.get("finding_bucket") == CONTRACT_SPEC_SOURCE_DRIFT_BUCKET
+    ]
+    return [
+        "## Structural Quality Findings",
+        render_findings_markdown(structural_findings),
+        "",
+        "## Contract / Spec / Source Drift Findings",
+        render_findings_markdown(drift_findings),
+    ]
+
+
 def build_report_markdown(report: dict[str, Any], output_locale: str | None = None) -> str:
     findings = report.get("findings", [])
     summary = report["summary"]
@@ -1361,6 +1420,8 @@ def build_report_markdown(report: dict[str, Any], output_locale: str | None = No
             f"- high_findings: {summary['high_findings']}",
             f"- medium_findings: {summary['medium_findings']}",
             f"- low_findings: {summary['low_findings']}",
+            f"- structural_quality_findings: {summary.get('structural_quality_findings', 0)}",
+            f"- contract_spec_source_drift_findings: {summary.get('contract_spec_source_drift_findings', 0)}",
             f"- reviewed_target_count: {summary['reviewed_target_count']}",
             f"- metadata_only_target_count: {summary['metadata_only_target_count']}",
             f"- hardcoded_fallback_target_count: {summary['hardcoded_fallback_target_count']}",
@@ -1380,6 +1441,7 @@ def build_report_markdown(report: dict[str, Any], output_locale: str | None = No
         ],
         findings=findings,
     )
+    report_markdown = report_markdown.rstrip() + "\n\n" + "\n".join(render_bucketed_findings_markdown(findings)) + "\n"
     return localize_phase3_code_review_report(report_markdown, output_locale)
 
 
@@ -1419,13 +1481,14 @@ def analyze_phase3_code_review(
         set(owner_boundary_guard_targets) - set(real_authorization_targets)
     )
     real_authorization_enforced = bool(real_authorization_targets) and not authorization_integration_warning_targets
-    findings = build_findings(
+    findings = annotate_finding_buckets(build_findings(
         output_dir=output_dir,
         implementation_bindings=implementation_bindings,
         trace_registry_final=trace_registry_final,
         openapi_diff_report=openapi_diff_report,
-    )
+    ))
     counts = finding_severity_counts(findings)
+    bucket_counts = finding_bucket_counts(findings)
     reviewed_target_count = len(
         {
             str(target).strip()
@@ -1438,6 +1501,7 @@ def analyze_phase3_code_review(
     return {
         "summary": {
             **counts,
+            **bucket_counts,
             "reviewed_target_count": reviewed_target_count,
             "trace_gap_count": count_blocking_trace_gaps(trace_registry_final),
             "openapi_diff_verdict": str((openapi_diff_report or {}).get("verdict", "unknown")),

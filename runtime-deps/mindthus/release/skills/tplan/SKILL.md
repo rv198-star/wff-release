@@ -1,210 +1,151 @@
 ---
 name: tplan
-description: Use when a Mission needs a script-driven task runtime, task tree state, decision hooks, human-in-loop authority, or Mission-relative addition, subtraction, selection, closure, and evidence tracking.
+description: "Use when an AI agent needs an OKR-Runtime: a Mission needs script-driven task state, acceptance evidence, decision hooks, human-in-loop authority, or Mission-relative addition, subtraction, selection, closure, and recovery."
 ---
 
 # tplan
 
 ## Core Claim / 核心判断
 
-`tplan` is a Mission-oriented project manager and control plane.
+`tplan` is an OKR-Runtime for AI agents: it keeps a long-running Mission attached to
+task state, acceptance evidence, decision hooks, and recovery authority.
 
-Use it when work needs to stay attached to a stable Mission, avoid task-list drift,
-route semantic decisions to Mindthus skills, and preserve task state in a resumable
-runtime.
+Use OKR language as the primary public explanation: Mission maps to Objective,
+acceptance criteria and acceptance evidence map to Key Results, and Task, SubTask, and Step map to initiatives and actions. It is not a human OKR management system. It keeps
+current runtime terms unless a schema migration explicitly remaps them; the reason is runtime precision, not existing user familiarity.
 
-### Core Boundary
+Its cycle is shorter than ordinary OKR management: checkpoint, evidence, blocker,
+feedback, or decision hook can update the active path while the Mission stays stable.
+Treat it as a dynamic workflow runtime.
 
-`tplan` owns runtime state, order, authority, validation, and decision hook contracts.
-
-Scripts must not decide semantic truth. They may validate shape, state legality, parent
-links, evidence references, and human-in-loop authority.
-
-Semantic judgment is delegated:
-
-- `3l5s`: problem definition, decomposition, loopback
-- `sela`: subtraction and Mission-level ROI pressure
-- `edsp`: fuzzy structural choices
-- `wae`: control boundaries, evidence bridges, and log/evidence separation
-- `tvg`: artifact depth audit
+Scripts must not decide semantic truth. They validate shape, legality, references, and
+authority. Semantic judgment routes to `3l5s`, `sela`, `edsp`, `wae`, or `tvg`.
 
 ## Mainline / 主路径
 
 ### Startup Policy
 
-Mission startup uses three numeric inputs:
+Mission startup records `human_in_loop`, `risk_tolerance`, and
+`resource_sufficiency`. Default `human_in_loop` is `0` autonomous. Use
+`scripts/init_lite.py` for low-risk checkpoint-first startup and `scripts/init_mission.py`
+when expanded runtime state is needed.
 
-- `human_in_loop`: `0` autonomous, `100` advisory; mixed modes are reserved.
-- `risk_tolerance`: `0-33` low, `34-66` normal, `67-100` high.
-- `resource_sufficiency`: `0-33` poor, `34-66` normal, `67-100` rich.
+### Adaptive Runtime Policy
 
-Default `human_in_loop` is `0`.
+Run as a thin Mission state machine by default. `runtime level may reduce recording density, but it must not weaken key risk triggers`.
+
+- `lite`: reversible, short-path work. Lite mode minimum state is Mission objective,
+  acceptance criteria, active node, latest state, and blocker/evidence/decision summary.
+- `normal`: default Mission work with meaningful Task/SubTask/Step state.
+- `strict`: high-risk, long-running, audit-heavy, or authority-sensitive work.
+
+Lite Startup Default means checkpoint-first startup; Delayed Step Materialization means
+ordinary actions become Steps only when they need recovery, acceptance, rollback,
+evidence reference, or decomposition. Sparse Evidence means routine notes stay in logs;
+only acceptance, blocker, feedback, decision, state-change, or key finding records
+become evidence. Checkpoint Command means `scripts/checkpoint.py` may bundle a local log,
+optional sparse evidence, and survey output, without bypassing gates.
+Mission Pulse means `scripts/mission_pulse.py` may build a read-only Snapshot/Pulse/Gate
+route note before continuation, freeze, handoff, stop, branch cleanup, or risk review.
 
 ### Runtime Loop
 
-1. Initialize Mission files with `scripts/init_mission.py`.
-2. Use `3l5s` to propose success-critical Task nodes.
-3. Add Task, SubTask, and Step nodes through `scripts/add_node.py`; do not hand-edit
-   `mission.json` for structure changes.
-4. Validate the tree with `scripts/check_mission.py`.
-5. Record task-local step logs with `scripts/record_step_log.py` while executing.
-6. Record only acceptance, state-change, blocker, feedback, or decision evidence with
-   `scripts/record_evidence.py`.
-7. If execution cannot safely continue, write a concise Chinese stop report with
-   `scripts/stop_report.py` and request human intervention.
-8. Archive completed task logs with `scripts/archive_task_logs.py` and promote only the
-   summary or key findings to evidence when they support a claim.
-9. Survey state with `scripts/survey.py`.
-10. Generate a decision packet with `scripts/make_decision_packet.py`.
-11. Run the parent-alignment or Mission Review Gate for the decision weight.
-12. Invoke the routed Mindthus skill named by the decision hook.
-13. Ensure the hook output states the required alignment before mutation.
-14. Apply or record the decision with `scripts/apply_decision.py`.
+Use `3l5s` for success-critical Task proposal. Mutate structure through scripts, not
+hand edits. Separate logs from evidence. Survey state, build a packet with
+`scripts/make_decision_packet.py`, run the routed Mindthus hook, then apply only
+validated decisions. Stop in Chinese when continuation is unsafe.
+
+Lite Quickstart Recipe: Prefer these recipes over script-help exploration when inputs
+are known. Start with `python3 skills/tplan/scripts/init_lite.py --dir ...`, checkpoint
+with `scripts/checkpoint.py`, escalate through evidence, packet, hook, and
+`scripts/apply_decision.py`.
+
+### Shared Risk Context
+
+Use Shared Risk Context when a local blocker, degraded condition, invalid evidence
+risk, abnormal cost, or recovery signal may affect another unit's risk-adjusted value.
+execution units do not read each other's task logs. Publish scoped signals to
+Mission-level `shared_context.risk_signals`. `scripts/record_risk_context.py` writes
+`risk_context_update`; recovery writes `risk_context_recovery`. High-impact decisions
+with active shared risk must expose `risk_assessment`.
+
+### Mission Shared Context Memory
+
+Before starting a Mission, run Mission identity preflight with `preflight_mission.py`.
+Project-level memory lives at
+`.tplan/shared_contexts/tplan_mission_shared_context-<mission_id>.md`. Continue only
+when Mission identity is continuous; otherwise create a new Mission. `source_contexts`
+are background memory for a new Mission, not a derived Mission status or inherited
+acceptance authority.
+
+### User-Facing Output Adapter
+
+Internal IDs are for runtime stability. User-facing output should lead with meaning;
+ordinary updates should not lead with raw IDs. Use `scripts/render_user_update.py` for
+compact Chinese status updates.
+
+### Read-only SubAgent Acceleration
+
+SubAgents are scouts, not controllers. SubAgent outputs are candidate findings. The
+main agent must verify, merge, decide, and write. SubAgents must not mutate files, Mission state, evidence, task tree, decisions, or external systems.
 
 ## Guardrails / 从属补漏
 
 ### Anti-Spiral Gate
 
-Long-running Missions should activate Anti-Spiral Self-Audit when observable traces
-suggest local repair may be replacing Mission progress: repeated third touches of the
-same object, user feedback that the result worsened or remains insufficient, additive
-layering, or weak evidence delta on same-path continuation.
-
-This gate is not a separate skill. It is a runtime brake that can route back to `3l5s`
-for problem loopback, `wae` for control-boundary repair, or subtraction/rollback inside
-the active Mission. Full text lives in `docs/methodologies/anti-spiral-self-audit.md`.
+Activate Anti-Spiral when local repair may be replacing Mission progress: third touches,
+worsening feedback, additive layering, or weak evidence delta. This gate can route back
+to `3l5s`, `wae`, subtraction, rollback, or a stop.
 
 ### Alignment Gate
 
-Task alignment is hierarchical by default:
-
-- Task nodes are strongly responsible to the Mission.
-- SubTask nodes are strongly responsible to their parent Task.
-- Step nodes are execution leaves responsible to their parent Task or SubTask.
-- SubTasks and Steps carry a lightweight `mission_trace` through the parent chain, but do not
-  repeat a full Mission justification during ordinary execution.
-
-Mission is not counted as a task level. Runtime `v0.1` supports:
-
-- `task`: level 1 control node, Mission-facing.
-- `subtask`: level 2 control node, Task-facing.
-- `step`: level 2 or 3 execution leaf.
-
-Simple work may use `Mission -> Task -> Step`. Complex work may use
-`Mission -> Task -> SubTask -> Step`. Step never has children. If a Step needs
-meaningful decomposition, it should raise a split signal and its parent control node
-should replace or upgrade it into a SubTask.
-
-Future expansion may add deeper Task/SubTask control layers, but Step remains the
-stable execution leaf.
-
-### Logs, Evidence, And Summary
-
-Evidence is not a process log.
-
-- `logs/`: step-local records used while doing work. They are allowed to be noisy and
-  should stay below the active execution boundary.
-- `evidence.jsonl`: acceptance, state-change, blocker, feedback, decision, or key
-  finding records that constrain claims.
-- `archive/`: compressed task history. When a task or milestone closes, archive its
-  logs and keep a summary plus only the evidence needed by the parent.
-
-Decision packets should consume evidence and recent blockers, not raw step logs unless
-a specific investigation needs them.
-
-### Graceful Stop
-
-tplan should stop cleanly when continuing would require inventing missing intent,
-authority, acceptance criteria, or product judgment. A stop is not a generic failure:
-it is a handoff to a human with the smallest useful context.
-
-Default user-facing stop reports are Chinese:
-
-```text
-停止报告
-
-当前目标：
-...
-
-已尝试：
-1. ...
-2. ...
-3. ...
-
-阻碍：
-...
-
-为何不能安全继续：
-...
-
-需要人类提供：
-...
-
-恢复条件：
-...
-```
-
-Use `scripts/stop_report.py` to record the report. It writes a `stop_report` evidence
-event, marks the current node `blocked`, sets the Mission to `requires_human`, and
-keeps the blocked node active for resumption.
-
-Use a lightweight gate for ordinary SubTask/Step decisions:
-
-- `parent_alignment`: how the recommendation advances the parent task.
-- `mission_trace`: the parent-chain path back to Mission acceptance evidence.
-
-Use `mission_alignment` and, for high-impact decisions, a full `mission_review` when
-the decision can materially affect Mission convergence:
-
-- adding or removing a `success-critical` task
-- pausing, pruning, abandoning, or superseding a `success-critical` task
-- switching the active task
-- closing the Mission
-- making subtraction decisions after resource pressure changes
-- looping back because feedback challenges the current problem definition
-- expanding the same supporting or exploratory branch more than once
-
-The full review must identify the current Mission objective, remaining acceptance gap,
-task contribution, Mission ROI effect, and risk of not taking the decision. This is a
-judgment prompt, not proof that the judgment is correct.
+Task alignment is hierarchical. Task faces Mission; SubTask faces Task; Step is the
+execution leaf. Step never has children. Use `parent_alignment` for ordinary work and
+`mission_alignment` / `mission_review` for high-impact Mission-facing changes.
 
 ### Linear Continuation Gate
 
-`tplan` does not stop because work has taken too long. It challenges same-path
-continuation when marginal Mission ROI, path dominance, or expected evidence delta is
-weak or unclear.
+Same-path continuation needs `path_assessment`: `marginal_roi`, `path_role`, and
+`evidence_delta`. Elapsed time alone is not the criterion; Mission ROI and expected
+evidence delta are.
 
-For high-impact selection, subtraction, loopback, chain-role, active-task switch,
-Mission closure, escalation, or continuation decisions, hook output should expose
-`path_assessment`:
+#### Continuation Authorization
 
-- `marginal_roi`: expected incremental Mission value of another same-path action.
-- `path_role`: whether the path is a unique blocker, dominant path, one of many, or unclear.
-- `evidence_delta`: whether the next action is expected to produce decision-constraining evidence.
+Mission-facing same-path `continue` decisions must expose `continuation_authorization`.
+count-based reminders are triggers, not decisions. The record includes
+`trigger_reasons`, `evidence_shape_lint`, `defect_classification`,
+`expected_evidence_delta`, and `authorized_action`.
 
-Scripts validate this structure only. Agentic judgment decides whether the assessment
-is true, and evidence links should constrain the confidence of the recommendation.
+Use generic trigger reasons such as `repeated_same_path_attempt`,
+`post_continuation_defect`, `high_cost_or_high_blast_radius_continuation`, and
+`weak_or_unclear_evidence_delta`. Mechanical checks are shape-only evidence. Agentic
+judgment decides whether a defect is `acceptance_blocking`, `batchable_detail`, or
+`unclear`, and whether continuation still has Mission ROI.
+
+### Graceful Stop
+
+Stop cleanly when continuing would require inventing intent, authority, acceptance
+criteria, or product judgment. `scripts/stop_report.py` records `stop_report` evidence,
+marks the active node `blocked`, sets Mission to `requires_human`, and keeps resumption
+context.
 
 ## Boundaries / 边界
 
-- `tplan` must not become a standalone semantic reasoning engine; route semantic judgment to the appropriate Mindthus skill.
-- Scripts must not decide semantic truth. They validate shape, state legality, authority, and evidence references.
-- Evidence is not a process log; promote only acceptance, blocker, feedback, decision, state-change, or key finding records.
+- `tplan` is runtime governance, not a standalone reasoning engine.
+- Scripts validate bookkeeping only; they do not prove semantic correctness.
+- Evidence is not a process log.
+- Shared Risk Context is not a cross-task transcript.
+- Mission shared context Markdown is memory; `mission.json.shared_context` is the
+  runtime index.
+- Lite mode reduces ceremony only; it cannot bypass high-impact gates.
 - Autonomous mode still stops when no authorized, ROI-defensible next action remains.
 
 ## Runtime Support / 支撑材料
 
-### Resource Files
-
 - `resources/schema.md`: mission files, task fields, decision packet, hook output.
 - `resources/lifecycle.md`: Mission completion, closure, task states, transitions.
 - `resources/policy.md`: risk/resource policy and human-in-loop authority.
-- `resources/hooks.md`: decision hook triggers, routed skills, input/output contract.
-
-### Runtime Scripts
-
-Runtime scripts are added incrementally by implementation tasks. Until those scripts
-exist, treat the script names in the Runtime Loop as planned interfaces rather than
-executable commands.
-
-Script output validates bookkeeping only. Agentic judgment remains required.
+- `resources/hooks.md`: decision hooks, routed skills, path/risk/continuation contracts.
+- `resources/user-output.md`: user-facing rendering rules.
+- `resources/subagents.md`: read-only SubAgent acceleration and merge rules.
+- `scripts/mission_pulse.py`: read-only Mission Pulse route note.

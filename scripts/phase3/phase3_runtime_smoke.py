@@ -14,171 +14,28 @@ if str(SCRIPTS_ROOT) not in sys.path:
 
 
 import argparse
-import hashlib
 import json
-import os
-import re
 import shutil
-import subprocess
-import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse, urlunparse
 
-from common.host_port_allocator import allocate_host_ports, host_port_in_use
+from common.host_port_allocator import host_port_in_use
 from common.output_language import localize_phase3_runtime_smoke_report, resolve_output_locale
 from phase3.phase3_started_service_smoke import run_phase3_started_service_smoke
-from phase3.renderer_common import ascii_slug
 from phase3.review_support import support_gate_exit_code, write_json_report
+from phase3.runtime_smoke_executor import (
+    command_has_host_port_bind_conflict,
+    command_has_transient_network_failure,
+    detect_compose_command,
+    run_command,
+    wait_for_probe,
+)
+from phase3.runtime_smoke_plan import build_runtime_smoke_plan as canonical_build_runtime_smoke_plan
 
 
 def write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-
-
-def workspace_identity_slug(workspace_root: Path) -> str:
-    resolved = str(workspace_root.resolve())
-    digest = hashlib.sha1(resolved.encode("utf-8")).hexdigest()[:8]
-    return f"{ascii_slug(workspace_root.name, fallback='phase3-runtime-smoke')}-{digest}"
-
-
-def completed_payload(command: list[str], completed: subprocess.CompletedProcess[str]) -> dict[str, Any]:
-    return {
-        "command": command,
-        "exit_code": int(completed.returncode),
-        "stdout": completed.stdout,
-        "stderr": completed.stderr,
-        "passed": completed.returncode == 0,
-    }
-
-
-def run_command(command: list[str], cwd: Path, timeout_seconds: int, extra_env: dict[str, str] | None = None) -> dict[str, Any]:
-    env = os.environ.copy()
-    if extra_env:
-        env.update(extra_env)
-    started_at_epoch_s = time.time()
-    started_monotonic = time.monotonic()
-    completed = subprocess.run(
-        command,
-        cwd=str(cwd),
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=timeout_seconds,
-        env=env,
-    )
-    payload = completed_payload(command, completed)
-    payload.update(
-        {
-            "started_at_epoch_s": round(started_at_epoch_s, 3),
-            "finished_at_epoch_s": round(time.time(), 3),
-            "duration_ms": int(round((time.monotonic() - started_monotonic) * 1000)),
-        }
-    )
-    return payload
-
-
-def command_has_transient_network_failure(payload: dict[str, Any]) -> bool:
-    combined = f"{payload.get('stdout', '')}\n{payload.get('stderr', '')}".lower()
-    return any(
-        marker in combined
-        for marker in (
-            "eai_again",
-            "etimedout",
-            "econnreset",
-            "temporary failure",
-            "fetch failed",
-            "network timeout",
-        )
-    )
-
-
-def compose_output_is_v2_or_newer(value: str) -> bool:
-    match = re.search(r"(?:version\s+)?v?(\d+)(?:\.\d+)", value, re.IGNORECASE)
-    return bool(match and int(match.group(1)) >= 2)
-
-
-def detect_compose_command() -> list[str]:
-    docker = shutil.which("docker")
-    if docker:
-        completed = subprocess.run(
-            [docker, "compose", "version"],
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        compose_output = completed.stdout.strip() or completed.stderr.strip()
-        if completed.returncode == 0 and compose_output_is_v2_or_newer(compose_output):
-            return [docker, "compose"]
-    docker_compose = shutil.which("docker-compose")
-    if docker_compose:
-        completed = subprocess.run(
-            [docker_compose, "--version"],
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        compose_output = completed.stdout.strip() or completed.stderr.strip()
-        if completed.returncode == 0 and compose_output_is_v2_or_newer(compose_output):
-            return [docker_compose]
-    return []
-
-
-def parse_env_file(path: Path) -> dict[str, str]:
-    if not path.exists() or not path.is_file():
-        return {}
-    values: dict[str, str] = {}
-    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key.strip()] = value.strip()
-    return values
-
-
-def probe_url(url: str, timeout_seconds: int) -> dict[str, Any]:
-    try:
-        with urllib.request.urlopen(url, timeout=timeout_seconds) as response:
-            body = response.read(512).decode("utf-8", errors="replace")
-            return {
-                "url": url,
-                "ok": 200 <= int(response.status) < 300,
-                "status_code": int(response.status),
-                "body_excerpt": body,
-            }
-    except urllib.error.HTTPError as exc:
-        body = exc.read(512).decode("utf-8", errors="replace")
-        return {
-            "url": url,
-            "ok": False,
-            "status_code": int(exc.code),
-            "body_excerpt": body,
-            "error": str(exc),
-        }
-    except Exception as exc:  # pragma: no cover - defensive path
-        return {
-            "url": url,
-            "ok": False,
-            "status_code": 0,
-            "body_excerpt": "",
-            "error": str(exc),
-        }
-
-
-def wait_for_probe(url: str, timeout_seconds: int, interval_seconds: float) -> dict[str, Any]:
-    deadline = time.time() + timeout_seconds
-    latest = probe_url(url, timeout_seconds=max(1, int(interval_seconds) or 1))
-    while time.time() < deadline:
-        if latest.get("ok"):
-            return latest
-        time.sleep(interval_seconds)
-        latest = probe_url(url, timeout_seconds=max(1, int(interval_seconds) or 1))
-    latest["timed_out"] = True
-    return latest
 
 
 def build_markdown(report: dict[str, Any], output_locale: str | None = None) -> str:
@@ -252,88 +109,18 @@ def compact_terminal_summary(report: dict[str, Any], output_path: Path) -> dict[
     }
 
 
-def runtime_smoke_port_defaults(workspace_root: Path) -> dict[str, int]:
-    defaults = {
-        **parse_env_file(workspace_root / ".env.example"),
-        **parse_env_file(workspace_root / ".env"),
-    }
-    resolved: dict[str, int] = {
-        "WEB_HOST_PORT": 53100,
-        "POSTGRES_HOST_PORT": 55432,
-        "REDIS_HOST_PORT": 56379,
-    }
-    for key in tuple(resolved.keys()):
-        raw = (
-            os.environ.get(f"PHASE3_RUNTIME_SMOKE_{key}", "").strip()
-            or os.environ.get(key, "").strip()
-            or str(defaults.get(key, "")).strip()
-        )
-        if not raw:
-            continue
-        try:
-            resolved[key] = int(raw)
-        except ValueError:
-            continue
-    return resolved
-
-
-def resolve_runtime_smoke_host_ports(
+def _build_runtime_smoke_plan(
     *,
     workspace_root: Path,
-    service_url: str,
-) -> dict[str, int]:
-    parsed = urlparse(service_url)
-    defaults = runtime_smoke_port_defaults(workspace_root)
-    return allocate_host_ports(
-        requested_ports={
-            "API_HOST_PORT": int(parsed.port or 3000),
-            "WEB_HOST_PORT": defaults["WEB_HOST_PORT"],
-            "POSTGRES_HOST_PORT": defaults["POSTGRES_HOST_PORT"],
-            "REDIS_HOST_PORT": defaults["REDIS_HOST_PORT"],
-        },
-        port_in_use=host_port_in_use,
+    service_url: str | None = None,
+    exclude_ports: set[int] | None = None,
+) -> dict[str, object]:
+    return canonical_build_runtime_smoke_plan(
+        workspace_root=workspace_root,
+        service_url=service_url,
+        exclude_ports=exclude_ports,
+        port_in_use_fn=host_port_in_use,
     )
-
-
-def normalize_runtime_smoke_service_url(service_url: str | None) -> str:
-    value = str(service_url or "").strip()
-    if not value or value.lower() in {"none", "null"}:
-        return "http://127.0.0.1:3000"
-    return value
-
-
-def runtime_smoke_service_url(service_url: str, api_host_port: int) -> str:
-    parsed = urlparse(normalize_runtime_smoke_service_url(service_url))
-    scheme = parsed.scheme or "http"
-    hostname = parsed.hostname or "127.0.0.1"
-    if ":" in hostname and not hostname.startswith("["):
-        hostname = f"[{hostname}]"
-    netloc = hostname if api_host_port <= 0 else f"{hostname}:{api_host_port}"
-    return urlunparse(parsed._replace(scheme=scheme, netloc=netloc))
-
-
-def build_runtime_smoke_env(service_url: str, selected_host_ports: dict[str, int]) -> dict[str, str]:
-    return {
-        "POSTGRES_USER": "postgres",
-        "POSTGRES_PASSWORD": "postgres",
-        "POSTGRES_DB": "app",
-        "DATABASE_URL": "postgresql://postgres:postgres@postgres:5432/app",
-        "REDIS_URL": "redis://redis:6379",
-        "OIDC_ISSUER_URL": "https://smoke.invalid/oidc",
-        "OIDC_CLIENT_ID": "phase3-smoke-client",
-        "OIDC_CLIENT_SECRET": "phase3-smoke-secret",
-        "AUTH_TOKEN_SECRET": "phase3-runtime-smoke-secret",
-        "PHASE3_ALLOW_AUTH_CONTEXT_HEADER": "false",
-        "PORT": "3000",
-        "HOST": "0.0.0.0",
-        "WEB_PORT": "3100",
-        "WEB_API_BASE_URL": "http://api:3000",
-        "VITE_API_BASE_URL": "/api",
-        "API_HOST_PORT": str(selected_host_ports["API_HOST_PORT"]),
-        "WEB_HOST_PORT": str(selected_host_ports["WEB_HOST_PORT"]),
-        "POSTGRES_HOST_PORT": str(selected_host_ports["POSTGRES_HOST_PORT"]),
-        "REDIS_HOST_PORT": str(selected_host_ports["REDIS_HOST_PORT"]),
-    }
 
 
 def redact_runtime_smoke_env(env: dict[str, str]) -> dict[str, str]:
@@ -353,6 +140,7 @@ def run_phase3_runtime_smoke(
     output_path: Path | None = None,
     image_tag: str = "",
     service_url: str = "http://127.0.0.1:3000",
+    runtime_plan: dict[str, object] | None = None,
     startup_timeout_seconds: int = 45,
     command_timeout_seconds: int = 300,
     cleanup: bool = True,
@@ -372,23 +160,20 @@ def run_phase3_runtime_smoke(
     docker_available = bool(shutil.which("docker"))
     compose_command = detect_compose_command()
     compose_available = bool(compose_command)
-    workspace_slug = workspace_identity_slug(workspace_root)
+    if runtime_plan is None:
+        runtime_plan = _build_runtime_smoke_plan(
+            workspace_root=workspace_root,
+            service_url=service_url,
+        )
+    workspace_slug = str(runtime_plan["workspace_slug"])
     normalized_image_tag = image_tag or f"{workspace_slug}:phase3-smoke"
-    project_name = f"phase3-smoke-{workspace_slug}"
-    requested_service_url = service_url
-    normalized_service_url = normalize_runtime_smoke_service_url(service_url)
-    selected_host_ports = resolve_runtime_smoke_host_ports(
-        workspace_root=workspace_root,
-        service_url=normalized_service_url,
-    )
-    effective_service_url = runtime_smoke_service_url(
-        normalized_service_url,
-        selected_host_ports["API_HOST_PORT"],
-    )
-    runtime_smoke_env = build_runtime_smoke_env(effective_service_url, selected_host_ports)
-    runtime_smoke_env["DOCKER_BUILDKIT"] = os.environ.get("DOCKER_BUILDKIT", "1") or "1"
-    runtime_smoke_env["COMPOSE_DOCKER_CLI_BUILD"] = os.environ.get("COMPOSE_DOCKER_CLI_BUILD", "1") or "1"
-    if effective_service_url != requested_service_url:
+    project_name = str(runtime_plan["compose_project_name"])
+    requested_service_url_input = str(runtime_plan["requested_service_url_input"])
+    requested_service_url = requested_service_url_input
+    effective_service_url = str(runtime_plan["service_url"])
+    selected_host_ports = dict(runtime_plan["selected_host_ports"])
+    runtime_smoke_env = dict(runtime_plan["runtime_env"])
+    if effective_service_url != requested_service_url_input:
         warnings.append("runtime_smoke_service_url_adjusted")
 
     if not dockerfile_path.exists():
@@ -408,6 +193,7 @@ def run_phase3_runtime_smoke(
     started_service_smoke_green = False
     compose_down_passed = not cleanup
     compose_started = False
+    active_runtime_smoke_env = runtime_smoke_env
 
     if not failures:
         try:
@@ -433,46 +219,103 @@ def run_phase3_runtime_smoke(
                 failures.append("docker_image_build_failed")
 
             if image_build_passed:
-                commands["migration"] = run_command(
-                    [*compose_command, "-p", project_name, "-f", str(compose_prod_path), "run", "--rm", "api", "pnpm", "migrate"],
-                    workspace_root,
-                    command_timeout_seconds,
-                    runtime_smoke_env,
-                )
-                migration_passed = bool(commands["migration"].get("passed"))
-                compose_started = True
-                if not migration_passed:
-                    failures.append("docker_migration_failed")
+                runtime_smoke_attempts: list[dict[str, Any]] = []
+                excluded_ports: set[int] = set()
 
-            if migration_passed:
-                commands["compose_up"] = run_command(
-                    [*compose_command, "-p", project_name, "-f", str(compose_prod_path), "up", "-d", "api"],
-                    workspace_root,
-                    command_timeout_seconds,
-                    runtime_smoke_env,
-                )
-                compose_up_passed = bool(commands["compose_up"].get("passed"))
-                if not compose_up_passed:
-                    failures.append("docker_compose_up_failed")
+                def reallocate_ports_after_bind_conflict(attempt_record: dict[str, Any]) -> None:
+                    nonlocal compose_down_passed
+                    nonlocal effective_service_url
+                    nonlocal runtime_smoke_env
+                    nonlocal selected_host_ports
+                    commands["compose_down"] = run_command(
+                        [*compose_command, "-p", project_name, "-f", str(compose_prod_path), "down", "--remove-orphans", "-v"],
+                        workspace_root,
+                        command_timeout_seconds,
+                        active_runtime_smoke_env,
+                    )
+                    attempt_record["compose_down"] = commands["compose_down"]
+                    compose_down_passed = bool(commands["compose_down"].get("passed"))
+                    if not compose_down_passed:
+                        warnings.append("docker_compose_down_failed")
+                    excluded_ports.update(int(port) for port in selected_host_ports.values())
+                    replanned_runtime_plan = _build_runtime_smoke_plan(
+                        workspace_root=workspace_root,
+                        service_url=requested_service_url_input,
+                        exclude_ports=excluded_ports,
+                    )
+                    selected_host_ports = dict(replanned_runtime_plan["selected_host_ports"])
+                    effective_service_url = str(replanned_runtime_plan["service_url"])
+                    runtime_smoke_env = dict(replanned_runtime_plan["runtime_env"])
+                    warnings.append("runtime_smoke_ports_reallocated_after_bind_conflict")
+                    if "runtime_smoke_service_url_adjusted" not in warnings and effective_service_url != requested_service_url_input:
+                        warnings.append("runtime_smoke_service_url_adjusted")
 
-            if compose_up_passed:
-                probes["healthz"] = wait_for_probe(
-                    f"{effective_service_url.rstrip('/')}/healthz",
-                    startup_timeout_seconds,
-                    2.0,
-                )
-                health_probe_passed = bool(probes["healthz"].get("ok"))
-                if not health_probe_passed:
-                    failures.append("health_probe_failed")
+                for attempt_index in range(1, 4):
+                    active_runtime_smoke_env = runtime_smoke_env
+                    attempt_record: dict[str, Any] = {
+                        "attempt": attempt_index,
+                        "selected_host_ports": dict(selected_host_ports),
+                        "service_url": effective_service_url,
+                    }
+                    commands["migration"] = run_command(
+                        [*compose_command, "-p", project_name, "-f", str(compose_prod_path), "run", "--rm", "api", "pnpm", "migrate"],
+                        workspace_root,
+                        command_timeout_seconds,
+                        active_runtime_smoke_env,
+                    )
+                    attempt_record["migration"] = commands["migration"]
+                    migration_passed = bool(commands["migration"].get("passed"))
+                    compose_started = True
+                    if not migration_passed and command_has_host_port_bind_conflict(commands["migration"]) and attempt_index < 3:
+                        runtime_smoke_attempts.append(attempt_record)
+                        reallocate_ports_after_bind_conflict(attempt_record)
+                        migration_passed = False
+                        continue
+                    if not migration_passed:
+                        runtime_smoke_attempts.append(attempt_record)
+                        failures.append("docker_migration_failed")
+                        break
 
-                probes["readyz"] = wait_for_probe(
-                    f"{effective_service_url.rstrip('/')}/readyz",
-                    startup_timeout_seconds,
-                    2.0,
-                )
-                readiness_probe_passed = bool(probes["readyz"].get("ok"))
-                if not readiness_probe_passed:
-                    failures.append("readiness_probe_failed")
+                    commands["compose_up"] = run_command(
+                        [*compose_command, "-p", project_name, "-f", str(compose_prod_path), "up", "-d", "api"],
+                        workspace_root,
+                        command_timeout_seconds,
+                        active_runtime_smoke_env,
+                    )
+                    attempt_record["compose_up"] = commands["compose_up"]
+                    compose_up_passed = bool(commands["compose_up"].get("passed"))
+                    if not compose_up_passed and command_has_host_port_bind_conflict(commands["compose_up"]) and attempt_index < 3:
+                        runtime_smoke_attempts.append(attempt_record)
+                        reallocate_ports_after_bind_conflict(attempt_record)
+                        compose_up_passed = False
+                        migration_passed = False
+                        continue
+                    runtime_smoke_attempts.append(attempt_record)
+                    if not compose_up_passed:
+                        failures.append("docker_compose_up_failed")
+                        break
+
+                    probes["healthz"] = wait_for_probe(
+                        f"{effective_service_url.rstrip('/')}/healthz",
+                        startup_timeout_seconds,
+                        2.0,
+                    )
+                    health_probe_passed = bool(probes["healthz"].get("ok"))
+                    if not health_probe_passed:
+                        failures.append("health_probe_failed")
+                        break
+
+                    probes["readyz"] = wait_for_probe(
+                        f"{effective_service_url.rstrip('/')}/readyz",
+                        startup_timeout_seconds,
+                        2.0,
+                    )
+                    readiness_probe_passed = bool(probes["readyz"].get("ok"))
+                    if not readiness_probe_passed:
+                        failures.append("readiness_probe_failed")
+                    break
+                if runtime_smoke_attempts:
+                    commands["runtime_smoke_attempts"] = runtime_smoke_attempts
 
             if run_started_service_smoke and health_probe_passed and readiness_probe_passed:
                 started_service_smoke_output_path = (
@@ -495,7 +338,7 @@ def run_phase3_runtime_smoke(
                     [*compose_command, "-p", project_name, "-f", str(compose_prod_path), "down", "--remove-orphans", "-v"],
                     workspace_root,
                     command_timeout_seconds,
-                    runtime_smoke_env,
+                    active_runtime_smoke_env,
                 )
                 compose_down_passed = bool(commands["compose_down"].get("passed"))
                 if not compose_down_passed:

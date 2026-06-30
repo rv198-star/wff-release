@@ -164,6 +164,15 @@ def build_phase3_claim_ceiling_report(
     empty_or_audit_shaped_count = _as_int(checks.get("empty_or_audit_shaped_service_count"))
     raw_status_echo_count = _as_int(checks.get("raw_status_echo_transition_count"))
     lifecycle_review_bound_count = _as_int(checks.get("lifecycle_review_bound_transition_count"))
+    subagent_blocked_slice_count = _as_int(checks.get("subagent_blocked_slice_count"))
+    action_card_slice_status = str(checks.get("subagent_overall_slice_run_status") or "not-applicable").strip()
+    if subagent_blocked_slice_count > 0 or action_card_slice_status == "blocked":
+        cap(
+            FORMAL_STATE_RANK["implementation-in-progress"],
+            "blocked_action_card_slice",
+            "action_card_slice_runner",
+            "One or more write-capable Action Card slices are blocked; P3 cannot claim implementation or delivery completion.",
+        )
     if empty_or_audit_shaped_count > 0:
         cap(
             FORMAL_STATE_RANK["implementation-in-progress"],
@@ -221,6 +230,8 @@ def build_phase3_claim_ceiling_report(
             "empty_or_audit_shaped_service_count": empty_or_audit_shaped_count,
             "raw_status_echo_transition_count": raw_status_echo_count,
             "lifecycle_review_bound_transition_count": lifecycle_review_bound_count,
+            "subagent_blocked_slice_count": subagent_blocked_slice_count,
+            "subagent_overall_slice_run_status": action_card_slice_status,
             "failure_count": len(failures),
             "warning_count": len(warnings),
         },

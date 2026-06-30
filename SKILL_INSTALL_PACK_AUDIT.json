@@ -1,31 +1,31 @@
 {
   "content_inventory": {
     "category_bytes": {
-      "install-pack-root-guidance": 26493,
-      "optional-runtime-dependency": 332481,
-      "other": 75216,
-      "runtime-config": 76135,
-      "user-facing-guidance": 208180,
+      "install-pack-root-guidance": 26512,
+      "optional-runtime-dependency": 4415224,
+      "other": 93604,
+      "runtime-config": 84634,
+      "user-facing-guidance": 220275,
       "user-facing-reference-package": 627548,
       "user-facing-template": 2936,
-      "user-runtime-script": 5363983,
-      "user-runtime-skill": 227609
+      "user-runtime-script": 5706521,
+      "user-runtime-skill": 229497
     },
     "category_counts": {
       "install-pack-root-guidance": 4,
-      "optional-runtime-dependency": 59,
-      "other": 9,
-      "runtime-config": 3,
-      "user-facing-guidance": 19,
+      "optional-runtime-dependency": 110,
+      "other": 12,
+      "runtime-config": 4,
+      "user-facing-guidance": 20,
       "user-facing-reference-package": 180,
       "user-facing-template": 1,
-      "user-runtime-script": 277,
+      "user-runtime-script": 295,
       "user-runtime-skill": 55
     },
     "policy_findings": [],
     "top_level": [
       {
-        "bytes": 2525,
+        "bytes": 2566,
         "files": 1,
         "path": "AGENTS.md"
       },
@@ -45,22 +45,32 @@
         "path": "INSTALL-PACK-README.zh-CN.md"
       },
       {
+        "bytes": 5696,
+        "files": 1,
+        "path": "INSTALL_PACK_AUDIT.md"
+      },
+      {
         "bytes": 7338,
         "files": 1,
         "path": "README.en.md"
       },
       {
-        "bytes": 8315,
+        "bytes": 8304,
         "files": 1,
         "path": "README.md"
       },
       {
-        "bytes": 8315,
+        "bytes": 8304,
         "files": 1,
         "path": "README.zh-CN.md"
       },
       {
-        "bytes": 47477,
+        "bytes": 11210,
+        "files": 1,
+        "path": "SKILL_INSTALL_PACK_AUDIT.json"
+      },
+      {
+        "bytes": 48452,
         "files": 1,
         "path": "SKILL_INSTALL_PACK_MANIFEST.json"
       },
@@ -75,13 +85,13 @@
         "path": "WFF-START-HERE.zh-CN.md"
       },
       {
-        "bytes": 76135,
-        "files": 3,
+        "bytes": 84634,
+        "files": 4,
         "path": "config"
       },
       {
-        "bytes": 208180,
-        "files": 19,
+        "bytes": 220275,
+        "files": 20,
         "path": "docs"
       },
       {
@@ -90,22 +100,27 @@
         "path": "reference-packages"
       },
       {
-        "bytes": 12,
+        "bytes": 490,
+        "files": 1,
+        "path": "requirements.lock.txt"
+      },
+      {
+        "bytes": 29,
         "files": 1,
         "path": "requirements.txt"
       },
       {
-        "bytes": 332481,
-        "files": 59,
+        "bytes": 4415224,
+        "files": 110,
         "path": "runtime-deps"
       },
       {
-        "bytes": 5363983,
-        "files": 277,
+        "bytes": 5706521,
+        "files": 295,
         "path": "scripts"
       },
       {
-        "bytes": 227609,
+        "bytes": 229497,
         "files": 55,
         "path": "skills"
       },
@@ -125,8 +140,8 @@
         "path": "wff-init"
       }
     ],
-    "total_bytes": 6940581,
-    "total_files": 607
+    "total_bytes": 11406751,
+    "total_files": 681
   },
   "excluded_path_leaks": {
     "pyc_files": [],
@@ -136,7 +151,7 @@
   "hard_failures": [],
   "install_pack_agents_guidance": {
     "exists": true,
-    "line_count": 39,
+    "line_count": 41,
     "max_allowed_lines": 120,
     "missing_required_phrases": [],
     "path": "AGENTS.md",
@@ -144,8 +159,8 @@
   },
   "internal_reference_failures": [],
   "overall_verdict": "pass",
-  "pack_name": "wff-v1.5.4-skills-install-pack",
-  "pack_root": "/home/runner/work/software-lifecycle-skills/software-lifecycle-skills/tmp/public-runtime-release-build/wff-v1.5.4-skills-install-pack",
+  "pack_name": "wff-v1.6.0-skills-install-pack",
+  "pack_root": "wff-v1.6.0-skills-install-pack",
   "pack_type": "skills-install-pack",
   "phase_checks": {
     "phase1": {
@@ -311,7 +326,7 @@
   "root_guidance_context_boundary": {
     "checked_root_guidance_files": [
       {
-        "line_count": 39,
+        "line_count": 41,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "AGENTS.md"
@@ -377,6 +392,11 @@
     "max_phase_entry_lines": 300
   },
   "script_reference_failures": [],
+  "secret_scan": {
+    "matches": [],
+    "root": ".",
+    "sensitive_paths": []
+  },
   "skill_checks": {
     "skills/wff-impl-review/SKILL.md": {
       "missing_files": [],
@@ -390,7 +410,7 @@
     }
   },
   "skill_name_mismatches": [],
-  "source_revision": "e857fb0dc102849a8a69da651f4a8c2b3a48368a",
+  "source_revision": "01064091802c832b77570b2594f03dfeae35be50",
   "wff_project_init_support": {
     "help_probes": [
       {

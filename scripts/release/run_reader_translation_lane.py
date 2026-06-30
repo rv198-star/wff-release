@@ -26,6 +26,24 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _locked_openai_version(requirements_path: Path) -> str:
+    if not requirements_path.exists():
+        return ""
+    for raw_line in requirements_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if line.startswith("openai=="):
+            return line.split("==", 1)[1].strip()
+    return ""
+
+
+def _imported_openai_version() -> str:
+    try:
+        import openai
+    except ImportError:
+        return ""
+    return str(getattr(openai, "__version__", "") or "")
+
+
 def _ensure_deps(release_root: Path) -> tuple[dict | None, str]:
     """Ensure openai is importable for the emit_reader_translation subprocess.
 
@@ -33,15 +51,21 @@ def _ensure_deps(release_root: Path) -> tuple[dict | None, str]:
     packages (PEP 668 externally-managed), bootstraps a venv under
     release_root and returns its python path instead.
     """
-    try:
-        import openai  # noqa: F401
-        return None, sys.executable
-    except ImportError:
-        pass
+    req = release_root / "requirements.lock.txt"
+    fallback_req = release_root / "requirements.txt"
+    if not req.exists() and fallback_req.exists():
+        req = fallback_req
 
-    req = release_root / "requirements.txt"
+    locked_openai_version = _locked_openai_version(req)
+    imported_openai_version = _imported_openai_version()
+    if imported_openai_version and (not locked_openai_version or imported_openai_version == locked_openai_version):
+        return None, sys.executable
+    reinstalling_mismatched_openai = bool(
+        imported_openai_version and locked_openai_version and imported_openai_version != locked_openai_version
+    )
+
     if not req.exists():
-        return {"error": "openai not installed and requirements.txt not found"}, sys.executable
+        return {"error": "openai not installed and requirements.lock.txt not found"}, sys.executable
 
     # Try system pip install first
     proc = subprocess.run(
@@ -49,11 +73,19 @@ def _ensure_deps(release_root: Path) -> tuple[dict | None, str]:
         capture_output=True, text=True,
     )
     if proc.returncode == 0:
-        try:
-            import openai  # noqa: F401
+        if reinstalling_mismatched_openai:
             return None, sys.executable
-        except ImportError:
-            return {"error": "openai still not importable after system pip install"}, sys.executable
+        installed_version = _imported_openai_version()
+        if installed_version and (not locked_openai_version or installed_version == locked_openai_version):
+            return None, sys.executable
+        if locked_openai_version and installed_version:
+            return {
+                "error": (
+                    "openai version mismatch after system pip install: "
+                    f"expected {locked_openai_version}, found {installed_version}"
+                )
+            }, sys.executable
+        return {"error": "openai still not importable after system pip install"}, sys.executable
 
     # System pip failed (likely PEP 668 externally-managed). Bootstrap a venv.
     venv_dir = release_root / ".reader-venv"

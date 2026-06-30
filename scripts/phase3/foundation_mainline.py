@@ -668,8 +668,10 @@ def prepare_phase3_foundation_workspace(
         output_path=toolchain_bootstrap_path,
     )
     record_timing_segment(timing_segments, "toolchain_install", toolchain_started)
+    dispatch_lane_started = start_timer()
     dispatch_lane_state = initialize_optional_dispatch_lane_fn(
         enabled=args.enable_dispatch_lane,
+        dispatch_lane_mode=str(getattr(args, "dispatch_lane_mode", "enabled" if args.enable_dispatch_lane else "disabled")),
         esp_text=esp_text,
         stage_03_text=stage_03_text,
         stage_04_text=stage_04_text,
@@ -678,8 +680,24 @@ def prepare_phase3_foundation_workspace(
         output_dir=output_dir,
         toolchain_bootstrap_path=toolchain_bootstrap_path,
     )
+    record_timing_segment(
+        timing_segments,
+        "dispatch_lane",
+        dispatch_lane_started,
+        status="recorded" if args.enable_dispatch_lane else "skipped",
+    )
     worker_run_report_path = dispatch_lane_state["worker_run_report_path"]
     bootstrap_worker_run_report_path = dispatch_lane_state["bootstrap_worker_run_report_path"]
+    subagent_execution_summary = (
+        dispatch_lane_state.get("subagent_execution_summary", {})
+        if isinstance(dispatch_lane_state.get("subagent_execution_summary", {}), dict)
+        else {}
+    )
+    subagent_slice_summary = (
+        dispatch_lane_state.get("subagent_slice_summary", {})
+        if isinstance(dispatch_lane_state.get("subagent_slice_summary", {}), dict)
+        else {}
+    )
 
     quality = analyze_phase3_bootstrap_fn(
         esp_text=esp_text,
@@ -741,7 +759,41 @@ def prepare_phase3_foundation_workspace(
             "ui_lane_enabled": args.enable_ui_fallback,
             "ui_lane_mode": str(ui_fallback_summary.get("mode", "not-requested")),
             "dispatch_lane_enabled": args.enable_dispatch_lane,
+            "dispatch_lane_mode": str(getattr(args, "dispatch_lane_mode", "enabled" if args.enable_dispatch_lane else "disabled")),
             "has_execution_loop_plan": args.enable_dispatch_lane,
+            "subagent_execution_request": str(subagent_execution_summary.get("request", "")),
+            "subagent_execution_mode": str(subagent_execution_summary.get("mode", "")),
+            "subagent_execution_status": str(subagent_execution_summary.get("status", "")),
+            "subagent_runner_supported": bool(subagent_execution_summary.get("runner_supported", False)),
+            "subagent_execution_claim_ceiling": str(subagent_execution_summary.get("claim_ceiling", "")),
+            "subagent_slice_count": int(subagent_slice_summary.get("slice_count", 0) or 0),
+            "subagent_blocked_slice_count": int(subagent_slice_summary.get("blocked_slice_count", 0) or 0),
+            "subagent_overall_slice_run_status": str(
+                subagent_slice_summary.get("overall_slice_run_status", "not-applicable") or "not-applicable"
+            ),
+            "subagent_actual_execution_count": int(
+                subagent_slice_summary.get("actual_subagent_execution_count", 0) or 0
+            ),
+            "subagent_write_runner_execution_count": int(
+                subagent_slice_summary.get("write_runner_execution_count", 0) or 0
+            ),
+            "subagent_read_only_review_count": int(subagent_slice_summary.get("read_only_review_count", 0) or 0),
+            "action_card_runner_supported": bool(
+                subagent_slice_summary.get("action_card_runner_supported", False)
+            ),
+            "action_card_runner_protocol_version": str(
+                subagent_slice_summary.get("runner_protocol_version", "action-card-runner/v1")
+            ),
+            "action_card_runner_kind": str(subagent_slice_summary.get("runner_kind", "generic")),
+            "subagent_configured_authoring_max_workers": int(
+                subagent_slice_summary.get("configured_authoring_max_workers", 0) or 0
+            ),
+            "subagent_active_authoring_max_workers": int(
+                subagent_slice_summary.get("active_authoring_max_workers", 0) or 0
+            ),
+            "subagent_configured_verification_max_workers": int(
+                subagent_slice_summary.get("configured_verification_max_workers", 0) or 0
+            ),
             "has_agentic_implementation_loop": True,
             "agentic_implementation_loop": str(paths["agentic_implementation_loop_path"]),
             "agentic_implementation_loop_markdown": str(paths["agentic_implementation_loop_markdown_path"]),
@@ -1028,6 +1080,16 @@ def build_phase3_foundation_summary(
     mainline_backend_verification: dict[str, Any],
 ) -> dict[str, object]:
     dispatch_lane_state = workspace["dispatch_lane_state"]
+    subagent_execution_summary = (
+        dispatch_lane_state.get("subagent_execution_summary", {})
+        if isinstance(dispatch_lane_state.get("subagent_execution_summary", {}), dict)
+        else {}
+    )
+    subagent_slice_summary = (
+        dispatch_lane_state.get("subagent_slice_summary", {})
+        if isinstance(dispatch_lane_state.get("subagent_slice_summary", {}), dict)
+        else {}
+    )
     scaffold_quality_gate = str(workspace["quality"].get("overall_quality_gate", "")).strip() or "unknown"
     phase_verdict = str(refresh_summary.get("phase_verdict", "")).strip()
     final_quality_gate = "pass" if scaffold_quality_gate == "pass" and phase_verdict.startswith("PASS") else "fail"
@@ -1047,6 +1109,9 @@ def build_phase3_foundation_summary(
         "frontend_contract_required": args.require_frontend_contract,
         "ui_lane_enabled": args.enable_ui_fallback,
         "dispatch_lane_enabled": args.enable_dispatch_lane,
+        "dispatch_lane_mode": str(getattr(args, "dispatch_lane_mode", "enabled" if args.enable_dispatch_lane else "disabled")),
+        "subagent_execution_summary": subagent_execution_summary,
+        "subagent_slice_summary": subagent_slice_summary,
         "validation_level": normalize_validation_level(
             getattr(args, "validation_level", ""),
             full_targeted_evidence=bool(getattr(args, "full_targeted_evidence", True)),

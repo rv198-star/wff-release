@@ -1539,6 +1539,14 @@
       "## 发现项"
     ],
     [
+      "## Structural Quality Findings",
+      "## 结构质量发现项"
+    ],
+    [
+      "## Contract / Spec / Source Drift Findings",
+      "## 合同 / 规格 / 来源漂移发现项"
+    ],
+    [
       "- none",
       "- 无"
     ]
@@ -2351,6 +2359,34 @@
       "- 验证脚本:"
     ],
     [
+      "- subagent_slice_manifest:",
+      "- SubAgent 切片 Manifest:"
+    ],
+    [
+      "- subagent_slice_manifest_markdown:",
+      "- SubAgent 切片 Manifest Markdown:"
+    ],
+    [
+      "- subagent_slice_status:",
+      "- SubAgent 切片状态:"
+    ],
+    [
+      "- subagent_slice_count:",
+      "- SubAgent 切片数:"
+    ],
+    [
+      "- subagent_slice_orchestration_report:",
+      "- SubAgent 切片编排报告:"
+    ],
+    [
+      "- subagent_slice_orchestration_report_markdown:",
+      "- SubAgent 切片编排报告 Markdown:"
+    ],
+    [
+      "- subagent_slice_orchestration_gate:",
+      "- SubAgent 切片编排门禁:"
+    ],
+    [
       "## Verification Execution",
       "## 验证执行"
     ],
@@ -2377,6 +2413,98 @@
     [
       "## Note",
       "## 备注"
+    ],
+    [
+      "- none",
+      "- 无"
+    ]
+  ],
+  "PHASE3_SUBAGENT_SLICE_RUN_MANIFEST_ZH": [
+    [
+      "# SubAgent Slice Run Manifest:",
+      "# SubAgent 切片运行 Manifest:"
+    ],
+    [
+      "## Summary",
+      "## 摘要"
+    ],
+    [
+      "- overall_slice_run_status:",
+      "- 总体切片运行状态:"
+    ],
+    [
+      "- slice_count:",
+      "- 切片数:"
+    ],
+    [
+      "- ready_slice_count:",
+      "- ready 切片数:"
+    ],
+    [
+      "- blocked_slice_count:",
+      "- blocked 切片数:"
+    ],
+    [
+      "- packet_claim_ceiling:",
+      "- packet 声明上限:"
+    ],
+    [
+      "## Slice Runs",
+      "## 切片运行"
+    ],
+    [
+      "  - blocking:",
+      "  - 阻塞:"
+    ],
+    [
+      "- none",
+      "- 无"
+    ]
+  ],
+  "PHASE3_SUBAGENT_SLICE_ORCHESTRATION_REPORT_ZH": [
+    [
+      "# SubAgent Slice Orchestration Report",
+      "# SubAgent 切片编排报告"
+    ],
+    [
+      "## Summary",
+      "## 摘要"
+    ],
+    [
+      "- overall_orchestration_gate:",
+      "- 总体编排门禁:"
+    ],
+    [
+      "- packet_count:",
+      "- packet 数:"
+    ],
+    [
+      "- slice_count:",
+      "- 切片数:"
+    ],
+    [
+      "- ready_slice_count:",
+      "- ready 切片数:"
+    ],
+    [
+      "- blocked_slice_count:",
+      "- blocked 切片数:"
+    ],
+    [
+      "- conflict_count:",
+      "- 冲突数:"
+    ],
+    [
+      "- claim_ceiling:",
+      "- 声明上限:"
+    ],
+    [
+      "## Blockers",
+      "## 阻塞项"
+    ],
+    [
+      "## Packets",
+      "## Packets"
     ],
     [
       "- none",
@@ -3031,6 +3159,18 @@
     [
       "## Done Criteria",
       "## 完成标准"
+    ],
+    [
+      "## SubAgent Slice Packets",
+      "## SubAgent 切片包"
+    ],
+    [
+      "  - blocking:",
+      "  - 阻塞:"
+    ],
+    [
+      "- file_conflicts:",
+      "- 文件冲突:"
     ],
     [
       "## Coordination",

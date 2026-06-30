@@ -12,6 +12,7 @@ from phase3.surface_policy import write_phase3_profiled_surface
 PHASE3_TIMING_SEGMENT_NAMES = (
     "generation",
     "toolchain_install",
+    "dispatch_lane",
     "mainline_backend_verification",
     "coverage_collection",
     "runtime_smoke",

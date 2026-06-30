@@ -5,9 +5,9 @@
 首次阅读：先打开 `WFF-START-HERE.zh-CN.md`，按短入口图选择任务路线，再展开完整安装包。
 
 ## 标识
-- pack_name: `wff-v1.5.4-skills-install-pack`
-- generated_at: `2026-06-18T04:49:23+00:00`
-- source_revision: `e857fb0dc102849a8a69da651f4a8c2b3a48368a`
+- pack_name: `wff-v1.6.0-skills-install-pack`
+- generated_at: `2026-06-30T17:54:17+00:00`
+- source_revision: `01064091802c832b77570b2594f03dfeae35be50`
 
 ## 能力边界
 - `Phase 1` 到 `Phase 4`：GA 主线能力。
@@ -35,7 +35,7 @@
 
 ## 解压后的预期目录结构
 ```text
-wff-v1.5.4-skills-install-pack/
+wff-v1.6.0-skills-install-pack/
 ├── AGENTS.md
 ├── README.md
 ├── wff-init
@@ -85,7 +85,7 @@ wff-v1.5.4-skills-install-pack/
 │       ├── wff-req/
 │       └── wff-x/
 ├── .wff/
-│   └── wff-v1.5.4-skills-install-pack/
+│   └── wff-v1.6.0-skills-install-pack/
 │       ├── scripts/
 │       ├── docs/
 │       ├── templates/
@@ -100,7 +100,7 @@ wff-v1.5.4-skills-install-pack/
 
 ```text
 /Users/edy/project/party/
-└── wff-v1.5.4-skills-install-pack/
+└── wff-v1.6.0-skills-install-pack/
     ├── skills/
     ├── scripts/
     ├── docs/
@@ -114,7 +114,7 @@ wff-v1.5.4-skills-install-pack/
 ## 项目初始化
 ```bash
 cd /path/to/your-project
-/path/to/wff-v1.5.4-skills-install-pack/wff-init
+/path/to/wff-v1.6.0-skills-install-pack/wff-init
 ```
 
 `wff-init` 只创建或更新 `.wff/`，遇到冲突会停止。仅支持两个参数：
@@ -124,9 +124,9 @@ cd /path/to/your-project
 
 ## Role-Agent 平台适配器
 ```bash
-/path/to/wff-v1.5.4-skills-install-pack/wff-agent setup opencode all --project-root /path/to/your-project
-/path/to/wff-v1.5.4-skills-install-pack/wff-agent setup claude-code wff-programmer wff-reviewer --project-root /path/to/your-project
-/path/to/wff-v1.5.4-skills-install-pack/wff-agent setup codex wff-product-manager --project-root /path/to/your-project
+/path/to/wff-v1.6.0-skills-install-pack/wff-agent setup opencode all --project-root /path/to/your-project
+/path/to/wff-v1.6.0-skills-install-pack/wff-agent setup claude-code wff-programmer wff-reviewer --project-root /path/to/your-project
+/path/to/wff-v1.6.0-skills-install-pack/wff-agent setup codex wff-product-manager --project-root /path/to/your-project
 ```
 
 `wff-agent` 导出角色配置，不调用 LLM，不运行独立 Agent runtime，也不会替代 WFF 生命周期技能和验证证据。角色说明见 `docs/WFF-ROLE-AGENTS.zh-CN.md`；全局路线图见 `docs/public/wff-orientation-map.zh-CN.md`。

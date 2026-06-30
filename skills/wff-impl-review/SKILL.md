@@ -36,6 +36,7 @@ Apply these rules:
 
 - Review only against current run evidence, not against hoped-for intent.
 - Contract drift, placeholder code, or scaffold-only entrypoints are structural findings, not cosmetic notes.
+- Keep report findings separated into `structural-quality` and `contract-spec-source-drift` buckets. This split is for audit clarity only: contract/spec/source drift still returns to the owning evidence gate or upstream phase, and structural review must not become the feature correctness authority.
 - Do not waive naming, dependency-direction, or error-envelope drift just because the build is green.
 - If the code is still placeholder-heavy, stop the review from pretending the slice is stable.
 - Every high or critical finding must point to concrete evidence in current files or generated reports.

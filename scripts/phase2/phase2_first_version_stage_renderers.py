@@ -291,6 +291,7 @@ def render_stage_02(
         related_services = [service for service in services if service.domain == domain]
         domain_objects = unique_preserve([service.owns_or_coordinates for service in related_services]) or aggregate_objects[:2]
         primary_states = build_object_profile(related_services[0], domain_objects[0])["primary_states"] if related_services and domain_objects else "draft / active / archived"
+        source_contract_only_domain = bool(related_services) and all(not service_exposes_persistent_object(service) for service in related_services)
         domain_rows.append([
             domain,
             release_domain_role_surface([service.service_type for service in related_services]),
@@ -298,7 +299,7 @@ def render_stage_02(
             summarize_list(domain_objects, max_items=4),
             primary_states,
             release_slice_guardrail(),
-            release_handoff_rule(),
+            release_handoff_rule(source_contract_only_domain),
         ])
 
     module_objects = {}
@@ -312,6 +313,7 @@ def render_stage_02(
 
     seen_modules = set()
     for service in services:
+        source_contract_read_only = not service_exposes_persistent_object(service)
         service_rows.append([
             service.service_name,
             service.domain,
@@ -321,21 +323,23 @@ def render_stage_02(
             service.primary_inbound,
             service.primary_outbound,
             service.purpose,
-            release_consistency_boundary(service.home_module, service.owns_or_coordinates),
+            release_consistency_boundary(service.home_module, service.owns_or_coordinates, source_contract_read_only),
         ])
         if service.home_module in seen_modules:
             continue
         seen_modules.add(service.home_module)
         owned = unique_preserve(module_objects.get(service.home_module, []) + [item.owns_or_coordinates for item in services if item.home_module == service.home_module])
+        module_services = [item for item in services if item.home_module == service.home_module]
+        source_contract_only_module = bool(module_services) and all(not service_exposes_persistent_object(item) for item in module_services)
         module_rows.append([
             service.home_module,
             service.domain,
             release_module_role_surface(),
             service.service_name,
             summarize_list(owned, max_items=5),
-            ", ".join(item.public_contract for item in services if item.home_module == service.home_module) or "none",
+            ", ".join(item.public_contract for item in module_services) or "none",
             "上下游权威对象不得被本模块接管",
-            release_change_propagation_note(service.service_name, service.endpoint_name),
+            release_change_propagation_note(service.service_name, service.endpoint_name, source_contract_only_module),
             service.purpose,
         ])
 
@@ -803,6 +807,7 @@ def render_stage_03(
     scenario_services = services[: max(scenario_min, min(len(services), 6))] or services[:1]
     for idx, service in enumerate(scenario_services, start=1):
         peer = services[idx] if idx < len(services) else service
+        source_contract_read_only = not service_exposes_persistent_object(service)
         scenario_rows.append(
             [
                 f"scenario_{idx:02d}",
@@ -810,7 +815,11 @@ def render_stage_03(
                 service.owns_or_coordinates,
                 f"`{service.home_module}`, `{peer.home_module}`",
                 f"{service.endpoint_name}, {peer.endpoint_name}",
-                f"`{service.service_name}` remains the only writer for `{service.owns_or_coordinates}`",
+                (
+                    f"`{service.service_name}` exposes read-only source contract context for `{service.owns_or_coordinates}`"
+                    if source_contract_read_only
+                    else f"`{service.service_name}` remains the only writer for `{service.owns_or_coordinates}`"
+                ),
                 f"Given `{service.owns_or_coordinates}` exists, When `{service.endpoint_name}` runs, Then the contract must preserve ids, version anchors, and replay context within <= 600 ms for the synchronous path.",
                 f"contract response diff for `{service.endpoint_name}`",
                 "positive_path / quantified",
@@ -1215,13 +1224,18 @@ def render_stage_04(
 
     design_verification_rows: list[list[str]] = []
     for idx, service in enumerate(services[:verification_target], start=1):
+        source_contract_read_only = not service_exposes_persistent_object(service)
         design_verification_rows.append(
             [
                 f"`{service.service_name}` boundary preserved",
                 "pass",
                 "contract review + replay walkthrough",
                 f"{service.endpoint_name} contract and ownership table",
-                f"`{service.service_name}` remains the only writer for `{service.owns_or_coordinates}`",
+                (
+                    f"`{service.service_name}` remains read-only/source-contract-bound for `{service.owns_or_coordinates}`"
+                    if source_contract_read_only
+                    else f"`{service.service_name}` remains the only writer for `{service.owns_or_coordinates}`"
+                ),
                 "runtime proof pending",
                 f"RBI-{min(idx, len(rbi_rows)):02d} / {work_package_rows[min(idx - 1, len(work_package_rows) - 1)][0]}",
             ]

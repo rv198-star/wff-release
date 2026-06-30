@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from phase2.phase2_first_version_semantic_model import *  # noqa: F401,F403
+from phase2.technical_naming import technical_name_is_review_bound
 
 SOURCE_BACKED_INTERACTION_ALIAS_TOKENS = (
     ("检查与治疗工作项", {"treatment", "work", "item", "treatmentworkitem"}, {"treatment", "work", "item"}),
@@ -33,6 +34,8 @@ def _source_backed_alias_tokens_for_labels(
     }
     for value in values:
         for alias in (object_alias_hints or {}).get(str(value or "").strip().strip("`"), []):
+            if technical_name_is_review_bound(str(alias or "")):
+                continue
             source_backed_tokens.update(semantic_tokens(str(alias or "")))
     return source_backed_tokens
 
@@ -43,10 +46,9 @@ def _has_non_ascii_label(values: list[str]) -> bool:
 
 def _source_backed_alias_tokens_for_service(
     value: str,
-    source_aliases: list[str] | None = None,
 ) -> set[str]:
     tokens = semantic_tokens(value)
-    source_backed_tokens = {
+    return {
         token
         for phrase, tokens_for_phrase, required_tokens in SOURCE_BACKED_INTERACTION_ALIAS_TOKENS
         if _source_backed_alias_tokens_for_label(phrase) and (
@@ -56,11 +58,6 @@ def _source_backed_alias_tokens_for_service(
         )
         for token in tokens_for_phrase
     }
-    for alias in source_aliases or []:
-        alias_tokens = semantic_tokens(str(alias))
-        if alias_tokens and alias_tokens <= tokens:
-            source_backed_tokens.update(alias_tokens)
-    return source_backed_tokens
 
 def adr_content_for(
     *,
@@ -540,24 +537,26 @@ def build_stage_03_endpoint_specs(
         entity_slug = service_technical_slug(service)
         if not technical_name_can_enter_phase3_surface(technical_name, entity_slug):
             continue
-        append_endpoint(
-            ServiceSpec(
-                f"{technical_name}StatusService",
-                service.domain,
-                service.home_module,
-                "transactional",
-                service.owns_or_coordinates,
-                f"Update{technical_name}Status",
-                f"{technical_name}StatusChanged",
-                f"Apply bounded state updates for {service.owns_or_coordinates}.",
-                service.public_contract,
-                f"Update{technical_name}Status",
-                "PATCH",
-                f"/api/v1/{pluralize_slug(entity_slug)}/{{id}}",
-                technical_name=technical_name,
-                technical_slug=entity_slug,
+        source_contract_only = not object_requires_persistent_table(service.owns_or_coordinates)
+        if not source_contract_only:
+            append_endpoint(
+                ServiceSpec(
+                    f"{technical_name}StatusService",
+                    service.domain,
+                    service.home_module,
+                    "transactional",
+                    service.owns_or_coordinates,
+                    f"Update{technical_name}Status",
+                    f"{technical_name}StatusChanged",
+                    f"Apply bounded state updates for {service.owns_or_coordinates}.",
+                    service.public_contract,
+                    f"Update{technical_name}Status",
+                    "PATCH",
+                    f"/api/v1/{pluralize_slug(entity_slug)}/{{id}}",
+                    technical_name=technical_name,
+                    technical_slug=entity_slug,
+                )
             )
-        )
         append_endpoint(
             ServiceSpec(
                 f"{technical_name}QueryService",
@@ -656,25 +655,31 @@ def _set_nested_request_example_path(example: dict[str, object], target_path: st
     set_projected_nested_request_example_path(example, target_path, value)
 
 
-def build_request_mapping_lookup(binding_rows: list[list[str]]) -> dict[tuple[str, str], list[str]]:
-    lookup: dict[tuple[str, str], list[str]] = {}
+def build_request_mapping_lookup(binding_rows: list[list[str]]) -> dict[tuple[str, ...], list[str]]:
+    lookup: dict[tuple[str, ...], list[str]] = {}
     for row in binding_rows:
         if len(row) < 9:
             continue
+        service_name = str(row[5]).strip()
         path = str(row[6]).strip()
         method = str(row[7]).strip().upper()
-        mapping_text = str(row[8]).strip()
-        if not path or not method or not mapping_text or mapping_text.startswith("review-bound"):
+        if not service_name or service_name == "UNRESOLVED_SERVICE_BINDING" or not path or not method:
             continue
-        key = (path, method)
-        lookup.setdefault(key, []).append(mapping_text)
+        key = (service_name, path, method)
+        for mapping_index in (8, 9):
+            if len(row) <= mapping_index:
+                continue
+            mapping_text = str(row[mapping_index]).strip()
+            if not mapping_text or mapping_text.startswith("review-bound"):
+                continue
+            lookup.setdefault(key, []).append(mapping_text)
     return lookup
 
 
 def enrich_request_example_with_request_mappings(
     example: dict[str, object],
     service: ServiceSpec,
-    request_mapping_lookup: dict[tuple[str, str], list[str]] | None = None,
+    request_mapping_lookup: dict[tuple[str, ...], list[str]] | None = None,
 ) -> dict[str, object]:
     return enrich_projected_request_example_with_request_mappings(
         example,
@@ -685,7 +690,7 @@ def enrich_request_example_with_request_mappings(
 
 def stage_03_request_example(
     service: ServiceSpec,
-    request_mapping_lookup: dict[tuple[str, str], list[str]] | None = None,
+    request_mapping_lookup: dict[tuple[str, ...], list[str]] | None = None,
 ) -> dict[str, object]:
     return projected_request_example(
         service_projection_spec(service),
@@ -699,7 +704,7 @@ def stage_03_response_example(service: ServiceSpec) -> dict[str, object]:
 
 def stage_03_contract_schema_fields(
     service: ServiceSpec,
-    request_mapping_lookup: dict[tuple[str, str], list[str]] | None = None,
+    request_mapping_lookup: dict[tuple[str, ...], list[str]] | None = None,
 ) -> list[str]:
     return projected_contract_schema_fields(
         service_projection_spec(service),
@@ -707,10 +712,15 @@ def stage_03_contract_schema_fields(
     )
 
 
+def service_exposes_persistent_object(service: ServiceSpec) -> bool:
+    return object_requires_persistent_table(service.owns_or_coordinates)
+
+
 def build_object_profile(service: ServiceSpec, obj_name: str) -> dict[str, str]:
     technical_name = service_technical_name(service)
     object_key = to_snake(technical_name)
     event_name = event_name_for_model(service, obj_name)
+    persistent_owner = service_exposes_persistent_object(service)
     state_map = {
         "transactional": "created / active / completed / archived",
         "orchestration": "queued / running / completed / archived",
@@ -730,23 +740,40 @@ def build_object_profile(service: ServiceSpec, obj_name: str) -> dict[str, str]:
     return {
         "aggregate_kind": aggregate_kind,
         "primary_states": state_map.get(service.service_type, "draft / active / archived"),
-        "authoritative_mutations": f"{service.primary_inbound}, update {object_key}, archive {object_key}",
+        "authoritative_mutations": (
+            f"{service.primary_inbound}, update {object_key}, archive {object_key}"
+            if persistent_owner
+            else f"{service.primary_inbound}, refresh read projection, preserve source trace"
+        ),
         "emitted_events": event_name,
-        "failure_guardrail": f"{obj_name} 的变更必须收敛在 `{service.service_name}` 内，并保留可追溯证据。",
-        "mutation_guard": f"只有 `{service.service_name}` 可以权威修改 `{object_key}`；下游模块只能按契约读取。",
+        "failure_guardrail": (
+            f"{obj_name} 的变更必须收敛在 `{service.service_name}` 内，并保留可追溯证据。"
+            if persistent_owner
+            else f"`{service.service_name}` 只暴露 `{obj_name}` 的源契约读取视图；写入权威仍需上游持久对象证据。"
+        ),
+        "mutation_guard": (
+            f"只有 `{service.service_name}` 可以权威修改 `{object_key}`；下游模块只能按契约读取。"
+            if persistent_owner
+            else f"`{service.service_name}` 不声明 `{object_key}` 写入权威；只允许契约读取和 trace-preserving projection。"
+        ),
         "collaborators": f"{event_source_path_for_model(service, obj_name)}，并保留 review / audit 可见面。",
         "read_only_refs": f"{service.public_contract}, {service.endpoint_name}, version anchors",
         "must_not_write": "所有非 owner 模块",
-        "conflict_rule": f"对 `{object_key}` 的版本化写入必须拒绝过期更新",
+        "conflict_rule": (
+            f"对 `{object_key}` 的版本化写入必须拒绝过期更新"
+            if persistent_owner
+            else f"`{object_key}` 写入冲突不在该 read surface 内裁决，保持 review-bound / source-owned"
+        ),
         "change_propagation_path": f"{service.service_name} -> public contract -> 下游读取与 review 面",
         "must_not_own": "相邻模块的权威对象",
-        "public_boundary_status": "active / contract-bound",
+        "public_boundary_status": "active / contract-bound" if persistent_owner else "read-only / source-contract-bound",
     }
 
 
 def build_ownership_profile(obj_name: str, services: list[ServiceSpec], owner: ServiceSpec) -> dict[str, str]:
     technical_name = service_technical_name(owner)
     obj_key = to_snake(technical_name)
+    persistent_owner = service_exposes_persistent_object(owner)
     read_consumers = [
         service.service_name
         for service in services
@@ -761,9 +788,21 @@ def build_ownership_profile(obj_name: str, services: list[ServiceSpec], owner: S
     propagated_by = event_name_for_model(owner, obj_name)
     return {
         "read_consumers": ", ".join(read_consumers) if read_consumers else "downstream read surfaces",
-        "change_propagation_path": f"{owner.service_name} -> {propagated_by} -> 下游读取与 review 面",
-        "forbidden_shortcut": f"不得绕过 `{owner.service_name}` 从其他模块或表耦合捷径直接写 `{obj_key}`。",
-        "closure_note": f"`{obj_name}` 继续由 `{owner.service_name}` 持有权威写入，其余位置只读消费。",
+        "change_propagation_path": (
+            f"{owner.service_name} -> {propagated_by} -> 下游读取与 review 面"
+            if persistent_owner
+            else f"{owner.service_name} -> source contract projection -> 下游读取与 review 面"
+        ),
+        "forbidden_shortcut": (
+            f"不得绕过 `{owner.service_name}` 从其他模块或表耦合捷径直接写 `{obj_key}`。"
+            if persistent_owner
+            else f"不得把 `{owner.service_name}` 的 read projection 当作 `{obj_key}` 写入或持久化权威。"
+        ),
+        "closure_note": (
+            f"`{obj_name}` 继续由 `{owner.service_name}` 持有权威写入，其余位置只读消费。"
+            if persistent_owner
+            else f"`{obj_name}` 在 `{owner.service_name}` 中仅作为源契约读取面，变更权威保持 review-bound/source-owned。"
+        ),
     }
 
 
@@ -817,12 +856,14 @@ def choose_service_match_for_interaction(
         source_label_candidates,
         object_alias_hints,
     )
-    source_aliases = [
-        str(alias)
+    source_aliases_by_object = {
+        str(value or "").strip().strip("`"): [
+            str(alias)
+            for alias in (object_alias_hints or {}).get(str(value or "").strip().strip("`"), [])
+            if str(alias or "").strip() and not technical_name_is_review_bound(str(alias or ""))
+        ]
         for value in source_label_candidates
-        for alias in (object_alias_hints or {}).get(str(value or "").strip().strip("`"), [])
-        if str(alias or "").strip()
-    ]
+    }
     review_bound_non_ascii_object = _has_non_ascii_label(source_label_candidates) and not source_backed_tokens
     goal_focus_tokens = semantic_focus_tokens(
         " ".join(
@@ -849,7 +890,22 @@ def choose_service_match_for_interaction(
     page_name_tokens = semantic_tokens(page_name)
     interaction_region = str(interaction.get("region", "")).strip().lower()
     action_type = str(interaction.get("action_type", "")).strip().lower()
+    primary_business_object = business_objects[0] if business_objects else ""
     scored: list[InteractionServiceMatch] = []
+
+    def _service_has_business_object_identity(service: ServiceSpec, obj: str) -> bool:
+        object_keys = {to_snake(obj)}
+        object_keys.update(to_snake(alias) for alias in source_aliases_by_object.get(str(obj or "").strip().strip("`"), []))
+        object_keys = {key for key in object_keys if key}
+        if not object_keys:
+            return False
+        service_keys = {
+            to_snake(service.owns_or_coordinates),
+            to_snake(service_technical_name(service)),
+            service_technical_slug(service).replace("-", "_"),
+        }
+        return bool(object_keys & {key for key in service_keys if key})
+
     for service in endpoint_specs:
         score = 0
         method_match = service.method == preferred_method
@@ -879,10 +935,7 @@ def choose_service_match_for_interaction(
                 service.path,
             ]
         )
-        service_source_tokens = _source_backed_alias_tokens_for_service(
-            service_source_blob,
-            source_aliases,
-        )
+        service_source_tokens = _source_backed_alias_tokens_for_service(service_source_blob)
         normalized_overlap = len(source_backed_tokens & service_source_tokens)
         semantic_overlap = len(tokens & service_tokens) + normalized_overlap
         score += semantic_overlap
@@ -897,14 +950,14 @@ def choose_service_match_for_interaction(
         has_object_overlap = bool(
             business_objects
             and any(
-                to_snake(obj) in to_snake(service.owns_or_coordinates)
-                or to_snake(obj) in to_snake(service_technical_name(service))
-                for obj in business_objects
+                _service_has_business_object_identity(service, obj) for obj in business_objects
             )
         )
         if not has_object_overlap and source_backed_tokens and service_source_tokens:
             has_object_overlap = bool(source_backed_tokens & service_source_tokens)
         if has_object_overlap:
+            score += 4
+        if method_match and primary_business_object and _service_has_business_object_identity(service, primary_business_object):
             score += 4
         if action_type == "load_context" and service.service_type == "read-assembly":
             score += 3
@@ -925,7 +978,15 @@ def choose_service_match_for_interaction(
                 method_match=method_match,
             )
         )
-    scored.sort(
+    preferred_scored = scored
+    object_supported_read_candidates = [
+        item
+        for item in scored
+        if preferred_method == "GET" and item.method_match and item.has_object_overlap
+    ]
+    if object_supported_read_candidates:
+        preferred_scored = object_supported_read_candidates
+    preferred_scored.sort(
         key=lambda item: (
             -item.score,
             -int(item.has_object_overlap),
@@ -933,8 +994,8 @@ def choose_service_match_for_interaction(
             item.service.service_name if item.service else "",
         )
     )
-    best = scored[0]
-    next_score = scored[1].score if len(scored) > 1 else -999
+    best = preferred_scored[0]
+    next_score = preferred_scored[1].score if len(preferred_scored) > 1 else -999
     strong_enough = (
         not review_bound_non_ascii_object
         and (
@@ -943,7 +1004,7 @@ def choose_service_match_for_interaction(
             or (best.method_match and best.semantic_overlap >= 1 and best.score >= 8)
         )
     )
-    clearly_better = len(scored) == 1 or best.has_object_overlap or (best.score - next_score) >= 2
+    clearly_better = len(preferred_scored) == 1 or best.has_object_overlap or (best.score - next_score) >= 2
     if strong_enough and clearly_better and best.service is not None:
         return best
     return InteractionServiceMatch(
@@ -1562,6 +1623,11 @@ def event_p3_handoff_for_model(service: ServiceSpec, obj: str) -> str:
 def event_source_path_for_model(service: ServiceSpec, obj: str) -> str:
     event_name = event_name_for_model(service, obj)
     subject = event_subject_for_model(service, obj)
+    if not service_exposes_persistent_object(service):
+        return (
+            f"入口由 `{service.primary_inbound}` 触发，"
+            f"`{service.service_name}` 只刷新 `{subject}` 读取投影并经 `{event_name}` 保留 source trace"
+        )
     if to_snake(subject) == to_snake(service.owns_or_coordinates):
         return (
             f"入口由 `{service.primary_inbound}` 触发，"

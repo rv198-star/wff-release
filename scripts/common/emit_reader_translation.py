@@ -765,7 +765,7 @@ def main(argv: list[str] | None = None) -> int:
 > 源文件: {len(source.splitlines())} 行, {len(source)} 字符
 
 设置环境变量后运行:
-  export OPENAI_API_KEY=sk-...
+  export OPENAI_API_KEY=<your-api-key>
   export OPENAI_BASE_URL=https://api.deepseek.com/v1
   python3 {Path(__file__).name} --canonical {args.canonical} --artifact-label "{args.artifact_label}"
 """

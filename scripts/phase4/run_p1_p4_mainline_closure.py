@@ -865,7 +865,7 @@ def emit_p1_p4_mainline_closure_summary(report: dict[str, Any], artifact_paths: 
             ensure_ascii=False,
         )
     )
-    return 0 if report["overall_verdict"] != "blocked" else 1
+    return 0 if report["overall_verdict"] == "pass" else 1
 
 
 def main(argv: list[str] | None = None) -> int:

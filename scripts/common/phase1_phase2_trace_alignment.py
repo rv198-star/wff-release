@@ -198,21 +198,20 @@ def build_phase2_phase1_resolution_report(
 ) -> dict[str, object]:
     phase1_catalog = phase1_catalog_from_prd(phase1_prd)
     rows: list[dict[str, object]] = []
-    rows_by_id: dict[str, dict[str, object]] = {}
     for row_group, units in fine_grained_trace_units.items():
         id_field = "replay_id" if row_group == "replay_trace_units" else "trace_id"
         for row in units:
             resolution = resolve_row_upstream_trace_ids(row, row_group=row_group, phase1_catalog=phase1_catalog)
-            row_entry = {
-                "row_group": row_group,
-                "artifact_id": canonicalize_phase2_trace_artifact_id(row.get(id_field, "")),
-                "mode": resolution["mode"],
-                "explicit_upstream_trace_ids": resolution["explicit_upstream_trace_ids"],
-                "phase1_upstream_trace_ids": resolution["phase1_upstream_trace_ids"],
-                "row_payload": row,
-            }
-            rows.append(row_entry)
-            rows_by_id[str(row_entry["artifact_id"])] = row_entry
+            rows.append(
+                {
+                    "row_group": row_group,
+                    "artifact_id": canonicalize_phase2_trace_artifact_id(row.get(id_field, "")),
+                    "mode": resolution["mode"],
+                    "explicit_upstream_trace_ids": resolution["explicit_upstream_trace_ids"],
+                    "phase1_upstream_trace_ids": resolution["phase1_upstream_trace_ids"],
+                    "row_payload": row,
+                }
+            )
 
     for row in rows:
         if row["row_group"] != "contract_trace_units" or row["phase1_upstream_trace_ids"]:

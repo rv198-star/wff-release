@@ -100,6 +100,7 @@ def build_manifest(
         "",
         f"- case_name: `{case_name}`",
         f"- version: `{version}`",
+        "- artifact_version: `v1`",
         f"- phase1_prd: `{phase1_prd}`",
         f"- output_dir: `{output_dir}`",
         "",

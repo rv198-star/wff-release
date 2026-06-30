@@ -17,6 +17,7 @@ RESOURCE_ROOT_ENV_VARS = ("WFF_RESOURCE_ROOT", "WFF_INSTALL_ROOT")
 WFF_PACK_DISCOVERY_IGNORED_CHILDREN = {"skills"}
 PROJECT_CONTEXT_RELATIVE_PATH = Path(".wff", "PROJECT_CONTEXT.md")
 PROJECT_CONTEXT_IMPORT_CANDIDATE_NAMES = ("CONTEXT.md", "project-context.md")
+PROJECT_AGENTS_RELATIVE_PATH = Path("AGENTS.md")
 PROJECT_CONTEXT_TEMPLATE = """# WFF Project Context
 
 ## Context Authority
@@ -37,6 +38,42 @@ This file is project-level Agent context. It helps WFF agents make better defaul
 ## Key References
 
 ## Conflict / Review Notes
+"""
+PROJECT_AGENTS_TEMPLATE = """# Project AGENTS.md
+
+## Purpose
+
+This file is the long-term maintenance control surface for this business project.
+It defines project maintenance rules for human and AI maintainers after initial WFF generation work.
+
+## Authority Boundary
+
+This file guides project maintenance. It does not replace formal lifecycle truth in product, architecture, implementation, brownfield, or validation artifacts.
+
+## Traceability Rules
+
+- Preserve explicit relationships between requirements, design artifacts, implementation tasks, code, and tests.
+- When a code change changes intended behavior or scope, update the relevant upstream artifact instead of leaving the change code-only.
+
+## ID / Naming Continuity
+
+- Preserve established artifact IDs and naming conventions unless a deliberate governance change is made.
+- Prefer stable identifiers and exact references when linking downstream work back to upstream artifacts.
+
+## Change Management Rules
+
+- Small local fixes may remain local when behavior and intent stay unchanged.
+- Changes to intended behavior, architecture boundaries, or trace relationships must be reflected in the relevant upstream maintenance surface.
+
+## Agent Working Rules
+
+- Read this file before making structural or behavioral changes.
+- Use `.wff/PROJECT_CONTEXT.md` for durable project context and constraints.
+- Do not treat this file as a WFF runtime manual.
+
+## WFF Re-entry
+
+- If explicit WFF runtime re-entry is needed, read `.wff/README.md`.
 """
 
 
@@ -255,6 +292,8 @@ def write_project_manifest(
     skills_root: Path,
     resource_root: Path | None,
     base_skill_link: Path,
+    project_agents_path: Path,
+    project_agents_status: str,
     project_context_path: Path,
     project_context_status: str,
     project_context_import_candidates: list[str],
@@ -282,6 +321,8 @@ def write_project_manifest(
             "required_base_skill": BASE_SKILL_NAME,
             "base_skill_path": str((skills_root / BASE_SKILL_NAME).resolve()),
             "runtime_skill_link": str(base_skill_link.relative_to(project_root)),
+            "project_agents_path": project_agents_path.relative_to(project_root).as_posix(),
+            "project_agents_status": project_agents_status,
             "project_context_path": project_context_path.relative_to(project_root).as_posix(),
             "project_context_status": project_context_status,
             "project_context_import_candidates": project_context_import_candidates,
@@ -327,6 +368,16 @@ def discover_project_context_import_candidates(project_root: Path) -> list[str]:
     ]
 
 
+def ensure_project_agents(project_root: Path) -> tuple[Path, str]:
+    agents_path = project_root / PROJECT_AGENTS_RELATIVE_PATH
+    if agents_path.exists():
+        if not agents_path.is_file():
+            raise WffInitError(f"refusing to overwrite existing non-file project AGENTS path: {agents_path}")
+        return agents_path, "existing"
+    agents_path.write_text(PROJECT_AGENTS_TEMPLATE, encoding="utf-8")
+    return agents_path, "created"
+
+
 def ensure_project_context(project_root: Path) -> tuple[Path, str, list[str]]:
     context_path = project_root / PROJECT_CONTEXT_RELATIVE_PATH
     context_path.parent.mkdir(parents=True, exist_ok=True)
@@ -365,6 +416,7 @@ def initialize_wff_project(
         env=env,
     )
     base_skill_link, link_status = ensure_base_skill_link(resolved_project_root, resolved_skills_root)
+    project_agents_path, project_agents_status = ensure_project_agents(resolved_project_root)
     project_context_path, project_context_status, project_context_import_candidates = ensure_project_context(
         resolved_project_root
     )
@@ -373,6 +425,8 @@ def initialize_wff_project(
         skills_root=resolved_skills_root,
         resource_root=resolved_resource_root,
         base_skill_link=base_skill_link,
+        project_agents_path=project_agents_path,
+        project_agents_status=project_agents_status,
         project_context_path=project_context_path,
         project_context_status=project_context_status,
         project_context_import_candidates=project_context_import_candidates,
@@ -385,6 +439,8 @@ def initialize_wff_project(
         "resource_root": str(resolved_resource_root) if resolved_resource_root is not None else "",
         "resource_root_status": "resolved" if resolved_resource_root is not None else "unresolved",
         "base_skill_link": str(base_skill_link),
+        "project_agents": str(project_agents_path),
+        "project_agents_status": project_agents_status,
         "project_context": str(project_context_path),
         "project_context_status": project_context_status,
         "project_context_import_candidates": project_context_import_candidates,

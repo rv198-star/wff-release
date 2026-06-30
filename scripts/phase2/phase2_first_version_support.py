@@ -629,11 +629,32 @@ def _extract_page_map_from_prototype_spec(prototype_spec_path: Path | None) -> l
             "forbidden_exposure": _clean_list(raw_row.get("forbidden_exposure")),
         }
 
+    def _looks_like_source_technical_object(value: str) -> bool:
+        cleaned = str(value or "").strip().strip("`")
+        if looks_like_generic_object_descriptor(cleaned):
+            return False
+        words = technical_ascii_words(cleaned)
+        if len(words) < 2:
+            return False
+        return bool(
+            re.search(r"[a-z0-9][A-Z]", cleaned)
+            or re.search(r"[_-][A-Za-z0-9]", cleaned)
+        )
+
+    def _page_contract_object_can_anchor_binding(value: str) -> bool:
+        return object_requires_persistent_table(value) or _looks_like_source_technical_object(value)
+
     def _page_row_allowed(row: dict[str, str]) -> bool:
         page_name = str(row.get("page_name", "")).strip()
         business_objects = split_inline_values(row.get("business_objects", ""))
+        has_stable_contract_object = any(
+            _page_contract_object_can_anchor_binding(item)
+            for item in business_objects
+        )
+        if has_stable_contract_object:
+            return True
         if page_name and not object_requires_persistent_table(page_name):
-            return any(object_requires_persistent_table(item) for item in business_objects)
+            return False
         return True
 
     table_section_lines: list[str] = []
@@ -1023,23 +1044,32 @@ def sanitize_phase2_modules(
     modules: list[dict[str, object]],
     *,
     root_namespace: str,
+    source_contract_objects: list[str] | None = None,
 ) -> list[dict[str, object]]:
     sanitized: list[dict[str, object]] = []
     seen: set[str] = set()
+    source_contract_keys = {to_snake(item) for item in (source_contract_objects or []) if str(item).strip()}
+
+    def _can_anchor_module(value: str) -> bool:
+        return object_requires_persistent_table(value) or to_snake(value) in source_contract_keys
+
     for module in modules:
         name = str(module.get("module_name", "")).strip()
-        filtered_objects = persistent_business_objects(module_core_objects(module))
+        filtered_objects = unique_preserve(
+            [obj for obj in module_core_objects(module) if _can_anchor_module(obj)]
+        )
         primary = str(module.get("primary_object", "")).strip()
-        if primary and not object_requires_persistent_table(primary):
+        if primary and not _can_anchor_module(primary):
             primary = ""
         if not primary and filtered_objects:
             primary = filtered_objects[0]
         if not filtered_objects and primary:
             filtered_objects = [primary]
-        if not filtered_objects and not object_requires_persistent_table(name):
+        if not filtered_objects and not _can_anchor_module(name):
             continue
         display_name = name
-        if filtered_objects and not object_requires_persistent_table(name):
+        has_source_contract_object = any(to_snake(obj) in source_contract_keys for obj in filtered_objects)
+        if filtered_objects and not object_requires_persistent_table(name) and not has_source_contract_object:
             display_name = primary or filtered_objects[0]
         if not primary:
             primary = filtered_objects[0] if filtered_objects else name

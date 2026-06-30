@@ -17,6 +17,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 import argparse
+import importlib
 import json
 import sqlite3
 from datetime import datetime, timezone
@@ -41,7 +42,10 @@ except ModuleNotFoundError:  # profile pack keeps compact closure runnable witho
     _emit_component_semantic_inventory = None
 
 try:
-    from phase3.operation_risk_tiering import classify_operation, derive_acd_level, normalize_business_value_weight
+    _operation_risk_tiering = importlib.import_module("common.operation_risk_tiering")
+    classify_operation = _operation_risk_tiering.classify_operation
+    derive_acd_level = _operation_risk_tiering.derive_acd_level
+    normalize_business_value_weight = _operation_risk_tiering.normalize_business_value_weight
 except ModuleNotFoundError:  # profile-pack fallback mirrors the compact handoff tiering rules without pulling P3 diagnostics
     WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -1498,6 +1502,7 @@ def write_engineering_spec_pack(
 ## 1. Intake Metadata
 - case_name: `{case_name}`
 - report_version: `{version}`
+- artifact_version: `v1`
 - delivery_profile: `{profile}`
 - run_owner: `{owner}`
 - upstream_phase1_prd: `{phase1_prd}`
@@ -1541,6 +1546,7 @@ def write_phase3_entry(
 - case_name: `{case_name}`
 - source_phase: `Phase-2`
 - report_version: `{version}`
+- artifact_version: `v1`
 - strongest_supported_readiness_label: `{formal_state}`
 - compact_closure_formal_state: `{compact_closure_formal_state}`
 - closure_runtime: `phase2_closure_runtime.py`
@@ -1607,6 +1613,7 @@ def write_execution_report(
 ## 1. Runtime Metadata
 - case_name: `{case_name}`
 - report_version: `{version}`
+- artifact_version: `v1`
 - profile: `{profile}`
 - run_owner: `{owner}`
 - closure_runtime: `phase2_closure_runtime.py`

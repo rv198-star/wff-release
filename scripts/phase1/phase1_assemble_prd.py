@@ -3382,6 +3382,7 @@ def render_phase1_document_opening_lines(
         "## 0. Document Metadata",
         f"- document_name: `{document_name}`",
         f"- version: `{version}`",
+        "- artifact_version: `v1`",
         f"- artifact_id: `{PHASE1_PRD_ARTIFACT_ID}`",
         "- status:",
         "  - `provisional`",

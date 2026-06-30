@@ -1,12 +1,12 @@
 # Skills 安装包审计
 
 ## 标识
-- 安装包名称: `wff-v1.5.4-skills-install-pack`
+- 安装包名称: `wff-v1.6.0-skills-install-pack`
 - pack_type: `skills-install-pack`
 - profile_id: `full-pack`
 - profile_status: `default`
 - profile_claim: `default-full-pack`
-- 源修订版本: `e857fb0dc102849a8a69da651f4a8c2b3a48368a`
+- 源修订版本: `01064091802c832b77570b2594f03dfeae35be50`
 - 总体结论: `pass`
 
 ## 硬失败项
@@ -26,28 +26,31 @@
 - test_dirs: `0`
 
 ## Content Inventory
-- total_files: `607`
-- total_bytes: `6940581`
+- total_files: `681`
+- total_bytes: `11406751`
 - policy_findings: `0`
 - 无
 - top_level:
-  - `AGENTS.md`: files=`1`, bytes=`2525`
+  - `AGENTS.md`: files=`1`, bytes=`2566`
   - `INSTALL-PACK-README.en.md`: files=`1`, bytes=`7338`
   - `INSTALL-PACK-README.md`: files=`1`, bytes=`7212`
   - `INSTALL-PACK-README.zh-CN.md`: files=`1`, bytes=`7212`
+  - `INSTALL_PACK_AUDIT.md`: files=`1`, bytes=`5696`
   - `README.en.md`: files=`1`, bytes=`7338`
-  - `README.md`: files=`1`, bytes=`8315`
-  - `README.zh-CN.md`: files=`1`, bytes=`8315`
-  - `SKILL_INSTALL_PACK_MANIFEST.json`: files=`1`, bytes=`47477`
+  - `README.md`: files=`1`, bytes=`8304`
+  - `README.zh-CN.md`: files=`1`, bytes=`8304`
+  - `SKILL_INSTALL_PACK_AUDIT.json`: files=`1`, bytes=`11210`
+  - `SKILL_INSTALL_PACK_MANIFEST.json`: files=`1`, bytes=`48452`
   - `WFF-START-HERE.md`: files=`1`, bytes=`2884`
   - `WFF-START-HERE.zh-CN.md`: files=`1`, bytes=`2771`
-  - `config`: files=`3`, bytes=`76135`
-  - `docs`: files=`19`, bytes=`208180`
+  - `config`: files=`4`, bytes=`84634`
+  - `docs`: files=`20`, bytes=`220275`
   - `reference-packages`: files=`180`, bytes=`627548`
-  - `requirements.txt`: files=`1`, bytes=`12`
-  - `runtime-deps`: files=`59`, bytes=`332481`
-  - `scripts`: files=`277`, bytes=`5363983`
-  - `skills`: files=`55`, bytes=`227609`
+  - `requirements.lock.txt`: files=`1`, bytes=`490`
+  - `requirements.txt`: files=`1`, bytes=`29`
+  - `runtime-deps`: files=`110`, bytes=`4415224`
+  - `scripts`: files=`295`, bytes=`5706521`
+  - `skills`: files=`55`, bytes=`229497`
   - `templates`: files=`1`, bytes=`2936`
   - `wff-agent`: files=`1`, bytes=`168`
   - `wff-init`: files=`1`, bytes=`142`
@@ -55,7 +58,7 @@
 ## Install-Pack AGENTS.md
 - path: `AGENTS.md`
 - exists: `True`
-- line_count: `39`
+- line_count: `41`
 - max_allowed_lines: `120`
 - missing_required_phrases: `(none)`
 - repo_level_markers: `(none)`
@@ -66,7 +69,7 @@
 - unexpected_root_guidance_files: `(none)`
 - oversized_root_guidance_files: `0`
 - repo_level_marker_hits: `0`
-- checked `AGENTS.md`: `39` lines, markers=`(none)`
+- checked `AGENTS.md`: `41` lines, markers=`(none)`
 - checked `INSTALL-PACK-README.en.md`: `153` lines, markers=`(none)`
 - checked `INSTALL-PACK-README.md`: `153` lines, markers=`(none)`
 - checked `INSTALL-PACK-README.zh-CN.md`: `153` lines, markers=`(none)`

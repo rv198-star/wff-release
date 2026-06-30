@@ -427,6 +427,7 @@ def analyze_phase3_delivery(
     ui_prototype_fallback_report_path: Path | None = None,
     ui_ia_contract_path: Path | None = None,
     productness_gate_report: dict[str, Any] | None = None,
+    phase3_metadata_report: dict[str, Any] | None = None,
     require_frontend_contract: bool = False,
     retained_proof_mode: bool = False,
     strict_runtime_closure: bool = False,
@@ -451,6 +452,16 @@ def analyze_phase3_delivery(
     runtime_smoke_green = report_is_pass(runtime_smoke_report) if runtime_smoke_report is not None else False
     started_service_smoke_present = path_exists(started_service_smoke_report_path) or started_service_smoke_report is not None
     started_service_smoke_green = report_is_pass(started_service_smoke_report) if started_service_smoke_report is not None else False
+    metadata_report = phase3_metadata_report if isinstance(phase3_metadata_report, dict) else {}
+    subagent_slice_count = first_int(metadata_report, ("subagent_slice_count",))
+    subagent_blocked_slice_count = first_int(metadata_report, ("subagent_blocked_slice_count",))
+    subagent_actual_execution_count = first_int(metadata_report, ("subagent_actual_execution_count",))
+    subagent_write_runner_execution_count = first_int(metadata_report, ("subagent_write_runner_execution_count",))
+    subagent_execution_status = str(metadata_report.get("subagent_execution_status") or "").strip()
+    subagent_overall_slice_run_status = str(
+        metadata_report.get("subagent_overall_slice_run_status") or "not-applicable"
+    ).strip() or "not-applicable"
+    action_card_slice_gate_green = subagent_blocked_slice_count == 0 and subagent_overall_slice_run_status != "blocked"
 
     runtime_wp_green = report_is_pass(wp_gate_report) if wp_gate_report is not None else False
     runtime_build_green = ledger_step_is_pass(verification_ledger_report, "build")
@@ -1128,6 +1139,13 @@ def analyze_phase3_delivery(
             "has_packet_level_verification": has_packet_level_verification,
             "backend_packet_present": backend_packet_present,
             "frontend_packet_present": frontend_packet_present,
+            "subagent_execution_status": subagent_execution_status,
+            "subagent_slice_count": subagent_slice_count,
+            "subagent_blocked_slice_count": subagent_blocked_slice_count,
+            "subagent_actual_execution_count": subagent_actual_execution_count,
+            "subagent_write_runner_execution_count": subagent_write_runner_execution_count,
+            "subagent_overall_slice_run_status": subagent_overall_slice_run_status,
+            "action_card_slice_gate": action_card_slice_gate_green,
             "bootstrap_toolchain_status": bootstrap_toolchain_status,
             "bootstrap_toolchain_status_basis": bootstrap_toolchain_status_basis,
             "bootstrap_all_payload_typed": bootstrap_all_payload_typed,

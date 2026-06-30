@@ -6,14 +6,11 @@ Shared helpers for Phase-1 -> Phase-2 coverage contract analysis.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
-from common.markdown_table_tools import (
-    markdown_tables,
-    normalize_table_header,
-    table_rows_with_required_headers,
-)
+from common.markdown_table_tools import table_rows_with_required_headers
+from common.phase1_phase2_trace_alignment import build_phase2_phase1_resolution_report, split_trace_ids
 from phase1.phase1_trace_units import extract_phase1_trace_units, phase1_phase2_design_contract_rows
-from phase2.phase2_trace_alignment import build_phase2_phase1_resolution_report, split_trace_ids
 
 
 def block_text(text: str, block_name: str) -> str:

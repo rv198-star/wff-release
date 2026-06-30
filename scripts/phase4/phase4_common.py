@@ -794,6 +794,7 @@ def build_phase4_metadata_payload(
         "generated_at": utc_now_iso(),
         "case_name": case_name,
         "version": version,
+        "artifact_version": "v1",
         "phase3_root": str(phase3_root),
         "artifact_kind": artifact_kind,
         "generation_entrypoint": generation_entrypoint,

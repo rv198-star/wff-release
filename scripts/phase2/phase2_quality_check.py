@@ -31,7 +31,7 @@ from common.markdown_table_tools import (
     normalize_table_header,
     table_rows_with_required_headers,
 )
-from phase1.phase1_phase2_coverage import analyze_phase1_phase2_coverage_contract
+from common.phase1_phase2_coverage import analyze_phase1_phase2_coverage_contract
 from phase2.phase2_quality_gate_specs import evaluate_stage_gate_specs, load_stage_gate_specs
 
 STAGE_KEYS = ("stage_01", "stage_02", "stage_03", "stage_04")

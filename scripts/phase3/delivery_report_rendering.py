@@ -75,6 +75,8 @@ def build_acceptance_report(
   - `{case_name}`
 - report_version:
   - `{version}`
+- artifact_version:
+  - `v1`
 - mainline_profile:
   - `backend-first`
 - delivery_mode:
@@ -181,6 +183,8 @@ def build_execution_report(
   - `{case_name}`
 - report_version:
   - `{version}`
+- artifact_version:
+  - `v1`
 - mainline_profile:
   - `backend-first`
 - delivery_mode:

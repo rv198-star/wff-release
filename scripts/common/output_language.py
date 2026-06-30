@@ -179,6 +179,12 @@ PHASE3_WORKER_PACKET_RUNBOOK_ZH = _replacement_table("PHASE3_WORKER_PACKET_RUNBO
 PHASE3_PACKET_RUN_REPORT_ZH = _replacement_table("PHASE3_PACKET_RUN_REPORT_ZH")
 
 
+PHASE3_SUBAGENT_SLICE_RUN_MANIFEST_ZH = _replacement_table("PHASE3_SUBAGENT_SLICE_RUN_MANIFEST_ZH")
+
+
+PHASE3_SUBAGENT_SLICE_ORCHESTRATION_REPORT_ZH = _replacement_table("PHASE3_SUBAGENT_SLICE_ORCHESTRATION_REPORT_ZH")
+
+
 PHASE3_VERIFICATION_REPORT_ZH = _replacement_table("PHASE3_VERIFICATION_REPORT_ZH")
 
 
@@ -322,6 +328,14 @@ def localize_phase3_worker_packet_runbook(text: str, locale: str | None = None) 
 
 def localize_phase3_packet_run_report(text: str, locale: str | None = None) -> str:
     return apply_replacements(text, PHASE3_PACKET_RUN_REPORT_ZH) if is_zh_output(locale) else text
+
+
+def localize_phase3_subagent_slice_run_manifest(text: str, locale: str | None = None) -> str:
+    return apply_replacements(text, PHASE3_SUBAGENT_SLICE_RUN_MANIFEST_ZH) if is_zh_output(locale) else text
+
+
+def localize_phase3_subagent_slice_orchestration_report(text: str, locale: str | None = None) -> str:
+    return apply_replacements(text, PHASE3_SUBAGENT_SLICE_ORCHESTRATION_REPORT_ZH) if is_zh_output(locale) else text
 
 
 def localize_phase3_verification_report(text: str, locale: str | None = None) -> str:

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import importlib
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from common.human_review_surface import emit_human_review_surface
 from phase3.delivery_closure import finalize_phase3_delivery_closure
+from phase3.runtime_smoke_plan import resolve_requested_runtime_smoke_service_url
 from phase3.timing_report import record_timing_segment, set_timing_segment, start_timer
 from phase3.trace_registry import finalize_trace_registry, project_phase3_trace_registry_to_trace_db
 from phase3.review_support import load_json, load_json_if_exists
@@ -91,26 +91,7 @@ def runtime_smoke_tools():
 
 
 def resolve_runtime_smoke_service_url(explicit_service_url: str | None = None) -> str:
-    explicit = (explicit_service_url or "").strip()
-    if explicit:
-        return explicit
-
-    env_url = os.environ.get("PHASE3_RUNTIME_SMOKE_SERVICE_URL", "").strip()
-    if env_url:
-        return env_url
-
-    for key in ("PHASE3_RUNTIME_SMOKE_API_HOST_PORT", "API_HOST_PORT"):
-        raw = os.environ.get(key, "").strip()
-        if not raw:
-            continue
-        try:
-            port = int(raw)
-        except ValueError:
-            continue
-        if 1 <= port <= 65535:
-            return f"http://127.0.0.1:{port}"
-
-    return "http://127.0.0.1:3000"
+    return resolve_requested_runtime_smoke_service_url(explicit_service_url)
 
 
 def resolve_delivery_bootstrap_report(output_dir: Path) -> tuple[dict[str, Any] | None, Path]:
@@ -403,6 +384,7 @@ def refresh_phase3_post_execution(
             run_runtime_smoke=run_runtime_smoke,
         )
 
+    metadata_path = output_dir / "phase3-run-metadata.json"
     delivery_kwargs = {
         "bootstrap_report": bootstrap_report,
         "unit_test_report": load_json_if_exists(resolved_unit_test_report_path),
@@ -431,10 +413,10 @@ def refresh_phase3_post_execution(
         "trace_registry_final_path": trace_registry_final_path if trace_registry_final_path.exists() else None,
         "ui_prototype_fallback_report_path": ui_prototype_fallback_report_path,
         "ui_ia_contract_path": ui_ia_contract_path,
+        "phase3_metadata_report": load_json_if_exists(metadata_path),
         "retained_proof_mode": retained_proof_mode,
         "strict_runtime_closure": strict_runtime_closure,
     }
-    metadata_path = output_dir / "phase3-run-metadata.json"
     delivery_gate_started = start_timer()
     delivery, assessment_artifacts, assessment_summary = finalize_phase3_delivery_closure(
         case_name=case_name,

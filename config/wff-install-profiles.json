@@ -197,6 +197,8 @@
       ],
       "explicit_runtime_dep_dirs": [],
       "explicit_scripts": [
+        "scripts/phase3/dispatch_lane_bootstrap.py",
+        "scripts/phase3/action_card_agent_runner.py",
         "scripts/release/role_agent_manifest.py",
         "scripts/release/wff_agent.py"
       ],
@@ -211,11 +213,7 @@
         "scripts/phase1/record_phase1_runtime_snapshot.py",
         "scripts/phase3/agentic_repair_loop.py",
         "scripts/phase3/dispatch_execution.py",
-        "scripts/phase3/dispatch_runtime.py",
         "scripts/phase3/phase3_dispatch_runner.py",
-        "scripts/phase3/runtime_environment.py",
-        "scripts/phase3/worker_packet_artifacts.py",
-        "scripts/phase3/worker_packet_runner.py",
         "scripts/release/bootstrap_mindthus_dependency.py",
         "scripts/release/run_release_dual_case_eval.py",
         "scripts/phase3/run_phase3_first_version.py",
@@ -462,6 +460,7 @@
         "scripts/phase3/run_phase3_first_version.py",
         "scripts/phase3/phase3_dispatch_runner.py",
         "scripts/phase3/worker_packet_runner.py",
+        "scripts/phase3/action_card_agent_runner.py",
         "scripts/phase3/module_synthesis.py",
         "scripts/phase3/phase3_runtime_smoke.py",
         "scripts/phase3/phase3_started_service_smoke.py",
@@ -680,6 +679,7 @@
         "scripts/phase3/ui_prototype_fallback.py",
         "scripts/phase3/phase3_dispatch_runner.py",
         "scripts/phase3/worker_packet_runner.py",
+        "scripts/phase3/action_card_agent_runner.py",
         "scripts/phase3/module_synthesis.py",
         "scripts/phase3/phase3_runtime_smoke.py",
         "scripts/phase3/phase3_started_service_smoke.py",
@@ -1109,7 +1109,8 @@
       "blockers": [
         {
           "evidence": [
-            "docs/phases/phase-3/phase-3-skill-architecture-design-v0.1.md"
+            "docs/phases/phase-3/phase-3-skill-architecture-design-v0.1.md",
+            "docs/phases/phase-3/phase-3-action-card-runner-protocol-v0.1.md"
           ],
           "future_action": "Separate reusable worker guidance from P3 runtime gates before role-skill packaging.",
           "reason": "P3 worker skills share guidance surfaces, while some also reference P3 gate runtime.",
@@ -1120,7 +1121,8 @@
         "p3-worker-guidance"
       ],
       "explicit_docs": [
-        "docs/phases/phase-3/phase-3-skill-architecture-design-v0.1.md"
+        "docs/phases/phase-3/phase-3-skill-architecture-design-v0.1.md",
+        "docs/phases/phase-3/phase-3-action-card-runner-protocol-v0.1.md"
       ],
       "explicit_reference_package_dirs": [
         "reference-packages/phase3-implementation-delivery"
@@ -1437,7 +1439,8 @@
       "id": "phase3-dispatch-runtime-scripts",
       "paths": [
         "scripts/phase3/dispatch_lane_bootstrap.py",
-        "scripts/phase3/phase3_dispatch_runner.py"
+        "scripts/phase3/phase3_dispatch_runner.py",
+        "scripts/phase3/action_card_agent_runner.py"
       ],
       "type": "phase-runtime"
     },
@@ -1682,7 +1685,8 @@
     {
       "id": "p3-worker-guidance-docs",
       "paths": [
-        "docs/phases/phase-3/phase-3-skill-architecture-design-v0.1.md"
+        "docs/phases/phase-3/phase-3-skill-architecture-design-v0.1.md",
+        "docs/phases/phase-3/phase-3-action-card-runner-protocol-v0.1.md"
       ],
       "type": "guidance-docs"
     },

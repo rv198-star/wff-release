@@ -152,7 +152,7 @@ WFF 的安装单位是完整 skill 目录和配套资源，不是单个 `SKILL.m
 
 完整 proof snapshot 不放在公开 runtime 仓库 `main`。它们按版本保存在独立 proof snapshot 分支，避免公开首页仓库被生成物拖大。
 
-最近的 v1.5.4 维护版主线验证快照已保留在独立 proof snapshot 分支，包含三条主线场景 P1 -> P4 的源码级产物，用于外部独立评审。当前边界是 `pass-with-review-pending`：这是带声明上限的发布证据，不是无条件 release proof；v1.5.4 不声明 fresh PhaseX 四场景重跑。
+最近的 v1.6.0 全链路验证快照已保留在独立 proof snapshot 分支，包含三条主线场景 P1 -> P4 和 PhaseX 四场景 PX -> P1/P2/P3/P4 的源码级产物，用于外部独立评审。当前边界是 `accepted-with-review-ceiling`：这是带声明上限的发布证据，不是无条件 release proof。
 
 ## 继续阅读
 

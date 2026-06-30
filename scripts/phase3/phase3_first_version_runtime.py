@@ -62,6 +62,43 @@ def _not_requested_summary() -> dict[str, object]:
     return {"mode": "not-requested"}
 
 
+def _subagent_execution_summary(*, request: str, enabled: bool) -> dict[str, object]:
+    if not enabled:
+        return {
+            "request": request,
+            "mode": "centralized-fallback",
+            "status": "disabled",
+            "runner_supported": False,
+            "claim_ceiling": "centralized mainline evidence only; no per-Action-Card implementation claim",
+        }
+    return {
+        "request": request,
+        "mode": "packet-only-fallback",
+        "status": "runner-unsupported",
+        "runner_supported": False,
+        "claim_ceiling": (
+            "dispatch packets and Action Card slice manifests are prepared; "
+            "no per-Action-Card implementation claim until a write-capable Action Card runner records execution evidence"
+        ),
+    }
+
+
+def _empty_subagent_slice_summary() -> dict[str, object]:
+    return {
+        "slice_count": 0,
+        "ready_slice_count": 0,
+        "blocked_slice_count": 0,
+        "actual_subagent_execution_count": 0,
+        "write_runner_execution_count": 0,
+        "read_only_review_count": 0,
+        "slice_execution_mode": "not-applicable",
+        "slice_runner_supported": False,
+        "action_card_runner_supported": False,
+        "runner_protocol_version": "action-card-runner/v1",
+        "runner_kind": "generic",
+    }
+
+
 def _optional_phase3_runtime_sidecar(module_name: str):
     try:
         return importlib.import_module(f"phase3.{module_name}")
@@ -291,6 +328,7 @@ def select_bootstrap_worker_packet(execution_loop_plan: dict[str, object]) -> tu
 def initialize_optional_dispatch_lane(**kwargs: object) -> dict[str, object]:
     output_dir = kwargs["output_dir"]
     if not bool(kwargs.get("enabled")):
+        request = str(kwargs.get("dispatch_lane_mode") or "disabled").strip() or "disabled"
         return {
             "wp_packet_summary": _not_requested_summary(),
             "wp_wave_summary": _not_requested_summary(),
@@ -304,6 +342,8 @@ def initialize_optional_dispatch_lane(**kwargs: object) -> dict[str, object]:
             "worker_run_report_path": output_dir / "worker-run-report.json",
             "bootstrap_worker_run_report_path": output_dir / "bootstrap-worker-run-report.json",
             "runtime_environment_ledger_path": output_dir / "runtime-environment-ledger.json",
+            "subagent_execution_summary": _subagent_execution_summary(request=request, enabled=False),
+            "subagent_slice_summary": _empty_subagent_slice_summary(),
         }
     return _dispatch_lane_bootstrap_module().initialize_optional_dispatch_lane(**kwargs)
 
@@ -365,11 +405,22 @@ def parse_phase3_first_version_args(argv: list[str] | None = None) -> argparse.N
             "",
             full_targeted_evidence=bool(getattr(args, "full_targeted_evidence", True)),
         )
+    if getattr(args, "disable_dispatch_lane", False):
+        args.dispatch_lane_mode = "disabled"
+    elif getattr(args, "enable_dispatch_lane", False):
+        args.dispatch_lane_mode = "enabled"
+    else:
+        args.dispatch_lane_mode = "auto"
+    args.dispatch_lane_explicitly_enabled = args.dispatch_lane_mode == "enabled"
+    args.dispatch_lane_explicitly_disabled = args.dispatch_lane_mode == "disabled"
+    args.enable_dispatch_lane = args.dispatch_lane_mode != "disabled" and args.mainline_stage == "foundation"
     return args
 
 
 def validate_phase3_runner_args(args: argparse.Namespace) -> None:
-    if args.mainline_stage == "bootstrap" and args.enable_dispatch_lane:
+    if args.mainline_stage == "bootstrap" and (
+        args.enable_dispatch_lane or bool(getattr(args, "dispatch_lane_explicitly_enabled", False))
+    ):
         raise ValueError("--enable-dispatch-lane is only available for --mainline-stage foundation")
 
     if args.require_frontend_contract and not args.enable_ui_fallback:
@@ -561,10 +612,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="enable the optional frontend fallback lane and emit compiled UI contract artifacts",
     )
-    parser.add_argument(
+    dispatch_lane_group = parser.add_mutually_exclusive_group()
+    dispatch_lane_group.add_argument(
         "--enable-dispatch-lane",
         action="store_true",
-        help="enable the optional dispatch / worker-packet / runtime-cycle lane",
+        help="explicitly enable the dispatch / worker-packet / runtime-cycle lane; foundation defaults to auto",
+    )
+    dispatch_lane_group.add_argument(
+        "--disable-dispatch-lane",
+        action="store_true",
+        help="disable the default foundation dispatch lane and use centralized mainline fallback evidence only",
     )
     parser.add_argument(
         "--require-frontend-contract",

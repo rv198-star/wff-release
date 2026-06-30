@@ -106,11 +106,11 @@ def build_runtime_compose_env_example(tech_stack_text: str) -> str:
         [
             "OIDC_ISSUER_URL=https://example-issuer",
             "OIDC_CLIENT_ID=phase3-local-client",
-            "OIDC_CLIENT_SECRET=phase3-local-secret",
+            "OIDC_CLIENT_SECRET=replace-me",
         ]
         if auth_integration_mode == "external-idp"
         else [
-            "AUTH_TOKEN_SECRET=phase3-local-dev-secret",
+            "AUTH_TOKEN_SECRET=replace-me",
         ]
     )
     auth_lines = [*auth_lines, "PHASE3_ALLOW_AUTH_CONTEXT_HEADER=false"]

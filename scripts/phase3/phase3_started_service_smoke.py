@@ -332,9 +332,44 @@ def build_smoke_claims(*, role: str = "", roles: list[str] | None = None, suffix
     }
 
 
+def bearer_token_redaction_values(tokens: list[str]) -> list[str]:
+    values: set[str] = set()
+    for token in tokens:
+        if not token:
+            continue
+        values.add(token)
+        parts = token.split(".")
+        if len(parts) == 3:
+            for part in parts:
+                if len(part) >= 12:
+                    values.add(part)
+                if len(part) >= 16:
+                    values.add(part[:16])
+    return sorted(values, key=len, reverse=True)
+
+
 def report_exposes_bearer_token(report: dict[str, Any], tokens: list[str]) -> bool:
     serialized = json.dumps(report, ensure_ascii=False)
-    return any(token and token in serialized for token in tokens)
+    return any(token and token in serialized for token in bearer_token_redaction_values(tokens))
+
+
+def redact_bearer_tokens(value: Any, tokens: list[str]) -> Any:
+    redaction_values = bearer_token_redaction_values(tokens)
+    return redact_bearer_values(value, redaction_values)
+
+
+def redact_bearer_values(value: Any, redaction_values: list[str]) -> Any:
+    if isinstance(value, dict):
+        return {key: redact_bearer_values(item, redaction_values) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact_bearer_values(item, redaction_values) for item in value]
+    if isinstance(value, str):
+        redacted = value
+        for token in redaction_values:
+            if token:
+                redacted = redacted.replace(token, "[redacted-bearer-token]")
+        return redacted
+    return value
 
 
 def run_phase3_started_service_smoke(
@@ -445,8 +480,11 @@ def run_phase3_started_service_smoke(
         "failures": failures,
         "warnings": warnings,
     }
-    report["checks"]["raw_bearer_token_exposed"] = report_exposes_bearer_token(report, [forbidden_token, valid_token])
-    if report["checks"]["raw_bearer_token_exposed"]:
+    bearer_tokens = [forbidden_token, valid_token]
+    raw_bearer_token_exposed = report_exposes_bearer_token(report, bearer_tokens)
+    if raw_bearer_token_exposed:
+        report = redact_bearer_tokens(report, bearer_tokens)
+        report["checks"]["raw_bearer_token_exposed"] = True
         report["overall_quality_gate"] = "fail"
         report["verdict"] = "fail"
         report["failures"].append("raw_bearer_token_exposed")
@@ -460,7 +498,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run started-service API smoke checks for a Phase-3 workspace")
     parser.add_argument("--workspace-root", required=True)
     parser.add_argument("--service-url", required=True)
-    parser.add_argument("--auth-secret", default="phase3-runtime-smoke-secret")
+    parser.add_argument("--auth-secret", default="replace-me")
     parser.add_argument("--output", required=True)
     parser.add_argument("--timeout-seconds", type=int, default=10)
     return parser

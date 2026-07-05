@@ -6,7 +6,7 @@
 - profile_id: `full-pack`
 - profile_status: `default`
 - profile_claim: `default-full-pack`
-- 源修订版本: `01064091802c832b77570b2594f03dfeae35be50`
+- 源修订版本: `2989df038c98ed5e501120260b9c8e319aef4610`
 - 总体结论: `pass`
 
 ## 硬失败项
@@ -26,8 +26,8 @@
 - test_dirs: `0`
 
 ## Content Inventory
-- total_files: `681`
-- total_bytes: `11406751`
+- total_files: `683`
+- total_bytes: `16619179`
 - policy_findings: `0`
 - 无
 - top_level:
@@ -35,16 +35,16 @@
   - `INSTALL-PACK-README.en.md`: files=`1`, bytes=`7338`
   - `INSTALL-PACK-README.md`: files=`1`, bytes=`7212`
   - `INSTALL-PACK-README.zh-CN.md`: files=`1`, bytes=`7212`
-  - `INSTALL_PACK_AUDIT.md`: files=`1`, bytes=`5696`
+  - `INSTALL_PACK_AUDIT.md`: files=`1`, bytes=`5697`
   - `README.en.md`: files=`1`, bytes=`7338`
-  - `README.md`: files=`1`, bytes=`8304`
-  - `README.zh-CN.md`: files=`1`, bytes=`8304`
-  - `SKILL_INSTALL_PACK_AUDIT.json`: files=`1`, bytes=`11210`
-  - `SKILL_INSTALL_PACK_MANIFEST.json`: files=`1`, bytes=`48452`
+  - `README.md`: files=`1`, bytes=`8587`
+  - `README.zh-CN.md`: files=`1`, bytes=`8587`
+  - `SKILL_INSTALL_PACK_AUDIT.json`: files=`1`, bytes=`11212`
+  - `SKILL_INSTALL_PACK_MANIFEST.json`: files=`1`, bytes=`48569`
   - `WFF-START-HERE.md`: files=`1`, bytes=`2884`
   - `WFF-START-HERE.zh-CN.md`: files=`1`, bytes=`2771`
   - `config`: files=`4`, bytes=`84634`
-  - `docs`: files=`20`, bytes=`220275`
+  - `docs`: files=`22`, bytes=`5432017`
   - `reference-packages`: files=`180`, bytes=`627548`
   - `requirements.lock.txt`: files=`1`, bytes=`490`
   - `requirements.txt`: files=`1`, bytes=`29`
@@ -74,8 +74,8 @@
 - checked `INSTALL-PACK-README.md`: `153` lines, markers=`(none)`
 - checked `INSTALL-PACK-README.zh-CN.md`: `153` lines, markers=`(none)`
 - checked `README.en.md`: `153` lines, markers=`(none)`
-- checked `README.md`: `166` lines, markers=`(none)`
-- checked `README.zh-CN.md`: `166` lines, markers=`(none)`
+- checked `README.md`: `172` lines, markers=`(none)`
+- checked `README.zh-CN.md`: `172` lines, markers=`(none)`
 - checked `WFF-START-HERE.md`: `33` lines, markers=`(none)`
 - checked `WFF-START-HERE.zh-CN.md`: `33` lines, markers=`(none)`
 

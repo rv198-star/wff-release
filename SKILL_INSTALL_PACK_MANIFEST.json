@@ -510,7 +510,7 @@
     "wff-meta-source-unit-coverage-ledger",
     "wff-meta-stage-skill-construction-lifecycle"
   ],
-  "generated_at": "2026-06-30T17:54:17+00:00",
+  "generated_at": "2026-07-05T04:47:51+00:00",
   "included_base_skills": [
     "wff-base-traceability-management"
   ],
@@ -531,6 +531,8 @@
     "docs/phases/phase-x/phaseX-session-bootstrap.md",
     "docs/phases/phase-x/phaseX-wave1-implementation-plan-v0.1.md",
     "docs/phases/phase-x/phaseX-wave1-profile-decision-tree-v0.1.md",
+    "docs/public/assets/wff-overview-infographic-readme.png",
+    "docs/public/assets/wff-overview-infographic.png",
     "docs/public/human-review-surface.zh-CN.md",
     "docs/public/wff-orientation-map.zh-CN.md",
     "docs/role-agent-mounts/v1.4-role-agent-mounts.md",
@@ -1097,5 +1099,5 @@
     "wff-validation-closure-judgment",
     "wff-validation-evidence-execution"
   ],
-  "source_revision": "01064091802c832b77570b2594f03dfeae35be50"
+  "source_revision": "2989df038c98ed5e501120260b9c8e319aef4610"
 }

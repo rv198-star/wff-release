@@ -12,6 +12,12 @@ WFF 是给 AI Agent 用的软件生命周期框架。
 
 WFF 的做法很朴素：**把复杂问题拆小，把每一步留下证据，把每个产物接回原始需求和设计来源。**
 
+## 一张图看 WFF
+
+下面这张图用于先理解 WFF 的整体交付闭环；README 中展示的是轻量阅读版，点击图片可打开高清原图。
+
+[![WFF 是什么](docs/public/assets/wff-overview-infographic-readme.png)](docs/public/assets/wff-overview-infographic.png)
+
 ## WFF 是什么
 
 WFF 把一个复杂软件工作拆成一串小而清楚的任务。

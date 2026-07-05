@@ -1,11 +1,11 @@
 {
   "content_inventory": {
     "category_bytes": {
-      "install-pack-root-guidance": 26512,
+      "install-pack-root-guidance": 27078,
       "optional-runtime-dependency": 4415224,
-      "other": 93604,
+      "other": 93724,
       "runtime-config": 84634,
-      "user-facing-guidance": 220275,
+      "user-facing-guidance": 5432017,
       "user-facing-reference-package": 627548,
       "user-facing-template": 2936,
       "user-runtime-script": 5706521,
@@ -16,7 +16,7 @@
       "optional-runtime-dependency": 110,
       "other": 12,
       "runtime-config": 4,
-      "user-facing-guidance": 20,
+      "user-facing-guidance": 22,
       "user-facing-reference-package": 180,
       "user-facing-template": 1,
       "user-runtime-script": 295,
@@ -45,7 +45,7 @@
         "path": "INSTALL-PACK-README.zh-CN.md"
       },
       {
-        "bytes": 5696,
+        "bytes": 5697,
         "files": 1,
         "path": "INSTALL_PACK_AUDIT.md"
       },
@@ -55,22 +55,22 @@
         "path": "README.en.md"
       },
       {
-        "bytes": 8304,
+        "bytes": 8587,
         "files": 1,
         "path": "README.md"
       },
       {
-        "bytes": 8304,
+        "bytes": 8587,
         "files": 1,
         "path": "README.zh-CN.md"
       },
       {
-        "bytes": 11210,
+        "bytes": 11212,
         "files": 1,
         "path": "SKILL_INSTALL_PACK_AUDIT.json"
       },
       {
-        "bytes": 48452,
+        "bytes": 48569,
         "files": 1,
         "path": "SKILL_INSTALL_PACK_MANIFEST.json"
       },
@@ -90,8 +90,8 @@
         "path": "config"
       },
       {
-        "bytes": 220275,
-        "files": 20,
+        "bytes": 5432017,
+        "files": 22,
         "path": "docs"
       },
       {
@@ -140,8 +140,8 @@
         "path": "wff-init"
       }
     ],
-    "total_bytes": 11406751,
-    "total_files": 681
+    "total_bytes": 16619179,
+    "total_files": 683
   },
   "excluded_path_leaks": {
     "pyc_files": [],
@@ -356,13 +356,13 @@
         "path": "README.en.md"
       },
       {
-        "line_count": 166,
+        "line_count": 172,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "README.md"
       },
       {
-        "line_count": 166,
+        "line_count": 172,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "README.zh-CN.md"
@@ -410,7 +410,7 @@
     }
   },
   "skill_name_mismatches": [],
-  "source_revision": "01064091802c832b77570b2594f03dfeae35be50",
+  "source_revision": "2989df038c98ed5e501120260b9c8e319aef4610",
   "wff_project_init_support": {
     "help_probes": [
       {

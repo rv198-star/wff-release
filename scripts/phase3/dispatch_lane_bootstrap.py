@@ -147,8 +147,8 @@ def empty_subagent_slice_summary() -> dict[str, object]:
     }
 
 
-def select_bootstrap_worker_packet(execution_loop_plan: dict[str, object]) -> tuple[int, str]:
-    candidates: list[tuple[int, int, int, int, str]] = []
+def select_bootstrap_worker_packet(execution_loop_plan: dict[str, object]) -> tuple[int, str] | None:
+    candidates: list[tuple[int, int, str]] = []
     for wave_row in execution_loop_plan.get("waves", []):
         if not isinstance(wave_row, dict):
             continue
@@ -161,19 +161,61 @@ def select_bootstrap_worker_packet(execution_loop_plan: dict[str, object]) -> tu
                 continue
             status = str(packet.get("worker_packet_status", "")).strip()
             dispatch_state = str(packet.get("dispatch_state", "")).strip()
-            candidates.append(
-                (
-                    0 if status == "ready" else 1,
-                    0 if dispatch_state == "ready-now" else 1,
-                    wave,
-                    0 if lane == "backend" else 1,
-                    lane,
-                )
-            )
+            if status != "ready" or dispatch_state != "ready-now":
+                continue
+            candidates.append((wave, 0 if lane == "backend" else 1, lane))
     if not candidates:
-        raise ValueError("no bootstrap worker packets available")
-    _, _, wave, _, lane = sorted(candidates)[0]
+        return None
+    wave, _, lane = sorted(candidates)[0]
     return wave, lane
+
+
+def no_dispatchable_worker_packet_summary(
+    execution_loop_plan: dict[str, object],
+    *,
+    reason: str = "no-dispatchable-worker-packets",
+) -> dict[str, object]:
+    packets = [
+        packet
+        for wave_row in execution_loop_plan.get("waves", [])
+        if isinstance(wave_row, dict)
+        for packet in wave_row.get("worker_packets", [])
+        if isinstance(packet, dict)
+    ]
+    blocked_packet_count = sum(
+        1
+        for packet in packets
+        if str(packet.get("worker_packet_status", "")).strip() == "blocked"
+        or str(packet.get("dispatch_state", "")).strip().startswith("blocked")
+    )
+    return {
+        "mode": "not-run",
+        "status": "not-dispatchable",
+        "reason": reason,
+        "worker_packet_count": len(packets),
+        "dispatchable_packet_count": 0,
+        "blocked_packet_count": blocked_packet_count,
+        "claim_ceiling": (
+            "No worker packet was dispatchable, so no Action Card execution or per-packet implementation "
+            "claim is made. The execution-loop and runtime-state evidence retain the blocked disposition."
+        ),
+    }
+
+
+def no_dispatchable_subagent_execution_summary(
+    *,
+    request: str,
+    worker_packet_summary: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "request": request,
+        "mode": "not-run",
+        "status": "no-dispatchable-packets",
+        "runner_supported": False,
+        "dispatchable_packet_count": int(worker_packet_summary.get("dispatchable_packet_count", 0) or 0),
+        "blocked_packet_count": int(worker_packet_summary.get("blocked_packet_count", 0) or 0),
+        "claim_ceiling": str(worker_packet_summary.get("claim_ceiling", "")),
+    }
 
 
 def initialize_optional_dispatch_lane(
@@ -251,27 +293,53 @@ def initialize_optional_dispatch_lane(
         worker_run_report_path=worker_run_report_path,
         runtime_environment_ledger_path=runtime_environment_ledger_path,
     )
-    bootstrap_wave, bootstrap_lane = select_bootstrap_worker_packet(execution_loop_plan)
-    worker_packet_mode = select_bootstrap_worker_packet_run_mode()
-    worker_packet_run_summary = run_worker_packet(
-        output_dir=output_dir,
-        wave=bootstrap_wave,
-        lane=bootstrap_lane,
-        mode=worker_packet_mode,
-        actor="run_phase3_first_version",
-        note=(
-            "execute ready Action Card slices with the configured runner"
-            if worker_packet_mode in {"execute-batch", "execute-slices"}
-            else "prepare the first worker packet and Action Card slice manifest; real SubAgent execution is runner-bound"
-        ),
-        runtime_environment_ledger_path=runtime_environment_ledger_path,
-    )
+    bootstrap_packet = select_bootstrap_worker_packet(execution_loop_plan)
     subagent_slice_summary = empty_subagent_slice_summary()
-    worker_packet_run_report_path = Path(str(worker_packet_run_summary.get("run_report_path", "")))
-    if worker_packet_run_report_path.exists():
-        worker_packet_run_report = json.loads(worker_packet_run_report_path.read_text(encoding="utf-8"))
-        if isinstance(worker_packet_run_report.get("subagent_slice_run_summary"), dict):
-            subagent_slice_summary = worker_packet_run_report["subagent_slice_run_summary"]
+    if bootstrap_packet is None:
+        worker_packet_run_summary = no_dispatchable_worker_packet_summary(execution_loop_plan)
+        subagent_execution_result = no_dispatchable_subagent_execution_summary(
+            request=request,
+            worker_packet_summary=worker_packet_run_summary,
+        )
+    else:
+        bootstrap_wave, bootstrap_lane = bootstrap_packet
+        worker_packet_mode = select_bootstrap_worker_packet_run_mode()
+        try:
+            worker_packet_run_summary = run_worker_packet(
+                output_dir=output_dir,
+                wave=bootstrap_wave,
+                lane=bootstrap_lane,
+                mode=worker_packet_mode,
+                actor="run_phase3_first_version",
+                note=(
+                    "execute ready Action Card slices with the configured runner"
+                    if worker_packet_mode in {"execute-batch", "execute-slices"}
+                    else "prepare the first worker packet and Action Card slice manifest; real SubAgent execution is runner-bound"
+                ),
+                runtime_environment_ledger_path=runtime_environment_ledger_path,
+            )
+        except ValueError as exc:
+            if not str(exc).startswith(("packet is not dispatchable:", "no dispatchable packets available")):
+                raise
+            worker_packet_run_summary = no_dispatchable_worker_packet_summary(
+                execution_loop_plan,
+                reason="selected-packet-not-dispatchable",
+            )
+            subagent_execution_result = no_dispatchable_subagent_execution_summary(
+                request=request,
+                worker_packet_summary=worker_packet_run_summary,
+            )
+        else:
+            worker_packet_run_report_path = Path(str(worker_packet_run_summary.get("run_report_path", "")))
+            if worker_packet_run_report_path.exists():
+                worker_packet_run_report = json.loads(worker_packet_run_report_path.read_text(encoding="utf-8"))
+                if isinstance(worker_packet_run_report.get("subagent_slice_run_summary"), dict):
+                    subagent_slice_summary = worker_packet_run_report["subagent_slice_run_summary"]
+            subagent_execution_result = subagent_execution_summary(
+                request=request,
+                enabled=True,
+                subagent_slice_summary=subagent_slice_summary,
+            )
     worker_run_report_md_path = worker_run_report_path.with_suffix(".md")
     bootstrap_worker_run_report_path.write_text(worker_run_report_path.read_text(encoding="utf-8"), encoding="utf-8")
     bootstrap_worker_run_report_path.with_suffix(".md").write_text(
@@ -301,11 +369,7 @@ def initialize_optional_dispatch_lane(
             "worker_packet_run_summary": worker_packet_run_summary,
             "runtime_cycle_summary": runtime_cycle_summary,
             "runtime_environment_ledger_summary": runtime_environment_ledger,
-            "subagent_execution_summary": subagent_execution_summary(
-                request=request,
-                enabled=True,
-                subagent_slice_summary=subagent_slice_summary,
-            ),
+            "subagent_execution_summary": subagent_execution_result,
             "subagent_slice_summary": subagent_slice_summary,
         }
     )

@@ -40,9 +40,9 @@ def build_api_client_document(spec: dict[str, object]) -> str:
         "  }): Promise<TResponse>;",
         "}",
         "",
-        "function fillPath(path: string, pathParams?: Record<string, unknown>): string {",
+        "function fillPath(path: string, pathParams?: object): string {",
         "  if (!pathParams) return path;",
-        "  return path.replace(/\\{([^}]+)\\}/g, (_, key: string) => encodeURIComponent(String(pathParams[key])));",
+        "  return path.replace(/\\{([^}]+)\\}/g, (_, key: string) => encodeURIComponent(String(Reflect.get(pathParams, key))));",
         "}",
         "",
         "export function createApiClient(transport: ApiClientTransport) {",
@@ -67,19 +67,21 @@ def build_api_client_document(spec: dict[str, object]) -> str:
                 lines.append("    // RBAC policies: " + ", ".join(model["rbac_policies"]))
             if model["failure_semantics"]:
                 lines.append("    // Failure semantics: " + " | ".join(model["failure_semantics"]))
-        lines.extend(
-            [
-                f"    async {method_name}({signature}): Promise<{response_type}> {{",
-                "      return transport.request({",
-                f'        method: "{str(model["method"]).upper()}",',
-                f'        path: fillPath("{str(model["path"])}", input.pathParams as Record<string, unknown> | undefined),',
-                "        query: input.query as Record<string, unknown> | undefined,",
-                "        body: input.body,",
-                "      });",
-                "    },",
-                "",
-            ]
-        )
+        request_lines = [
+            f"    async {method_name}({signature}): Promise<{response_type}> {{",
+            "      return transport.request({",
+            f'        method: "{str(model["method"]).upper()}",',
+        ]
+        if model["has_path"]:
+            request_lines.append(f'        path: fillPath("{str(model["path"])}", input.pathParams),')
+        else:
+            request_lines.append(f'        path: "{str(model["path"])}",')
+        if model["has_query"]:
+            request_lines.append("        query: input.query ? { ...input.query } : undefined,")
+        if model["has_body"]:
+            request_lines.append("        body: input.body,")
+        request_lines.extend(["      });", "    },", ""])
+        lines.extend(request_lines)
 
     lines.extend(["  };", "}", ""])
     return "\n".join(lines)

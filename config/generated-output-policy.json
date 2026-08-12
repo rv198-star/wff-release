@@ -6,6 +6,15 @@
     "en"
   ],
   "scope": "human-reviewed generated artifacts and skill-guided outputs",
+  "human_review_sidecar": {
+    "env_override": "WFF_HUMAN_REVIEW_SIDECAR",
+    "repository_default": false,
+    "release_package_default": true,
+    "target_locale": "zh-CN",
+    "max_attempts": 3,
+    "mainline_waits": false,
+    "stale_publication_allowed": false
+  },
   "reader_translation": {
     "model": "gpt-5.4",
     "api_base_url": "https://sub2api.72live.com/v1",
@@ -13,7 +22,13 @@
     "api_key": "",
     "reasoning_effort": "low",
     "max_tokens_per_segment": 32768,
-    "segment_target_lines": 500,
+    "segment_target_chars": 40000,
+    "max_parallel_segments": 4,
+    "human_semantic_projection": {
+      "max_source_chars": 900000,
+      "max_tokens": 32768,
+      "timeout_seconds": 1800
+    },
     "max_retries": 3,
     "retry_backoff_seconds": [1, 2, 4],
     "timeout_seconds": 1800

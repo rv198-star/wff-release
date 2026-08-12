@@ -8,6 +8,7 @@
     "base",
     "meta",
     "project-support",
+    "companion",
     "role-agent-adapter",
     "compatibility",
     "retired-legacy"
@@ -69,6 +70,13 @@
       "release_posture": "published-runtime-facing",
       "install_profile_reference": "allowed",
       "notes": "Official Phase-3 implementation entry."
+    },
+    {
+      "name": "wff-interaction-map",
+      "category": "companion",
+      "release_posture": "published-optional",
+      "install_profile_reference": "allowed",
+      "notes": "Beta rendering kernel for source-labeled P1/P2 interaction maps used by human-review artifacts."
     },
     {
       "name": "wff-impl-action-cards",

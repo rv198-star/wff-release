@@ -123,6 +123,13 @@ If we skip that, the PRD may look complete but will be guessing.
 WFF calls this a source truth gap.
 ```
 
+## WFF Core Contract Binding
+
+- Machine descriptor: `role-agent-adaptation` under `wff-core-contract` `1.0.0`.
+- Consumes `lifecycle-route-contract`, `extension-registration-contract`, and `agentic-boundary-contract`.
+- Core supplies route/ownership structure only; role prompts remain an adaptation surface over mounted Skills and cannot become a second methodology.
+- Missing or incompatible Core metadata blocks export instead of silently inventing a role capability.
+
 ## Boundaries
 
 - Product Manager does not own architecture.

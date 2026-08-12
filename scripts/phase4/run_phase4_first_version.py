@@ -26,11 +26,14 @@ from common.cross_phase_surface_policy import resolve_cross_phase_surface_path
 from common.human_review_surface import emit_human_review_surface
 from common.output_language import resolve_output_locale
 from common.source_admission import build_source_admission_report_for_paths
+from common.wff_core_runtime import WFFCoreConsumerError, require_capability_binding
 from phase4.phase4_common import (
     build_phase4_metadata_payload,
     build_phase4_mainline_assessment,
     build_phase4_mainline_assessment_summary,
     build_phase4_quality_check_payload,
+    discover_phase3_trace_registry_path,
+    load_phase3_current_closure_summary,
     utc_now_iso,
     write_json,
     write_phase4_mainline_assessment_artifacts,
@@ -123,6 +126,8 @@ def build_phase4_runner_context(args: argparse.Namespace) -> Phase4RunnerContext
 
 
 def phase4_handoff_source_paths(phase3_root: Path) -> list[Path]:
+    current = load_phase3_current_closure_summary(phase3_root)
+    runtime_paths = [phase3_root / str(path) for path in current.get("runtime_evidence_refs", [])]
     return [
         phase3_root / "phase-3-acceptance-report.md",
         phase3_root / "phase-3-execution-report.md",
@@ -132,8 +137,13 @@ def phase4_handoff_source_paths(phase3_root: Path) -> list[Path]:
         phase3_root / "phase-acceptance-matrix.md",
         phase3_root / "contracts" / "openapi.yaml",
         phase3_root / "openapi-final.yaml",
-        phase3_root / "phase-3-trace-registry-final.json",
+        discover_phase3_trace_registry_path(phase3_root),
         phase3_root / "implementation-bindings.json",
+        phase3_root / "p3-agentic-implementation-authority.json",
+        phase3_root / "p3-agentic-implementation-application-receipt.json",
+        phase3_root / "p3-exact-realization-binding-ledger.json",
+        phase3_root / ".phase3-evidence" / "p3-authority-delta-ledger.json",
+        *runtime_paths,
     ]
 
 
@@ -147,6 +157,19 @@ def phase4_required_handoff_source_paths(phase3_root: Path) -> list[Path]:
         phase3_root / "phase-acceptance-matrix.md",
         phase3_root / "phase-3-trace-registry-final.json",
         phase3_root / "implementation-bindings.json",
+    ]
+
+
+def phase4_current_handoff_source_paths(phase3_root: Path) -> list[Path]:
+    current = load_phase3_current_closure_summary(phase3_root)
+    return [
+        phase3_root / "p3-agentic-implementation-authority.json",
+        phase3_root / "p3-agentic-implementation-application-receipt.json",
+        phase3_root / "p3-exact-realization-binding-ledger.json",
+        discover_phase3_trace_registry_path(phase3_root),
+        phase3_root / "implementation-bindings.json",
+        phase3_root / ".phase3-evidence" / "p3-authority-delta-ledger.json",
+        *[phase3_root / str(path) for path in current.get("runtime_evidence_refs", [])],
     ]
 
 
@@ -166,8 +189,14 @@ def read_existing_phase4_handoff_source_text(phase3_root: Path) -> str:
 
 
 def run_phase4_source_admission_preflight(context: Phase4RunnerContext) -> dict[str, Any]:
+    current = load_phase3_current_closure_summary(context.phase3_root)
+    required_paths = (
+        phase4_current_handoff_source_paths(context.phase3_root)
+        if current.get("present")
+        else phase4_required_handoff_source_paths(context.phase3_root)
+    )
     return build_source_admission_report_for_paths(
-        phase4_required_handoff_source_paths(context.phase3_root),
+        required_paths,
         boundary="p3-to-p4",
         source_label=str(context.phase3_root),
         output_path=resolve_cross_phase_surface_path(
@@ -422,8 +451,20 @@ def emit_phase4_runner_summary(summary: dict[str, Any]) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = parse_phase4_first_version_args(argv)
     try:
+        require_capability_binding(
+            "validation-closure",
+            phase_id="P4",
+            route_key="phase-4",
+            required_contracts=(
+                "phase-contract",
+                "handoff-contract",
+                "evidence-contract",
+                "claim-state-contract",
+                "reentry-return-contract",
+            ),
+        )
         validate_phase4_runner_args(args)
-    except ValueError as exc:
+    except (ValueError, WFFCoreConsumerError) as exc:
         print(f"[BLOCKED] {exc}")
         return 2
 

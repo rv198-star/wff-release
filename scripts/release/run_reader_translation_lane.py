@@ -20,6 +20,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from common.human_review_surface import emit_human_review_surface
+from common.reader_artifact_integrity import check_integrity
 
 
 def utc_now_iso() -> str:
@@ -177,6 +178,51 @@ def run_one(kind: str, label: str, canonical: Path, *, emit_script: Path, locale
     }
 
 
+def reusable_entry(
+    case_root: Path,
+    *,
+    kind: str,
+    canonical: Path,
+    locale: str,
+    previous_targets: list[dict],
+) -> dict | None:
+    """Reuse a reader only when it still passes integrity against current source."""
+    canonical = canonical.resolve()
+    matches = [
+        row
+        for row in previous_targets
+        if isinstance(row, dict)
+        and row.get("kind") == kind
+        and Path(str(row.get("canonical") or "")).resolve() == canonical
+        and row.get("status") == "generated"
+        and row.get("verdict") == "pass"
+    ]
+    if len(matches) != 1:
+        return None
+    row = matches[0]
+    reader = Path(str(row.get("reader") or "")).resolve()
+    integrity = Path(str(row.get("integrity_json") or "")).resolve()
+    try:
+        reader.relative_to(case_root.resolve())
+        integrity.relative_to(case_root.resolve())
+    except ValueError:
+        return None
+    if not reader.is_file() or not integrity.is_file():
+        return None
+    try:
+        result = check_integrity(
+            canonical_path=canonical,
+            reader_path=reader,
+            locale=locale,
+            reader_text=reader.read_text(encoding="utf-8"),
+        )
+    except (OSError, UnicodeError):
+        return None
+    if result.verdict != "pass":
+        return None
+    return {**row, "detail": "reused current integrity-passing reader"}
+
+
 def refresh_human_review_surfaces(case_root: Path) -> list[dict]:
     refreshed: list[dict] = []
     for dirname, phase in (
@@ -297,6 +343,15 @@ def run_lane(case_root: Path, *, emit_script: Path, locale: str) -> dict:
     targets = discover_targets(case_root, locale)
     total = len(targets)
     entries: list[dict] = []
+    previous_targets: list[dict] = []
+    previous_manifest = case_root / "reader-translation-manifest.json"
+    if previous_manifest.is_file():
+        try:
+            previous = json.loads(previous_manifest.read_text(encoding="utf-8"))
+            if isinstance(previous, dict) and isinstance(previous.get("targets"), list):
+                previous_targets = previous["targets"]
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            previous_targets = []
 
     if dep_error:
         for kind, label, path in targets:
@@ -319,11 +374,25 @@ def run_lane(case_root: Path, *, emit_script: Path, locale: str) -> dict:
             extra_fields={"human_review_surfaces": refresh_human_review_surfaces(case_root)},
         )
 
-    # Write initial manifest so external observers see the lane is running
+    pending_targets: list[tuple[str, str, Path]] = []
+    for kind, label, path in targets:
+        reusable = reusable_entry(
+            case_root,
+            kind=kind,
+            canonical=path,
+            locale=locale,
+            previous_targets=previous_targets,
+        )
+        if reusable is None:
+            pending_targets.append((kind, label, path))
+        else:
+            entries.append(reusable)
+
+    # Write initial manifest so external observers see the lane is running.
     _write_manifest(case_root, locale, entries, total_targets=total,
                     manifest_status="running")
 
-    for kind, label, path in targets:
+    for kind, label, path in pending_targets:
         entry = run_one(kind, label, path, emit_script=emit_script, locale=locale,
                         python=python_path)
         entries.append(entry)

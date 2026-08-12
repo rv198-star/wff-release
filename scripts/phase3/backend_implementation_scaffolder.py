@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from phase3.impl_context import load_phase2_source_texts, write_json
 from phase3.impl_contract_pack import materialize_contract_pack
@@ -14,6 +14,7 @@ def scaffold_backend_implementation(
     output_dir: Path,
     title: str,
     version: str,
+    implementation_authority: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     esp_text, stage_03_text, stage_04_text = load_phase2_source_texts(phase2_root)
@@ -27,6 +28,7 @@ def scaffold_backend_implementation(
         stage_04_text=stage_04_text,
         enable_ui_fallback=False,
         enforce_compiled_authority=False,
+        implementation_authority=implementation_authority,
     )
     root_summary = scaffold_root_workspace(output_dir=output_dir, project_name=title)
     shared_summary = scaffold_shared_packages(output_dir=output_dir)

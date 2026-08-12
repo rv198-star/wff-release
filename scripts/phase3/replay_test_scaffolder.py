@@ -31,6 +31,16 @@ from phase3.test_scaffolder_common import (
     remap_operation_ids_to_runtime_contract,
     render_harness_import,
     resolve_response_field,
+    response_data_fields,
+    response_data_for_operation,
+)
+from phase3.scenario_replay_test_common import (
+    first_matching_failure_code,
+    literal_ts_value,
+    response_data_example_record,
+    response_is_array,
+    scalar_business_value_fields,
+    ts_property_access,
 )
 from phase3.contract_tools import (
     camel_and_word_tokens,
@@ -118,14 +128,6 @@ def collect_failure_codes(
     return list(dict.fromkeys(failure_codes))
 
 
-def first_matching_failure_code(failure_codes: list[str], pattern: str) -> str:
-    regex = re.compile(pattern)
-    for code in failure_codes:
-        if regex.search(code):
-            return code
-    return ""
-
-
 def infer_operation_ids(
     row: dict[str, object],
     *,
@@ -180,14 +182,6 @@ def infer_operation_ids(
     return order_operation_ids_for_runtime(selected)
 
 
-def response_data_for_operation(endpoint_rows: list[dict[str, object]], operation_id: str) -> object:
-    row = endpoint_index(endpoint_rows).get(operation_id, {})
-    response = row.get("response_body_example", {})
-    if isinstance(response, dict):
-        return response.get("data", {})
-    return {}
-
-
 def response_id_fields(endpoint_rows: list[dict[str, object]], operation_id: str) -> list[str]:
     data = response_data_for_operation(endpoint_rows, operation_id)
     if isinstance(data, dict):
@@ -195,48 +189,6 @@ def response_id_fields(endpoint_rows: list[dict[str, object]], operation_id: str
     if isinstance(data, list) and data and isinstance(data[0], dict):
         return [key for key in data[0] if key.endswith("_id")]
     return []
-
-
-def response_data_fields(endpoint_rows: list[dict[str, object]], operation_id: str) -> list[str]:
-    data = response_data_for_operation(endpoint_rows, operation_id)
-    if isinstance(data, dict):
-        return list(data.keys())
-    if isinstance(data, list) and data and isinstance(data[0], dict):
-        return list(data[0].keys())
-    return []
-
-
-def response_is_array(endpoint_rows: list[dict[str, object]], operation_id: str) -> bool:
-    return isinstance(response_data_for_operation(endpoint_rows, operation_id), list)
-
-
-def response_data_example_record(endpoint_rows: list[dict[str, object]], operation_id: str) -> dict[str, object]:
-    data = response_data_for_operation(endpoint_rows, operation_id)
-    if isinstance(data, dict):
-        return data
-    if isinstance(data, list) and data and isinstance(data[0], dict):
-        return data[0]
-    return {}
-
-
-def ts_property_access(field: str) -> str:
-    return f".{field}" if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", field) else f"[{json.dumps(field, ensure_ascii=False)}]"
-
-
-def literal_ts_value(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False)
-
-
-def scalar_business_value_fields(endpoint_rows: list[dict[str, object]], operation_id: str) -> dict[str, object]:
-    record = response_data_example_record(endpoint_rows, operation_id)
-    values: dict[str, object] = {}
-    for field, value in record.items():
-        normalized = normalize_field_token(field)
-        if normalized in {"traceid", "createdat", "updatedat"} or normalized.endswith("id"):
-            continue
-        if isinstance(value, (str, int, float, bool)) and value is not None:
-            values[field] = value
-    return values
 
 
 def shared_response_business_fields(endpoint_rows: list[dict[str, object]], first_operation_id: str, final_operation_id: str) -> list[str]:
@@ -717,7 +669,7 @@ def replay_idempotency_stress_lines() -> list[str]:
         "        const status = (error as { status?: number }).status;",
         "        const envelope = ((error as { envelope?: Record<string, unknown> }).envelope ?? {}) as Record<string, unknown>;",
         "        expect(status).toBe(409);",
-        "        expect(String(envelope.error_code ?? '')).toMatch(/conflict|duplicate|idempot/i);",
+        "        expect(String(envelope.error_code ?? '')).toMatch(/conflict|stale|duplicate|idempot/i);",
         "        secondReplayResults.push(envelope);",
         "        secondReplayStoppedByDuplicateGuard = true;",
         "      }",

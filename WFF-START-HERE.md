@@ -1,7 +1,6 @@
 # WFF Start Here
 
-This is the low-context first-read file for this install pack.
-Use it to choose an entry before opening the full README, skill catalog, scripts, or docs tree.
+This is the low-context first-read file for this install pack; use it to choose an entry before opening the full README, skill catalog, scripts, or docs tree.
 
 ## Pick The Entry
 | Task | Start with | Then read |
@@ -29,5 +28,5 @@ Do not start by recursively reading every file in `scripts/`, `docs/`, or `refer
 - `INSTALL-PACK-README.md`: install layout, root commands, support-directory rules, and links to detailed runtime notes.
 - `AGENTS.md`: concise agent-facing operating guidance for this install pack.
 - `SKILL_INSTALL_PACK_MANIFEST.json`: exact included skills, scripts, docs, references, and profile metadata.
-- pack_name: `wff-v1.6.0-skills-install-pack`
+- pack_name: `wff-v1.9.2-skills-install-pack`
 - install_set_id: `full-pack`

@@ -17,6 +17,13 @@
 > - foundation runner 的 optional dispatch lane bootstrap 已下沉到 `scripts/phase3/dispatch_lane_bootstrap.py`；dispatch runner 的 runtime refresh / preflight / unlock ceiling 内核已下沉到 `scripts/phase3/dispatch_runtime.py`。
 > - foundation runner 的 path resolution / workspace preparation / delivery finalization / summary emission 已进一步下沉到 `scripts/phase3/foundation_mainline.py`。
 > - dispatch runner 的 cycle / loop execution 与 report markdown / JSON 落盘已进一步下沉到 `scripts/phase3/dispatch_execution.py`，runner 顶层继续收成 wrapper + CLI routing。
+>
+> **2026-08-09 v1.9 当前责任补充**：
+> - 当前默认 code/test generation 主链是 `S1A/S1B Action Cards -> S2 accepted implementation authority -> S3 run_impl_realization.py / s3_code_realization.py`；`run_impl.py` 是聚合实现入口。
+> - `run_phase3_first_version.py` / foundation runtime 仅保留 maintainer/legacy foundation 责任，不再进入 business install profiles，也不定义默认实现语义。
+> - `--enable-agentic-authoring-enrichment` 与 `--module-synthesis-bundle` 已退出 active CLI / release-proof route；对应源码仅作为 historical/evaluation residue 保留。
+> - rich UI fallback 仍是显式 maintainer optional lane，本轮不退休；其存在不改变 backend-first 默认主线。
+> - scenario/replay test scaffolder 共享纯机械 helper，但两类测试各自的 proof semantics、failure policy 与 render body 继续独立拥有。
 
 ---
 
@@ -813,8 +820,12 @@ Phase-3 继承 P2 的 complexity classification:
 | `phase3_delivery_gate.py --mode delivery-handoff` | S04 | 生成 deploy runbook、Dockerfile、production compose、performance baseline |
 | `phase3_delivery_gate.py` | S04 | 聚合 bootstrap / implementation / audit / deploy evidence，解析 formal state 与 phase-complete 结论，并生成 acceptance / execution closure reports，以及 `phase-mainline-scorecard.md` / `phase-acceptance-matrix.md` / `phase-verdict.json` |
 | `phase3_quality_check.py` | S04 | 综合质量门禁 (D1-D6 for P3) |
-| `run_phase3_first_version.py --mainline-stage bootstrap` | S01/S02 | 从完整 Phase-2 case root 一次性生成 OpenAPI + migration + shared types + api client + failing test pack + bootstrap 质量报告 |
-| `run_phase3_first_version.py` | S01/S02/S03-start | 默认输出 `backend-first mainline` 的 Phase-3 foundation package first version；当前 runner 顶层已主要保留 parser、参数校验与 thin orchestration，bootstrap kernel 已下沉到 `scripts/phase3/foundation_bootstrap.py`，foundation mainline kernel 已下沉到 `scripts/phase3/foundation_mainline.py`；只有显式启用 flag 时才带上 `ui-fallback` / `dispatch` 这类 optional lane；该输出只能进入 `foundation-ready`，不能直接宣称 P3 完成 |
+| `run_impl_action_cards.py` + Action Card convergence | S1A/S1B | 生成并收敛 implementation Action Cards；不得越权成为 implementation authority |
+| `agentic_implementation_authority.py prepare` | S2 | 基于 exact S1B card set 生成当前快照的 implementation candidate/decision surface；只有 accepted host-Agent decision 才能授权 S3 |
+| `run_impl_realization.py` | S3 generation-only | 依据 accepted S2 authority 生成 code/test targets 与 bounded Agentic blocks，不执行 test/runtime/Trace |
+| `run_impl.py` + `impl_mainline_closure.py` | S3+ aggregate / S4 mechanical closure | 当前聚合实现入口；`strict-runtime` 显式串联 S3 materialization、toolchain/PostgreSQL preflight、passed-test evidence、Trace refresh、exact binding 与 delivery closure。语义仍由 accepted S2 authority 驱动；legacy foundation 不再是 business-profile clean-package closure owner |
+| `run_phase3_first_version.py --mainline-stage bootstrap` | maintainer legacy foundation | 保留 source/maintainer foundation bootstrap 与诊断责任，不是 business-profile 默认实现入口 |
+| `run_phase3_first_version.py` | maintainer legacy foundation | 保留 foundation/optional UI/dispatch 维护路径；selected-module synthesis 与 legacy Agentic enrichment 已退出 active CLI，不得作为当前默认 code-authoring route |
 
 ---
 

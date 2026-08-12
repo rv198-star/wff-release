@@ -1,12 +1,12 @@
 # Skills 安装包审计
 
 ## 标识
-- 安装包名称: `wff-v1.6.0-skills-install-pack`
+- 安装包名称: `wff-v1.9.2-skills-install-pack`
 - pack_type: `skills-install-pack`
 - profile_id: `full-pack`
 - profile_status: `default`
 - profile_claim: `default-full-pack`
-- 源修订版本: `2989df038c98ed5e501120260b9c8e319aef4610`
+- 源修订版本: `fab0cee6f9ef7346469a858dbc75724adf06069b`
 - 总体结论: `pass`
 
 ## 硬失败项
@@ -26,31 +26,31 @@
 - test_dirs: `0`
 
 ## Content Inventory
-- total_files: `683`
-- total_bytes: `16619179`
+- total_files: `708`
+- total_bytes: `12650499`
 - policy_findings: `0`
 - 无
 - top_level:
-  - `AGENTS.md`: files=`1`, bytes=`2566`
-  - `INSTALL-PACK-README.en.md`: files=`1`, bytes=`7338`
-  - `INSTALL-PACK-README.md`: files=`1`, bytes=`7212`
-  - `INSTALL-PACK-README.zh-CN.md`: files=`1`, bytes=`7212`
-  - `INSTALL_PACK_AUDIT.md`: files=`1`, bytes=`5697`
-  - `README.en.md`: files=`1`, bytes=`7338`
-  - `README.md`: files=`1`, bytes=`8587`
-  - `README.zh-CN.md`: files=`1`, bytes=`8587`
-  - `SKILL_INSTALL_PACK_AUDIT.json`: files=`1`, bytes=`11212`
-  - `SKILL_INSTALL_PACK_MANIFEST.json`: files=`1`, bytes=`48569`
+  - `AGENTS.md`: files=`1`, bytes=`4091`
+  - `INSTALL-PACK-README.en.md`: files=`1`, bytes=`7566`
+  - `INSTALL-PACK-README.md`: files=`1`, bytes=`7426`
+  - `INSTALL-PACK-README.zh-CN.md`: files=`1`, bytes=`7426`
+  - `INSTALL_PACK_AUDIT.md`: files=`1`, bytes=`5630`
+  - `README.en.md`: files=`1`, bytes=`7566`
+  - `README.md`: files=`1`, bytes=`7274`
+  - `README.zh-CN.md`: files=`1`, bytes=`7274`
+  - `SKILL_INSTALL_PACK_AUDIT.json`: files=`1`, bytes=`14653`
+  - `SKILL_INSTALL_PACK_MANIFEST.json`: files=`1`, bytes=`51500`
   - `WFF-START-HERE.md`: files=`1`, bytes=`2884`
-  - `WFF-START-HERE.zh-CN.md`: files=`1`, bytes=`2771`
-  - `config`: files=`4`, bytes=`84634`
-  - `docs`: files=`22`, bytes=`5432017`
-  - `reference-packages`: files=`180`, bytes=`627548`
-  - `requirements.lock.txt`: files=`1`, bytes=`490`
-  - `requirements.txt`: files=`1`, bytes=`29`
+  - `WFF-START-HERE.zh-CN.md`: files=`1`, bytes=`2770`
+  - `config`: files=`4`, bytes=`89961`
+  - `docs`: files=`20`, bytes=`225499`
+  - `reference-packages`: files=`180`, bytes=`632151`
+  - `requirements.lock.txt`: files=`1`, bytes=`544`
+  - `requirements.txt`: files=`1`, bytes=`70`
   - `runtime-deps`: files=`110`, bytes=`4415224`
-  - `scripts`: files=`295`, bytes=`5706521`
-  - `skills`: files=`55`, bytes=`229497`
+  - `scripts`: files=`318`, bytes=`6812991`
+  - `skills`: files=`59`, bytes=`344753`
   - `templates`: files=`1`, bytes=`2936`
   - `wff-agent`: files=`1`, bytes=`168`
   - `wff-init`: files=`1`, bytes=`142`
@@ -58,7 +58,7 @@
 ## Install-Pack AGENTS.md
 - path: `AGENTS.md`
 - exists: `True`
-- line_count: `41`
+- line_count: `49`
 - max_allowed_lines: `120`
 - missing_required_phrases: `(none)`
 - repo_level_markers: `(none)`
@@ -69,15 +69,15 @@
 - unexpected_root_guidance_files: `(none)`
 - oversized_root_guidance_files: `0`
 - repo_level_marker_hits: `0`
-- checked `AGENTS.md`: `41` lines, markers=`(none)`
-- checked `INSTALL-PACK-README.en.md`: `153` lines, markers=`(none)`
-- checked `INSTALL-PACK-README.md`: `153` lines, markers=`(none)`
-- checked `INSTALL-PACK-README.zh-CN.md`: `153` lines, markers=`(none)`
-- checked `README.en.md`: `153` lines, markers=`(none)`
-- checked `README.md`: `172` lines, markers=`(none)`
-- checked `README.zh-CN.md`: `172` lines, markers=`(none)`
-- checked `WFF-START-HERE.md`: `33` lines, markers=`(none)`
-- checked `WFF-START-HERE.zh-CN.md`: `33` lines, markers=`(none)`
+- checked `AGENTS.md`: `49` lines, markers=`(none)`
+- checked `INSTALL-PACK-README.en.md`: `154` lines, markers=`(none)`
+- checked `INSTALL-PACK-README.md`: `154` lines, markers=`(none)`
+- checked `INSTALL-PACK-README.zh-CN.md`: `154` lines, markers=`(none)`
+- checked `README.en.md`: `154` lines, markers=`(none)`
+- checked `README.md`: `107` lines, markers=`(none)`
+- checked `README.zh-CN.md`: `107` lines, markers=`(none)`
+- checked `WFF-START-HERE.md`: `32` lines, markers=`(none)`
+- checked `WFF-START-HERE.zh-CN.md`: `32` lines, markers=`(none)`
 
 ## Runtime SKILL.md Context Boundary
 - max_phase_entry_lines: `300`
@@ -129,7 +129,7 @@
 - 缺失文件: `(none)`
 - diagnostic_file_count: `3`
 - missing_diagnostic_files: `scripts/phase2/run_phase2_manual_closure.py, scripts/phase2/validate_mermaid.py, scripts/phase2/cross_stage_consistency.py`
-- compatibility_file_count: `2`
+- compatibility_file_count: `1`
 - missing_compatibility_files: `scripts/phase2/run_phase2_full_trial.py`
 - 帮助探针:
   - `scripts/phase2/run_phase2_fresh_generation.py --help` -> `pass`
@@ -137,7 +137,6 @@
 - diagnostic_help_probes:
   - `scripts/phase2/run_phase2_manual_closure.py --help` -> `skipped` (script not included in this install profile)
 - compatibility_help_probes:
-  - `scripts/phase2/run_phase2_first_version.py --help` -> `pass`
   - `scripts/phase2/run_phase2_full_trial.py --help` -> `skipped` (script not included in this install profile)
 
 ### phase3

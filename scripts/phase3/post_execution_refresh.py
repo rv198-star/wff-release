@@ -7,7 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from common.human_review_surface import emit_human_review_surface
+from common.human_review_sidecar import dispatch_human_review_sidecar
 from phase3.delivery_closure import finalize_phase3_delivery_closure
+from phase3.foundation_mainline import (
+    load_phase2_semantic_commitment_authority,
+    write_semantic_realization_ledger,
+)
 from phase3.runtime_smoke_plan import resolve_requested_runtime_smoke_service_url
 from phase3.timing_report import record_timing_segment, set_timing_segment, start_timer
 from phase3.trace_registry import finalize_trace_registry, project_phase3_trace_registry_to_trace_db
@@ -385,6 +390,24 @@ def refresh_phase3_post_execution(
         )
 
     metadata_path = output_dir / "phase3-run-metadata.json"
+    metadata_report = load_json_if_exists(metadata_path)
+    phase2_root_raw = str(metadata_report.get("phase2_root") or "").strip()
+    semantic_realization_ledger_path = output_dir / "semantic-realization-ledger.json"
+    semantic_commitment_union: dict[str, Any] = {}
+    semantic_commitment_union_verification: dict[str, Any] = {}
+    if phase2_root_raw:
+        semantic_authority = load_phase2_semantic_commitment_authority(Path(phase2_root_raw))
+        semantic_commitment_union = semantic_authority["rebuilt_union"]
+        semantic_commitment_union_verification = semantic_authority["verification"]
+    if phase2_root_raw and implementation_bindings is not None and trace_registry_final is not None:
+        semantic_realization_ledger = write_semantic_realization_ledger(
+            phase2_root=Path(phase2_root_raw),
+            output_dir=output_dir,
+            implementation_bindings=implementation_bindings,
+            trace_registry_final=trace_registry_final,
+        )
+    else:
+        semantic_realization_ledger = load_json_if_exists(semantic_realization_ledger_path)
     delivery_kwargs = {
         "bootstrap_report": bootstrap_report,
         "unit_test_report": load_json_if_exists(resolved_unit_test_report_path),
@@ -411,9 +434,17 @@ def refresh_phase3_post_execution(
         "acceptance_report_path": acceptance_report_path if acceptance_report_path.exists() else None,
         "execution_report_path": execution_report_path if execution_report_path.exists() else None,
         "trace_registry_final_path": trace_registry_final_path if trace_registry_final_path.exists() else None,
+        "trace_registry_final": trace_registry_final,
+        "semantic_realization_ledger": semantic_realization_ledger,
+        "semantic_commitment_union": semantic_commitment_union,
+        "semantic_commitment_union_verification": semantic_commitment_union_verification,
+        "implementation_bindings": implementation_bindings,
+        "semantic_realization_ledger_path": (
+            semantic_realization_ledger_path if semantic_realization_ledger_path.exists() else None
+        ),
         "ui_prototype_fallback_report_path": ui_prototype_fallback_report_path,
         "ui_ia_contract_path": ui_ia_contract_path,
-        "phase3_metadata_report": load_json_if_exists(metadata_path),
+        "phase3_metadata_report": metadata_report,
         "retained_proof_mode": retained_proof_mode,
         "strict_runtime_closure": strict_runtime_closure,
     }
@@ -445,6 +476,7 @@ def refresh_phase3_post_execution(
     record_timing_segment(timing_segments, "delivery_gate", delivery_gate_started)
     human_review_started = start_timer()
     emit_human_review_surface(output_dir, "phase3")
+    dispatch_human_review_sidecar(output_dir, "phase3")
     record_timing_segment(timing_segments, "human_review_surface", human_review_started)
 
     return {

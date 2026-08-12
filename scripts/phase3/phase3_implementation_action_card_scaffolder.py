@@ -13,10 +13,11 @@ if str(SCRIPTS_ROOT) not in sys.path:
 
 import argparse
 import json
-from pathlib import Path
 from typing import Any
 
+from common.action_card_authority_projection import build_action_card_semantic_convergence, render_durable_persistence_action_card_lines
 from common.cross_phase_surface_policy import find_cross_phase_surface_path
+from phase2.agentic_architecture_authority import p2_agentic_architecture_authority_is_valid
 from phase3.impl_context import p2_operation_claim_id
 
 
@@ -53,6 +54,10 @@ def load_action_card_obligations(phase2_root: str | Path) -> dict[str, Any]:
     obligation_payload = _read_json(
         find_cross_phase_surface_path(root, "phase2", "component-action-card-obligation-matrix.json")
     )
+    operation_source_payload = _read_json(
+        find_cross_phase_surface_path(root, "phase2", "operation-source-obligation-matrix.json")
+    )
+    architecture_authority = _read_json(root / "p2-agentic-architecture-authority.json")
 
     if resolution_payload is None:
         blockers.append("p1_value_to_p2_operation_resolution_matrix_missing")
@@ -75,6 +80,8 @@ def load_action_card_obligations(phase2_root: str | Path) -> dict[str, Any]:
         "component_catalog": catalog,
         "component_obligations": obligations,
         "component_obligations_by_operation": by_operation,
+        "operation_source_rows": _index_rows((operation_source_payload or {}).get("operations", []), "operation_id"),
+        "architecture_authority": architecture_authority or {},
     }
 
 
@@ -102,6 +109,38 @@ def validate_action_card_obligations(obligations: dict[str, Any]) -> dict[str, A
     if catalog and not component_obligations:
         blockers.append("component_action_card_obligation_missing")
     return {"blockers": list(dict.fromkeys(blockers)), "passed": not blockers}
+
+
+def validate_action_card_semantic_convergence(obligations: dict[str, Any]) -> dict[str, Any]:
+    component_obligations: dict[str, dict[str, Any]] = obligations.get("component_obligations", {})
+    authority = obligations.get("architecture_authority", {})
+    if not authority and not any(
+        str(row.get("semantic_projection_status") or "") == "authority-bound"
+        for row in component_obligations.values()
+    ):
+        return {
+            "artifact_kind": "phase3-action-card-semantic-convergence.v1",
+            "status": "not-required",
+            "passed": True,
+            "conflict_count": 0,
+            "conflicts": [],
+            "claim_ceiling": "legacy/non-authority Action Card surface; no authority-bound semantic convergence claim",
+        }
+    if not p2_agentic_architecture_authority_is_valid(authority):
+        return {
+            "artifact_kind": "phase3-action-card-semantic-convergence.v1",
+            "status": "blocked",
+            "passed": False,
+            "conflict_count": 1,
+            "conflicts": [{"code": "action_card_semantic_authority_missing", "component_id": "", "detail": "accepted P2 architecture authority is missing or invalid"}],
+            "claim_ceiling": "Action Card semantic convergence is blocked until accepted P2 authority is available.",
+        }
+    return build_action_card_semantic_convergence(
+        component_catalog=obligations.get("component_catalog", {}),
+        component_obligations=component_obligations,
+        operation_source_rows=obligations.get("operation_source_rows", {}),
+        authority=authority,
+    )
 
 
 def card_family(component_type: str) -> str:
@@ -164,7 +203,7 @@ def _test_intent_lines(
     available_source_ids: list[str],
 ) -> list[str]:
     source_scope = _join_values(available_source_ids)
-    operation_scope = _join_values(upstream_operations)
+    operation_scope = _join_values(upstream_operations, "none; non-operation component")
     target_scope = target_path_hint or "review-bound"
     lines: list[str] = []
     for test_type in required_tests:
@@ -179,6 +218,64 @@ def _test_intent_lines(
             lines.append(f"- {test_type}: verify evidence against source-backed claims")
     return lines or ["- review-bound: required tests were not declared by Phase-2"]
 
+
+def _dict_rows(obligation: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    return [row for row in obligation.get(key, []) if isinstance(row, dict)]
+
+
+def _guardrail_lines(title: str, rows: list[dict[str, Any]]) -> list[str]:
+    if not rows:
+        return []
+    return ["", f"### {title}"] + [
+        f"- `{row.get('realization_id', 'review-bound')}` [{row.get('realization_type', 'boundary')}] "
+        f"{row.get('statement', 'review-bound')} | ceiling: {row.get('claim_ceiling', 'review-bound')}"
+        for row in rows
+    ]
+
+
+def _semantic_boundary_lines(obligation: dict[str, Any]) -> list[str]:
+    if str(obligation.get("semantic_projection_status") or "") != "authority-bound":
+        return []
+    value = lambda key, fallback="review-bound": _join_values(_clean_values(obligation.get(key, [])), fallback)
+    lines = [
+        "", "## Accepted P2 Semantic Boundary",
+        f"- accepted_contract_ids: {value('contract_ids', 'none; non-operation component')}",
+        f"- aggregate_ids: {value('aggregate_ids')}", f"- aggregate_names: {value('aggregate_names')}",
+        f"- service_ids: {value('service_ids')}", f"- owner_service_ids: {value('owner_service_ids')}",
+        f"- writer_service_ids: {value('writer_service_ids')}",
+        f"- topology_groups: {value('topology_groups', 'none; no operation topology group')}",
+    ]
+    lines += _guardrail_lines("Component Non-Operation Guardrails", _dict_rows(obligation, "non_operation_realizations"))
+    project_guardrails = _dict_rows(obligation, "project_guardrails")
+    if project_guardrails:
+        lines += ["", "### Project Guardrails (Context Only; No Component Prerequisite)", f"- project_guardrail_p1_trace_ids: {value('project_guardrail_p1_trace_ids', 'none')}"]
+        lines += _guardrail_lines("Project Guardrails", project_guardrails)[2:]
+    states = _dict_rows(obligation, "state_constraints")
+    if states:
+        lines += ["", "### State / Failure Boundaries"] + [
+            f"- `{row.get('decision_id', 'review-bound')}` states={_join_values(_clean_values(row.get('states', [])), 'review-bound')}; "
+            f"events={_join_values(_clean_values(row.get('event_ids', [])), 'review-bound')}; guard={row.get('mutation_guard', 'review-bound')}; "
+            f"failure_exit={row.get('terminal_or_failure_exit', 'review-bound')}; ceiling={row.get('claim_ceiling', 'review-bound')}"
+            for row in states
+        ]
+    dependencies = _dict_rows(obligation, "dependency_constraints")
+    if dependencies:
+        lines += ["", "### Upstream Dependency Context (No Component Prerequisite Implied)"] + [
+            f"- `{row.get('dependency_id', 'review-bound')}` disposition=`{row.get('disposition', 'review-bound')}`: "
+            f"{row.get('statement', 'review-bound')} | ceiling: {row.get('claim_ceiling', 'review-bound')}"
+            for row in dependencies
+        ]
+    lines += render_durable_persistence_action_card_lines(obligation.get("durable_persistence_decisions", []))
+    decisions = _dict_rows(obligation, "architecture_decisions")
+    if decisions:
+        lines += ["", "### Architecture / Contract Decisions"] + [
+            f"- `{row.get('decision_id', 'review-bound')}` {row.get('title') or row.get('statement') or row.get('operation_id') or row.get('aggregate_id') or 'accepted decision'} "
+            f"| ceiling: {row.get('claim_ceiling', 'review-bound')}"
+            for row in decisions
+        ]
+    ceilings = _clean_values(obligation.get("semantic_claim_ceilings", []))
+    lines += ["", "### Semantic Claim Ceilings"] + ([f"- {item}" for item in ceilings] or ["- review-bound; accepted P2 semantic claim ceiling missing"])
+    return lines
 
 def render_implementation_action_card(obligation: dict[str, Any], catalog_row: dict[str, Any] | None = None) -> str:
     catalog_row = catalog_row or {}
@@ -201,6 +298,10 @@ def render_implementation_action_card(obligation: dict[str, Any], catalog_row: d
         for operation_id in upstream_operations
         if str(operation_id).strip()
     ]
+    authority_bound = str(obligation.get("semantic_projection_status") or "") == "authority-bound"
+    operation_ids_text = _join_values(upstream_operations, "none; non-operation component" if authority_bound else "review-bound")
+    operation_claim_refs_text = _join_values(operation_claim_refs, "none" if authority_bound and not upstream_operations else "review-bound")
+    operation_contract_text = _join_values(upstream_operations) if upstream_operations else ("none; preserve accepted aggregate / writer / non-operation / state authority" if authority_bound else "review-bound")
     guardrails = _implementation_guardrails(
         engineering_risk_tier=engineering_risk_tier,
         implementation_complexity=implementation_complexity,
@@ -225,8 +326,8 @@ def render_implementation_action_card(obligation: dict[str, Any], catalog_row: d
         f"- target_path_hint: {target_path_hint}",
         "",
         "## Upstream Binding",
-        f"- upstream_operation_ids: {_join_values(upstream_operations)}",
-        f"- upstream_operation_claim_refs: {_join_values(operation_claim_refs)}",
+        f"- upstream_operation_ids: {operation_ids_text}",
+        f"- upstream_operation_claim_refs: {operation_claim_refs_text}",
         f"- upstream_p1_trace_ids: {_join_values(upstream_p1_traces)}",
         f"- business_value_weight: {obligation.get('business_value_weight', 'review-bound')}",
         f"- engineering_risk_tier: {engineering_risk_tier}",
@@ -238,15 +339,16 @@ def render_implementation_action_card(obligation: dict[str, Any], catalog_row: d
         f"- missing_source_types: {_join_values(missing_source_types, 'none')}",
         "",
         "## Contract To Preserve",
-        f"- operation_contract: {_join_values(upstream_operations)}",
-        f"- operation_claim_ref: {_join_values(operation_claim_refs)}",
+        f"- operation_contract: {operation_contract_text}",
+        f"- operation_claim_ref: {operation_claim_refs_text}",
         f"- component_contract: {component_id} remains the {component_type} implementation component",
         f"- target_path_hint: {target_path_hint}",
         "",
         "## Source-Bound Behavior Scope",
         f"- source-backed inputs: {_join_values(available_source_ids, 'none')}",
         f"- required inputs: {_join_values(required_source_ids)}",
-        f"- review-bound gaps: {_join_values(missing_source_types, 'none')}",
+        f"- {'source_material_gaps' if str(obligation.get('semantic_projection_status') or '') == 'authority-bound' else 'review-bound gaps'}: {_join_values(missing_source_types, 'none')}",
+        *_semantic_boundary_lines(obligation),
         "",
         "## Implementation Steps",
         "- read Contract To Preserve before changing code targets",

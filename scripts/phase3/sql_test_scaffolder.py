@@ -109,22 +109,24 @@ def _sample_scalar_value(
     field_name: str,
     data_type: str,
     constraint_text: str,
+    probe_variant: int = 0,
 ) -> object:
     normalized_field = _snake_case(field_name)
     lowered_type = data_type.lower()
     lowered_constraints = constraint_text.lower()
+    variant_suffix = f"-probe-{probe_variant}" if probe_variant else ""
     if "uuid" in lowered_type:
-        return _sample_uuid(f"{table_name}_{normalized_field}")
+        return _sample_uuid(f"{table_name}_{normalized_field}_{probe_variant}")
     if lowered_type.startswith("int") or lowered_type.startswith("bigint") or lowered_type.startswith("smallint"):
-        return 1
+        return 1 + probe_variant
     if lowered_type.startswith("numeric") or lowered_type.startswith("decimal"):
-        return 1.25
+        return 1.25 + probe_variant
     if lowered_type.startswith("boolean"):
         return False
     if "json" in lowered_type:
         return {"table": table_name, "field": normalized_field}
     if "timestamp" in lowered_type or "date" in lowered_type:
-        return "2025-01-01T00:00:00Z"
+        return "2025-01-01T00:00:00Z" if not probe_variant else "2025-01-02T00:00:00Z"
     if normalized_field.endswith("status"):
         if "draft" in lowered_constraints:
             return _apply_length_limit("draft", lowered_type)
@@ -142,9 +144,9 @@ def _sample_scalar_value(
     if "score" in normalized_field:
         return 0.91
     if "version" in normalized_field or normalized_field.endswith("_no"):
-        return 1
+        return 1 + probe_variant
     if "count" in normalized_field or "position" in normalized_field:
-        return 1
+        return 1 + probe_variant
     if "region" in normalized_field:
         return _apply_length_limit("eu", lowered_type)
     if "tier" in normalized_field:
@@ -160,12 +162,12 @@ def _sample_scalar_value(
     if "url" in normalized_field:
         return _apply_length_limit(f"https://example.test/{table_name}/{normalized_field}", lowered_type)
     if "locator" in normalized_field or "ref" in normalized_field or "key" in normalized_field:
-        return _apply_length_limit(f"{table_name}-{normalized_field}-001", lowered_type)
+        return _apply_length_limit(f"{table_name}-{normalized_field}-001{variant_suffix}", lowered_type)
     if "name" in normalized_field:
-        return _apply_length_limit(f"{table_name} {normalized_field}", lowered_type)
+        return _apply_length_limit(f"{table_name} {normalized_field}{variant_suffix}", lowered_type)
     if "note" in normalized_field or "summary" in normalized_field or "reason" in normalized_field:
-        return _apply_length_limit(f"{table_name} {normalized_field} note", lowered_type)
-    return _apply_length_limit(f"{table_name}-{normalized_field}-value", lowered_type)
+        return _apply_length_limit(f"{table_name} {normalized_field} note{variant_suffix}", lowered_type)
+    return _apply_length_limit(f"{table_name}-{normalized_field}-value{variant_suffix}", lowered_type)
 
 
 def _sample_value(
@@ -173,6 +175,7 @@ def _sample_value(
     table_name: str,
     field: dict[str, object],
     tables_by_name: dict[str, dict[str, object]],
+    probe_variants: dict[str, int] | None = None,
 ) -> object:
     field_name = str(field.get("field_name", "")).strip()
     data_type = str(field.get("data_type", "")).strip()
@@ -194,12 +197,14 @@ def _sample_value(
                 table_name=referenced_table,
                 field=referenced_field,
                 tables_by_name=tables_by_name,
+                probe_variants=probe_variants,
             )
     return _sample_scalar_value(
         table_name=table_name,
         field_name=field_name,
         data_type=data_type,
         constraint_text=constraint_text,
+        probe_variant=int((probe_variants or {}).get(table_name, 0)),
     )
 
 
@@ -207,6 +212,8 @@ def _render_insert_statements(
     table_name: str,
     tables_by_name: dict[str, dict[str, object]],
     emitted: set[str] | None = None,
+    *,
+    probe_variants: dict[str, int] | None = None,
 ) -> list[str]:
     emitted = emitted or set()
     if table_name in emitted:
@@ -220,7 +227,14 @@ def _render_insert_statements(
             continue
         referenced_table, _ = fk_target
         if referenced_table != table_name and referenced_table in tables_by_name:
-            statements.extend(_render_insert_statements(referenced_table, tables_by_name, emitted))
+            statements.extend(
+                _render_insert_statements(
+                    referenced_table,
+                    tables_by_name,
+                    emitted,
+                    probe_variants=probe_variants,
+                )
+            )
 
     columns: list[str] = []
     values: list[str] = []
@@ -229,7 +243,12 @@ def _render_insert_statements(
         if not field_name:
             continue
         columns.append(_quoted_identifier(field_name))
-        sample_value = _sample_value(table_name=table_name, field=field, tables_by_name=tables_by_name)
+        sample_value = _sample_value(
+            table_name=table_name,
+            field=field,
+            tables_by_name=tables_by_name,
+            probe_variants=probe_variants,
+        )
         data_type = str(field.get("data_type", "")).strip().lower()
         if isinstance(sample_value, dict):
             values.append(f"{_sql_literal(json.dumps(sample_value, ensure_ascii=False))}::jsonb")
@@ -243,7 +262,12 @@ def _render_insert_statements(
     return statements
 
 
-def _expected_match(table: dict[str, object], tables_by_name: dict[str, dict[str, object]]) -> dict[str, object]:
+def _expected_match(
+    table: dict[str, object],
+    tables_by_name: dict[str, dict[str, object]],
+    *,
+    probe_variants: dict[str, int] | None = None,
+) -> dict[str, object]:
     expected: dict[str, object] = {}
     for field in table.get("fields", []):
         field_name = str(field.get("field_name", "")).strip()
@@ -258,6 +282,7 @@ def _expected_match(table: dict[str, object], tables_by_name: dict[str, dict[str
             table_name=str(table["table_name"]).strip(),
             field=field,
             tables_by_name=tables_by_name,
+            probe_variants=probe_variants,
         )
         data_type = str(field.get("data_type", "")).strip().lower()
         if (data_type.startswith("numeric") or data_type.startswith("decimal")) and sample_value is not None:
@@ -265,6 +290,69 @@ def _expected_match(table: dict[str, object], tables_by_name: dict[str, dict[str
             continue
         expected[field_name] = sample_value
     return expected
+
+
+def _probe_variants_for_reserved_rows(
+    tables_by_name: dict[str, dict[str, object]],
+    reserved_rows: list[dict[str, object]] | None,
+) -> dict[str, int]:
+    reserved_by_table: dict[str, list[dict[str, object]]] = {}
+    for row in reserved_rows or []:
+        if not isinstance(row, dict):
+            continue
+        table_name = str(row.get("table") or "").strip()
+        values = row.get("values") if isinstance(row.get("values"), dict) else {}
+        if not table_name or not values:
+            continue
+        reserved_by_table.setdefault(table_name, []).append(dict(values))
+
+    variants: dict[str, int] = {}
+    for table_name, table in tables_by_name.items():
+        fields_by_name = {
+            str(field.get("field_name") or "").strip(): field
+            for field in table.get("fields", [])
+            if isinstance(field, dict) and str(field.get("field_name") or "").strip()
+        }
+        pk_field = _primary_key_field(table)
+        unique_groups = [[pk_field]] if pk_field else []
+        unique_groups.extend(_unique_constraint_fields(table))
+        unique_groups = [
+            [field_name for field_name in group if field_name in fields_by_name]
+            for group in unique_groups
+        ]
+        unique_groups = [group for group in unique_groups if group]
+        table_reserved_rows = reserved_by_table.get(table_name, [])
+        if not unique_groups or not table_reserved_rows:
+            variants[table_name] = 0
+            continue
+
+        variant = 0
+        while variant < 100:
+            candidate_values = {
+                field_name: _sample_scalar_value(
+                    table_name=table_name,
+                    field_name=field_name,
+                    data_type=str(fields_by_name[field_name].get("data_type") or "").strip(),
+                    constraint_text=str(fields_by_name[field_name].get("constraints") or "").strip(),
+                    probe_variant=variant,
+                )
+                for group in unique_groups
+                for field_name in group
+            }
+            conflicts_reserved_unique = any(
+                all(
+                    field_name in reserved
+                    and reserved[field_name] == candidate_values.get(field_name)
+                    for field_name in group
+                )
+                for reserved in table_reserved_rows
+                for group in unique_groups
+            )
+            if not conflicts_reserved_unique:
+                break
+            variant += 1
+        variants[table_name] = variant
+    return variants
 
 
 def _required_field_names(table: dict[str, object]) -> list[str]:
@@ -383,6 +471,7 @@ def render_sql_test(
     tables_by_name: dict[str, dict[str, object]],
     *,
     behavior_card_models: dict[str, dict[str, object]] | None = None,
+    reserved_rows: list[dict[str, object]] | None = None,
 ) -> str:
     table_name = str(table["table_name"]).strip()
     fields = [
@@ -392,7 +481,12 @@ def render_sql_test(
     ]
     composite_indexes = [str(item).strip() for item in table.get("composite_indexes", []) if str(item).strip()]
     unique_constraints = [str(item).strip() for item in table.get("unique_constraints", []) if str(item).strip()]
-    insert_statements = _render_insert_statements(table_name, tables_by_name)
+    probe_variants = _probe_variants_for_reserved_rows(tables_by_name, reserved_rows)
+    insert_statements = _render_insert_statements(
+        table_name,
+        tables_by_name,
+        probe_variants=probe_variants,
+    )
     pk_field = _primary_key_field(table)
     pk_value = _sample_value(
         table_name=table_name,
@@ -400,8 +494,9 @@ def render_sql_test(
             candidate for candidate in table.get("fields", []) if str(candidate.get("field_name", "")).strip() == pk_field
         ),
         tables_by_name=tables_by_name,
+        probe_variants=probe_variants,
     )
-    expected_match = _expected_match(table, tables_by_name)
+    expected_match = _expected_match(table, tables_by_name, probe_variants=probe_variants)
     constraint_probes = _constraint_probe_statements(table, tables_by_name, insert_statements)
     selected_columns = sorted(expected_match)
     select_columns = ", ".join(_quoted_identifier(column) for column in selected_columns)
@@ -436,6 +531,7 @@ def scaffold_sql_tests(
     output_dir: Path,
     *,
     behavior_card_models: dict[str, dict[str, object]] | None = None,
+    reserved_rows: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     tables = parse_schema_tables(esp_text)
     tables_by_name = {str(table["table_name"]).strip(): table for table in tables}
@@ -443,7 +539,15 @@ def scaffold_sql_tests(
     files: list[str] = []
     for table in tables:
         target = output_dir / test_filename(str(table["table_name"]))
-        target.write_text(render_sql_test(table, tables_by_name, behavior_card_models=behavior_card_models), encoding="utf-8")
+        target.write_text(
+            render_sql_test(
+                table,
+                tables_by_name,
+                behavior_card_models=behavior_card_models,
+                reserved_rows=reserved_rows,
+            ),
+            encoding="utf-8",
+        )
         files.append(str(target))
     return {"output_dir": str(output_dir), "files_created": files, "count": len(files)}
 

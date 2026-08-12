@@ -42,7 +42,11 @@ Do not use when:
 4. Use bounded agentic design judgment for boundary choices, module decomposition, data ownership, contracts, dependencies, rollout posture, and trade-offs.
 5. Record unresolved architecture truth as `review-bound` with owner, validation path, and downstream impact.
 6. Treat machine-pass as structural evidence only. Architecture value, handoff usefulness, and claim ceiling still require judgment.
-7. Preserve the development / pre-production boundary. Do not imply production approval, owner sign-off, or UAT without supplied external evidence.
+7. Preserve the fixed commitment denominator as `ExplicitValid(P1) union ExplicitValid(P2)`: consume the accepted snapshot-bound P1 authority, require one current-snapshot host-Agent architecture decision, publish `p2-commitment-disposition-ledger.json`, and derive `semantic-commitment-union.json` from that authored ledger plus current claim/contract evidence. Every explicit P1 commitment needs one exact operation, operation-set, stable non-operation, return, repair, defer, exclusion, or review-bound disposition. Every explicit P2-only contract remains a P3 obligation. operation names, examples, templates, and inferred candidates must stay review-bound; Trace co-occurrence and generated lifecycle rows are also not disposition evidence.
+8. Preserve the development / pre-production boundary. Do not imply production approval, owner sign-off, or UAT without supplied external evidence.
+9. When accepted P2 authority exists, it is the canonical architecture denominator. Stage/ESP templates may not expand the accepted operation set, infer a different aggregate writer, manufacture lifecycle states/events, turn NOR/policy/invariant truth into endpoints, or replace accepted P1 topology with a generic workflow. `aggregate_and_writer_decisions`, accepted data/interaction decisions, `durable_persistence_identity_decisions`, dependency dispositions, and the P1 product-world handoff must survive canonical projection without a parallel architecture truth. An accepted data decision that explicitly declares a `table_name` plus concrete fields remains part of the canonical schema denominator even when it is a read-only/current-system materialization seam with no writer aggregate; project schema ownership from the accepted operation service for documentation, but do not manufacture `writer_service_id` or write authority. Stage-03 contract Trace must preserve each accepted public `contract_id` as the contract trace identity; a renderer-generated `P2-CTR-NN` identifier is allowed only outside accepted authority mode and must never replace an accepted contract identity. Every accepted operation must explicitly state whether it writes durable state, is read-only, or has no durable state, and must state the resulting persistence command kind (`insert` / `update` / `append` / `upsert` / `select-one` / `none`) so P3 does not rediscover that choice. Replay-safe operations must bind every replay identity component to an accepted durable carrier and an explicit enforcement posture. Templates must not invent idempotency keys, DB columns, unique constraints, dedup records, or conflict behavior from operation names, prose, examples, or field morphology. Stage-03 concurrent-conflict scenarios must be selected from operations whose accepted durable semantics actually reject a competing write; `replay-safe + return-existing` and read-only operations must not be relabeled as `409 version_conflict` merely to fill a scenario matrix.
+10. Treat technology/deployment posture the same way: templates must not silently promote modular-monolith, cache/queue products, provider choices, token/key mechanics, numeric SLOs, retention durations, or scaling assumptions as accepted architecture. This applies to scenario coverage, verification, and handoff acceptance rows as well as the main technology sections. Such choices are canonical only when the current P2 Agentic decision explicitly accepts them; otherwise keep them review-bound.
+11. Treat the P2→P3 component/action-card bridge as an authority projection, not a lossy summary. Every defined implementation component must remain represented; multi-operation components must union all accepted operation contracts and P1 traces; accepted aggregate/writer/topology and applicable NOR/state/failure/dependency/claim-ceiling truth must remain available to P3. A non-operation aggregate/repository component must not disappear merely because it has no public endpoint. A repository component created from an accepted table-backed read model must inherit that data decision's exact accepted `operation_id` / service / P1 trace path rather than become an orphan component, while still carrying no writer authority. Mechanical schema/operation token matching cannot override accepted aggregate or data-decision identity.
 
 ## Required Inputs
 
@@ -54,8 +58,10 @@ Read first:
 
 For existing-system architecture changes, also consume the optional `P2 Existing-System Architecture Change Intake Packet`. It supplies current-system architecture facts and constraints; it does not replace Phase-1 demand truth.
 
-P1 PRD and `Phase-2 Design Input Contract` remain the authority input. The
-`existing-system-architecture-change` side branch is not a new Phase-2 flow; it
+The accepted `p1-agentic-product-authority.json`, its P1 application receipt,
+P1 PRD, and `Phase-2 Design Input Contract` form the authority input. A PRD
+without the accepted P1 authority is not sufficient for the fresh P2 mainline.
+The `existing-system-architecture-change` side branch is not a new Phase-2 flow; it
 adds bounded `Architecture Change Impact Triage` and `Architecture Change Design`
 before normal Stage expression. Agentic owns the architecture judgment.
 Workflow only controls side-branch order and claim guards.
@@ -94,17 +100,46 @@ may stay off unless depth is needed; when enabled, expose
 `--thinking-value-gain-output-profile` as `insight_dense | balanced | coverage_rich`.
 Preserve Thinking Thickness and Value Density around operation flow / sequence / state / replay source material. If P1 full-use produces inflated or lower-signal truth, return or cap the claim instead of deepening architecture around it.
 
+## WFF Core Contract Binding
+
+- Machine descriptor: `architecture-design`, phase `P2`, route `phase-2`, under `wff-core-contract` `1.0.0`.
+- Consumes `phase-contract`, `handoff-contract`, `artifact-identity-contract`, `evidence-contract`, and `claim-state-contract`.
+- Core validates identities and continuation structure; Phase-2 Agentic work remains the owner of architecture judgment and trade-offs.
+- A missing or incompatible binding blocks architecture entry instead of allowing the runtime to infer upstream truth.
+
 ## Entrypoints
 
-Fresh Phase-2 generation:
+First prepare the current-snapshot architecture candidate and decision template:
+
+```bash
+python3 scripts/phase2/agentic_architecture_authority.py prepare \
+  --phase1-prd <phase1-prd.md> \
+  --candidate-out <p2-candidate.json> \
+  --decision-template-out <p2-decision.template.json>
+```
+
+The host Agent must review the exact admitted P1 authority and submit an accepted
+decision. The candidate packet and vocabulary hints are non-authoritative. Then
+run fresh Phase-2 generation:
 
 ```bash
 python3 scripts/phase2/run_phase2_fresh_generation.py \
   --phase1-prd <phase1-prd.md> \
+  --agentic-architecture-decision <accepted-p2-decision.json> \
   --output-dir <case-phase2-root> \
   --version <version-label> \
   --run-wrapper
 ```
+
+Missing, stale, incomplete, or unapplied decisions stop at
+`agentic-decision-required`; deterministic Stage generation alone cannot close
+architecture authority.
+
+Before an accepted P2 decision stands, run one bounded fresh-context challenge over `architecture-ownership`, `contract-operation-identity`, `dependency-compatibility`, and `cross-phase-disposition`. The reviewer sees the candidate architecture artifact, exact P1/P2 contract identities, admitted context, dependency/unknown surfaces, and an issues-first instruction—not the owner's preferred architecture or reasoning journey.
+
+A new P2 candidate may consume only a P1 decision/authority pair classified as `current-bound-authority` under `bounded-challenge-integrity-v1`. Historical `legacy-pre-bounded-challenge-v1` P1 proof remains readable for comparison and audit, but cannot be washed into a new architecture authority; return to P1 for a current snapshot-bound decision and exact challenge binding.
+
+The P2 host Agent reconciles every material finding. A valid architecture defect changes the decision/artifact and requires a new pass over the changed unit; insufficient P1/context returns upstream; unresolved architecture truth remains review-bound with owner and P3 effect; non-applicable findings require rationale. Default depth is one pass, maximum three, and cross-model review is optional/per-invocation authorized. The accepted P2 authority carries the digest-bound challenge summary; the reviewer never owns architecture truth.
 
 Existing-system architecture-change intake:
 
@@ -130,22 +165,30 @@ Use `scripts/phase2/phase2_quality_check.py` only for focused quality checks ove
 
 ## Execution Sequence
 
-1. Confirm the Phase-1 handoff and choose a fresh Phase-2 case root.
-2. Read the Phase-2 input contract and build a top-down absorption plan.
-3. Run the fresh generation entrypoint, or scaffold only when manual remediation is intentional.
-4. If an existing-system architecture-change packet exists, classify impact, compatibility posture, migration pressure, rollback needs, and decision gates.
-5. Generate or refresh Stage-01 through Stage-04 using the official stage packs.
-6. Run wrapper closure so the trace registry, execution report, Engineering Spec Pack, and Phase-3 implementation entry are emitted together.
-7. Review architecture value and downstream handoff readiness before promoting to Phase-3.
+1. Verify the accepted P1 authority/application receipt and choose a fresh Phase-2 case root.
+2. Build the architecture candidate/context snapshot. Mechanical service, operation, dependency, and naming candidates remain hints only.
+3. Obtain one accepted current-snapshot host-Agent architecture decision covering the portfolio, stable non-operation realizations, every P1 commitment disposition, dependency posture, durable persistence command/identity/replay posture for every accepted operation, and P3 handoff ceiling. When a request/result field constraint materially determines a valid positive contract example, encode it with the explicit machine-readable forms `const=<scalar>` or `allowed-values=<value1>|<value2>|...`; keep descriptive constraints as prose. Example projection may consume only those explicit forms and must not infer allowed values from free text, operation names, or domain vocabulary.
+4. Run the fresh generation entrypoint with `--agentic-architecture-decision`; the existing canonical Stage/ESP writer first binds the accepted service/operation/contract/aggregate/writer/NOR/data/durable-persistence-command/topology/dependency decisions into its generation model, then renders Stage-01..04, claim-control, Trace, ESP, and P3 entry. Do not append authority after a conflicting generic architecture has already been accepted as canonical truth.
+5. Verify `p2-canonical-authority-convergence.json` immediately after Stage generation. The report must bind the current authority digest, exact endpoint denominator, aggregate/writer/data/NOR projections, durable persistence identity denominator, P1 topology, and any activated dependency lane; any unresolved conflict blocks continuation.
+6. If an existing-system architecture-change packet exists, apply its accepted impact/compatibility/rollback decisions without creating a second writer.
+7. Route Stage-02.5 only from the accepted dependency decision: `activate`, `internal-local`, `defer`, `exclude`, `return`, or `review-bound`. Vocabulary may only suggest candidates. An accepted `activate` route must render the exact dependency IDs as an active provider-neutral lane unless the authority itself binds a concrete provider.
+8. Run wrapper closure, rebuild the semantic commitment union, and re-run canonical convergence after ESP / P3-entry generation so wrapper composition cannot reintroduce generic architecture truth.
+9. Require `p2-agentic-architecture-application-receipt.json` to bind the decision digest, `canonical_writer_id`, canonical-convergence report, Stage outputs, ESP, P3 entry, disposition/dependency evidence, and zero missing/unused applications. P2 claim-control lineage handed to P3 must be self-contained: preserve a P2-local portable snapshot of the accepted P1 claim-control surface and make generated P2 sidecars resolve that local surface rather than depending on the original P1 filesystem mount.
+10. Promote only the resolved/bounded slices allowed by the accepted handoff; return missing product truth to P1 and missing architecture authoring to P2.
 
 ## Required Output Set
 
 A valid Phase-2 package preserves:
 - Stage-01 architecture definition
 - Stage-02 domain/module decomposition
-- Stage-02.5 third-party integration design when triggered
+- Stage-02.5 third-party integration design, or an exact decision-bound skip/return receipt
 - Stage-03 data/interface design
 - Stage-04 convergence and delivery plan
+- `p2-agentic-architecture-authority.json`
+- `p2-commitment-disposition-ledger.json`
+- `p2-dependency-routing-receipt.json`
+- `p2-agentic-architecture-application-receipt.json`
+- `p2-canonical-authority-convergence.json` with zero unresolved conflict
 - Phase-2 execution report
 - Engineering Spec Pack
 - Phase-3 implementation entry
@@ -159,11 +202,19 @@ Phase-2 is complete only when:
 - every material Phase-1 trace unit is absorbed or explicitly review-bound
 - architecture decisions explain why the chosen boundary is useful for delivery
 - API, data, interaction, risk, and rollout surfaces are implementation-facing
+- exact accepted operations/contracts/aggregate writers/NOR/data decisions are the canonical denominator; no generated CRUD/lifecycle/technology default overrides them
+- source-defined P1 product topology survives P2; independent outcomes are not serialized by Stage-02 handoffs, Stage-03 flows, Stage-04 work packages/replays/sequences, or ESP composition
+- activated dependency authority is represented by exact dependency IDs and bounded provider/error/test posture rather than vocabulary-derived provider guesses
 - ESP is self-contained enough for Phase-3 to start without guessing
 - high-risk operations carry source obligations and implementation-depth obligations
 - unresolved items have owners, validation paths, and downstream impact
 
 ## Completion Standard
+
+After Phase-2 owns a stable output, the built Release runtime queues the
+localized Human Review sidecar and returns immediately. The sidecar reads the
+accepted ESP and structured component catalog only as review projections; it
+must not alter architecture truth or Phase-3 admission.
 
 Stop with one of these states:
 - `ready-for-phase3`: architecture and handoff are sufficient for implementation

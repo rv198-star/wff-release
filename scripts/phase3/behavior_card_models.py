@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any, Mapping
 
 from phase3.contract_tools import parse_schema_tables
 from phase3.phase3_behavior_card_consumption import extract_behavior_card_model
@@ -53,7 +54,58 @@ def operation_entries_from_openapi(spec: dict[str, object]) -> dict[str, dict[st
     return entries
 
 
-def build_behavior_card_models(*, phase2_root: Path, output_dir: Path, spec: dict[str, object]) -> dict[str, dict[str, object]]:
+def _accepted_p3_target_projection(
+    implementation_authority: Mapping[str, Any] | None,
+    operation_id: str,
+) -> dict[str, Any]:
+    if not isinstance(implementation_authority, Mapping):
+        return {}
+    decisions = implementation_authority.get("decisions", {})
+    if not isinstance(decisions, Mapping):
+        return {}
+    decision = decisions.get(operation_id)
+    if not isinstance(decision, Mapping):
+        return {
+            "controller_target": "not separately declared by accepted P3 authority",
+            "service_target": "not separately declared by accepted P3 authority",
+            "repository_target": "not separately declared by accepted P3 authority",
+            "unit_test": "not separately declared by accepted P3 authority",
+            "p3_declared_tests": "none declared by accepted P3 authority",
+        }
+    implementation_targets = [str(item).strip() for item in decision.get("implementation_targets", []) if str(item).strip()]
+    test_targets = [str(item).strip() for item in decision.get("test_targets", []) if str(item).strip()]
+    service_targets = [target for target in implementation_targets if target.endswith(".service.ts")]
+    repository_targets = [target for target in implementation_targets if target.endswith(".repository.ts")]
+    unit_targets = [target for target in test_targets if target.startswith("tests/unit/")]
+    persistence_rows: list[Mapping[str, Any]] = []
+    slice_decisions = implementation_authority.get("slice_decisions", {})
+    if isinstance(slice_decisions, Mapping):
+        for raw in slice_decisions.values():
+            if not isinstance(raw, Mapping) or str(raw.get("operation_id") or "").strip() != operation_id:
+                continue
+            rows = raw.get("durable_persistence_decisions", [])
+            if isinstance(rows, list):
+                persistence_rows.extend(item for item in rows if isinstance(item, Mapping))
+    persistence_modes = sorted({str(row.get("persistence_mode") or "").strip() for row in persistence_rows if str(row.get("persistence_mode") or "").strip()})
+    command_kinds = sorted({str(row.get("command_kind") or "").strip() for row in persistence_rows if str(row.get("command_kind") or "").strip()})
+    return {
+        "controller_target": "not separately declared by accepted P3 authority",
+        "service_target": ", ".join(service_targets) or "not separately declared by accepted P3 authority",
+        "repository_target": ", ".join(repository_targets) or "not separately declared by accepted P3 authority",
+        "unit_test": ", ".join(unit_targets) or "not separately declared by accepted P3 authority",
+        "p3_declared_tests": ", ".join(test_targets) or "none declared by accepted P3 authority",
+        "persistence_mode": persistence_modes[0] if len(persistence_modes) == 1 else "",
+        "persistence_command_kind": command_kinds[0] if len(command_kinds) == 1 else "",
+    }
+
+
+def build_behavior_card_models(
+    *,
+    phase2_root: Path,
+    output_dir: Path,
+    spec: dict[str, object],
+    implementation_authority: Mapping[str, Any] | None = None,
+) -> dict[str, dict[str, object]]:
     models: dict[str, dict[str, object]] = {}
     esp_text = (phase2_root / "engineering-spec-pack.md").read_text(encoding="utf-8")
     table_names = [str(table.get("table_name", "")).strip() for table in parse_schema_tables(esp_text)]
@@ -97,6 +149,9 @@ def build_behavior_card_models(*, phase2_root: Path, output_dir: Path, spec: dic
                 "db_target": persistence_surfaces,
             }
         )
+        authority_projection = _accepted_p3_target_projection(implementation_authority, operation_id)
+        if authority_projection:
+            source_bundle.update(authority_projection)
         card_path = write_behavior_card(output_dir, source_bundle, risk)
         models[operation_id] = extract_behavior_card_model(card_path.read_text(encoding="utf-8"))
     return models

@@ -5,6 +5,578 @@ from __future__ import annotations
 
 from phase2.phase2_first_version_design_model import *  # noqa: F401,F403
 
+
+def architecture_authority_model(context: dict[str, object]) -> dict[str, object]:
+    model = context.get("agentic_architecture_model")
+    return model if isinstance(model, dict) else {}
+
+
+def contract_trace_identity(context: dict[str, object], service: ServiceSpec, index: int) -> str:
+    """Preserve accepted contract identity; synthesize trace identity only outside authority mode."""
+    if architecture_authority_model(context):
+        contract_id = str(service.public_contract or "").strip()
+        if not contract_id:
+            raise ValueError("accepted architecture operation is missing public contract identity")
+        return contract_id
+    return f"P2-CTR-{index:02d}"
+
+
+def authority_aggregate_by_id(context: dict[str, object]) -> dict[str, dict[str, object]]:
+    return {
+        str(row.get("aggregate_id") or "").strip(): row
+        for row in architecture_authority_model(context).get("aggregates", [])
+        if isinstance(row, dict) and str(row.get("aggregate_id") or "").strip()
+    }
+
+
+def authority_operations_for_aggregate(context: dict[str, object], aggregate_id: str) -> list[dict[str, object]]:
+    return [
+        row
+        for row in architecture_authority_model(context).get("operations", [])
+        if isinstance(row, dict) and str(row.get("aggregate_id") or "").strip() == aggregate_id
+    ]
+
+
+def authority_state_surface(aggregate: dict[str, object]) -> dict[str, str]:
+    state_rows = [row for row in aggregate.get("state_decisions", []) if isinstance(row, dict)]
+    states: list[str] = []
+    events: list[str] = []
+    mutation_guards: list[str] = []
+    failure_exits: list[str] = []
+    for row in state_rows:
+        for key in ("states", "state_set"):
+            value = row.get(key)
+            if isinstance(value, list):
+                states.extend(str(item).strip() for item in value if str(item).strip())
+            elif isinstance(value, str) and value.strip():
+                states.extend(part.strip() for part in re.split(r"[,|/]", value) if part.strip())
+        for key in ("event_ids", "trigger_events", "events"):
+            value = row.get(key)
+            if isinstance(value, list):
+                events.extend(str(item).strip() for item in value if str(item).strip())
+            elif isinstance(value, str) and value.strip():
+                events.extend(part.strip() for part in re.split(r"[,|/]", value) if part.strip())
+        for key in ("mutation_guard", "invariant", "policy", "statement"):
+            value = str(row.get(key) or "").strip()
+            if value:
+                mutation_guards.append(value)
+        for key in ("terminal_or_failure_exit", "failure_guardrail", "failure_rule"):
+            value = str(row.get(key) or "").strip()
+            if value:
+                failure_exits.append(value)
+    return {
+        "states": " / ".join(unique_preserve(states)) or "authority-bound; no inferred lifecycle states",
+        "events": ", ".join(unique_preserve(events)) or "none accepted",
+        "mutation_guard": " ; ".join(unique_preserve(mutation_guards)) or "accepted operations only; no inferred mutation rule",
+        "failure_exit": " ; ".join(unique_preserve(failure_exits)) or "review-bound; no inferred terminal/failure rule",
+    }
+
+
+def authority_event_driver_rows(
+    context: dict[str, object],
+    aggregate_objects: list[str],
+) -> tuple[list[list[str]], list[list[str]], list[list[str]], list[list[str]]]:
+    aggregate_map = authority_aggregate_by_id(context)
+    events: list[list[str]] = []
+    vocabulary_rows: list[list[str]] = []
+    model_rows: list[list[str]] = []
+    carry_rows: list[list[str]] = []
+    seen: set[str] = set()
+    for aggregate_id in aggregate_objects:
+        aggregate = aggregate_map.get(aggregate_id)
+        if not aggregate:
+            continue
+        producer = str(aggregate.get("writer_service_id") or aggregate.get("owner_service_id") or "authority-bound").strip()
+        for state_row in [row for row in aggregate.get("state_decisions", []) if isinstance(row, dict)]:
+            raw_events = state_row.get("event_ids", state_row.get("trigger_events", state_row.get("events", [])))
+            event_ids = (
+                [str(item).strip() for item in raw_events if str(item).strip()]
+                if isinstance(raw_events, list)
+                else [part.strip() for part in re.split(r"[,|/]", str(raw_events)) if part.strip()]
+            )
+            for event_id in event_ids:
+                if event_id in seen:
+                    continue
+                seen.add(event_id)
+                trigger = str(state_row.get("trigger") or state_row.get("statement") or "accepted authority transition").strip()
+                payload = str(state_row.get("event_payload") or f"{aggregate_id} identity + accepted transition context").strip()
+                ordering = str(state_row.get("ordering_semantics") or "after accepted authoritative write").strip()
+                idempotency = str(state_row.get("idempotency_rule") or "authority-bound; do not invent stronger semantics").strip()
+                consumer = str(state_row.get("consumer") or "accepted downstream consumers").strip()
+                events.append([event_id, producer, consumer, trigger, payload, ordering, idempotency])
+                vocabulary_rows.append([event_id, trigger, producer, consumer, payload, ordering, idempotency, "consume read-only unless separately authorized"])
+                model_rows.append([
+                    str(state_row.get("decision_id") or event_id).strip(),
+                    event_id,
+                    trigger,
+                    f"{producer} -> {consumer}",
+                    str(state_row.get("effect") or "accepted state/evidence transition").strip(),
+                    str(state_row.get("claim_ceiling") or "bounded by accepted P2 authority").strip(),
+                    str(state_row.get("p3_handoff") or "preserve event identity and accepted semantics").strip(),
+                    "accepted-authority",
+                ])
+                carry_rows.append([event_id, str(state_row.get("p3_handoff") or "preserve accepted event identity").strip(), event_id, "accepted P2 event identity carried forward without renaming"])
+    return events, vocabulary_rows, model_rows, carry_rows
+
+
+def p1_product_topology_mode(context: dict[str, object]) -> str:
+    p1 = architecture_authority_model(context).get("p1_authority", {})
+    if not isinstance(p1, dict):
+        return ""
+    decision = p1.get("product_world_decision", {})
+    if not isinstance(decision, dict):
+        return ""
+    topology = decision.get("topology", {})
+    return str(topology.get("mode") or "").strip() if isinstance(topology, dict) else ""
+
+
+def authority_operation_topology_group(context: dict[str, object], operation_id: str) -> str:
+    for row in architecture_authority_model(context).get("operations", []):
+        if isinstance(row, dict) and str(row.get("operation_id") or "").strip() == operation_id:
+            return str(row.get("topology_group") or "").strip()
+    return ""
+
+
+def authority_service_read_only(context: dict[str, object], service: ServiceSpec) -> bool:
+    if service.service_type != "authority-operation":
+        return not service_exposes_persistent_object(service)
+    aggregate = authority_aggregate_by_id(context).get(service.owns_or_coordinates, {})
+    writer_id = str(aggregate.get("writer_service_id") or aggregate.get("owner_service_id") or "").strip()
+    return service.method.upper() in {"GET", "HEAD"} or bool(writer_id and writer_id != service.domain)
+
+
+def authority_operation_data_decision(context: dict[str, object], operation_id: str) -> dict[str, object]:
+    for row in architecture_authority_model(context).get("data_decisions", []):
+        if isinstance(row, dict) and str(row.get("operation_id") or "").strip() == operation_id:
+            return row
+    return {}
+
+
+def authority_operation_persistence_decision(context: dict[str, object], operation_id: str) -> dict[str, object]:
+    for row in architecture_authority_model(context).get("durable_persistence_identity", []):
+        if isinstance(row, dict) and str(row.get("operation_id") or "").strip() == operation_id:
+            return row
+    return {}
+
+
+def authority_operation_supports_concurrent_conflict(context: dict[str, object], operation_id: str) -> bool:
+    """Return true only when accepted persistence semantics actually reject a competing write."""
+    decision = authority_operation_persistence_decision(context, operation_id)
+    if not decision:
+        return False
+    persistence_mode = str(decision.get("persistence_mode") or "").strip()
+    command_kind = str(decision.get("command_kind") or "").strip()
+    replay_behavior = str(decision.get("replay_behavior") or "").strip()
+    if persistence_mode != "durable-write":
+        return False
+    if replay_behavior == "reject-conflict":
+        return True
+    return command_kind == "update" and replay_behavior not in {"return-existing", "read-only", "no-durable-state"}
+
+
+def render_authority_idempotency_rule(decision: dict[str, object]) -> str:
+    if not decision:
+        return "authority-bound"
+    mode = str(decision.get("idempotency_mode") or "").strip()
+    persistence_mode = str(decision.get("persistence_mode") or "").strip()
+    replay_behavior = str(decision.get("replay_behavior") or "").strip()
+    if mode != "replay-safe":
+        return f"{persistence_mode}; idempotency not applicable; replay={replay_behavior}"
+    components = [str(item).strip() for item in decision.get("identity_components", []) if str(item).strip()] if isinstance(decision.get("identity_components"), list) else []
+    carrier = decision.get("durable_carrier") if isinstance(decision.get("durable_carrier"), dict) else {}
+    carrier_kind = str(carrier.get("kind") or "").strip()
+    carrier_id = str(carrier.get("carrier_id") or "").strip()
+    return f"{' + '.join(components)} is replay-safe via {carrier_kind}:{carrier_id}; replay={replay_behavior}"
+
+
+def _authority_constraint_example(field_name: str, field_type: str, constraint: str) -> tuple[bool, object]:
+    """Project only explicit machine-readable positive-example constraints.
+
+    Unknown prose constraints remain descriptive authority and fall back to the
+    existing type-aware example. Recognized constraint syntax is intentionally
+    small so the renderer never guesses business truth from free text.
+    """
+    normalized_constraint = str(constraint or "").strip()
+    if not normalized_constraint:
+        return False, None
+
+    lowered_type = str(field_type or "").strip().casefold()
+
+    def coerce_scalar(raw_value: str) -> object:
+        value = raw_value.strip()
+        if "bool" in lowered_type:
+            lowered_value = value.casefold()
+            if lowered_value == "true":
+                return True
+            if lowered_value == "false":
+                return False
+            raise ValueError(f"invalid boolean authority constraint value for {field_name}: {value}")
+        if "int" in lowered_type:
+            try:
+                return int(value)
+            except ValueError as exc:
+                raise ValueError(f"invalid integer authority constraint value for {field_name}: {value}") from exc
+        if any(token in lowered_type for token in ("number", "decimal", "float")):
+            try:
+                return float(value)
+            except ValueError as exc:
+                raise ValueError(f"invalid numeric authority constraint value for {field_name}: {value}") from exc
+        if any(token in lowered_type for token in ("array", "object", "map", "list")):
+            raise ValueError(
+                f"scalar authority constraint is not supported for structured field {field_name}: {field_type}"
+            )
+        return value
+
+    lowered_constraint = normalized_constraint.casefold()
+    if lowered_constraint.startswith("const="):
+        raw_value = normalized_constraint.split("=", 1)[1].strip()
+        if not raw_value:
+            raise ValueError(f"empty const authority constraint for {field_name}")
+        return True, coerce_scalar(raw_value)
+
+    if lowered_constraint.startswith("allowed-values="):
+        raw_values = normalized_constraint.split("=", 1)[1]
+        values = [item.strip() for item in raw_values.split("|") if item.strip()]
+        if not values:
+            raise ValueError(f"empty allowed-values authority constraint for {field_name}")
+        return True, coerce_scalar(values[0])
+
+    return False, None
+
+
+def _authority_example_value(field_name: str, field_type: str, constraint: str = "") -> object:
+    constrained, value = _authority_constraint_example(field_name, field_type, constraint)
+    if constrained:
+        return value
+    lowered_type = field_type.casefold()
+    lowered_name = field_name.casefold()
+    if "bool" in lowered_type:
+        return False
+    if any(token in lowered_type for token in ("int", "number", "decimal", "float")):
+        return 1
+    if "uuid" in lowered_type or lowered_name.endswith("_id"):
+        return f"{field_name}-001"
+    return f"example-{field_name}"
+
+
+def authority_contract_material(
+    context: dict[str, object],
+    service: ServiceSpec,
+) -> tuple[dict[str, object], dict[str, object], list[str], dict[str, str]] | None:
+    if service.service_type != "authority-operation":
+        return None
+    decision = authority_operation_data_decision(context, service.endpoint_name)
+    if not decision:
+        return ({}, {"data": {}, "meta": {"traceId": "trace-001"}}, ["review-bound: explicit request/result fields not declared by accepted P2 authority"], {})
+    request_fields = [row for row in decision.get("request_fields", []) if isinstance(row, dict)] if isinstance(decision.get("request_fields"), list) else []
+    result_fields = [row for row in decision.get("result_fields", []) if isinstance(row, dict)] if isinstance(decision.get("result_fields"), list) else []
+    request_example = {
+        str(row.get("name") or "").strip(): _authority_example_value(
+            str(row.get("name") or "").strip(),
+            str(row.get("type") or "string").strip(),
+            str(row.get("constraint") or "").strip(),
+        )
+        for row in request_fields
+        if str(row.get("name") or "").strip()
+    }
+    result_example = {
+        str(row.get("name") or "").strip(): _authority_example_value(
+            str(row.get("name") or "").strip(),
+            str(row.get("type") or "string").strip(),
+            str(row.get("constraint") or "").strip(),
+        )
+        for row in result_fields
+        if str(row.get("name") or "").strip()
+    }
+    schema_fields = [
+        f"request.{str(row.get('name') or '').strip()}: {str(row.get('type') or 'string').strip()}"
+        for row in request_fields
+        if str(row.get("name") or "").strip()
+    ] + [
+        f"response.data.{str(row.get('name') or '').strip()}: {str(row.get('type') or 'string').strip()}"
+        for row in result_fields
+        if str(row.get("name") or "").strip()
+    ] + ["response.meta.traceId: string"]
+    persistence_decision = authority_operation_persistence_decision(context, service.endpoint_name)
+    policies = {
+        "failure_codes": str(decision.get("failure_codes") or "authority-bound").strip(),
+        "idempotency_rule": render_authority_idempotency_rule(persistence_decision),
+        "retryability_policy": str(decision.get("retryability_policy") or "retry only where accepted failure semantics allow").strip(),
+        "pagination_rule": str(decision.get("pagination_rule") or "none").strip(),
+        "rate_limit_policy": str(decision.get("rate_limit_policy") or "review-bound; no numeric rate limit accepted").strip(),
+    }
+    return request_example, {"data": result_example, "meta": {"traceId": "trace-001"}}, schema_fields, policies
+
+
+def reconcile_authority_binding_rows(
+    context: dict[str, object],
+    endpoint_specs: list[ServiceSpec],
+    rows: list[list[str]],
+) -> list[list[str]]:
+    if not rows or not endpoint_specs or not all(service.service_type == "authority-operation" for service in endpoint_specs):
+        return rows
+    by_service_name = {service.service_name: service for service in endpoint_specs}
+    reconciled: list[list[str]] = []
+    for raw in rows:
+        row = list(raw)
+        if len(row) < 19:
+            reconciled.append(row)
+            continue
+        service = by_service_name.get(str(row[5]).strip())
+        if service is None:
+            reconciled.append(row)
+            continue
+        binding_mode = str(row[4]).strip().casefold()
+        method = service.method.upper()
+        if binding_mode == "read" and method not in {"GET", "HEAD"}:
+            row[5] = "UNRESOLVED_SERVICE_BINDING"
+            row[6] = "—"
+            row[7] = "—"
+            row[8] = "review-bound / accepted-operation-method-mismatch"
+            row[9] = "review-bound / accepted-operation-method-mismatch"
+            row[10] = "—"
+            row[13] = "—"
+            row[17] = "review-bound"
+            row[18] = "no accepted read operation matches this interaction; renderer must not reuse a write operation"
+            reconciled.append(row)
+            continue
+        decision = authority_operation_data_decision(context, service.endpoint_name)
+        request_fields = [
+            f"request.{str(item.get('name') or '').strip()}"
+            for item in decision.get("request_fields", [])
+            if isinstance(item, dict) and str(item.get("name") or "").strip()
+        ] if isinstance(decision.get("request_fields"), list) else []
+        result_fields = [
+            f"response.data.{str(item.get('name') or '').strip()}"
+            for item in decision.get("result_fields", [])
+            if isinstance(item, dict) and str(item.get("name") or "").strip()
+        ] if isinstance(decision.get("result_fields"), list) else []
+        row[8] = (
+            "accepted contract fields: " + ", ".join(request_fields) + "; UI-field mapping remains review-bound"
+            if request_fields
+            else "review-bound / accepted request fields not explicitly mapped to this UI interaction"
+        )
+        row[9] = (
+            "accepted contract fields: " + ", ".join(result_fields) + "; UI projection mapping remains review-bound"
+            if result_fields
+            else "review-bound / accepted result fields not explicitly mapped to this UI interaction"
+        )
+        row[13] = str(decision.get("failure_codes") or row[13]).strip()
+        row[17] = "review-bound"
+        row[18] = "endpoint/contract is accepted; exact UI-to-contract field mapping requires explicit reconciliation"
+        reconciled.append(row)
+    return reconciled
+
+
+def reconcile_authority_enrichment_rows(
+    context: dict[str, object],
+    binding_rows: list[list[str]],
+    enrichment_rows: list[list[str]],
+) -> list[list[str]]:
+    if not enrichment_rows or not architecture_authority_model(context):
+        return enrichment_rows
+    binding_by_interaction = {
+        str(row[1]).strip(): row
+        for row in binding_rows
+        if len(row) >= 19 and str(row[1]).strip()
+    }
+    reconciled: list[list[str]] = []
+    for raw in enrichment_rows:
+        row = list(raw)
+        if len(row) < 11:
+            reconciled.append(row)
+            continue
+        interaction_id = str(row[0]).strip()
+        binding = binding_by_interaction.get(interaction_id)
+        if binding is None:
+            reconciled.append(row)
+            continue
+        unresolved = str(binding[5]).strip() == "UNRESOLVED_SERVICE_BINDING"
+        row[6] = (
+            "review-bound / no accepted P2 operation is bound to this interaction"
+            if unresolved
+            else "accepted P2 contract is authoritative; exact P1 UI-field-to-contract mapping remains review-bound"
+        )
+        row[9] = "review-bound"
+        row[10] = str(binding[18]).strip() or "UI-to-contract mapping requires explicit reconciliation"
+        reconciled.append(row)
+    return reconciled
+
+
+def render_p1_product_world_handoff_block(context: dict[str, object]) -> str:
+    p1 = architecture_authority_model(context).get("p1_authority", {})
+    if not isinstance(p1, dict):
+        return ""
+    decision = p1.get("product_world_decision", {})
+    if not isinstance(decision, dict) or not decision:
+        return ""
+    topology = decision.get("topology", {}) if isinstance(decision.get("topology"), dict) else {}
+    ownership = decision.get("ownership", {}) if isinstance(decision.get("ownership"), dict) else {}
+    objects = [row for row in decision.get("objects", []) if isinstance(row, dict)] if isinstance(decision.get("objects"), list) else []
+    object_surface = "; ".join(
+        f"{str(row.get('object_id') or '').strip()}: {str(row.get('name') or '').strip()} [{str(row.get('basis') or 'review-bound').strip()}]"
+        for row in objects
+        if str(row.get("object_id") or "").strip()
+    )
+    return "\n".join(
+        [
+            "## Preserved P1 Product-World Handoff",
+            "",
+            f"- world_knowledge_contract: `{str(p1.get('world_knowledge_contract') or '').strip()}`",
+            f"- product_world_summary: {str(decision.get('summary') or 'review-bound').strip()}",
+            f"- topology: `{str(topology.get('mode') or 'review-bound').strip()}` / {str(topology.get('statement') or 'review-bound').strip()}",
+            f"- ownership_posture: `{str(ownership.get('posture') or 'review-bound').strip()}` / {str(ownership.get('statement') or 'review-bound').strip()}",
+            f"- canonical_product_objects: {object_surface or 'review-bound'}",
+            "- rule: P2 may realize this product world architecturally but must not merge, serialize, rename away, or reconstruct its accepted product semantics.",
+        ]
+    )
+
+
+def render_authority_non_operation_block(context: dict[str, object]) -> str:
+    rows = [row for row in architecture_authority_model(context).get("non_operations", []) if isinstance(row, dict)]
+    if not rows:
+        return ""
+    table_rows = [
+        [
+            str(row.get("realization_id") or "").strip(),
+            str(row.get("realization_type") or "").strip(),
+            str(row.get("statement") or "").strip(),
+            str(row.get("owner") or "").strip(),
+            str(row.get("claim_ceiling") or "").strip(),
+        ]
+        for row in rows
+    ]
+    return "\n".join(
+        [
+            "## Accepted Non-Operation Architecture Realizations",
+            "",
+            make_markdown_table(
+                ["realization_id", "type", "canonical rule", "owner", "claim ceiling"],
+                table_rows,
+            ),
+            "",
+            "> These are architecture rules, not endpoints. The renderer must not convert them into CRUD operations or implementation obligations beyond their accepted ceiling.",
+        ]
+    )
+
+
+def authority_architecture_decision_rows(context: dict[str, object]) -> list[dict[str, object]]:
+    model = architecture_authority_model(context)
+    rows: list[dict[str, object]] = []
+    seen: set[str] = set()
+
+    def append(row: dict[str, object]) -> None:
+        decision_id = str(row.get("decision_id") or row.get("realization_id") or "").strip()
+        statement = str(row.get("statement") or row.get("mutation_guard") or "").strip()
+        if not decision_id or not statement or decision_id in seen:
+            return
+        seen.add(decision_id)
+        rows.append({**row, "decision_id": decision_id, "statement": statement})
+
+    for row in model.get("data_decisions", []):
+        if isinstance(row, dict) and str(row.get("decision_type") or "").strip() == "architecture-decision":
+            append(row)
+    for row in model.get("non_operations", []):
+        if isinstance(row, dict):
+            append(
+                {
+                    **row,
+                    "decision_id": str(row.get("realization_id") or "").strip(),
+                    "title": str(row.get("realization_type") or "architecture rule").strip(),
+                }
+            )
+    for row in model.get("state_policy_failure", []):
+        if isinstance(row, dict):
+            append(row)
+    return rows
+
+
+def authority_architecture_posture(context: dict[str, object]) -> dict[str, object]:
+    for row in architecture_authority_model(context).get("data_decisions", []):
+        if isinstance(row, dict) and str(row.get("decision_type") or "").strip() == "architecture-posture":
+            return row
+    return {}
+
+
+def authority_adr_surfaces(
+    context: dict[str, object],
+    *,
+    limit: int,
+) -> tuple[list[str], list[list[str]]]:
+    entries: list[str] = []
+    traces: list[list[str]] = []
+    for idx, row in enumerate(authority_architecture_decision_rows(context)[:limit], start=1):
+        decision_id = str(row.get("decision_id") or "").strip()
+        title = str(row.get("title") or decision_id).strip()
+        statement = str(row.get("statement") or "").strip()
+        context_text = str(row.get("context") or "Accepted by the current snapshot-bound P2 architecture authority.").strip()
+        raw_refs = row.get("evidence_refs", [])
+        refs = [str(item).strip() for item in raw_refs if str(item).strip()] if isinstance(raw_refs, list) else []
+        raw_alternatives = row.get("alternatives_considered", row.get("alternatives", []))
+        alternatives: list[tuple[str, str]] = []
+        if isinstance(raw_alternatives, list):
+            for item in raw_alternatives:
+                if isinstance(item, dict):
+                    name = str(item.get("alternative_name") or item.get("name") or "").strip()
+                    reason = str(item.get("rejected_because") or item.get("reason") or "not accepted by current P2 authority").strip()
+                    if name:
+                        alternatives.append((name, reason))
+                elif str(item).strip():
+                    alternatives.append((str(item).strip(), "not accepted by current P2 authority"))
+        alternative_lines: list[str] = []
+        if alternatives:
+            for name, reason in alternatives:
+                alternative_lines.extend(
+                    [
+                        f"      - alternative_name: {name}",
+                        f"      - rejected_because: {reason}",
+                    ]
+                )
+        else:
+            alternative_lines.extend(
+                [
+                    "      - alternative_name: `not-expanded-by-renderer`",
+                    "      - rejected_because: alternatives were not accepted in the P2 authority; the renderer does not invent them",
+                ]
+            )
+        positive = str(row.get("positive_consequence") or "preserves the accepted architecture boundary without renderer reinterpretation").strip()
+        negative = str(row.get("negative_consequence") or "trade-off detail remains bounded to what the P2 authority explicitly accepted").strip()
+        risks = str(row.get("risk") or row.get("claim_ceiling") or "stronger claims remain review-bound").strip()
+        evidence = ", ".join(refs) if refs else f"accepted P2 decision `{decision_id}`"
+        entries.append(
+            "\n".join(
+                [
+                    f"  - adr_{idx:02d}:",
+                    f"    - ad_id: `{decision_id}`",
+                    f"    - title: {title}",
+                    "    - status:",
+                    "      - `Accepted`",
+                    f"    - context: {context_text}",
+                    f"    - decision: {statement}",
+                    "    - alternatives_considered:",
+                    *alternative_lines,
+                    "    - consequences:",
+                    f"      - positive: {positive}",
+                    f"      - negative: {negative}",
+                    f"      - risks: {risks}",
+                    f"    - evidence: {evidence}",
+                ]
+            )
+        )
+        traces.append(
+            [
+                f"P2-DTR-{idx:02d}",
+                decision_id,
+                title,
+                f"authority_evidence={evidence}",
+                "ARCH-STG03-OUTPUT-0001",
+                "canonical Stage/ESP must preserve this accepted decision and may not replace it with a template default",
+                ", ".join(refs) or decision_id,
+            ]
+        )
+    return entries, traces
+
+
 def render_stage_01(
     *,
     case_name: str,
@@ -83,63 +655,66 @@ def render_stage_01(
         ]
     )
 
-    adr_titles = [str(item) for item in context.get("adr_titles", [])][:adr_count]
     adr_entries: list[str] = []
     decision_trace_table_rows: list[list[str]] = []
-    for idx, title in enumerate(adr_titles, start=1):
-        ad_id = f"AD-{idx:02d}"
-        ids = decision_trace_groups[idx - 1]
-        service = select_adr_anchor_service(title, services)
-        adr_content = adr_content_for(
-            title=title,
-            service=service,
-            case_name=case_name,
-            upstream_ids=ids,
-            root_namespace=root_namespace,
-        )
-        hook = (
-            f"{title} stays visible in `{service.public_contract}` / `{service.endpoint_name}` handoff evidence "
-            f"for {summarize_list(ids, max_items=3)}."
-        )
-        alternative_lines: list[str] = []
-        for alternative_name, rejected_because in adr_content["alternatives"]:
-            alternative_lines.extend(
+    if architecture_authority_model(context):
+        adr_entries, decision_trace_table_rows = authority_adr_surfaces(context, limit=adr_count)
+    else:
+        adr_titles = [str(item) for item in context.get("adr_titles", [])][:adr_count]
+        for idx, title in enumerate(adr_titles, start=1):
+            ad_id = f"AD-{idx:02d}"
+            ids = decision_trace_groups[idx - 1]
+            service = select_adr_anchor_service(title, services)
+            adr_content = adr_content_for(
+                title=title,
+                service=service,
+                case_name=case_name,
+                upstream_ids=ids,
+                root_namespace=root_namespace,
+            )
+            hook = (
+                f"{title} stays visible in `{service.public_contract}` / `{service.endpoint_name}` handoff evidence "
+                f"for {summarize_list(ids, max_items=3)}."
+            )
+            alternative_lines: list[str] = []
+            for alternative_name, rejected_because in adr_content["alternatives"]:
+                alternative_lines.extend(
+                    [
+                        f"      - alternative_name: {alternative_name}",
+                        f"      - rejected_because: {rejected_because}",
+                    ]
+                )
+            adr_entries.append(
+                "\n".join(
+                    [
+                        f"  - adr_{idx:02d}:",
+                        f"    - ad_id: `{ad_id}`",
+                        f"    - title: {title}",
+                        "    - status:",
+                        "      - `Accepted`",
+                        f"    - context: {adr_content['context']}",
+                        f"    - decision: {adr_content['decision']}",
+                        "    - alternatives_considered:",
+                        *alternative_lines,
+                        "    - consequences:",
+                        f"      - positive: {adr_content['consequences']['positive']}",
+                        f"      - negative: {adr_content['consequences']['negative']}",
+                        f"      - risks: {adr_content['consequences']['risks']}",
+                        f"    - evidence: {adr_content['evidence']}",
+                    ]
+                )
+            )
+            decision_trace_table_rows.append(
                 [
-                    f"      - alternative_name: {alternative_name}",
-                    f"      - rejected_because: {rejected_because}",
+                    f"P2-DTR-{idx:02d}",
+                    ad_id,
+                    title,
+                    f"upstream_trace_ids={', '.join(ids)}",
+                    "ARCH-STG03-OUTPUT-0001",
+                    hook,
+                    ", ".join(ids),
                 ]
             )
-        adr_entries.append(
-            "\n".join(
-                [
-                    f"  - adr_{idx:02d}:",
-                    f"    - ad_id: `{ad_id}`",
-                    f"    - title: {title}",
-                    "    - status:",
-                    "      - `Accepted`",
-                    f"    - context: {adr_content['context']}",
-                    f"    - decision: {adr_content['decision']}",
-                    "    - alternatives_considered:",
-                    *alternative_lines,
-                    "    - consequences:",
-                    f"      - positive: {adr_content['consequences']['positive']}",
-                    f"      - negative: {adr_content['consequences']['negative']}",
-                    f"      - risks: {adr_content['consequences']['risks']}",
-                    f"    - evidence: {adr_content['evidence']}",
-                ]
-            )
-        )
-        decision_trace_table_rows.append(
-            [
-                f"P2-DTR-{idx:02d}",
-                ad_id,
-                title,
-                f"upstream_trace_ids={', '.join(ids)}",
-                "ARCH-STG03-OUTPUT-0001",
-                hook,
-                ", ".join(ids),
-            ]
-        )
 
     forbidden_count = max(profile_minimum(complexity_profile, "stage_01_forbidden_assumptions"), 5)
     forbidden_entries = []
@@ -198,6 +773,76 @@ def render_stage_01(
         ]
     )
 
+    authority_model = architecture_authority_model(context)
+    posture = authority_architecture_posture(context)
+    if authority_model:
+        architecture_direction_block = "\n".join(
+            [
+                f"  - selected_shape: `{str(posture.get('selected_shape') or 'review-bound; no deployment shape accepted').strip()}`",
+                f"  - why_selected: {str(posture.get('why_selected') or 'renderer does not select a shape beyond accepted P2 authority').strip()}",
+                "  - boundary_rule: accepted service, operation, aggregate, writer, contract, NOR, dependency, and topology boundaries remain authoritative even if implementation internals change",
+            ]
+        )
+        accepted_security_rules = [
+            str(row.get("statement") or "").strip()
+            for row in authority_model.get("non_operations", [])
+            if isinstance(row, dict)
+            and str(row.get("realization_type") or "").strip() in {"authorization-rule", "policy", "failure-rule"}
+            and str(row.get("statement") or "").strip()
+        ]
+        security_architecture_block = "\n".join(
+            [
+                "  - trust_boundaries:",
+                "    - accepted P2 service/aggregate writer boundaries and explicit authorization/privacy NORs",
+                f"  - identity_and_access_posture: {str(posture.get('security_posture') or 'review-bound; no identity provider, token lifetime, key product, or break-glass mechanism accepted').strip()}",
+                "  - accepted_security_rules:",
+                *([f"    - {line}" for line in accepted_security_rules[:6]] or ["    - review-bound; no additional security rule accepted"]),
+                "  - authentication_sequence: review-bound unless explicitly accepted by P2 authority; renderer does not invent API-gateway/token/KMS choreography",
+                "  - key_management_posture: review-bound unless explicitly accepted by P2 authority",
+                "  - audit_sensitive_edges: preserve only accepted audit/permission/visibility evidence and writer boundaries",
+            ]
+        )
+        capacity_estimation_block = "\n".join(
+            [
+                f"  - throughput: {str(posture.get('performance_posture') or 'review-bound; no numeric throughput target accepted').strip()}",
+                f"  - latency: {str(posture.get('performance_posture') or 'review-bound; no numeric latency target accepted').strip()}",
+                "  - growth: review-bound until runtime volume evidence exists",
+                f"  - retention: {str(posture.get('retention_posture') or 'review-bound; no retention duration accepted').strip()}",
+                "  - volume: review-bound until runtime usage evidence exists",
+                f"  - storage: {str(posture.get('primary_storage') or 'review-bound; no storage technology accepted').strip()}",
+            ]
+        )
+    else:
+        architecture_direction_block = "\n".join(
+            [
+                "  - selected_shape: `modular monolith`",
+                "  - why_selected: preserve strong object-chain traceability and keep public contracts explicit before any later physical split",
+                "  - boundary_rule: module contracts stay stable even if Phase-3 implementation reorganizes internals",
+            ]
+        )
+        security_architecture_block = "\n".join(
+            [
+                "  - trust_boundaries:",
+                f"    - {boundary_subject_name} boundary around every authoritative business object and review surface",
+                "    - internal service boundary around typed handoff payload and closure evidence",
+                "  - identity_and_access_posture: enforce role-scoped access checks with break-glass audit logging for privileged reads",
+                "  - auth_sequence_direction: user -> API gateway -> policy enforcement -> domain module -> audit trail",
+                "  - authentication_sequence: short-lived access token + role/boundary claims; access token 15m, refresh token 8h rolling",
+                "  - key_management_posture: KMS-backed secret storage with 90-day scheduled rotation or incident-driven rotation",
+                "  - audit_sensitive_edges: boundary policy change; work-item export/cross-module handoff; review decision issuance",
+            ]
+        )
+        capacity_estimation_block = "\n".join(
+            [
+                "  - throughput: 120 run-related requests / min at first-wave steady state",
+                f"  - latency: p95 <= 600 ms for synchronous API reads and p95 <= 5 min for {async_completion_pack['latency_target_label']}",
+                f"  - growth: {async_completion_pack['growth_target_label']}",
+                "  - retention: 365d hot evidence + 730d cold archive for audit-critical data",
+                f"  - volume: {async_completion_pack['volume_target_label']}",
+                "  - storage: start with PostgreSQL + object-store export seam, not multi-engine sprawl",
+            ]
+        )
+
     stage = render_phase2_template(
         "stage-01-architecture-definition.md.template",
         {
@@ -214,6 +859,9 @@ def render_stage_01(
             "business_architecture_pressure": business_architecture_pressure,
             "quality_entries_block": quality_entries_block,
             "capability_map_block": capability_map_block,
+            "architecture_direction_block": architecture_direction_block,
+            "security_architecture_block": security_architecture_block,
+            "capacity_estimation_block": capacity_estimation_block,
             "adr_entries_block": "\n".join(adr_entries),
             "decision_trace_registry_table": make_markdown_table(
                 [
@@ -250,23 +898,42 @@ def render_stage_02(
 ) -> str:
     root_namespace = str(context["root_namespace"])
     modules = require_context_modules(context)
-    domains = unique_preserve(
-        [str(item) for item in context.get("domains", [])]
-        + [service.domain for service in services]
-    ) or unique_preserve([service.domain for service in services])
-    aggregate_seed = unique_semantic_objects(
-        [str(spec["object_name"]) for spec in table_specs]
-        + [
-            str(item)
-            for item in context.get("core_objects", [])
-            if str(item).strip() and object_requires_persistent_table(str(item))
-        ]
-        + [
-            str(item)
-            for item in context.get("supplemental_objects", [])
-            if str(item).strip() and object_requires_persistent_table(str(item))
-        ]
-        + [service.owns_or_coordinates for service in services if object_requires_persistent_table(service.owns_or_coordinates)]
+    authority_model = architecture_authority_model(context)
+    accepted_aggregate_ids = [
+        str(row.get("aggregate_id") or "").strip()
+        for row in authority_model.get("aggregates", [])
+        if isinstance(row, dict) and str(row.get("aggregate_id") or "").strip()
+    ]
+    accepted_service_ids = [
+        str(row.get("service_id") or "").strip()
+        for row in authority_model.get("services", [])
+        if isinstance(row, dict) and str(row.get("service_id") or "").strip()
+    ]
+    domains = (
+        accepted_service_ids
+        if accepted_service_ids
+        else unique_preserve(
+            [str(item) for item in context.get("domains", [])]
+            + [service.domain for service in services]
+        ) or unique_preserve([service.domain for service in services])
+    )
+    aggregate_seed = (
+        accepted_aggregate_ids
+        if accepted_aggregate_ids
+        else unique_semantic_objects(
+            [str(spec["object_name"]) for spec in table_specs]
+            + [
+                str(item)
+                for item in context.get("core_objects", [])
+                if str(item).strip() and object_requires_persistent_table(str(item))
+            ]
+            + [
+                str(item)
+                for item in context.get("supplemental_objects", [])
+                if str(item).strip() and object_requires_persistent_table(str(item))
+            ]
+            + [service.owns_or_coordinates for service in services if object_requires_persistent_table(service.owns_or_coordinates)]
+        )
     )
     aggregate_seed = phase3_surface_safe_labels(aggregate_seed)
     aggregate_target = max(
@@ -287,8 +954,33 @@ def render_stage_02(
     lifecycle_rows = []
 
     rendered_domains = domains[: max(profile_minimum(complexity_profile, "stage_02_domains"), 3)] or [services[0].domain]
+    accepted_aggregate_map = authority_aggregate_by_id(context)
     for domain in rendered_domains:
         related_services = [service for service in services if service.domain == domain]
+        if accepted_service_ids:
+            owned_aggregate_rows = [
+                row
+                for row in accepted_aggregate_map.values()
+                if str(row.get("owner_service_id") or "").strip() == domain
+            ]
+            domain_objects = [str(row.get("aggregate_name") or row.get("aggregate_id") or "").strip() for row in owned_aggregate_rows]
+            state_surfaces = [authority_state_surface(row)["states"] for row in owned_aggregate_rows]
+            primary_states = " ; ".join(state_surfaces) or "authority-bound; no inferred lifecycle states"
+            service_statements = [
+                str(row.get("statement") or "").strip()
+                for row in authority_model.get("services", [])
+                if isinstance(row, dict) and str(row.get("service_id") or "").strip() == domain
+            ]
+            domain_rows.append([
+                domain,
+                "accepted P2 service boundary",
+                summarize_list(service_statements, max_items=2),
+                summarize_list(domain_objects, max_items=4),
+                primary_states,
+                "must not acquire aggregates or operations outside accepted P2 authority",
+                "handoff only through accepted contracts and read-only evidence",
+            ])
+            continue
         domain_objects = unique_preserve([service.owns_or_coordinates for service in related_services]) or aggregate_objects[:2]
         primary_states = build_object_profile(related_services[0], domain_objects[0])["primary_states"] if related_services and domain_objects else "draft / active / archived"
         source_contract_only_domain = bool(related_services) and all(not service_exposes_persistent_object(service) for service in related_services)
@@ -312,8 +1004,20 @@ def render_stage_02(
             module_objects[service.home_module].append(service.owns_or_coordinates)
 
     seen_modules = set()
+    accepted_aggregate_map_for_services = authority_aggregate_by_id(context)
     for service in services:
-        source_contract_read_only = not service_exposes_persistent_object(service)
+        if service.service_type == "authority-operation":
+            aggregate = accepted_aggregate_map_for_services.get(service.owns_or_coordinates, {})
+            writer_id = str(aggregate.get("writer_service_id") or aggregate.get("owner_service_id") or "").strip()
+            read_only = service.method.upper() in {"GET", "HEAD"} or bool(writer_id and writer_id != service.domain)
+            consistency_boundary = (
+                f"read-only operation; accepted writer remains `{writer_id or 'authority-bound'}`"
+                if read_only
+                else f"accepted write operation; writer remains `{writer_id or service.domain}`"
+            )
+        else:
+            source_contract_read_only = not service_exposes_persistent_object(service)
+            consistency_boundary = release_consistency_boundary(service.home_module, service.owns_or_coordinates, source_contract_read_only)
         service_rows.append([
             service.service_name,
             service.domain,
@@ -323,14 +1027,21 @@ def render_stage_02(
             service.primary_inbound,
             service.primary_outbound,
             service.purpose,
-            release_consistency_boundary(service.home_module, service.owns_or_coordinates, source_contract_read_only),
+            consistency_boundary,
         ])
         if service.home_module in seen_modules:
             continue
         seen_modules.add(service.home_module)
         owned = unique_preserve(module_objects.get(service.home_module, []) + [item.owns_or_coordinates for item in services if item.home_module == service.home_module])
         module_services = [item for item in services if item.home_module == service.home_module]
-        source_contract_only_module = bool(module_services) and all(not service_exposes_persistent_object(item) for item in module_services)
+        if all(item.service_type == "authority-operation" for item in module_services):
+            change_note = (
+                "accepted operations may mutate only aggregates whose writer_service_id matches this module; "
+                "all other accepted aggregates are read-only context"
+            )
+        else:
+            source_contract_only_module = bool(module_services) and all(not service_exposes_persistent_object(item) for item in module_services)
+            change_note = release_change_propagation_note(service.service_name, service.endpoint_name, source_contract_only_module)
         module_rows.append([
             service.home_module,
             service.domain,
@@ -339,12 +1050,87 @@ def render_stage_02(
             summarize_list(owned, max_items=5),
             ", ".join(item.public_contract for item in module_services) or "none",
             "上下游权威对象不得被本模块接管",
-            release_change_propagation_note(service.service_name, service.endpoint_name, source_contract_only_module),
+            change_note,
             service.purpose,
         ])
 
     lifecycle_bindings = max(len(aggregate_objects), profile_minimum(complexity_profile, "stage_02_lifecycle_mermaid_bindings"), 3)
+    accepted_aggregates = authority_aggregate_by_id(context)
+    accepted_service_ids = [
+        str(row.get("service_id") or "").strip()
+        for row in architecture_authority_model(context).get("services", [])
+        if isinstance(row, dict) and str(row.get("service_id") or "").strip()
+    ]
     for idx, obj in enumerate(aggregate_objects, start=1):
+        accepted_aggregate = accepted_aggregates.get(obj)
+        if accepted_aggregate:
+            owner_service_id = str(accepted_aggregate.get("owner_service_id") or "").strip()
+            writer_service_id = str(accepted_aggregate.get("writer_service_id") or owner_service_id).strip()
+            aggregate_name = str(accepted_aggregate.get("aggregate_name") or obj).strip()
+            operations = authority_operations_for_aggregate(context, obj)
+            operation_ids = [str(row.get("operation_id") or "").strip() for row in operations if str(row.get("operation_id") or "").strip()]
+            contract_ids = [str(row.get("contract_id") or "").strip() for row in operations if str(row.get("contract_id") or "").strip()]
+            state_surface = authority_state_surface(accepted_aggregate)
+            backing_schema = table_binding_map.get(obj, str(accepted_aggregate.get("table_name") or "authority-bound").strip())
+            collaborators = [service_id for service_id in accepted_service_ids if service_id and service_id != owner_service_id]
+            forbidden_writers = [service_id for service_id in accepted_service_ids if service_id and service_id != writer_service_id]
+            aggregate_rows.append([
+                aggregate_name,
+                str(accepted_aggregate.get("aggregate_kind") or "aggregate-root").strip(),
+                owner_service_id or "authority-bound",
+                owner_service_id or "authority-bound",
+                owner_service_id or "authority-bound",
+                ", ".join(operation_ids) or "no accepted mutation operation",
+                state_surface["states"],
+                state_surface["events"],
+                f"stateDiagram-v2 / diagram-{idx:02d}" if state_surface["states"].startswith("authority-bound") is False else "authority-bound / no inferred lifecycle diagram",
+                state_surface["failure_exit"],
+                str(accepted_aggregate.get("claim_ceiling") or "bounded by accepted P2 authority").strip(),
+            ])
+            responsibility_rows.append([
+                owner_service_id or "authority-bound",
+                aggregate_name,
+                owner_service_id or "authority-bound",
+                ", ".join(collaborators) or "none declared",
+                ", ".join(contract_ids) or "accepted contracts only",
+                ", ".join(forbidden_writers) or "none declared",
+                f"only `{writer_service_id or owner_service_id}` may perform accepted writes",
+                str(accepted_aggregate.get("statement") or accepted_aggregate.get("claim_ceiling") or "bounded by accepted P2 authority").strip(),
+            ])
+            table_spec = next((spec for spec in table_specs if str(spec.get("object_name") or "").strip() == obj), None)
+            primary_identifiers = str(table_spec.get("pk") if table_spec else "authority-bound").strip()
+            canonical_rows.append([
+                aggregate_name,
+                obj,
+                owner_service_id or "authority-bound",
+                primary_identifiers,
+                state_surface["states"],
+                backing_schema,
+                ", ".join(operation_ids + contract_ids) or "no accepted operation surface",
+                f"{aggregate_name} remains owned by `{owner_service_id or 'authority-bound'}` and written by `{writer_service_id or owner_service_id or 'authority-bound'}`.",
+            ])
+            for operation in operations:
+                service_endpoint_rows.append([
+                    str(operation.get("service_id") or "").strip(),
+                    str(operation.get("service_id") or "").strip(),
+                    str(operation.get("operation_id") or "").strip(),
+                    str(operation.get("contract_id") or "").strip(),
+                    aggregate_name,
+                    "accepted P2 authority operation/contract mapping",
+                ])
+            lifecycle_rows.append([
+                aggregate_name,
+                "authority-declared lifecycle" if not state_surface["states"].startswith("authority-bound") else "authority-bound",
+                writer_service_id or owner_service_id or "authority-bound",
+                state_surface["states"],
+                state_surface["events"],
+                state_surface["mutation_guard"],
+                state_surface["failure_exit"],
+                f"diagram-{idx:02d}" if not state_surface["states"].startswith("authority-bound") else "no inferred diagram",
+                f"writer remains `{writer_service_id or owner_service_id or 'authority-bound'}`; consumers do not acquire write authority",
+            ])
+            continue
+
         owner = owning_service_for_object(obj, services)
         object_profile = build_object_profile(owner, obj)
         ownership_profile = build_ownership_profile(obj, services, owner)
@@ -416,34 +1202,79 @@ def render_stage_02(
         ])
 
     dependency_rows = []
-    for upstream, downstream in grouped_service_pairs(services):
+    if p1_product_topology_mode(context) == "independent-outcomes":
+        grouped_services: dict[str, list[ServiceSpec]] = {}
+        for service in services:
+            group = authority_operation_topology_group(context, service.endpoint_name) or "review-bound-group"
+            grouped_services.setdefault(group, []).append(service)
+        for group, group_services in grouped_services.items():
+            pairs = grouped_service_pairs(group_services)
+            if pairs:
+                for upstream, downstream in pairs:
+                    dependency_rows.append([
+                        upstream.home_module,
+                        downstream.home_module,
+                        f"{upstream.endpoint_name} 仅在 topology_group={group} 内以 accepted contract context 交接给 {downstream.endpoint_name}",
+                        "accepted operation contract fields / aggregate identity",
+                        f"{downstream.service_name} 只能消费该组内允许的上下文，不得取得 {upstream.owns_or_coordinates} 的额外写权限",
+                        "组内所有权漂移则冻结该契约并抬升为 review-bound；不得影响其他 independent outcome",
+                        "accepted group-local evidence may propagate forward; no cross-group execution prerequisite is created",
+                    ])
+            elif group_services:
+                service = group_services[0]
+                dependency_rows.append([
+                    service.home_module,
+                    service.home_module,
+                    f"{service.endpoint_name} 在 topology_group={group} 内独立闭合，不依赖其他 accepted topology group",
+                    "accepted operation contract fields / aggregate identity",
+                    "无跨组写入或执行依赖",
+                    "本组失败保持本组 blocked/review-bound，不阻断另一 independent outcome",
+                    "shared trace/visibility may reference completed evidence but does not create prerequisite order",
+                ])
         dependency_rows.append([
-            upstream.home_module,
-            downstream.home_module,
-            f"{upstream.endpoint_name} 以只读上下文交接给 {downstream.endpoint_name}",
-            f"{to_snake(service_technical_name(upstream))}_id + trace_id",
-            f"{downstream.service_name} 可以消费，但不得原地改写 {upstream.owns_or_coordinates}",
-            "若所有权漂移，冻结该契约并把问题抬升为 review-bound 证据",
-            f"{service_event_name(upstream)} 的新版本只能向前传播，不能回写下游已冻结事实",
+            "independent outcome evidence producers",
+            "shared trace / visibility boundaries",
+            "child-loop 或 parent-loop 完成后的 accepted evidence 可被 shared trace/visibility 读取；这不是 source loop 之间的执行交接",
+            "accepted source_event_ref / privacy_marker / child_action_ref where applicable",
+            "shared services consume bounded evidence only and do not write the source-loop aggregate",
+            "任一 source outcome 未运行不得阻止另一 source outcome 独立完成",
+            "evidence connection preserves P1 independent-outcomes topology",
         ])
-    if not dependency_rows and services:
-        service = services[0]
-        dependency_rows.append([
-            service.home_module,
-            service.home_module,
-            f"{service.endpoint_name} 在本模块内闭合自身状态边界",
-            f"{to_snake(service_technical_name(service))}_id",
-            "不得走表耦合回写捷径",
-            "一旦所有权模糊，立即抬升为 review-bound 证据",
-            "只允许追加式修订向前传播",
-        ])
+    else:
+        for upstream, downstream in grouped_service_pairs(services):
+            dependency_rows.append([
+                upstream.home_module,
+                downstream.home_module,
+                f"{upstream.endpoint_name} 以只读上下文交接给 {downstream.endpoint_name}",
+                f"{to_snake(service_technical_name(upstream))}_id + trace_id",
+                f"{downstream.service_name} 可以消费，但不得原地改写 {upstream.owns_or_coordinates}",
+                "若所有权漂移，冻结该契约并把问题抬升为 review-bound 证据",
+                f"{service_event_name(upstream)} 的新版本只能向前传播，不能回写下游已冻结事实",
+            ])
+        if not dependency_rows and services:
+            service = services[0]
+            dependency_rows.append([
+                service.home_module,
+                service.home_module,
+                f"{service.endpoint_name} 在本模块内闭合自身状态边界",
+                f"{to_snake(service_technical_name(service))}_id",
+                "不得走表耦合回写捷径",
+                "一旦所有权模糊，立即抬升为 review-bound 证据",
+                "只允许追加式修订向前传播",
+            ])
 
     event_target = max(profile_minimum(complexity_profile, "stage_02_domain_events"), min(len(aggregate_objects), max(len(services), 6)))
-    events, event_vocabulary_rows, event_model_rows, event_rows = event_driver_rows(
-        services=services,
-        aggregate_objects=aggregate_objects,
-        event_target=event_target,
-    )
+    if accepted_aggregates:
+        events, event_vocabulary_rows, event_model_rows, event_rows = authority_event_driver_rows(
+            context,
+            aggregate_objects,
+        )
+    else:
+        events, event_vocabulary_rows, event_model_rows, event_rows = event_driver_rows(
+            services=services,
+            aggregate_objects=aggregate_objects,
+            event_target=event_target,
+        )
 
     er_entities = unique_preserve([to_upper_entity(spec["object_name"]) for spec in table_specs] + [to_upper_entity(obj) for obj in aggregate_objects])
     er_entities = er_entities[: max(profile_minimum(complexity_profile, "stage_02_er_entities"), min(len(er_entities), 10))]
@@ -471,23 +1302,49 @@ def render_stage_02(
     narrative_modules = summarize_list(flow_modules, max_items=4)
     narrative_event_names = summarize_list([str(row[0]) for row in event_vocabulary_rows], max_items=4)
     er_entities_block = ", ".join(er_entities)
-    state_diagrams_block = "\n".join(
-        [
-            "\n".join(
-                [
-                    "```mermaid",
-                    "stateDiagram-v2",
-                    "    [*] --> Draft",
-                    f"    Draft --> Active: validate {obj}",
-                    f"    Active --> Revised: publish {to_snake(obj)} update",
-                    "    Revised --> Active: accept additive change",
-                    f"    Active --> Archived: retire {obj}",
-                    "```",
-                ]
-            )
-            for obj in aggregate_objects
-        ]
-    )
+    if accepted_aggregates:
+        state_diagram_entries: list[str] = []
+        for obj in aggregate_objects:
+            aggregate = accepted_aggregates.get(obj)
+            if not aggregate:
+                continue
+            state_surface = authority_state_surface(aggregate)
+            states = [part.strip() for part in state_surface["states"].split("/") if part.strip() and not part.strip().startswith("authority-bound")]
+            if not states:
+                state_diagram_entries.append(
+                    "\n".join(
+                        [
+                            "```text",
+                            f"{obj}: no lifecycle states declared by accepted P2 authority; renderer does not infer one.",
+                            "```",
+                        ]
+                    )
+                )
+                continue
+            diagram_lines = ["```mermaid", "stateDiagram-v2", f"    [*] --> {to_pascal(states[0])}"]
+            for left, right in zip(states, states[1:]):
+                diagram_lines.append(f"    {to_pascal(left)} --> {to_pascal(right)}: accepted transition")
+            diagram_lines.append("```")
+            state_diagram_entries.append("\n".join(diagram_lines))
+        state_diagrams_block = "\n".join(state_diagram_entries)
+    else:
+        state_diagrams_block = "\n".join(
+            [
+                "\n".join(
+                    [
+                        "```mermaid",
+                        "stateDiagram-v2",
+                        "    [*] --> Draft",
+                        f"    Draft --> Active: validate {obj}",
+                        f"    Active --> Revised: publish {to_snake(obj)} update",
+                        "    Revised --> Active: accept additive change",
+                        f"    Active --> Archived: retire {obj}",
+                        "```",
+                    ]
+                )
+                for obj in aggregate_objects
+            ]
+        )
     er_relationship_block = "\n".join(er_relationship_lines)
     flow_lines_block = "\n".join(flow_lines)
 
@@ -555,6 +1412,12 @@ def render_stage_02(
             "flow_lines_block": flow_lines_block,
         },
     )
+    p1_handoff_block = render_p1_product_world_handoff_block(context)
+    if p1_handoff_block:
+        stage = stage.rstrip() + "\n\n" + p1_handoff_block
+    non_operation_block = render_authority_non_operation_block(context)
+    if non_operation_block:
+        stage = stage.rstrip() + "\n\n" + non_operation_block
     return stage.rstrip() + "\n"
 
 
@@ -603,7 +1466,82 @@ def render_stage_03(
     ]
 
     data_ownership_rows: list[list[str]] = []
+    accepted_aggregate_map = authority_aggregate_by_id(context)
+    authority_model = architecture_authority_model(context)
+    accepted_service_ids = [
+        str(row.get("service_id") or "").strip()
+        for row in authority_model.get("services", [])
+        if isinstance(row, dict) and str(row.get("service_id") or "").strip()
+    ]
+    authority_operation_by_id = {
+        str(row.get("operation_id") or "").strip(): row
+        for row in authority_model.get("operations", [])
+        if isinstance(row, dict) and str(row.get("operation_id") or "").strip()
+    }
+    authority_data_by_id = {
+        str(row.get("decision_id") or "").strip(): row
+        for row in authority_model.get("data_decisions", [])
+        if isinstance(row, dict) and str(row.get("decision_id") or "").strip()
+    }
+    dedicated_carrier_by_id: dict[str, dict[str, object]] = {}
+    for row in authority_model.get("durable_persistence_identity", []):
+        if not isinstance(row, dict):
+            continue
+        carrier = row.get("durable_carrier") if isinstance(row.get("durable_carrier"), dict) else {}
+        if str(carrier.get("kind") or "").strip() != "dedicated-record":
+            continue
+        carrier_id = str(carrier.get("carrier_id") or "").strip()
+        if carrier_id:
+            dedicated_carrier_by_id[carrier_id] = row
     for obj in objects[: max(schema_min, len(services) + 2)]:
+        accepted_aggregate = accepted_aggregate_map.get(obj)
+        if accepted_aggregate:
+            owner_service_id = str(accepted_aggregate.get("owner_service_id") or "").strip()
+            writer_service_id = str(accepted_aggregate.get("writer_service_id") or owner_service_id).strip()
+            operations = authority_operations_for_aggregate(context, obj)
+            contracts = [str(row.get("contract_id") or "").strip() for row in operations if str(row.get("contract_id") or "").strip()]
+            operation_ids = [str(row.get("operation_id") or "").strip() for row in operations if str(row.get("operation_id") or "").strip()]
+            read_consumers = [service_id for service_id in accepted_service_ids if service_id and service_id != writer_service_id]
+            data_ownership_rows.append(
+                [
+                    obj,
+                    f"`{owner_service_id or 'authority-bound'}`",
+                    writer_service_id or "authority-bound",
+                    ", ".join(read_consumers) or "none declared",
+                    ", ".join(contracts) or "no accepted operation contract touches this aggregate",
+                    ", ".join(operation_ids) or "accepted aggregate writer rule only",
+                    f"no operation/service other than accepted writer `{writer_service_id or owner_service_id or 'authority-bound'}` may acquire write authority",
+                    str(accepted_aggregate.get("statement") or accepted_aggregate.get("claim_ceiling") or "bounded by accepted P2 authority").strip(),
+                ]
+            )
+            continue
+        dedicated = dedicated_carrier_by_id.get(obj)
+        if dedicated:
+            operation_id = str(dedicated.get("operation_id") or "").strip()
+            writer_service_id = str(dedicated.get("writer_service_id") or "").strip()
+            operation = authority_operation_by_id.get(operation_id, {})
+            contract_id = str(operation.get("contract_id") or "").strip()
+            read_consumers = [service_id for service_id in accepted_service_ids if service_id and service_id != writer_service_id]
+            data_decision = authority_data_by_id.get(obj, {})
+            write_authority = f"{writer_service_id}.{operation_id}" if writer_service_id and operation_id else writer_service_id or operation_id or "authority-bound"
+            data_ownership_rows.append(
+                [
+                    obj,
+                    f"`{writer_service_id or 'authority-bound'}`",
+                    write_authority,
+                    ", ".join(read_consumers) or "none declared",
+                    contract_id or "no accepted public contract",
+                    f"{write_authority} -> {obj} -> downstream read/review surfaces",
+                    f"only accepted writer `{write_authority}` may mutate `{obj}` directly",
+                    str(
+                        data_decision.get("statement")
+                        or dedicated.get("reason")
+                        or dedicated.get("claim_ceiling")
+                        or "bounded by accepted P2 durable persistence authority"
+                    ).strip(),
+                ]
+            )
+            continue
         owner = owning_service_for_object(obj, services)
         profile = build_ownership_profile(obj, services, owner)
         data_ownership_rows.append(
@@ -619,10 +1557,180 @@ def render_stage_03(
             ]
         )
 
-    storage_layer_rows = list(stage_03_design_defaults["storage_layer_rows"])
+    authority_mode = bool(architecture_authority_model(context))
+    posture = authority_architecture_posture(context)
+    if authority_mode:
+        primary_storage = str(posture.get("primary_storage") or "review-bound; no storage technology accepted").strip()
+        cache_posture = str(posture.get("cache_posture") or "review-bound; no cache posture accepted").strip()
+        queue_posture = str(posture.get("queue_posture") or "review-bound; no queue/background-work posture accepted").strip()
+        deployment_posture = str(posture.get("deployment_posture") or "review-bound; no deployment posture accepted").strip()
+        security_posture = str(posture.get("security_posture") or "review-bound; no auth/provider/token/key-management posture accepted").strip()
+        performance_posture = str(posture.get("performance_posture") or "review-bound; no numeric performance target accepted").strip()
+        retention_posture = str(posture.get("retention_posture") or "review-bound; no retention duration accepted").strip()
+        selected_shape = str(posture.get("selected_shape") or "review-bound; no application shape accepted").strip()
+        why_selected = str(posture.get("why_selected") or "renderer does not select a technology posture beyond accepted P2 authority").strip()
+        storage_layer_rows = [
+            [
+                primary_storage,
+                "accepted authoritative first-wave metadata store posture",
+                primary_storage,
+                "review-bound; scale plan requires runtime evidence",
+                "review-bound; long-term storage topology requires runtime evidence",
+                "review-bound; no partition/shard strategy accepted",
+                retention_posture,
+                why_selected,
+            ]
+        ]
+        data_model_posture_block = "\n".join(
+            [
+                f"  - primary_storage_shape: {primary_storage}",
+                "  - storage_focus: only accepted aggregate fields, writers, contract evidence, and privacy/audit markers become canonical schema truth",
+                "  - schema_freeze_rule: renderer may not add payload/status/tenant/trace fields unless accepted by P2 authority",
+            ]
+        )
+        storage_strategy_posture_block = "\n".join(
+            [
+                f"  - initial: {primary_storage}",
+                "  - one_year: review-bound; capacity evolution requires runtime evidence",
+                "  - three_year: review-bound; physical decomposition/archive strategy is not accepted yet",
+                "  - partition_strategy: review-bound; no tenant/time sharding assumption is promoted",
+                f"  - archival_rule: {retention_posture}",
+                f"  - throughput: {performance_posture}",
+                f"  - latency: {performance_posture}",
+                "  - growth: review-bound until measured volume exists",
+                f"  - retention: {retention_posture}",
+                "  - consistency_rule: only accepted writer-service and state/invariant decisions define mutation consistency; cache/fan-out ordering is not inferred",
+            ]
+        )
+        stage03_security_posture_block = "\n".join(
+            [
+                "  - trust_boundaries: accepted service/writer boundaries plus accepted authorization/privacy/failure NORs",
+                f"  - authn_authz_posture: {security_posture}",
+                "  - auth_sequence_direction: review-bound unless explicitly accepted by P2 authority",
+                "  - identity_session_mechanics: review-bound; no session credential type/lifetime/refresh mechanism is accepted by default",
+                "  - audit_logging_hooks: preserve accepted audit/permission evidence only; no generic privileged-read taxonomy is promoted",
+                "  - sensitive_data_handling: follow accepted aggregate data decisions and privacy/visibility NORs",
+                "  - key_management_posture: review-bound unless explicitly accepted by P2 authority",
+                "  - isolation_controls: derive only from accepted product/security boundary; renderer does not inject tenant isolation semantics",
+            ]
+        )
+        technology_stack_posture_block = "\n".join(
+            [
+                "  - api_runtime: implementation language/runtime remains review-bound unless separately accepted",
+                f"  - application_shape: {selected_shape}",
+                f"  - primary_storage: {primary_storage}",
+                f"  - cache: {cache_posture}",
+                f"  - queue_posture: {queue_posture}",
+                f"  - deployment_posture: {deployment_posture}",
+            ]
+        )
+        bottleneck_posture_block = "\n".join(
+            [
+                "  - bottleneck: review-bound until runtime evidence identifies a dominant constraint",
+                "  - measurement_plan: benchmark accepted operation contracts and dependency seams independently",
+                f"  - threshold: {performance_posture}",
+                "  - spike_scope: target only an accepted operation/aggregate/dependency whose evidence shows material risk",
+            ]
+        )
+        optimum_posture_block = "\n".join(
+            [
+                f"  - optimum_under_current_constraints: {selected_shape}; {why_selected}",
+                "  - claim_ceiling: first-wave accepted architecture posture only; no production sizing or physical-decomposition proof",
+            ]
+        )
+        stage03_capacity_posture_block = "\n".join(
+            [
+                f"  - throughput: {performance_posture}",
+                f"  - latency: {performance_posture}",
+                "  - growth: review-bound until runtime volume evidence exists",
+                f"  - retention: {retention_posture}",
+                f"  - storage: {primary_storage}",
+            ]
+        )
+    else:
+        storage_layer_rows = list(stage_03_design_defaults["storage_layer_rows"])
+        data_model_posture_block = "\n".join(
+            [
+                "  - primary_storage_shape: relational core with explicit payload JSON seams where contracts need flexibility",
+                "  - storage_focus: workflow evidence, linkage, review closure, and audit-sensitive events",
+                "  - schema_freeze_rule: public contracts evolve additively while identifiers and envelopes stay stable",
+            ]
+        )
+        storage_strategy_posture_block = "\n".join(
+            [
+                "  - initial: PostgreSQL primary + Redis cache for bounded read acceleration",
+                "  - one_year: retain hot-path indexes under 3x growth",
+                "  - three_year: export immutable bundles and cold evidence without renaming contracts",
+                "  - partition_strategy: tenant + time window on high-growth tables",
+                "  - archival_rule: keep replay integrity while moving immutable bundles cold",
+                "  - throughput: 120 request/min steady state and 4x burst during review windows",
+                "  - latency: p95 <= 600 ms reads, p95 <= 5 min async workflows",
+                "  - growth: 3x one-year, 5x three-year",
+                "  - retention: 365d hot + 730d cold for audit-critical surfaces",
+                "  - consistency_rule: authoritative command writes commit before cache refresh or async fan-out",
+            ]
+        )
+        stage03_security_posture_block = "\n".join(
+            [
+                "  - trust_boundaries: API edge / policy check / domain module / audit evidence",
+                f"  - authn_authz_posture: {boundary_term}-scoped RBAC with explicit mutation checks, privileged read review, and trace-linked operator accountability",
+                "  - auth_sequence_direction: request enters API policy gate, resolves role/boundary claims, executes domain write, then records audit evidence before response",
+                "  - token_posture: short-lived access tokens carry boundary, role, and traceable session claims",
+                "  - audit_logging_hooks: mutating endpoints, privileged reads, review closure",
+                "  - sensitive_data_handling: mask logs, encrypt at rest where required, preserve boundary-private evidence separation",
+                "  - key_management_posture: scheduled rotation and secret-store isolation",
+                "  - isolation_controls: enforce boundary_id on authoritative writes and cache namespaces when deployment requires it",
+            ]
+        )
+        technology_stack_posture_block = "\n".join(
+            [
+                "  - api_runtime: TypeScript / service-layer runtime kept contract-first",
+                "  - application_shape: modular monolith",
+                "  - primary_storage: PostgreSQL",
+                "  - cache: Redis only where bounded read amplification helps",
+                f"  - queue_posture: {async_completion_pack['queue_posture_label']}",
+                "  - deployment_posture: start simple and preserve module boundaries before physical decomposition",
+            ]
+        )
+        bottleneck_posture_block = "\n".join(
+            [
+                "  - bottleneck: contract-heavy write paths plus replay-safe read refresh under burst",
+                "  - measurement_plan: benchmark persistence, read-model refresh, and review query latency separately",
+                "  - threshold: trigger design reconsideration if p95 review generation exceeds 2s or async completion exceeds 5 min at 4x burst",
+                "  - spike_scope: benchmark high-growth tables with index plans and replay-friendly writes",
+            ]
+        )
+        optimum_posture_block = "  - optimum_under_current_constraints: modular-monolith with explicit public contracts, indexed relational storage, and serialized conflict handling on shared surfaces"
+        stage03_capacity_posture_block = "\n".join(
+            [
+                "  - throughput: 120 request/min steady state, 4x burst during review windows",
+                "  - latency: p95 <= 600 ms synchronous reads",
+                "  - growth: 3x one-year, 5x three-year evidence volume",
+                "  - retention: 365d hot, 730d cold",
+                "  - storage: workflow evidence dominates size and index pressure",
+            ]
+        )
 
     access_pattern_rows: list[list[str]] = []
     for spec in rendered_table_specs[: max(4, min(len(rendered_table_specs), 6))]:
+        if spec.get("authority_bound"):
+            indexed_fields = [
+                str(row[0])
+                for row in spec.get("field_rows", [])
+                if isinstance(row, list) and len(row) >= 5 and str(row[4]).strip().casefold() not in {"", "none", "authority-defined"}
+            ]
+            access_pattern_rows.append(
+                [
+                    f"accepted lookup surface for `{spec['table_name']}`",
+                    str(spec["table_name"]),
+                    " + ".join(indexed_fields) or str(spec.get("pk") or "authority-bound"),
+                    "authority-bound; measure before optimization",
+                    str(spec["composite_indexes"]),
+                    "do not add undeclared index keys merely to satisfy a generic access-pattern template",
+                    f"benchmark only accepted access paths for `{spec['table_name']}` before adding indexes",
+                ]
+            )
+            continue
         access_pattern_rows.append(
             [
                 f"lookup `{spec['table_name']}` by ownership and recency",
@@ -651,8 +1759,8 @@ def render_stage_03(
                     f"      - object_name: `{spec['object_name']}`",
                     f"      - unique_constraints: `{spec['unique_constraints']}`",
                     f"      - composite_indexes: `{spec['composite_indexes']}`",
-                    "      - write_rule: only the owning module mutates this table directly",
-                    "      - trace_rule: every row remains addressable by primary id and trace_id",
+                    "      - write_rule: only the accepted writer mutates this table directly" if spec.get("authority_bound") else "      - write_rule: only the owning module mutates this table directly",
+                    "      - trace_rule: preserve accepted primary identity and only declared trace/evidence fields" if spec.get("authority_bound") else "      - trace_rule: every row remains addressable by primary id and trace_id",
                     "      - field_registry:",
                     indented_field_table,
                 ]
@@ -662,6 +1770,19 @@ def render_stage_03(
     sensitivity_rows: list[list[str]] = []
     for spec in rendered_table_specs:
         table_name = str(spec["table_name"])
+        if spec.get("authority_bound"):
+            sensitivity_rows.append(
+                [
+                    table_name,
+                    str(spec.get("pii_level") or "authority-bound"),
+                    str(spec.get("sensitive_fields") or "authority-bound"),
+                    str(spec.get("masking_or_encryption") or "authority-bound"),
+                    str(spec.get("retention_rule") or "authority-bound"),
+                    str(spec.get("audit_access_rule") or "authority-bound"),
+                    str(spec.get("compliance_note") or "bounded by accepted P2 authority"),
+                ]
+            )
+            continue
         pii_level = "restricted" if any(token in table_name for token in ("tenant", "identity", "audit")) else "internal"
         sensitivity_rows.append(
             [
@@ -687,9 +1808,20 @@ def render_stage_03(
     contract_entries: list[str] = []
     api_rows: list[list[str]] = []
     for idx, service in enumerate(endpoint_specs[: max(api_min, len(endpoint_specs))], start=1):
-        request_example = stage_03_request_example(service, request_mapping_lookup=request_mapping_lookup)
-        schema_fields = stage_03_contract_schema_fields(service, request_mapping_lookup=request_mapping_lookup)
-        rate_limit, pagination, response_profile, retryability, idempotency, failure_codes = generic_endpoint_policy(service)
+        authority_material = authority_contract_material(context, service)
+        if authority_material is not None:
+            request_example, response_example, schema_fields, authority_policies = authority_material
+            rate_limit, pagination, response_profile, retryability, idempotency, failure_codes = generic_endpoint_policy(service)
+            rate_limit = authority_policies.get("rate_limit_policy", "review-bound; no numeric rate limit accepted by current P2 authority")
+            pagination = authority_policies.get("pagination_rule", pagination)
+            retryability = authority_policies.get("retryability_policy", retryability)
+            idempotency = authority_policies.get("idempotency_rule", idempotency)
+            failure_codes = authority_policies.get("failure_codes", failure_codes)
+        else:
+            request_example = stage_03_request_example(service, request_mapping_lookup=request_mapping_lookup)
+            response_example = stage_03_response_example(service)
+            schema_fields = stage_03_contract_schema_fields(service, request_mapping_lookup=request_mapping_lookup)
+            rate_limit, pagination, response_profile, retryability, idempotency, failure_codes = generic_endpoint_policy(service)
         schema_preview = make_markdown_table(
             ["field_name", "data_type", "nullable", "constraints", "index_hint"],
             [
@@ -730,7 +1862,7 @@ def render_stage_03(
                 service.path,
                 service.purpose,
                 json.dumps(request_example, ensure_ascii=False),
-                json.dumps(stage_03_response_example(service), ensure_ascii=False),
+                json.dumps(response_example, ensure_ascii=False),
                 rate_limit,
                 pagination,
                 response_profile,
@@ -739,11 +1871,45 @@ def render_stage_03(
                 f"{failure_codes}; error_type split: business_error | system_error",
             ]
         )
-    _, _, event_model_rows, event_rows = event_driver_rows(
-        services=services,
-        aggregate_objects=objects,
-        event_target=max(profile_minimum(complexity_profile, "stage_02_domain_events"), min(len(objects), max(len(services), 6))),
-    )
+    durable_persistence_rows: list[list[str]] = []
+    for decision in architecture_authority_model(context).get("durable_persistence_identity", []):
+        if not isinstance(decision, dict):
+            continue
+        carrier = decision.get("durable_carrier") if isinstance(decision.get("durable_carrier"), dict) else {}
+        bindings = carrier.get("field_bindings", []) if isinstance(carrier.get("field_bindings"), list) else []
+        binding_text = ", ".join(
+            f"{str(row.get('identity_component') or '').strip()} -> {str(row.get('carrier_field') or '').strip()}"
+            for row in bindings
+            if isinstance(row, dict) and str(row.get("identity_component") or "").strip()
+        ) or "none"
+        enforcement = carrier.get("enforcement") if isinstance(carrier.get("enforcement"), dict) else {}
+        enforcement_fields = enforcement.get("fields", []) if isinstance(enforcement.get("fields"), list) else []
+        enforcement_text = f"{str(enforcement.get('mode') or '').strip()}({', '.join(str(item).strip() for item in enforcement_fields if str(item).strip())})"
+        identity_components = decision.get("identity_components", []) if isinstance(decision.get("identity_components"), list) else []
+        durable_persistence_rows.append(
+            [
+                str(decision.get("operation_id") or "").strip(),
+                str(decision.get("persistence_mode") or "").strip(),
+                str(decision.get("command_kind") or "").strip(),
+                str(decision.get("idempotency_mode") or "").strip(),
+                " + ".join(str(item).strip() for item in identity_components if str(item).strip()) or "none",
+                str(carrier.get("kind") or "").strip(),
+                str(carrier.get("carrier_id") or "").strip() or "none",
+                binding_text,
+                enforcement_text,
+                str(decision.get("writer_service_id") or "").strip() or "none",
+                str(decision.get("replay_behavior") or "").strip(),
+                str(decision.get("reason") or "").strip(),
+            ]
+        )
+    if authority_aggregate_by_id(context):
+        _, _, event_model_rows, event_rows = authority_event_driver_rows(context, objects)
+    else:
+        _, _, event_model_rows, event_rows = event_driver_rows(
+            services=services,
+            aggregate_objects=objects,
+            event_target=max(profile_minimum(complexity_profile, "stage_02_domain_events"), min(len(objects), max(len(services), 6))),
+        )
     event_consumption_rows = [
         [
             row[1],
@@ -765,7 +1931,7 @@ def render_stage_03(
         upstream_ids = contract_id_groups[idx - 1] if idx - 1 < len(contract_id_groups) else contract_id_groups[-1]
         contract_trace_rows.append(
             [
-                f"P2-CTR-{idx:02d}",
+                contract_trace_identity(context, service, idx),
                 service.public_contract,
                 "public-contract",
                 f"`{service.home_module}`",
@@ -783,31 +1949,91 @@ def render_stage_03(
         trace_rows=all_trace_rows,
         object_alias_hints=context.get("object_alias_hints", {}),
     ) if phase1_interactions else ([], [], [])
+    binding_rows = reconcile_authority_binding_rows(context, endpoint_specs, binding_rows)
+    enrichment_rows = reconcile_authority_enrichment_rows(context, binding_rows, enrichment_rows)
 
     interaction_flow_rows: list[list[str]] = []
-    endpoint_chain = endpoint_specs[: max(4, min(len(endpoint_specs), 6))]
-    if endpoint_chain:
-        for idx in range(max(1, len(endpoint_chain) - 1)):
-            current = endpoint_chain[idx]
-            nxt = endpoint_chain[idx + 1] if idx + 1 < len(endpoint_chain) else endpoint_chain[idx]
-            interaction_flow_rows.append(
-                [
-                    f"flow_{idx + 1:02d}",
-                    f"{current.endpoint_name} -> {nxt.endpoint_name}",
-                    f"`{current.home_module}` writes, `{nxt.home_module}` consumes read-only context",
-                    f"{current.owns_or_coordinates} + {nxt.owns_or_coordinates}",
-                    f"version mismatch or missing `{to_snake(service_technical_name(current))}_id` blocks the handoff",
-                    "refresh state and replay with the same contract boundary",
-                    "keeps ownership explicit while still allowing downstream composition",
-                ]
-            )
+    if p1_product_topology_mode(context) == "independent-outcomes":
+        grouped_specs: dict[str, list[ServiceSpec]] = {}
+        for spec in endpoint_specs:
+            group = authority_operation_topology_group(context, spec.endpoint_name) or "review-bound-group"
+            grouped_specs.setdefault(group, []).append(spec)
+        flow_index = 1
+        for group, group_specs in grouped_specs.items():
+            if len(group_specs) == 1:
+                current = group_specs[0]
+                interaction_flow_rows.append(
+                    [
+                        f"flow_{flow_index:02d}",
+                        f"{current.endpoint_name} -> local closure",
+                        f"`{current.home_module}` remains inside topology group `{group}`",
+                        current.owns_or_coordinates,
+                        "local failure blocks only this topology group; it does not gate another independent outcome",
+                        "retry/review within the same accepted topology group",
+                        "preserves independent closure; shared evidence does not become a prerequisite",
+                    ]
+                )
+                flow_index += 1
+                continue
+            for current, nxt in zip(group_specs, group_specs[1:]):
+                interaction_flow_rows.append(
+                    [
+                        f"flow_{flow_index:02d}",
+                        f"{current.endpoint_name} -> {nxt.endpoint_name}",
+                        f"`{current.home_module}` and `{nxt.home_module}` stay inside topology group `{group}`",
+                        f"{current.owns_or_coordinates} + {nxt.owns_or_coordinates}",
+                        "failure remains local to this topology group and cannot activate/block a different independent outcome",
+                        "refresh/replay inside the same accepted group",
+                        "group-local composition only; no cross-group prerequisite is created",
+                    ]
+                )
+                flow_index += 1
+    else:
+        endpoint_chain = endpoint_specs[: max(4, min(len(endpoint_specs), 6))]
+        if endpoint_chain:
+            for idx in range(max(1, len(endpoint_chain) - 1)):
+                current = endpoint_chain[idx]
+                nxt = endpoint_chain[idx + 1] if idx + 1 < len(endpoint_chain) else endpoint_chain[idx]
+                interaction_flow_rows.append(
+                    [
+                        f"flow_{idx + 1:02d}",
+                        f"{current.endpoint_name} -> {nxt.endpoint_name}",
+                        f"`{current.home_module}` writes, `{nxt.home_module}` consumes read-only context",
+                        f"{current.owns_or_coordinates} + {nxt.owns_or_coordinates}",
+                        f"version mismatch or missing `{to_snake(service_technical_name(current))}_id` blocks the handoff",
+                        "refresh state and replay with the same contract boundary",
+                        "keeps ownership explicit while still allowing downstream composition",
+                    ]
+                )
 
     scenario_groups = distribute_phase1_ids(all_trace_ids or req_ac_ids, scenario_min)
     scenario_rows: list[list[str]] = []
     scenario_services = services[: max(scenario_min, min(len(services), 6))] or services[:1]
+    independent_topology = p1_product_topology_mode(context) == "independent-outcomes"
+    scenario_acceptance_suffix = (
+        "the contract preserves ids, version anchors, and replay context; numeric performance acceptance follows the accepted P2 architecture posture and remains review-bound when no threshold is accepted"
+        if authority_mode
+        else "the contract must preserve ids, version anchors, and replay context within <= 600 ms for the synchronous path"
+    )
+    scenario_response_expectation = (
+        "the response remains stable and additive; numeric performance acceptance follows the accepted P2 architecture posture"
+        if authority_mode
+        else "the response remains stable, additive, and <= 600 ms on the synchronous path"
+    )
+    scenario_category = "positive_path / authority-bounded" if authority_mode else "positive_path / quantified"
     for idx, service in enumerate(scenario_services, start=1):
-        peer = services[idx] if idx < len(services) else service
-        source_contract_read_only = not service_exposes_persistent_object(service)
+        if independent_topology:
+            group = authority_operation_topology_group(context, service.endpoint_name)
+            same_group = [
+                candidate
+                for candidate in services
+                if authority_operation_topology_group(context, candidate.endpoint_name) == group
+            ]
+            position = same_group.index(service) if service in same_group else 0
+            peer = same_group[position + 1] if position + 1 < len(same_group) else service
+        else:
+            peer = services[idx] if idx < len(services) else service
+        source_contract_read_only = authority_service_read_only(context, service)
         scenario_rows.append(
             [
                 f"scenario_{idx:02d}",
@@ -820,9 +2046,9 @@ def render_stage_03(
                     if source_contract_read_only
                     else f"`{service.service_name}` remains the only writer for `{service.owns_or_coordinates}`"
                 ),
-                f"Given `{service.owns_or_coordinates}` exists, When `{service.endpoint_name}` runs, Then the contract must preserve ids, version anchors, and replay context within <= 600 ms for the synchronous path.",
+                f"Given `{service.owns_or_coordinates}` exists, When `{service.endpoint_name}` runs, Then {scenario_acceptance_suffix}.",
                 f"contract response diff for `{service.endpoint_name}`",
-                "positive_path / quantified",
+                scenario_category,
                 f"`{service.owns_or_coordinates}` is available",
                 f"`{service.endpoint_name}` is invoked",
                 "the output remains contract-valid, replay-safe, and latency-bounded",
@@ -833,6 +2059,7 @@ def render_stage_03(
         )
     while len(scenario_rows) < scenario_min and services:
         service = services[len(scenario_rows) % len(services)]
+        scenario_group_index = min(len(scenario_rows), len(scenario_groups) - 1)
         scenario_rows.append(
             [
                 f"scenario_{len(scenario_rows) + 1:02d}",
@@ -843,25 +2070,31 @@ def render_stage_03(
                 "ownership remains explicit under replay",
                 f"Given a valid request, When `{service.endpoint_name}` runs, Then the response must preserve the contract envelope and trace id.",
                 f"response envelope check for `{service.endpoint_name}`",
-                "positive_path / quantified",
+                scenario_category,
                 "a valid request exists",
                 f"`{service.endpoint_name}` is invoked",
-                "the response remains stable, additive, and <= 600 ms on the synchronous path",
+                scenario_response_expectation,
                 "single-writer discipline",
                 service.owns_or_coordinates,
-                ", ".join(scenario_groups[-1]),
+                ", ".join(scenario_groups[scenario_group_index]),
             ]
         )
-    for idx, service in enumerate(services[:2], start=1):
+    authority_operation_mode = bool(services) and all(service.service_type == "authority-operation" for service in services)
+    conflict_services = (
+        [service for service in services if authority_operation_supports_concurrent_conflict(context, service.endpoint_name)][:2]
+        if authority_operation_mode
+        else services[:2]
+    )
+    for idx, service in enumerate(conflict_services, start=1):
         scenario_rows.append(
             [
                 f"scenario_{len(scenario_rows) + 1:02d}",
                 "parallel operators",
                 service.owns_or_coordinates,
                 f"`{service.home_module}`",
-                f"{service.endpoint_name}, Update{service_technical_name(service)}Status",
+                service.endpoint_name if authority_operation_mode else f"{service.endpoint_name}, Update{service_technical_name(service)}Status",
                 "concurrent writes must surface version conflict explicitly",
-                f"Given two actors update `{service.owns_or_coordinates}` concurrently, When stale version input is submitted, Then the system returns `409 version_conflict` and preserves the last committed record.",
+                f"Given two actors invoke `{service.endpoint_name}` for `{service.owns_or_coordinates}` concurrently, When stale version input is submitted, Then the system returns `409 version_conflict` and preserves the last committed record.",
                 f"conflict replay and 409 assertion for `{service.endpoint_name}`",
                 "concurrent_conflict / quantified",
                 "two competing updates exist",
@@ -873,29 +2106,135 @@ def render_stage_03(
             ]
         )
 
-    tech_rows = list(stage_03_design_defaults["technology_selection_rows"])[:tech_min]
-
-    alternative_candidates = [
-        "\n".join(
+    if authority_mode:
+        posture_id = str(posture.get("decision_id") or "P2-ARCH-POSTURE-REVIEW-BOUND").strip()
+        selected_candidate = f"{selected_shape} / {primary_storage}"
+        tech_rows = [
             [
-                f"  - candidate_{idx:02d}:",
-                f"    - candidate_name: {candidate['candidate_name']}",
-                f"    - pros: {candidate['pros']}",
-                f"    - cons: {candidate['cons']}",
-                f"    - cost_burden: {candidate['cost_burden']}",
-                f"    - fit_scenario: {candidate['fit_scenario']}",
-                f"    - reversibility: {candidate['reversibility']}",
-            ]
-        )
-        for idx, candidate in enumerate(
-            stage_03_design_defaults["alternative_candidates"][
-                : max(profile_minimum(complexity_profile, "stage_03_alt_candidate_structure"), 4)
+                selected_candidate,
+                "bounded by accepted writer/state decisions",
+                performance_posture,
+                "review-bound until runtime evidence",
+                "high: explicit accepted boundaries",
+                "bounded first-wave complexity",
+                "bounded first-wave operations",
+                "review-bound; ecosystem claims not required for current authority",
+                security_posture,
+                deployment_posture,
+                "provider/internal seams only where accepted",
+                "fits accepted operation/aggregate/dependency truth",
+                "observability thresholds review-bound; accepted error/dependency signals remain visible",
+                "reversible through stable accepted contracts",
+                "no vendor selected unless explicitly named",
+                "implementation learning remains review-bound",
+                "stronger scaling/provider/runtime assumptions remain unproven",
+                f"accepted P2 architecture posture `{posture_id}`",
+                "selected-by-authority",
+                str(posture.get("why_selected") or "accepted by P2 architecture authority").strip(),
             ],
-            start=1,
-        )
-    ]
-
-    tradeoff_rows = list(stage_03_design_defaults["tradeoff_rows"])
+            [
+                "review-bound physical decomposition alternative",
+                "not evaluated as accepted truth",
+                "review-bound",
+                "review-bound",
+                "review-bound",
+                "higher complexity than current accepted posture",
+                "higher operational burden",
+                "not evaluated",
+                "must preserve accepted security boundaries",
+                "not selected",
+                "not selected",
+                "not needed to realize current accepted architecture",
+                "not evaluated",
+                "contracts preserve future option",
+                "review-bound",
+                "review-bound",
+                "would add unproven distributed-runtime assumptions",
+                "no accepted P2 evidence",
+                "not-selected-by-authority",
+                "renderer does not invent a distributed alternative design",
+            ],
+            [
+                "review-bound cache/queue expansion alternative",
+                "not evaluated as accepted truth",
+                "review-bound",
+                "review-bound",
+                "review-bound",
+                "adds infrastructure before evidence",
+                "adds operational dependencies",
+                "not evaluated",
+                "must preserve accepted privacy/permission boundaries",
+                "not selected",
+                "not selected",
+                "current first-wave authority does not require it unless explicitly stated",
+                "not evaluated",
+                "ports/contracts preserve future option",
+                "review-bound",
+                "review-bound",
+                "could turn optional infrastructure into hidden architecture truth",
+                "no accepted P2 evidence",
+                "not-selected-by-authority",
+                "cache/queue choice stays bounded to the explicit architecture posture",
+            ],
+        ][:tech_min]
+        alternative_candidates = [
+            "\n".join(
+                [
+                    "  - candidate_01:",
+                    f"    - candidate_name: {selected_candidate}",
+                    "    - pros: explicitly accepted first-wave posture",
+                    f"    - cons: {str(posture.get('claim_ceiling') or 'stronger runtime claims remain review-bound').strip()}",
+                    "    - cost_burden: bounded first-wave complexity",
+                    "    - fit_scenario: exact accepted operation/aggregate/dependency contract",
+                    "    - reversibility: stable contracts preserve later physical/technology change",
+                ]
+            ),
+            "\n".join(
+                [
+                    "  - candidate_02:",
+                    "    - candidate_name: alternatives not accepted by current P2 authority",
+                    "    - pros: keeps future option space explicit without pretending evaluation occurred",
+                    "    - cons: cannot be implemented as canonical truth in P3",
+                    "    - cost_burden: review-bound",
+                    "    - fit_scenario: not selected",
+                    "    - reversibility: revisit through a new P2 architecture decision",
+                ]
+            ),
+        ]
+        tradeoff_rows = [
+            [
+                str(row.get("decision_id") or row.get("realization_id") or f"P2-AUTH-{idx:02d}").strip(),
+                str(row.get("statement") or row.get("mutation_guard") or "accepted authority rule").strip(),
+                "renderer-generated alternative is not canonical",
+                "accepted by current snapshot-bound P2 authority",
+                str(row.get("negative_consequence") or row.get("claim_ceiling") or "stronger claim remains bounded").strip(),
+                "revisit through P2 authority when inputs/evidence change",
+                "input snapshot or runtime evidence changes materially",
+            ]
+            for idx, row in enumerate(authority_architecture_decision_rows(context)[: max(3, min(8, len(authority_architecture_decision_rows(context))))], start=1)
+        ]
+    else:
+        tech_rows = list(stage_03_design_defaults["technology_selection_rows"])[:tech_min]
+        alternative_candidates = [
+            "\n".join(
+                [
+                    f"  - candidate_{idx:02d}:",
+                    f"    - candidate_name: {candidate['candidate_name']}",
+                    f"    - pros: {candidate['pros']}",
+                    f"    - cons: {candidate['cons']}",
+                    f"    - cost_burden: {candidate['cost_burden']}",
+                    f"    - fit_scenario: {candidate['fit_scenario']}",
+                    f"    - reversibility: {candidate['reversibility']}",
+                ]
+            )
+            for idx, candidate in enumerate(
+                stage_03_design_defaults["alternative_candidates"][
+                    : max(profile_minimum(complexity_profile, "stage_03_alt_candidate_structure"), 4)
+                ],
+                start=1,
+            )
+        ]
+        tradeoff_rows = list(stage_03_design_defaults["tradeoff_rows"])
 
     public_boundary_rows: list[list[str]] = []
     seen_contracts: set[str] = set()
@@ -936,6 +2275,7 @@ def render_stage_03(
         {
             "phase1_prd": phase1_prd,
             "complexity_profile": complexity_profile,
+            "data_model_posture_block": data_model_posture_block,
             "data_ownership_map_table": make_markdown_table(
                 ["object", "owning module", "write authority", "read_only_consumers", "public_contract", "change_propagation_path", "forbidden_shortcut", "closure note"],
                 data_ownership_rows,
@@ -944,6 +2284,7 @@ def render_stage_03(
                 ["storage_layer", "first_wave_role", "initial_plan", "one_year_plan", "three_year_plan", "partition_or_shard_rule", "archive_or_cleanup_rule", "why_selected"],
                 storage_layer_rows,
             ),
+            "storage_strategy_posture_block": storage_strategy_posture_block,
             "access_pattern_and_index_strategy_table": make_markdown_table(
                 ["access_pattern", "touched_tables", "predicate_sort_join_keys", "expected_selectivity", "proposed_index", "write_cost_note", "validation_hook"],
                 access_pattern_rows,
@@ -953,6 +2294,10 @@ def render_stage_03(
                 schema_summary_rows,
             ),
             "schema_entries_block": "\n".join(schema_entries),
+            "durable_persistence_identity_table": make_markdown_table(
+                ["operation_id", "persistence_mode", "command_kind", "idempotency_mode", "identity_components", "carrier_kind", "carrier_id", "field_bindings", "enforcement", "writer_service_id", "replay_behavior", "reason"],
+                durable_persistence_rows,
+            ) if durable_persistence_rows else "- no accepted durable persistence identity decisions",
             "data_sensitivity_and_compliance_matrix_table": make_markdown_table(
                 ["table_name", "pii_level", "sensitive_fields", "masking_or_encryption", "retention_rule", "audit_access_rule", "compliance_note"],
                 sensitivity_rows,
@@ -991,6 +2336,11 @@ def render_stage_03(
                 interaction_flow_rows,
             ),
             "boundary_term": boundary_term,
+            "stage03_security_posture_block": stage03_security_posture_block,
+            "technology_stack_posture_block": technology_stack_posture_block,
+            "bottleneck_posture_block": bottleneck_posture_block,
+            "optimum_posture_block": optimum_posture_block,
+            "stage03_capacity_posture_block": stage03_capacity_posture_block,
             "queue_posture_label": async_completion_pack["queue_posture_label"],
             "technology_selection_evaluation_matrix_table": make_markdown_table(
                 ["candidate_name", "reliability", "performance_capacity", "scalability", "maintainability", "development_cost", "operations_cost", "ecosystem_maturity", "security_compliance_posture", "deployment_complexity", "integration_cost", "integration_fit", "observability", "migration_path", "vendor_risk", "learning_curve", "failure_mode", "evidence_sources", "final_decision", "rejection_reason"],
@@ -1014,6 +2364,12 @@ def render_stage_03(
             "service_mermaid_flowchart_block": "\n".join(service_nodes + service_edges),
         },
     )
+    p1_handoff_block = render_p1_product_world_handoff_block(context)
+    if p1_handoff_block:
+        stage = stage.rstrip() + "\n\n" + p1_handoff_block
+    non_operation_block = render_authority_non_operation_block(context)
+    if non_operation_block:
+        stage = stage.rstrip() + "\n\n" + non_operation_block
     return stage.rstrip() + "\n"
 
 
@@ -1150,24 +2506,58 @@ def render_stage_04(
     req_ac_ids = [row["trace_id"] for row in all_trace_rows if row.get("unit_type") in {"requirement", "acceptance-criteria"}] or all_trace_ids
     rbi_id_groups = distribute_phase1_ids(req_ac_ids, rbi_trace_target)
 
-    service_chunks = round_robin_chunks([service.service_name for service in services], wp_target)
-    wp_ids = [f"WP-A{idx}" for idx in range(1, wp_target + 1)]
     work_package_rows: list[list[str]] = []
-    for idx, wp_id in enumerate(wp_ids):
-        owned_services = service_chunks[idx] if idx < len(service_chunks) else []
-        service_scope = ", ".join(f"`{name}`" for name in owned_services[:3]) or "`cross-cutting`"
-        depends_on = "none" if idx == 0 else wp_ids[idx - 1]
-        linked_rbi = f"RBI-{min(idx + 1, rbi_target):02d}"
-        work_package_rows.append(
-            [
-                wp_id,
-                f"stabilize {service_scope} contracts, replay paths, and implementation handoff",
-                f"the slice preserves ownership, contract naming, and replay evidence for {service_scope}",
-                f"{4 + (idx % 3)}d",
-                depends_on,
-                linked_rbi,
-            ]
-        )
+    independent_topology = p1_product_topology_mode(context) == "independent-outcomes"
+    if independent_topology and services:
+        wp_ids = [f"WP-A{idx}" for idx in range(1, max(len(services), wp_target) + 1)]
+        previous_wp_by_group: dict[str, str] = {}
+        for idx, service in enumerate(services):
+            wp_id = wp_ids[idx]
+            group = authority_operation_topology_group(context, service.endpoint_name) or "review-bound-group"
+            depends_on = previous_wp_by_group.get(group, "none")
+            previous_wp_by_group[group] = wp_id
+            service_scope = f"`{service.service_name}` / topology_group=`{group}`"
+            linked_rbi = f"RBI-{min(idx + 1, rbi_target):02d}"
+            work_package_rows.append(
+                [
+                    wp_id,
+                    f"stabilize {service_scope} contract, group-local replay, and implementation handoff",
+                    f"the slice preserves `{group}` closure without creating a dependency on another independent topology group",
+                    f"{4 + (idx % 3)}d",
+                    depends_on,
+                    linked_rbi,
+                ]
+            )
+        while len(work_package_rows) < wp_target:
+            idx = len(work_package_rows)
+            work_package_rows.append(
+                [
+                    wp_ids[idx],
+                    "cross-cutting authority verification without product-flow sequencing",
+                    "verify accepted privacy, trace, dependency, and claim ceilings without adding execution prerequisites",
+                    "4d",
+                    "none",
+                    f"RBI-{min(idx + 1, rbi_target):02d}",
+                ]
+            )
+    else:
+        service_chunks = round_robin_chunks([service.service_name for service in services], wp_target)
+        wp_ids = [f"WP-A{idx}" for idx in range(1, wp_target + 1)]
+        for idx, wp_id in enumerate(wp_ids):
+            owned_services = service_chunks[idx] if idx < len(service_chunks) else []
+            service_scope = ", ".join(f"`{name}`" for name in owned_services[:3]) or "`cross-cutting`"
+            depends_on = "none" if idx == 0 else wp_ids[idx - 1]
+            linked_rbi = f"RBI-{min(idx + 1, rbi_target):02d}"
+            work_package_rows.append(
+                [
+                    wp_id,
+                    f"stabilize {service_scope} contracts, replay paths, and implementation handoff",
+                    f"the slice preserves ownership, contract naming, and replay evidence for {service_scope}",
+                    f"{4 + (idx % 3)}d",
+                    depends_on,
+                    linked_rbi,
+                ]
+            )
 
     nested_wp_entries = [
         "\n".join(
@@ -1224,7 +2614,7 @@ def render_stage_04(
 
     design_verification_rows: list[list[str]] = []
     for idx, service in enumerate(services[:verification_target], start=1):
-        source_contract_read_only = not service_exposes_persistent_object(service)
+        source_contract_read_only = authority_service_read_only(context, service)
         design_verification_rows.append(
             [
                 f"`{service.service_name}` boundary preserved",
@@ -1258,7 +2648,17 @@ def render_stage_04(
     replay_id_groups = distribute_phase1_ids(all_trace_ids or req_ac_ids, replay_count)
     for idx in range(replay_count):
         current = services[idx % len(services)] if services else None
-        nxt = services[(idx + 1) % len(services)] if services else None
+        if current is not None and independent_topology:
+            group = authority_operation_topology_group(context, current.endpoint_name)
+            same_group = [
+                candidate
+                for candidate in services
+                if authority_operation_topology_group(context, candidate.endpoint_name) == group
+            ]
+            position = same_group.index(current) if current in same_group else 0
+            nxt = same_group[position + 1] if position + 1 < len(same_group) else current
+        else:
+            nxt = services[(idx + 1) % len(services)] if services else None
         artifact = f"{current.owns_or_coordinates if current else 'core_object'} + {nxt.owns_or_coordinates if nxt else 'downstream_object'}"
         replay_rows.append(
             [
@@ -1300,31 +2700,179 @@ def render_stage_04(
         "support": "append_latency, evidence_gap_rate",
     }
     observability_rows: list[list[str]] = []
+    authority_mode = bool(architecture_authority_model(context))
     for idx, service in enumerate(services[:observability_target], start=1):
+        if authority_mode:
+            structured_logs = f"operation_id={service.endpoint_name} + aggregate_id={service.owns_or_coordinates} + accepted trace/error context when declared"
+            threshold = "review-bound; no numeric SLO is promoted without accepted P2 evidence"
+            alert_rule = f"alert on accepted failure codes/dependency-unavailable signals for `{service.endpoint_name}`; numeric thresholds remain review-bound"
+            owner = service.domain
+        else:
+            structured_logs = f"tenant_id + {to_snake(service_technical_name(service))}_id + trace_id"
+            threshold = "p95 <= 600ms for sync paths; async queues remain bounded"
+            alert_rule = f"alert when `{service.endpoint_name}` error rate or latency exceeds threshold"
+            owner = "platform owner" if idx % 2 else "workflow owner"
         observability_rows.append(
             [
                 f"surface-{idx:02d}",
                 service.service_name,
                 metric_map.get(service.service_type, "request_latency, error_rate"),
-                f"tenant_id + {to_snake(service_technical_name(service))}_id + trace_id",
-                f"alert when `{service.endpoint_name}` error rate or latency exceeds threshold",
-                "p95 <= 600ms for sync paths; async queues remain bounded",
-                "platform owner" if idx % 2 else "workflow owner",
-                f"do not widen rollout until `{service.service_name}` metrics are stable",
+                structured_logs,
+                alert_rule,
+                threshold,
+                owner,
+                f"do not widen rollout until `{service.service_name}` evidence matches its accepted claim ceiling",
             ]
         )
 
     environment_prerequisites = format_nested_bullets(derive_environment_dependency_prerequisites(stage_03_text, stage_02_5_text), indent=4)
-    adr_titles_for_list = [str(item) for item in context.get("adr_titles", [])]
-    adr_list = "\n".join(f"    - `AD-{idx:02d}` {title}" for idx, title in enumerate(adr_titles_for_list[:10], start=1))
+    if authority_mode:
+        adr_rows = authority_architecture_decision_rows(context)
+        adr_list = "\n".join(
+            f"    - `{str(row.get('decision_id') or '').strip()}` {str(row.get('title') or row.get('statement') or '').strip()}"
+            for row in adr_rows[:10]
+        )
+    else:
+        adr_titles_for_list = [str(item) for item in context.get("adr_titles", [])]
+        adr_list = "\n".join(f"    - `AD-{idx:02d}` {title}" for idx, title in enumerate(adr_titles_for_list[:10], start=1))
     contract_list = "\n".join(f"    - `{name}`" for name in unique_preserve(contract_names))
+
+    posture = authority_architecture_posture(context)
+    if authority_mode:
+        selected_shape = str(posture.get("selected_shape") or "review-bound; no application shape accepted").strip()
+        primary_storage = str(posture.get("primary_storage") or "review-bound; no primary storage accepted").strip()
+        queue_posture = str(posture.get("queue_posture") or "review-bound; no queue/background-work posture accepted").strip()
+        deployment_posture = str(posture.get("deployment_posture") or "review-bound; no deployment posture accepted").strip()
+        security_posture = str(posture.get("security_posture") or "review-bound; no identity/key-management posture accepted").strip()
+        convergence_direction = f"{selected_shape}; preserve exact accepted contracts, writer boundaries, P1 topology, and review-bound claim ceilings"
+        optimality_review_block = "\n".join(
+            [
+                "  - acceptable_baseline:",
+                f"    - {selected_shape} / {primary_storage}",
+                "  - optimal_candidate:",
+                "    - current snapshot-bound P2 architecture posture; renderer does not substitute a template technology stack",
+                "  - acceptable_vs_optimal_verdict:",
+                "    - bounded implementation-planning posture only; production optimality remains unproven",
+                "  - why_optimal_not_just_acceptable:",
+                f"    - {str(posture.get('why_selected') or 'accepted by current P2 architecture authority').strip()}",
+                "  - reversibility_posture:",
+                f"    - stable accepted contracts keep later technology changes reviewable; queue posture now: {queue_posture}",
+                "  - strongest_supported_readiness_label:",
+                "    - `implementation-planning-bounded`",
+                "  - realizability_judgment:",
+                f"    - realizable for bounded implementation planning under deployment posture: {deployment_posture}",
+            ]
+        )
+        implementation_must_preserve_block = "\n".join(
+            [
+                "    - exact accepted operation and contract identifiers",
+                "    - accepted aggregate owner/writer boundaries and typed fields",
+                "    - P1 product topology and accepted NOR/privacy/authorization rules",
+                "    - accepted dependency dispositions and provider-neutral seams",
+                "    - RBI/review-bound claim ceilings; P3 must not promote missing SLO/provider/retention/auth details",
+            ]
+        )
+        identity_key_posture_block = "\n".join(
+            [
+                f"  - security_posture: {security_posture}",
+                "  - auth_vendor_slot: review-bound unless P2 authority names a provider",
+                "  - identity_session_lifecycle: review-bound unless P2 authority accepts exact lifetime/refresh/revocation mechanics",
+                "  - key_posture: review-bound unless P2 authority accepts exact key storage/rotation mechanics; no hard-coded runtime secrets",
+            ]
+        )
+        workflow_spine_posture = (
+            "independent topology-group closure + shared evidence/visibility without cross-group prerequisite -> implementation intake"
+            if independent_topology
+            else "accepted operation/contract progression -> replay verification -> implementation intake"
+        )
+    else:
+        convergence_direction = "modular monolith with explicit public boundary and replay-ready handoff"
+        optimality_review_block = "\n".join(
+            [
+                "  - acceptable_baseline:",
+                "    - modular monolith + relational core + typed public contracts",
+                "  - optimal_candidate:",
+                "    - keep the current baseline and delay physical decomposition until runtime proof demands it",
+                "  - acceptable_vs_optimal_verdict:",
+                "    - acceptable now and optimal under first-wave certainty / staffing / runtime constraints",
+                "  - why_optimal_not_just_acceptable:",
+                "    - preserves traceability, replay, and design honesty without overcommitting operations complexity",
+                "  - reversibility_posture:",
+                "    - later queue/storage/provider changes remain reversible because contract names and ownership stay stable",
+                "  - strongest_supported_readiness_label:",
+                "    - `implementation-planning-ready`",
+                "  - realizability_judgment:",
+                "    - realizable as designed for implementation planning, with explicit RBI chain preserved for unresolved runtime proofs",
+            ]
+        )
+        implementation_must_preserve_block = "\n".join(
+            [
+                "    - public-boundary names",
+                "    - tenant policy and audit edges",
+                "    - typed contract identifiers and replay evidence references",
+                "    - RBI ownership and blockers",
+            ]
+        )
+        identity_key_posture_block = "\n".join(
+            [
+                "  - auth_vendor_slot: keep policy provider replaceable behind the contract boundary",
+                "  - key_posture: scheduled rotation, break-glass audit, no hard-coded runtime secrets",
+            ]
+        )
+        workflow_spine_posture = "ownership handoff -> replay verification -> implementation intake"
+
+    gantt_lines = [
+        "```mermaid",
+        "gantt",
+        "    title First-Wave Implementation Handoff",
+        "    dateFormat  YYYY-MM-DD",
+        "    section Work Packages",
+    ]
+    wp_task_ids = {row[0]: f"a{idx + 1}" for idx, row in enumerate(work_package_rows)}
+    for idx, row in enumerate(work_package_rows[:8]):
+        wp_id = row[0]
+        task_id = wp_task_ids[wp_id]
+        duration_match = re.search(r"\d+d", str(row[3]))
+        duration = duration_match.group(0) if duration_match else "4d"
+        dependency = str(row[4]).strip()
+        if dependency != "none" and dependency in wp_task_ids:
+            schedule = f"after {wp_task_ids[dependency]}"
+        else:
+            schedule = "2026-04-08"
+        gantt_lines.append(f"    {wp_id} :{task_id}, {schedule}, {duration}")
+    gantt_lines.append("```")
+    gantt_block = "\n".join(gantt_lines)
 
     mermaid_sequences: list[str] = []
     if services:
-        sequence_count = min(sequence_target, max(1, len(services) - 1))
+        if independent_topology:
+            grouped_sequence_services: list[list[ServiceSpec]] = []
+            seen_groups: set[str] = set()
+            for service in services:
+                group = authority_operation_topology_group(context, service.endpoint_name) or "review-bound-group"
+                if group in seen_groups:
+                    continue
+                seen_groups.add(group)
+                grouped_sequence_services.append(
+                    [candidate for candidate in services if authority_operation_topology_group(context, candidate.endpoint_name) == group]
+                )
+            sequence_sources = [group[0] for group in grouped_sequence_services if group]
+            sequence_count = min(max(sequence_target, len(sequence_sources)), len(sequence_sources))
+        else:
+            sequence_sources = services
+            sequence_count = min(sequence_target, max(1, len(services) - 1))
         for idx in range(sequence_count):
-            current = services[idx]
-            nxt = services[idx + 1] if idx + 1 < len(services) else services[idx]
+            current = sequence_sources[idx]
+            if independent_topology:
+                group = authority_operation_topology_group(context, current.endpoint_name)
+                same_group = [
+                    candidate
+                    for candidate in services
+                    if authority_operation_topology_group(context, candidate.endpoint_name) == group
+                ]
+                nxt = same_group[1] if len(same_group) > 1 else current
+            else:
+                nxt = services[idx + 1] if idx + 1 < len(services) else services[idx]
             mermaid_sequences.append(
                 "\n".join(
                     [
@@ -1370,6 +2918,12 @@ def render_stage_04(
             "complexity_profile": complexity_profile,
             "architecture_convergence_adr_list": adr_list,
             "contract_list": contract_list,
+            "convergence_direction": convergence_direction,
+            "optimality_review_block": optimality_review_block,
+            "implementation_must_preserve_block": implementation_must_preserve_block,
+            "identity_key_posture_block": identity_key_posture_block,
+            "workflow_spine_posture": workflow_spine_posture,
+            "gantt_block": gantt_block,
             "deferred_seam_heading": deferred_seam_heading,
             "deferred_seam_line": deferred_seam_line,
             "business_proof_handoff": business_proof_handoff,
@@ -1435,7 +2989,7 @@ def write_generation_sidecars(
         "complexity_profile": complexity_profile,
         "complexity_report": complexity_report,
         "owner": owner,
-        "generator": "scripts/phase2/run_phase2_first_version.py",
+        "generator": "scripts/phase2/run_phase2_fresh_generation.py",
     }
     write_cross_phase_profiled_surface(
         output_dir,

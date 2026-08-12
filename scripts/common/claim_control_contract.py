@@ -11,6 +11,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+from common.wff_core_runtime import capability_binding_report
+
 
 SIMPLE_ARTIFACT_MAX_CLAIMS = 8
 SIMPLE_ARTIFACT_MAX_VIEWS = 1
@@ -232,6 +234,14 @@ def validate_claim_control_surface(surface: dict[str, Any]) -> dict[str, Any]:
             "forbidden_registry_truth_fields": forbidden_registry_truth_fields,
             "registry_policy": "evidence-ledger-only",
             "proposed_claim_policy": "proposal-delta-not-accepted-truth",
+            "core_contract_binding": capability_binding_report(
+                "evidence-assurance",
+                required_contracts=(
+                    "evidence-contract",
+                    "claim-state-contract",
+                    "agentic-boundary-contract",
+                ),
+            ),
         },
     }
 

@@ -42,9 +42,7 @@ $quality_entries_block
 - capability_map:
 $capability_map_block
 - architecture_direction:
-  - selected_shape: `modular monolith`
-  - why_selected: preserve strong object-chain traceability and keep public contracts explicit before any later physical split
-  - boundary_rule: module contracts stay stable even if Phase-3 implementation reorganizes internals
+$architecture_direction_block
 - p2_architecture_reliability_alignment:
   - owner_commit_rule: owner commit boundary remains the source of truth before event fan-out or downstream read composition
   - event_reliability_rule: event payload ids and idempotent replay must stay visible from ADR to Stage-03 implementation handoff
@@ -56,35 +54,9 @@ $adr_entries_block
 - decision_trace_registry:
 $decision_trace_registry_table
 - security_architecture_sketch:
-  - trust_boundaries:
-    - $boundary_subject_name boundary around every authoritative business object and review surface
-    - internal service boundary around typed handoff payload and closure evidence
-  - identity_and_access_posture:
-    - enforce role-scoped access checks with break-glass audit logging for privileged reads
-  - auth_sequence_direction:
-    - user -> API gateway -> policy enforcement -> domain module -> audit trail
-  - authentication_sequence:
-    - sequence_diagram: Stage-01 auth path preserves boundary assertion before domain mutation
-    - token_strategy: short-lived access token + role/boundary claims
-    - token_lifetime: access token 15m, refresh token 8h rolling
-    - refresh_mechanism: rotate refresh token on privileged workflow continuation
-    - revocation_approach: revoke at tenant membership or session boundary and preserve audit record
-  - key_management_posture:
-    - key_types: signing key, database encryption key, provider webhook secret
-    - storage: KMS-backed secrets store with environment separation
-    - rotation_policy: 90-day scheduled rotation or immediate incident-driven rotation
-    - access_control: least-privilege access via deploy identity + audited operator break-glass
-  - audit_sensitive_edges:
-    - boundary policy change
-    - work-item export or cross-module handoff
-    - review decision issuance
+$security_architecture_block
 - capacity_estimation:
-  - throughput: 120 run-related requests / min at first-wave steady state
-  - latency: p95 <= 600 ms for synchronous API reads and p95 <= 5 min for $latency_target_label
-  - growth: $growth_target_label
-  - retention: 365d hot evidence + 730d cold archive for audit-critical data
-  - volume: $volume_target_label
-  - storage: start with PostgreSQL + object-store export seam, not multi-engine sprawl
+$capacity_estimation_block
 - forbidden_assumptions_registry:
 $forbidden_entries_block
 

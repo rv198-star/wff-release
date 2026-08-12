@@ -22,7 +22,7 @@ Update it at the end of every Phase-2 working session so the next session can co
 - repo_root:
   - `/Users/william/Github/software-lifecycle-skills`
 - current_owner_mode:
-  - `use the official Phase-2 execution skill and treat scripts/phase2/run_phase2_first_version.py --run-wrapper as the canonical Phase-2 mainline bundle; drop to scripts/phase2/run_phase2_manual_closure.py only for manual/remediation closure over already-authored Stage outputs`
+  - `use the official Phase-2 execution skill and treat scripts/phase2/run_phase2_fresh_generation.py --run-wrapper as the canonical Phase-2 mainline bundle; drop to scripts/phase2/run_phase2_manual_closure.py only for manual/remediation closure over already-authored Stage outputs`
 - default_output_root:
   - `/Users/william/Github/software-lifecycle-skills/tmp/local-artifacts/<case-name>/phase-2/`
 
@@ -138,7 +138,7 @@ Use it only when Phase-2 needs to inspect `02b-skip` handling semantics:
 - Always read the Phase-1 PRD's `Phase-2 Design Input Contract` before drafting Stage-01 and treat it as the top-down absorption baseline.
 - Every new Phase-2 version must start by scaffolding a fresh case root with `scripts/phase2/scaffold_phase2_case.py`.
 - If the target is a pure baseline generated directly from the Phase-1 PRD main document, scaffold with `scripts/phase2/scaffold_phase2_case.py --pure-prd-direct` and treat any later fixes as a new rerun/follow-up version rather than patching the baseline.
-- For the default official mainline, use `scripts/phase2/run_phase2_first_version.py --run-wrapper`.
+- For the default official mainline, use `scripts/phase2/run_phase2_fresh_generation.py --run-wrapper`.
 - Use `scripts/phase2/run_phase2_manual_closure.py` directly only after Stage-01..04 outputs are present and the task is explicit manual/remediation closure.
 - Use the existing stage `skill-contract.md`, `stage-sop.md`, `output-template.md`, and `source-cards.md`.
 - Do not re-run or rewrite Phase-1 unless the task explicitly requires it.
@@ -185,7 +185,7 @@ Use it only when Phase-2 needs to inspect `02b-skip` handling semantics:
 - docs/phases/phase-2/phase-2-execution-report-template.md
 
 默认官方主线 bundle 是：
-- scripts/phase2/run_phase2_first_version.py --run-wrapper
+- scripts/phase2/run_phase2_fresh_generation.py --run-wrapper
 
 若这是一个新的 Phase-2 版本，但你刻意走手动/补救式 authoring，先用：
 - scripts/phase2/scaffold_phase2_case.py
@@ -221,7 +221,7 @@ Use it only when Phase-2 needs to inspect `02b-skip` handling semantics:
 - 若是新版本，必须先 scaffold fresh Phase-2 case root，再产出 Stage-01..04
 - 官方 run 必须补齐 traceability registry init / bind / validate / report 与 Phase-2 execution report
 - 所有用于吸收 Phase-1 trace units 的 scenario / replay / RBI / decision / contract 行都必须显式填写并保留 `upstream_trace_ids`
-- 官方主线应优先通过 scripts/phase2/run_phase2_first_version.py --run-wrapper 完成 fresh generation + closure；仅在手动/补救闭口时直接运行 scripts/phase2/run_phase2_manual_closure.py
+- 官方主线应优先通过 scripts/phase2/run_phase2_fresh_generation.py --run-wrapper 完成 fresh generation + closure；仅在手动/补救闭口时直接运行 scripts/phase2/run_phase2_manual_closure.py
 - 必须保留 review-bound / provisional / declaration-state 语义
 - Stage-01 必须补出 security architecture sketch 与 capacity estimation
 - Stage-01 必须补出 dependency realizability scan、substitute-boundary 候选、以及 downstream may-assume / must-not-assume 契约
@@ -295,7 +295,7 @@ Continue from the canonical case-first GEO artifact root:
 - `use tmp/local-artifacts/geo-generative-engine-optimization-mainline/phase-1/ as the default Phase-1 baseline`
 - `use tmp/local-artifacts/geo-generative-engine-optimization-mainline/phase-2/ as the canonical Phase-2 package output root`
 - `enter through skills/wff-arch/SKILL.md for official family runs`
-- `use scripts/phase2/run_phase2_first_version.py --run-wrapper as the canonical Phase-2 mainline bundle`
+- `use scripts/phase2/run_phase2_fresh_generation.py --run-wrapper as the canonical Phase-2 mainline bundle`
 - `use scripts/phase2/run_phase2_manual_closure.py only when Stage-01..04 are already authored and the task is explicit manual/remediation closure`
 
 Reason:

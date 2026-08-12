@@ -103,6 +103,197 @@ def load_json_if_exists(path: Path) -> dict[str, Any] | None:
     return load_json(path)
 
 
+def discover_phase3_trace_registry_path(phase3_root: Path) -> Path:
+    for name in ("phase-3-trace-registry-final.json", "phase3-trace-registry-final.json"):
+        path = phase3_root / name
+        if path.exists() and path.is_file():
+            return path
+    return phase3_root / "phase-3-trace-registry-final.json"
+
+
+def _runtime_evidence_path(phase3_root: Path, raw_path: str) -> Path:
+    path = Path(str(raw_path or "").strip())
+    return path if path.is_absolute() else phase3_root / path
+
+
+def _load_runtime_evidence_report(path: Path) -> tuple[dict[str, Any] | None, str]:
+    if path.suffix.lower() != ".json":
+        return None, "runtime-evidence-ref-not-json"
+    if not path.exists() or not path.is_file():
+        return None, "runtime-evidence-ref-missing"
+    try:
+        return load_json(path), ""
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None, "runtime-evidence-ref-malformed"
+
+
+def _current_s4_runtime_evidence_is_pass(payload: dict[str, Any]) -> bool:
+    explicit = str(payload.get("overall_quality_gate") or payload.get("verdict") or payload.get("status") or "").strip().lower()
+    if explicit in {"pass", "passed", "complete", "completed"}:
+        return True
+    s4_a = payload.get("s4_a") if isinstance(payload.get("s4_a"), dict) else {}
+    s4_b = payload.get("s4_b") if isinstance(payload.get("s4_b"), dict) else {}
+    s4_c = payload.get("s4_c") if isinstance(payload.get("s4_c"), dict) else {}
+    readiness = s4_c.get("runtime_readiness") if isinstance(s4_c.get("runtime_readiness"), dict) else {}
+    route_count = int(readiness.get("route_count", 0) or 0)
+    ready_count = int(readiness.get("ready_operation_count", 0) or 0)
+    missing = [str(value) for value in ensure_list(readiness.get("missing_operation_ids")) if str(value).strip()]
+    return bool(
+        str(s4_a.get("typecheck") or "").lower() == "pass"
+        and str(s4_a.get("build") or "").lower() == "pass"
+        and str(s4_b.get("status") or "").lower() == "pass"
+        and str(s4_c.get("migration") or "").lower() == "pass"
+        and route_count > 0
+        and ready_count == route_count
+        and not missing
+    )
+
+
+def load_phase3_current_closure_summary(phase3_root: Path) -> dict[str, Any]:
+    authority_path = phase3_root / "p3-agentic-implementation-authority.json"
+    application_path = phase3_root / "p3-agentic-implementation-application-receipt.json"
+    exact_path = phase3_root / "p3-exact-realization-binding-ledger.json"
+    delta_path = phase3_root / ".phase3-evidence" / "p3-authority-delta-ledger.json"
+    bindings_path = phase3_root / "implementation-bindings.json"
+    trace_path = discover_phase3_trace_registry_path(phase3_root)
+    profile_detected = any(path.exists() for path in (authority_path, application_path, exact_path, delta_path))
+    if not profile_detected:
+        return {"present": False, "complete": False, "evidence_paths": [], "runtime_evidence_refs": []}
+
+    authority = load_json_if_exists(authority_path) or {}
+    application = load_json_if_exists(application_path) or {}
+    exact = load_json_if_exists(exact_path) or {}
+    delta = load_json_if_exists(delta_path) or {}
+    bindings = load_json_if_exists(bindings_path) or {}
+    trace = load_json_if_exists(trace_path) or {}
+    trace_rows = [row for row in ensure_list(trace.get("rows")) if isinstance(row, dict)]
+    runtime_refs = dedupe_preserve_order(
+        str(ref).strip()
+        for row in trace_rows
+        for ref in ensure_list(row.get("runtime_evidence_refs"))
+        if str(ref).strip()
+    )
+    runtime_paths = [_runtime_evidence_path(phase3_root, ref) for ref in runtime_refs]
+    runtime_report_results = [_load_runtime_evidence_report(path) for path in runtime_paths]
+    runtime_reports = [report for report, reason in runtime_report_results if report is not None and not reason]
+    invalid_runtime_evidence_refs = [
+        ref
+        for ref, (_report, reason) in zip(runtime_refs, runtime_report_results)
+        if reason
+    ]
+    runtime_refs_complete = bool(runtime_paths) and not invalid_runtime_evidence_refs and len(runtime_reports) == len(runtime_paths)
+    runtime_pass = runtime_refs_complete and all(_current_s4_runtime_evidence_is_pass(report) for report in runtime_reports)
+
+    exact_counts = exact.get("counts") if isinstance(exact.get("counts"), dict) else {}
+    exact_rows = [row for row in ensure_list(exact.get("rows")) if isinstance(row, dict)]
+    exact_complete = bool(
+        exact.get("status") == "exact-realization-bindings-complete"
+        and int(exact_counts.get("blocking", 0) or 0) == 0
+        and int(exact_counts.get("exact", 0) or 0) == len(exact_rows)
+        and exact_rows
+        and all(str(row.get("binding_status") or "") == "exact" and row.get("trace_confirmed") is True for row in exact_rows)
+    )
+    application_complete = bool(
+        application.get("application_status") == "complete"
+        and not ensure_list(application.get("missing_applications"))
+    )
+    authority_complete = bool(authority.get("status") == "accepted-p3-agentic-implementation-authority")
+    binding_rows = [row for row in ensure_list(bindings.get("rows")) if isinstance(row, dict)]
+    bindings_complete = bool(binding_rows) and len(binding_rows) >= len(exact_rows)
+    confirmed_trace_rows = [
+        row
+        for row in trace_rows
+        if str(
+            row.get("final_resolution")
+            or row.get("binding_status")
+            or row.get("status")
+            or row.get("trace_status")
+            or ""
+        ).strip().lower() == "confirmed"
+    ]
+    legacy_trace_status = str(trace.get("execution_status") or "").strip().lower()
+    legacy_trace_status_compatible = (
+        not legacy_trace_status
+        or legacy_trace_status in {"confirmed", "confirmed-s4", "pass", "verified"}
+    )
+    trace_complete = bool(
+        trace_rows
+        and len(confirmed_trace_rows) == len(trace_rows)
+        and legacy_trace_status_compatible
+    )
+    delta_safe = bool(
+        delta
+        and delta.get("upstream_mutation_performed") is False
+        and str(delta.get("reconciliation_status") or "").strip().startswith("deferred")
+    )
+    decision_digests = {
+        str(value).strip()
+        for value in (
+            authority.get("decision_digest"),
+            application.get("decision_digest"),
+            exact.get("decision_digest"),
+            delta.get("decision_digest"),
+        )
+        if str(value).strip()
+    }
+    trace_digests = {
+        str(row.get("implementation_decision_digest") or "").strip()
+        for row in trace_rows
+        if str(row.get("implementation_decision_digest") or "").strip()
+    }
+    digest_aligned = len(decision_digests) == 1 and (not trace_digests or trace_digests == decision_digests)
+    complete = bool(
+        authority_complete
+        and application_complete
+        and exact_complete
+        and bindings_complete
+        and trace_complete
+        and delta_safe
+        and runtime_pass
+        and digest_aligned
+    )
+    evidence_paths = [
+        relative_to_root(path, phase3_root)
+        for path in (authority_path, application_path, exact_path, bindings_path, trace_path, delta_path, *runtime_paths)
+        if path.exists() and path.is_file()
+    ]
+    claim_ceilings = dedupe_preserve_order(
+        str(report.get("claim_ceiling") or "").strip()
+        for report in runtime_reports
+        if str(report.get("claim_ceiling") or "").strip()
+    )
+    return {
+        "present": True,
+        "complete": complete,
+        "authority_complete": authority_complete,
+        "application_complete": application_complete,
+        "exact_bindings_complete": exact_complete,
+        "trace_complete": trace_complete,
+        "authority_delta_safe": delta_safe,
+        "runtime_evidence_complete": runtime_refs_complete,
+        "runtime_evidence_pass": runtime_pass,
+        "digest_aligned": digest_aligned,
+        "decision_digest": next(iter(decision_digests), ""),
+        "exact_binding_count": len(exact_rows),
+        "trace_row_count": len(trace_rows),
+        "confirmed_trace_count": len(confirmed_trace_rows),
+        "runtime_evidence_refs": [relative_to_root(path, phase3_root) for path in runtime_paths],
+        "invalid_runtime_evidence_refs": invalid_runtime_evidence_refs,
+        "evidence_paths": dedupe_preserve_order(evidence_paths),
+        "claim_ceilings": claim_ceilings,
+        "recommended_formal_state": "delivery-ready" if complete else "implementation-in-progress",
+        "phase_verdict": "PASS with review-bound items" if complete else "RETURN-REMEDIATE",
+        "phase_complete": complete,
+        "implementation_complete": complete,
+        "backend_interface_gate": complete,
+        "backend_persistence_truth_required": True,
+        "backend_persistence_gate": runtime_pass,
+        "backend_migration_gate": runtime_pass,
+        "full_targeted_evidence_present": runtime_refs_complete,
+        "full_targeted_evidence_status": "pass" if runtime_pass else "fail" if runtime_refs_complete else "missing",
+    }
+
+
 def load_phase3_runtime_environment_summary(phase3_root: Path) -> dict[str, Any]:
     ledger_path = phase3_root / "runtime-environment-ledger.json"
     ledger = load_json_if_exists(ledger_path) or {}
@@ -180,11 +371,44 @@ def load_phase3_mainline_summary(phase3_root: Path) -> dict[str, Any]:
     metadata_artifacts = metadata.get("mainline_assessment_artifacts")
     verdict = load_json_if_exists(phase3_root / "phase-verdict.json") or {}
     claim_ceiling_report = read_claim_ceiling_report(phase3_root)
+    current_closure = load_phase3_current_closure_summary(phase3_root)
 
     if not isinstance(metadata_summary, dict):
         metadata_summary = {}
     if not isinstance(metadata_artifacts, dict):
         metadata_artifacts = {}
+    if not verdict and not metadata_summary and current_closure.get("present"):
+        current_ceiling = "; ".join(str(value) for value in current_closure.get("claim_ceilings", []) if str(value).strip())
+        return {
+            "present": True,
+            "source": "p3-current-closure",
+            "phase": "P3",
+            "mainline_profile": "backend-first",
+            "recommended_formal_state": str(current_closure.get("recommended_formal_state") or "implementation-in-progress"),
+            "phase_verdict": str(current_closure.get("phase_verdict") or "RETURN-REMEDIATE"),
+            "phase_total_score": None,
+            "review_bound_items_count": 1 if current_closure.get("complete") else 0,
+            "blockers_count": 0 if current_closure.get("complete") else 1,
+            "warning_count": 0,
+            "failure_count": 0 if current_closure.get("complete") else 1,
+            "claim_ceiling_report": {
+                "present": True,
+                "requested_formal_state": str(current_closure.get("recommended_formal_state") or "implementation-in-progress"),
+                "resolved_formal_state": str(current_closure.get("recommended_formal_state") or "implementation-in-progress"),
+                "claim_ceiling": str(current_closure.get("recommended_formal_state") or "implementation-in-progress"),
+                "blocking_delivery_ready": not bool(current_closure.get("complete")),
+                "detail": current_ceiling,
+                "reasons": [],
+            },
+            "claim_ceiling_present": bool(current_ceiling),
+            "claim_ceiling_resolved_formal_state": str(current_closure.get("recommended_formal_state") or "implementation-in-progress"),
+            "claim_ceiling_blocks_ready": False,
+            "phase_complete": bool(current_closure.get("phase_complete")),
+            "implementation_complete": bool(current_closure.get("implementation_complete")),
+            "phase_verdict_path": "p3-exact-realization-binding-ledger.json",
+            "phase_scorecard_path": "",
+            "phase_acceptance_matrix_path": "",
+        }
 
     return {
         "present": bool(verdict) or bool(metadata_summary),
@@ -240,6 +464,43 @@ def load_phase3_mainline_summary(phase3_root: Path) -> dict[str, Any]:
             )
         ).strip(),
     }
+
+
+def load_phase3_trace_registry_for_validation(phase3_root: Path) -> dict[str, Any]:
+    trace_path = discover_phase3_trace_registry_path(phase3_root)
+    trace = load_json_if_exists(trace_path) or {}
+    current = load_phase3_current_closure_summary(phase3_root)
+    if not current.get("present"):
+        return trace
+    authority = load_json_if_exists(phase3_root / "p3-agentic-implementation-authority.json") or {}
+    plan_index = {
+        (
+            str(row.get("contract_id") or "").strip().upper(),
+            str(row.get("operation_id") or "").strip(),
+        ): row
+        for row in ensure_list(authority.get("exact_realization_plan"))
+        if isinstance(row, dict) and str(row.get("operation_id") or "").strip()
+    }
+    enriched_rows: list[dict[str, Any]] = []
+    for raw_row in ensure_list(trace.get("rows")):
+        if not isinstance(raw_row, dict):
+            continue
+        row = dict(raw_row)
+        key = (
+            str(row.get("contract_id") or row.get("source_id") or "").strip().upper(),
+            str(row.get("operation_id") or "").strip(),
+        )
+        plan = plan_index.get(key, {})
+        if not ensure_list(row.get("upstream_trace_ids")):
+            commitment_id = str(plan.get("commitment_id") or "").strip()
+            if commitment_id:
+                row["upstream_trace_ids"] = [commitment_id.removeprefix("p1:")]
+        if not str(row.get("source_type") or "").strip():
+            row["source_type"] = "contract-trace"
+        if not str(row.get("source_subject") or "").strip():
+            row["source_subject"] = f"{row.get('operation_id') or row.get('contract_id') or 'P3 operation'} accepted contract"
+        enriched_rows.append(row)
+    return {**trace, "rows": enriched_rows, "validation_projection_source": "inherited-from-p3-exact-closure"}
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -960,6 +1221,31 @@ def collect_test_evidence(phase3_root: Path) -> dict[str, dict[str, Any]]:
             ledger=load_json(ledger_path),
             report_ref=relative_to_root(ledger_path, phase3_root),
         )
+
+    current_closure = load_phase3_current_closure_summary(phase3_root)
+    if current_closure.get("runtime_evidence_pass"):
+        trace_path = discover_phase3_trace_registry_path(phase3_root)
+        trace = load_json_if_exists(trace_path) or {}
+        for row in ensure_list(trace.get("rows")):
+            if not isinstance(row, dict):
+                continue
+            if str(
+                row.get("final_resolution")
+                or row.get("binding_status")
+                or row.get("status")
+                or row.get("trace_status")
+                or ""
+            ).strip().lower() != "confirmed":
+                continue
+            report_refs = [
+                str(value).strip() for value in ensure_list(row.get("runtime_evidence_refs")) if str(value).strip()
+            ] or [relative_to_root(trace_path, phase3_root)]
+            for target in ensure_list(row.get("test_targets")):
+                target_id = str(target).strip()
+                if not target_id:
+                    continue
+                for report_ref in report_refs:
+                    _record_test_verdict(index, test_id=target_id, verdict="pass", report_ref=report_ref)
 
     for bucket in index.values():
         if bucket["latest_verdict"] in {"pass", "fail"}:

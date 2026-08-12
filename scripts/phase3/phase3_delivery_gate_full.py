@@ -15,6 +15,12 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
+from common.semantic_consistency import (
+    REALIZATION_LEDGER_SCHEMA,
+    build_semantic_realization_ledger,
+    commitment_union_verification_is_valid,
+    content_digest_is_valid,
+)
 from phase3.delivery_asset_checks import (
     compose_has_startable_runtime,
     delivery_asset_has_hardcoded_secrets,
@@ -42,7 +48,6 @@ from phase3.delivery_gate_cli import (
     run_delivery_gate_mode as run_delivery_gate_cli_mode,
     run_delivery_handoff_mode,
     run_phase3_delivery_gate_cli,
-    run_productness_gate_mode,
     run_security_audit_mode,
     validate_phase3_delivery_gate_args,
     write_phase3_cli_output,
@@ -91,6 +96,47 @@ def report_is_pass(report: dict[str, Any] | None) -> bool:
     if module is not None:
         return module.report_is_pass(report)
     return _report_status_green(report)
+
+
+def exact_operation_runtime_evidence_complete(bindings: dict[str, Any] | None) -> bool:
+    """Require exact operation targets plus passed-test and retained-report evidence.
+
+    This is stronger than behavior-card marker comments and does not treat derived
+    scenario/replay rows as implementation authority.
+    """
+    if not isinstance(bindings, dict):
+        return False
+    rows = bindings.get("rows", [])
+    if not isinstance(rows, list):
+        return False
+    exact_rows: list[dict[str, Any]] = []
+    tuples: set[tuple[str, str, str, str]] = set()
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        if str(raw.get("binding_authority") or "").startswith("derived-"):
+            continue
+        operation_id = str(raw.get("operation_id") or "").strip()
+        if not operation_id:
+            continue
+        contract_id = str(raw.get("contract_id") or raw.get("source_id") or "").strip()
+        decision_id = str(raw.get("implementation_decision_id") or "").strip()
+        decision_digest = str(raw.get("implementation_decision_digest") or "").strip()
+        implementation_targets = [str(item).strip() for item in raw.get("implementation_targets", []) if str(item).strip()]
+        runtime_test_refs = [str(item).strip() for item in raw.get("runtime_test_refs", []) if str(item).strip()]
+        runtime_evidence_refs = [
+            str(item).strip()
+            for item in raw.get("runtime_evidence_refs", [])
+            if str(item).strip().lower().endswith(".json")
+        ]
+        if not all((contract_id, decision_id, decision_digest, implementation_targets, runtime_test_refs, runtime_evidence_refs)):
+            return False
+        identity = (operation_id, contract_id, decision_id, decision_digest)
+        if identity in tuples:
+            return False
+        tuples.add(identity)
+        exact_rows.append(raw)
+    return bool(exact_rows)
 
 
 def bootstrap_report_is_green(report: dict[str, Any] | None) -> bool:
@@ -360,10 +406,6 @@ def load_json(path: Path | None) -> dict[str, Any] | None:
     return payload
 
 
-def run_productness_gate(frontend_dir: Path | None, ui_ia_contract_path: Path | None) -> dict[str, Any]:
-    return importlib.import_module("phase3.productness_gate").run_gate(frontend_dir, ui_ia_contract_path)
-
-
 def classify_behavior_card_consistency(
     *,
     behavior_card_report: dict[str, Any] | None,
@@ -424,6 +466,12 @@ def analyze_phase3_delivery(
     acceptance_report_path: Path | None = None,
     execution_report_path: Path | None = None,
     trace_registry_final_path: Path | None = None,
+    trace_registry_final: dict[str, Any] | None = None,
+    semantic_realization_ledger: dict[str, Any] | None = None,
+    semantic_realization_ledger_path: Path | None = None,
+    semantic_commitment_union: dict[str, Any] | None = None,
+    semantic_commitment_union_verification: dict[str, Any] | None = None,
+    implementation_bindings: dict[str, Any] | None = None,
     ui_prototype_fallback_report_path: Path | None = None,
     ui_ia_contract_path: Path | None = None,
     productness_gate_report: dict[str, Any] | None = None,
@@ -701,7 +749,11 @@ def analyze_phase3_delivery(
         for item in behavior_card_consistency.get("missing_implementation_steps", [])
         if str(item).strip()
     ]
-    strict_runtime_behavior_test_gap_resolved = (
+    exact_runtime_operation_evidence_green = exact_operation_runtime_evidence_complete(implementation_bindings)
+    coverage_collected = bool(
+        isinstance(coverage_gate_report, dict) and coverage_gate_report.get("collected") is True
+    )
+    legacy_strict_runtime_behavior_gap_resolved = (
         strict_runtime_closure
         and behavior_card_consistency_classification in {"action_card_test_gap", "p3_test_gap"}
         and not behavior_card_missing_implementation_steps
@@ -713,6 +765,22 @@ def analyze_phase3_delivery(
         and runtime_typecheck_green
         and runtime_smoke_green
         and started_service_smoke_green
+    )
+    coverage_backed_behavior_gap_resolved = (
+        strict_runtime_closure
+        and behavior_card_consistency_classification in {"action_card_test_gap", "p3_test_gap"}
+        and coverage_green
+        and coverage_collected
+        and exact_runtime_operation_evidence_green
+        and backend_packet_present
+        and runtime_targeted_tests_green
+        and runtime_unit_tests_green
+        and runtime_build_green
+        and runtime_lint_green
+        and runtime_typecheck_green
+    )
+    strict_runtime_behavior_test_gap_resolved = bool(
+        legacy_strict_runtime_behavior_gap_resolved or coverage_backed_behavior_gap_resolved
     )
     implementation_depth_gate_green = (
         (
@@ -860,9 +928,13 @@ def analyze_phase3_delivery(
 
     trace_registry_final_present = path_exists(trace_registry_final_path)
     trace_registry_payload = (
-        load_json(trace_registry_final_path)
-        if trace_registry_final_present and trace_registry_final_path and trace_registry_final_path.suffix == ".json"
-        else None
+        dict(trace_registry_final)
+        if isinstance(trace_registry_final, dict)
+        else (
+            load_json(trace_registry_final_path)
+            if trace_registry_final_present and trace_registry_final_path and trace_registry_final_path.suffix == ".json"
+            else None
+        )
     )
     if isinstance(trace_registry_payload, dict) and trace_registry_final_path is not None:
         trace_registry_payload = dict(trace_registry_payload)
@@ -881,6 +953,106 @@ def analyze_phase3_delivery(
         failures.append("trace_registry_final_has_unresolved_ids")
     if trace_registry_final_present and bool(trace_quality.get("trace_db_projection_blocking")):
         failures.append("trace_db_not_indexed_for_phase3_evidence")
+
+    semantic_ledger_present = path_exists(semantic_realization_ledger_path) or isinstance(
+        semantic_realization_ledger, dict
+    )
+    semantic_ledger = semantic_realization_ledger if isinstance(semantic_realization_ledger, dict) else {}
+    semantic_authority_source_rebuild_status = "not-applicable"
+    semantic_persisted_authority_source_paths = (
+        dict(semantic_ledger.get("authority_source_paths") or {})
+        if isinstance(semantic_ledger.get("authority_source_paths"), dict)
+        else {}
+    )
+    semantic_rebuilt_authority_source_paths: dict[str, Any] = {}
+    semantic_authority_source_paths_valid = True
+    semantic_phase2_root = str(metadata_report.get("phase2_root") or "").strip()
+    if semantic_ledger_present:
+        if semantic_phase2_root:
+            try:
+                from phase3.foundation_mainline import load_phase2_semantic_commitment_authority
+
+                rebuilt_authority = load_phase2_semantic_commitment_authority(
+                    Path(semantic_phase2_root)
+                )
+                semantic_commitment_union = rebuilt_authority["rebuilt_union"]
+                semantic_commitment_union_verification = rebuilt_authority["verification"]
+                semantic_rebuilt_authority_source_paths = dict(rebuilt_authority.get("source_paths") or {})
+                if semantic_persisted_authority_source_paths:
+                    semantic_authority_source_paths_valid = (
+                        semantic_persisted_authority_source_paths
+                        == semantic_rebuilt_authority_source_paths
+                    )
+                semantic_authority_source_rebuild_status = "rebuilt-from-phase2-root"
+            except (OSError, ValueError, KeyError, TypeError):
+                semantic_commitment_union = {}
+                semantic_commitment_union_verification = {}
+                semantic_rebuilt_authority_source_paths = {}
+                semantic_authority_source_paths_valid = False
+                semantic_authority_source_rebuild_status = "phase2-root-rebuild-failed"
+        else:
+            semantic_commitment_union = {}
+            semantic_commitment_union_verification = {}
+            semantic_rebuilt_authority_source_paths = {}
+            semantic_authority_source_paths_valid = False
+            semantic_authority_source_rebuild_status = "phase2-root-missing"
+    semantic_ledger_self_valid = (
+        content_digest_is_valid(semantic_ledger, schema_version=REALIZATION_LEDGER_SCHEMA)
+        if semantic_ledger_present
+        else False
+    )
+    semantic_union_verification_valid = commitment_union_verification_is_valid(
+        semantic_commitment_union_verification
+        if isinstance(semantic_commitment_union_verification, dict)
+        else {}
+    )
+    semantic_source_inputs_present = all(
+        isinstance(payload, dict) and payload
+        for payload in (
+            semantic_commitment_union,
+            semantic_commitment_union_verification,
+            implementation_bindings,
+            trace_registry_payload,
+        )
+    )
+    semantic_rebuilt_digest = ""
+    if semantic_ledger_present and semantic_source_inputs_present:
+        rebuilt_ledger = build_semantic_realization_ledger(
+            commitment_union=semantic_commitment_union or {},
+            implementation_bindings=implementation_bindings or {},
+            trace_registry_final=trace_registry_payload or {},
+            commitment_union_verification=semantic_commitment_union_verification or {},
+            authority_source_paths=semantic_persisted_authority_source_paths,
+        )
+        semantic_rebuilt_digest = str(rebuilt_ledger.get("content_digest") or "")
+    semantic_ledger_valid = bool(
+        semantic_ledger_self_valid
+        and semantic_union_verification_valid
+        and semantic_source_inputs_present
+        and semantic_authority_source_paths_valid
+        and semantic_rebuilt_digest == str(semantic_ledger.get("content_digest") or "")
+    )
+    semantic_counts = semantic_ledger.get("counts", {}) if isinstance(semantic_ledger.get("counts"), dict) else {}
+    semantic_blocking_count = int(semantic_counts.get("blocking", 0) or 0)
+    semantic_review_bound_count = int(semantic_counts.get("review_bound", 0) or 0)
+    semantic_realized_count = int(semantic_counts.get("realized", 0) or 0)
+    if semantic_ledger_present and semantic_authority_source_rebuild_status != "rebuilt-from-phase2-root":
+        failures.append("semantic_commitment_authority_source_rebuild_failed")
+    if semantic_ledger_present and not semantic_authority_source_paths_valid:
+        failures.append("semantic_commitment_authority_source_paths_mismatch")
+    if semantic_ledger_present and not semantic_source_inputs_present:
+        failures.append("semantic_realization_authority_inputs_missing")
+    if semantic_ledger_present and not semantic_union_verification_valid:
+        failures.append("semantic_commitment_union_verification_invalid")
+    if semantic_ledger_present and not semantic_ledger_valid:
+        failures.append("semantic_realization_ledger_invalid")
+        semantic_blocking_count = max(semantic_blocking_count, 1)
+    if semantic_ledger_present and semantic_blocking_count > 0:
+        failures.append("semantic_commitment_realization_blocked")
+    if semantic_ledger_present and semantic_review_bound_count > 0:
+        warnings.append("semantic_commitment_realization_review_bound")
+    if not semantic_ledger_present:
+        warnings.append("semantic_realization_ledger_missing")
 
     openapi_final_present = path_exists(openapi_final_path)
     api_doc_assets_present = dir_has_entries(api_doc_dir)
@@ -946,6 +1118,7 @@ def analyze_phase3_delivery(
         and security_high == 0
         and auth_downgrade_findings == 0
         and trace_registry_gap_count == 0
+        and semantic_blocking_count == 0
         and (api_evidence_linkage_gate_green if api_doc_assets_present else True)
         and delivery_artifacts_complete
         and (
@@ -1114,6 +1287,8 @@ def analyze_phase3_delivery(
 
     if not bootstrap_green:
         state = "blocked"
+    elif semantic_blocking_count > 0:
+        state = "implementation-in-progress"
     elif delivery_ready:
         state = "delivery-ready"
     elif implementation_ready:
@@ -1221,6 +1396,8 @@ def analyze_phase3_delivery(
             "behavior_static_preflight_blockers": behavior_static_preflight_blockers,
             "behavior_card_consistency_classification": behavior_card_consistency_classification,
             "behavior_card_test_gap_resolved_by_strict_runtime": strict_runtime_behavior_test_gap_resolved,
+            "behavior_card_exact_runtime_evidence_complete": exact_runtime_operation_evidence_green,
+            "behavior_card_coverage_backed_resolution": coverage_backed_behavior_gap_resolved,
             "behavior_card_missing_implementation_steps": behavior_card_missing_implementation_steps,
             "behavior_card_missing_test_steps": behavior_card_consistency.get("missing_test_steps", []),
             "openapi_diff_report_present": openapi_diff_report is not None,
@@ -1264,6 +1441,22 @@ def analyze_phase3_delivery(
             "acceptance_report_present": acceptance_report_present,
             "execution_report_present": execution_report_present,
             "trace_registry_final_present": trace_registry_final_present,
+            "semantic_realization_ledger_present": semantic_ledger_present,
+            "semantic_realization_ledger_valid": semantic_ledger_valid,
+            "semantic_commitment_authority_source_rebuild_status": semantic_authority_source_rebuild_status,
+            "semantic_commitment_authority_phase2_root": semantic_phase2_root,
+            "semantic_commitment_authority_source_paths_valid": semantic_authority_source_paths_valid,
+            "semantic_realization_source_inputs_present": semantic_source_inputs_present,
+            "semantic_commitment_union_verification_valid": semantic_union_verification_valid,
+            "semantic_commitment_union_verification_digest": str(
+                (semantic_commitment_union_verification or {}).get("content_digest") or ""
+            ),
+            "semantic_realization_ledger_digest": str(semantic_ledger.get("content_digest") or ""),
+            "semantic_realization_rebuilt_digest": semantic_rebuilt_digest,
+            "semantic_realization_blocking_count": semantic_blocking_count,
+            "semantic_realization_review_bound_count": semantic_review_bound_count,
+            "semantic_realization_realized_count": semantic_realized_count,
+            "semantic_realization_claim_ceiling": str(semantic_ledger.get("claim_ceiling") or ""),
             "trace_registry_gap_count": trace_registry_gap_count,
             "trace_registry_confirmed_count": int(trace_quality.get("confirmed_count", 0) or 0),
             "trace_registry_suggested_count": trace_registry_suggested_count,

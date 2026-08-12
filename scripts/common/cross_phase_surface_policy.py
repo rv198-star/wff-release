@@ -73,6 +73,7 @@ PROFILED_CROSS_PHASE_SURFACES: dict[str, dict[str, str]] = {
         "phase-2-traceability-report.json": ".phase2-evidence/phase-2-traceability-report.json",
         "phase-1-to-phase-2-coverage.json": ".phase2-evidence/phase-1-to-phase-2-coverage.json",
         "cross-stage-consistency.json": ".phase2-evidence/cross-stage-consistency.json",
+        "p2-agentic-architecture-decision.json": ".phase2-evidence/p2-agentic-architecture-decision.json",
         "operation-source-obligation-matrix.json": ".phase2-evidence/operation-source-obligation-matrix.json",
         "operation-design-source-registry.json": ".phase2-evidence/operation-design-source-registry.json",
         "operation-behavior-semantics.json": ".phase2-evidence/operation-behavior-semantics.json",

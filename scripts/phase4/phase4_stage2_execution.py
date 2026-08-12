@@ -19,6 +19,12 @@ from pathlib import Path
 from typing import Any
 
 from common.output_language import localize_phase4_stage2_execution_markdown
+from common.semantic_consistency import (
+    REALIZATION_LEDGER_SCHEMA,
+    accepted_environment_disposition,
+    content_digest_is_valid,
+    load_evidence_dispositions,
+)
 from phase4.phase4_common import (
     api_id_for_operation,
     collect_test_evidence,
@@ -30,6 +36,7 @@ from phase4.phase4_common import (
     extract_operation_ids_from_file,
     extract_operation_ids_from_text,
     load_json,
+    load_phase3_current_closure_summary,
     load_phase3_mainline_summary,
     load_phase3_runtime_environment_summary,
     load_worker_packets,
@@ -421,8 +428,13 @@ def navigation_targets_from_text(executable_text: str) -> list[str]:
     return dedupe_preserve_order(targets)
 
 
+def evidence_report_status(payload: dict[str, Any]) -> str:
+    return str(payload.get("overall_quality_gate") or payload.get("verdict") or "unknown").strip().lower()
+
+
 def load_phase3_runtime_truth_summary(phase3_root: Path) -> dict[str, Any]:
     delivery_gate = load_json_if_exists(phase3_root / "phase3-delivery-gate.json")
+    current_closure = load_phase3_current_closure_summary(phase3_root)
     mainline_summary = load_phase3_mainline_summary(phase3_root)
     code_review = load_json_if_exists(phase3_root / "code-review-metrics.json")
     mock_manifest = load_json_if_exists(phase3_root / "mock-dependency-manifest.json")
@@ -482,9 +494,23 @@ def load_phase3_runtime_truth_summary(phase3_root: Path) -> dict[str, Any]:
         (code_review.get("summary", {}) if isinstance(code_review, dict) else {}).get("mock_runtime_dependency_count", 0)
         or len(ensure_list(mock_manifest.get("items")))
     )
+    if current_closure.get("present"):
+        current_runtime_paths = [phase3_root / str(path) for path in current_closure.get("runtime_evidence_refs", [])]
+        if current_runtime_paths:
+            mainline_backend_report_paths = current_runtime_paths
+            full_targeted_report_refs = [str(path) for path in current_closure.get("runtime_evidence_refs", [])]
+        full_targeted_evidence_present = bool(current_closure.get("full_targeted_evidence_present"))
+        full_targeted_evidence_status = str(current_closure.get("full_targeted_evidence_status") or "missing")
+        delivery_green_default = bool(current_closure.get("complete"))
     return {
-        "delivery_gate_present": bool(delivery_gate),
-        "delivery_gate_path": relative_to_root(phase3_root / "phase3-delivery-gate.json", phase3_root),
+        "delivery_gate_present": bool(delivery_gate) or bool(current_closure.get("complete")),
+        "delivery_gate_path": (
+            relative_to_root(phase3_root / "phase3-delivery-gate.json", phase3_root)
+            if delivery_gate
+            else "p3-exact-realization-binding-ledger.json"
+            if current_closure.get("present")
+            else relative_to_root(phase3_root / "phase3-delivery-gate.json", phase3_root)
+        ),
         "code_review_path": relative_to_root(phase3_root / "code-review-metrics.json", phase3_root),
         "mock_manifest_path": relative_to_root(phase3_root / "mock-dependency-manifest.json", phase3_root),
         "mainline_summary_present": bool(mainline_summary.get("present")),
@@ -503,9 +529,23 @@ def load_phase3_runtime_truth_summary(phase3_root: Path) -> dict[str, Any]:
         "full_targeted_report_paths": full_targeted_report_refs,
         "full_targeted_failed_tests": dedupe_preserve_order(full_targeted_failed_tests),
         "full_targeted_passed_test_count": len(dedupe_preserve_order(full_targeted_passed_tests)),
-        "verification_ledger_path": relative_to_root(phase3_root / "phase3-verification-ledger.json", phase3_root),
-        "runtime_smoke_path": relative_to_root(phase3_root / "runtime-smoke-report.json", phase3_root),
-        "started_service_smoke_path": relative_to_root(phase3_root / "started-service-smoke-report.json", phase3_root),
+        "verification_ledger_path": (
+            relative_to_root(phase3_root / "phase3-verification-ledger.json", phase3_root)
+            if verification_ledger
+            else "p3-exact-realization-binding-ledger.json"
+            if current_closure.get("present")
+            else relative_to_root(phase3_root / "phase3-verification-ledger.json", phase3_root)
+        ),
+        "runtime_smoke_path": (
+            str(current_closure.get("runtime_evidence_refs", [""])[0])
+            if current_closure.get("runtime_evidence_refs")
+            else relative_to_root(phase3_root / "runtime-smoke-report.json", phase3_root)
+        ),
+        "started_service_smoke_path": (
+            str(current_closure.get("runtime_evidence_refs", [""])[0])
+            if current_closure.get("runtime_evidence_refs")
+            else relative_to_root(phase3_root / "started-service-smoke-report.json", phase3_root)
+        ),
         "evidence_paths": [
             path
             for path, exists in [
@@ -521,8 +561,16 @@ def load_phase3_runtime_truth_summary(phase3_root: Path) -> dict[str, Any]:
         ],
         "mock_dependency_count": mock_dependency_count,
         "mock_dependency_present": mock_dependency_count > 0,
-        "backend_interface_gate": bool(checks.get("backend_interface_gate", delivery_green_default)),
-        "backend_persistence_truth_required": bool(checks.get("backend_persistence_truth_required")),
+        "backend_interface_gate": bool(
+            current_closure.get("backend_interface_gate")
+            if current_closure.get("present")
+            else checks.get("backend_interface_gate", delivery_green_default)
+        ),
+        "backend_persistence_truth_required": bool(
+            current_closure.get("backend_persistence_truth_required")
+            if current_closure.get("present")
+            else checks.get("backend_persistence_truth_required")
+        ),
         "backend_persistence_gate": bool(
             checks.get(
                 "backend_persistence_gate",
@@ -535,16 +583,243 @@ def load_phase3_runtime_truth_summary(phase3_root: Path) -> dict[str, Any]:
                 ledger_backend_truth.get("migration_execution_packet_count", 0) > 0 or delivery_green_default,
             )
         ),
+        "runtime_smoke_present": bool(runtime_smoke) or bool(current_closure.get("runtime_evidence_complete")),
+        "runtime_smoke_status": (
+            "pass" if current_closure.get("runtime_evidence_pass") else evidence_report_status(runtime_smoke)
+        ),
+        "runtime_smoke_failures": [str(item) for item in ensure_list(runtime_smoke.get("failures")) if str(item).strip()],
         "runtime_smoke_green": bool(
-            checks.get("runtime_smoke_green")
-            or str(runtime_smoke.get("overall_quality_gate") or runtime_smoke.get("verdict") or "").lower() == "pass"
+            current_closure.get("runtime_evidence_pass")
+            if current_closure.get("present")
+            else checks.get("runtime_smoke_green") or evidence_report_status(runtime_smoke) == "pass"
         ),
+        "started_service_smoke_present": bool(started_service_smoke) or bool(current_closure.get("runtime_evidence_complete")),
+        "started_service_smoke_status": (
+            "pass" if current_closure.get("runtime_evidence_pass") else evidence_report_status(started_service_smoke)
+        ),
+        "started_service_smoke_failures": [
+            str(item) for item in ensure_list(started_service_smoke.get("failures")) if str(item).strip()
+        ],
         "started_service_smoke_green": bool(
-            checks.get("started_service_smoke_green")
-            or str(started_service_smoke.get("overall_quality_gate") or started_service_smoke.get("verdict") or "").lower()
-            == "pass"
+            current_closure.get("runtime_evidence_pass")
+            if current_closure.get("present")
+            else checks.get("started_service_smoke_green") or evidence_report_status(started_service_smoke) == "pass"
         ),
+        "semantic_realization_ledger": load_json_if_exists(phase3_root / "semantic-realization-ledger.json"),
+        "semantic_realization_gate_valid": bool(checks.get("semantic_realization_ledger_valid")),
+        "semantic_realization_gate_digest": str(checks.get("semantic_realization_ledger_digest") or ""),
     }
+
+
+def inherited_evidence_item(
+    *,
+    test_id: str,
+    status: str,
+    acceptance_item: str,
+    actual_result: str,
+    evidence_paths: list[str],
+    disposition: dict[str, Any] | None = None,
+    semantic_ledger_routes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    item = {
+        "test_id": test_id,
+        "acceptance_type": "evidence-consumption",
+        "acceptance_item": acceptance_item,
+        "source_id": test_id,
+        "related_api_ids": [],
+        "test_targets": [],
+        "implementation_targets": [],
+        "critical_path": True,
+        "risk_weight": "high",
+        "human_signoff_required": False,
+        "status": status,
+        "actual_result": actual_result,
+        "evidence_path": dedupe_preserve_order(evidence_paths),
+        "human_signoff_status": "not-required",
+        "signoff_evidence_path": [],
+        "reviewers": [],
+        "external_evidence_refs": [],
+        "runtime_environment_status": "not-applicable",
+        "runtime_environment_lane": "backend",
+        "runtime_environment_requirements": [],
+        "runtime_environment_packets": [],
+        "evidence_disposition": disposition or {},
+    }
+    if semantic_ledger_routes:
+        item["semantic_ledger_routes"] = semantic_ledger_routes
+    return item
+
+
+def semantic_ledger_routes(semantic_ledger: dict[str, Any]) -> list[dict[str, Any]]:
+    """Retain existing ledger ownership without deriving new semantic truth."""
+
+    ledger_digest = str(semantic_ledger.get("content_digest") or "")
+    ledger_ceiling = str(semantic_ledger.get("claim_ceiling") or "")
+    routes: list[dict[str, Any]] = []
+    for raw_result in ensure_list(semantic_ledger.get("results")):
+        if not isinstance(raw_result, dict):
+            continue
+        status = str(raw_result.get("status") or "").strip()
+        if status in {"", "realized"}:
+            continue
+        p2_disposition = str(raw_result.get("p2_disposition") or "").strip()
+        if status == "upstream-return-required" or p2_disposition == "local-return-required":
+            owner_phase = "P2"
+            minimum_rerun_from = "phase2"
+        elif status == "review-bound" or p2_disposition == "explicit-unresolved":
+            owner_phase = "P2"
+            minimum_rerun_from = "phase2"
+        else:
+            owner_phase = "P3"
+            minimum_rerun_from = "phase3"
+        routes.append(
+            {
+                "commitment_id": str(raw_result.get("commitment_id") or ""),
+                "owner_phase": owner_phase,
+                "minimum_rerun_from": minimum_rerun_from,
+                "status": status,
+                "p2_disposition": p2_disposition,
+                "reason": str(raw_result.get("reason") or ""),
+                "authority_ids": [
+                    str(value) for value in ensure_list(raw_result.get("authority_ids")) if str(value).strip()
+                ],
+                "p2_operation_ids": [
+                    str(value) for value in ensure_list(raw_result.get("p2_operation_ids")) if str(value).strip()
+                ],
+                "p2_contract_ids": [
+                    str(value) for value in ensure_list(raw_result.get("p2_contract_ids")) if str(value).strip()
+                ],
+                "evidence_boundary": {
+                    "path": "semantic-realization-ledger.json",
+                    "content_digest": ledger_digest,
+                },
+                "claim_ceiling": ledger_ceiling,
+            }
+        )
+    return routes
+
+
+def build_inherited_evidence_consumption_items(
+    *,
+    phase3_root: Path,
+    runtime_truth: dict[str, Any],
+) -> list[dict[str, Any]]:
+    dispositions = load_evidence_dispositions(phase3_root / "runtime-evidence-disposition.json")
+    items: list[dict[str, Any]] = []
+
+    for name, status_key, failures_key in (
+        ("runtime-smoke-report.json", "runtime_smoke_status", "runtime_smoke_failures"),
+        ("started-service-smoke-report.json", "started_service_smoke_status", "started_service_smoke_failures"),
+    ):
+        evidence_path = phase3_root / name
+        status = str(runtime_truth.get(status_key) or "unknown").strip().lower()
+        if not evidence_path.exists() or status in {"pass", "unknown", ""}:
+            continue
+        disposition = accepted_environment_disposition(
+            evidence_path=evidence_path,
+            relative_path=name,
+            dispositions=dispositions,
+        )
+        failures = ", ".join(str(item) for item in ensure_list(runtime_truth.get(failures_key)) if str(item).strip())
+        if disposition is not None:
+            items.append(
+                inherited_evidence_item(
+                    test_id=f"TEST-EVIDENCE-{name.replace('.', '-').upper()}",
+                    status="review-bound",
+                    acceptance_item=f"Consume current-generation {name} failure with exact bounded disposition",
+                    actual_result=(
+                        f"{name} is `{status}` ({failures or 'no failure detail'}), and an exact-digest "
+                        "caller-accepted environment/transient disposition keeps the failure review-bound; "
+                        "P4 has not independently verified that classification."
+                    ),
+                    evidence_paths=[name, "runtime-evidence-disposition.json"],
+                    disposition=disposition,
+                )
+            )
+        else:
+            items.append(
+                inherited_evidence_item(
+                    test_id=f"TEST-EVIDENCE-{name.replace('.', '-').upper()}",
+                    status="fail",
+                    acceptance_item=f"Consume current-generation {name} failure",
+                    actual_result=(
+                        f"{name} is `{status}` ({failures or 'no failure detail'}) and has no exact, accepted, "
+                        "evidence-bound environment/transient disposition."
+                    ),
+                    evidence_paths=[name],
+                )
+            )
+
+    if str(runtime_truth.get("full_targeted_evidence_status") or "unknown") == "fail":
+        items.append(
+            inherited_evidence_item(
+                test_id="TEST-EVIDENCE-FULL-TARGETED",
+                status="fail",
+                acceptance_item="Consume current-generation full targeted test evidence",
+                actual_result=(
+                    "Phase-3 full targeted evidence is `fail`: "
+                    + ", ".join(string for string in runtime_truth.get("full_targeted_failed_tests", []) if string)
+                ),
+                evidence_paths=[str(path) for path in runtime_truth.get("full_targeted_report_paths", []) if str(path)],
+            )
+        )
+
+    semantic_ledger = runtime_truth.get("semantic_realization_ledger", {})
+    if isinstance(semantic_ledger, dict) and semantic_ledger:
+        ledger_digest = str(semantic_ledger.get("content_digest") or "")
+        gate_valid = bool(runtime_truth.get("semantic_realization_gate_valid"))
+        gate_digest = str(runtime_truth.get("semantic_realization_gate_digest") or "")
+        if (
+            not content_digest_is_valid(semantic_ledger, schema_version=REALIZATION_LEDGER_SCHEMA)
+            or not gate_valid
+            or gate_digest != ledger_digest
+        ):
+            items.append(
+                inherited_evidence_item(
+                    test_id="TEST-EVIDENCE-SEMANTIC-REALIZATION-AUTHORITY",
+                    status="fail",
+                    acceptance_item="Verify semantic realization ledger identity and content digest",
+                    actual_result=(
+                        "semantic-realization-ledger.json is not bound to a successful P3 source-rebuild check "
+                        "or its schema/content digest is invalid"
+                    ),
+                    evidence_paths=["semantic-realization-ledger.json"],
+                )
+            )
+            return items
+        counts = semantic_ledger.get("counts", {}) if isinstance(semantic_ledger.get("counts"), dict) else {}
+        blocking_count = int(counts.get("blocking", 0) or 0)
+        review_bound_count = int(counts.get("review_bound", 0) or 0)
+        ledger_routes = semantic_ledger_routes(semantic_ledger)
+        if blocking_count:
+            items.append(
+                inherited_evidence_item(
+                    test_id="TEST-EVIDENCE-SEMANTIC-REALIZATION",
+                    status="fail",
+                    acceptance_item="Consume P1/P2 to P3 semantic realization ledger",
+                    actual_result=(
+                        f"Semantic realization ledger contains {blocking_count} blocking commitment(s): "
+                        + ", ".join(str(item) for item in semantic_ledger.get("blocking_commitment_ids", []))
+                    ),
+                    evidence_paths=["semantic-realization-ledger.json"],
+                    semantic_ledger_routes=ledger_routes,
+                )
+            )
+        elif review_bound_count:
+            items.append(
+                inherited_evidence_item(
+                    test_id="TEST-EVIDENCE-SEMANTIC-REALIZATION",
+                    status="review-bound",
+                    acceptance_item="Preserve explicit unresolved P1/P2 semantic commitments",
+                    actual_result=(
+                        f"Semantic realization ledger retains {review_bound_count} review-bound commitment(s); "
+                        "P4 preserves their owner and claim ceiling instead of treating them as realized."
+                    ),
+                    evidence_paths=["semantic-realization-ledger.json"],
+                    semantic_ledger_routes=ledger_routes,
+                )
+            )
+    return items
 
 
 def flatten_packet_test_targets(packet: dict[str, Any]) -> list[str]:
@@ -1408,6 +1683,17 @@ def build_phase4_stage2_execution(
         if resolved.get("human_signoff_status") == "not-ready":
             signoff_not_ready_items.append(resolved)
 
+    inherited_evidence_items = build_inherited_evidence_consumption_items(
+        phase3_root=phase3_root,
+        runtime_truth=runtime_truth,
+    )
+    for resolved in inherited_evidence_items:
+        resolved_items.append(resolved)
+        if resolved["status"] in {"fail", "blocked"}:
+            defect_items.append(resolved)
+        if item_has_residual_review(resolved):
+            review_bound_items.append(resolved)
+
     summary_counts = summarize_status_counts(resolved_items)
 
     results_path = stage02_dir / "test-execution-results.json"
@@ -1561,6 +1847,13 @@ def build_phase4_stage2_execution(
             [item for item in resolved_items if item["acceptance_type"] == "visual-evidence" and item["status"] == "review-bound"]
         ),
         "defect_count": len(defect_items),
+        "inherited_evidence_consumption_count": len(inherited_evidence_items),
+        "inherited_evidence_failure_count": len(
+            [item for item in inherited_evidence_items if item["status"] in {"fail", "blocked"}]
+        ),
+        "inherited_evidence_review_bound_count": len(
+            [item for item in inherited_evidence_items if item["status"] == "review-bound"]
+        ),
         "status_counts": summary_counts,
         "artifacts": {
             "results_json": relative_to_root(results_path, output_dir),

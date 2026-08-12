@@ -24,12 +24,27 @@ from datetime import datetime, timezone
 import re
 from typing import Any
 
+from common.action_card_authority_projection import (
+    build_component_action_card_obligation_projection,
+    project_component_authority,
+)
 from common.contamination_boundary import build_output_contamination_report_for_paths
 from common.contamination_boundary import collect_text_output_paths
 from common.cross_phase_surface_policy import resolve_cross_phase_surface_path
 from common.markdown_table_tools import table_rows_with_required_headers
 from common.output_language import resolve_output_locale
+from common.human_review_sidecar import dispatch_human_review_sidecar
+from common.semantic_consistency import (
+    build_p1_commitment_authority_snapshot,
+    build_semantic_commitment_union,
+    load_json_object,
+    p1_claim_control_from_authority,
+    p1_commitment_authority_is_valid,
+    p2_commitment_disposition_ledger_is_valid,
+    verify_phase2_claim_control_report,
+)
 from common.source_admission import build_source_admission_report_for_paths
+from phase2.agentic_architecture_authority import p2_agentic_architecture_authority_is_valid
 
 try:
     from common.human_review_surface import emit_human_review_surface as _emit_full_review_surface
@@ -113,6 +128,9 @@ PHASE2_CLOSURE_BRIDGE_SURFACE_NAMES = (
     "implementation-depth-obligation-matrix.json",
     "implementation-component-catalog.json",
     "component-action-card-obligation-matrix.json",
+    "p1-commitment-authority.json",
+    "phase2-claim-control-verification.json",
+    "semantic-commitment-union.json",
     "component-semantic-inventory.md",
     "component-semantic-inventory.json",
     "component-semantic-inventory.claim-control.json",
@@ -525,20 +543,26 @@ def _contract_operation_semantics(operation_id: str, row: dict[str, str] | None)
     )
     return {
         "operation_id": operation_id,
-        "semantic_status": "resolved",
-        "source_authority": "p2-structured",
-        "owner_service": "",
-        "aggregate": aggregate,
-        "state_set": state_set,
-        "trigger_events": [],
-        "mutation_guard": mutation_guard,
-        "terminal_or_failure_exit": terminal_or_failure_exit,
-        "readonly_dependencies": [key for key in evidence_keys if key not in {f"{_snake_case(aggregate)}_id", "version"}],
-        "evidence_keys": evidence_keys,
-        "guard_conditions": guard_conditions,
-        "operation_kind": operation_kind,
-        "source_evidence": [source_evidence] if source_evidence else [],
-        "review_bound_reasons": [],
+        "semantic_status": "review_bound",
+        "source_authority": "p2-contract-projection",
+        "contract_facts": {
+            "operation_kind": operation_kind,
+            "request_response_evidence_keys": evidence_keys,
+            "guard_conditions": guard_conditions,
+            "observed_status_values": state_set,
+            "source_evidence": [source_evidence] if source_evidence else [],
+        },
+        "inferred_candidates": {
+            "aggregate": aggregate,
+            "mutation_guard": mutation_guard,
+            "terminal_or_failure_exit": terminal_or_failure_exit,
+            "readonly_dependencies": [
+                key for key in evidence_keys if key not in {f"{_snake_case(aggregate)}_id", "version"}
+            ],
+        },
+        "review_bound_reasons": [
+            "contract_shape_does_not_establish_owner_lifecycle_invariant_or_policy_authority"
+        ],
     }
 
 
@@ -881,19 +905,35 @@ def build_implementation_depth_obligation_rows(
     operation_rows: list[dict[str, object]],
     resolution_rows: list[dict[str, object]],
 ) -> list[dict[str, object]]:
-    by_operation = {str(row.get("operation_id", "")): row for row in resolution_rows if str(row.get("operation_id", ""))}
+    resolutions_by_operation: dict[str, list[dict[str, object]]] = {}
+    for row in resolution_rows:
+        operation_id = str(row.get("operation_id", "")).strip()
+        if operation_id:
+            resolutions_by_operation.setdefault(operation_id, []).append(row)
     rows: list[dict[str, object]] = []
     for op in operation_rows:
         operation_id = str(op.get("operation_id", "")).strip()
-        resolution = by_operation.get(operation_id, {})
-        weight = normalize_business_value_weight(resolution.get("business_value_weight"))
+        resolutions = resolutions_by_operation.get(operation_id, [])
+        weight = max(
+            (normalize_business_value_weight(row.get("business_value_weight")) for row in resolutions),
+            key=_business_value_rank,
+            default="review-bound",
+        )
+        p1_trace_ids = list(
+            dict.fromkeys(
+                str(item).strip()
+                for row in resolutions
+                for item in row.get("p1_trace_ids", [])
+                if str(item).strip()
+            )
+        )
         complexity = derive_implementation_complexity(op)
         acd = derive_acd_level(weight, op.get("risk_tier"), complexity, list(op.get("risk_triggers", [])))
         rows.append(
             {
                 "operation_id": operation_id,
                 "contract_trace_id": str(op.get("contract_trace_id", "")),
-                "upstream_p1_trace_ids": list(resolution.get("p1_trace_ids", [])),
+                "upstream_p1_trace_ids": p1_trace_ids,
                 "business_value_weight": weight,
                 "engineering_risk_tier": str(op.get("risk_tier", "")),
                 "implementation_complexity": complexity,
@@ -955,6 +995,8 @@ def build_implementation_component_catalog_rows(
     endpoint_rows: list[dict[str, str]],
     schema_registry_rows: list[dict[str, str]],
     operation_rows: list[dict[str, object]],
+    *,
+    architecture_authority: dict[str, Any] | None = None,
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     component_index = 1
@@ -1011,53 +1053,175 @@ def build_implementation_component_catalog_rows(
             }
         )
         component_index += 1
+    if isinstance(architecture_authority, dict) and p2_agentic_architecture_authority_is_valid(architecture_authority):
+        return [project_component_authority(row, architecture_authority) for row in rows]
     return rows
 
 
 def build_component_action_card_obligation_rows(
     catalog_rows: list[dict[str, object]],
     depth_rows: list[dict[str, object]],
+    *,
+    architecture_authority: dict[str, Any] | None = None,
 ) -> list[dict[str, object]]:
-    depth_by_operation = {str(row.get("operation_id", "")): row for row in depth_rows}
-    rows: list[dict[str, object]] = []
-    for component in catalog_rows:
-        related_operations = [str(item) for item in component.get("related_operations", []) if str(item)]
-        related_depth = [depth_by_operation[item] for item in related_operations if item in depth_by_operation]
-        if not related_depth:
+    valid_authority = (
+        architecture_authority
+        if isinstance(architecture_authority, dict)
+        and p2_agentic_architecture_authority_is_valid(architecture_authority)
+        else {}
+    )
+    return build_component_action_card_obligation_projection(
+        catalog_rows=[dict(row) for row in catalog_rows],
+        depth_rows=[dict(row) for row in depth_rows],
+        authority=valid_authority,
+        authority_bound=bool(valid_authority),
+    )
+
+
+def apply_agentic_architecture_authority_to_bridge(
+    *,
+    operation_source_rows: list[dict[str, object]],
+    resolution_rows: list[dict[str, object]],
+    operation_semantic_payload: dict[str, Any],
+    disposition_ledger: dict[str, Any],
+) -> tuple[list[dict[str, object]], list[dict[str, object]], dict[str, Any], list[dict[str, str]]]:
+    """Project the accepted P2 decision into the P2->P3 authority bridge.
+
+    Generated endpoint/contract rows remain candidate implementation material.
+    When a valid snapshot-bound disposition ledger exists, only the accepted
+    operation portfolio becomes P2 contract authority and P3 obligation.
+    """
+
+    if not p2_commitment_disposition_ledger_is_valid(disposition_ledger):
+        return operation_source_rows, resolution_rows, operation_semantic_payload, []
+
+    generated_by_operation = {
+        str(row.get("operation_id") or "").strip(): dict(row)
+        for row in operation_source_rows
+        if str(row.get("operation_id") or "").strip()
+    }
+    disposition_rows = [
+        dict(row)
+        for row in disposition_ledger.get("rows", [])
+        if isinstance(row, dict)
+    ]
+    claims_by_operation: dict[str, list[str]] = {}
+    for row in disposition_rows:
+        if str(row.get("disposition") or "") not in {"exact-operation", "exact-operation-set"}:
             continue
-        selected = max(related_depth, key=lambda row: str(row.get("acd_level", "")), default={})
-        missing = list(selected.get("review_bound_missing_sources", []))
-        operation_source_ids = [item for item in selected.get("bound_source_ids", []) if str(item).strip()]
-        p1_trace_ids = list(selected.get("upstream_p1_trace_ids", []))
-        available = list(
-            dict.fromkeys(
-                [item for item in component.get("source_ids", []) if str(item).strip()]
-                + operation_source_ids
-                + p1_trace_ids
-            )
-        )
-        status = "sufficient" if not missing and available and p1_trace_ids else "partial" if available else "review-bound"
-        rows.append(
+        commitment_id = str(row.get("commitment_id") or "").strip()
+        for operation_id in row.get("realization_ids", []):
+            operation_key = str(operation_id or "").strip()
+            if operation_key and commitment_id:
+                claims_by_operation.setdefault(operation_key, []).append(commitment_id)
+
+    authority_operation_rows: list[dict[str, object]] = []
+    authority_resolution_rows: list[dict[str, object]] = []
+    authority_semantic_rows: list[dict[str, Any]] = []
+    authority_design_rows: list[dict[str, str]] = []
+    decision_digest = str(disposition_ledger.get("decision_digest") or "").strip()
+    for portfolio_row in disposition_ledger.get("operation_portfolio", []):
+        if not isinstance(portfolio_row, dict):
+            continue
+        operation_id = str(portfolio_row.get("operation_id") or "").strip()
+        contract_id = str(portfolio_row.get("contract_id") or "").strip()
+        if not operation_id or not contract_id:
+            continue
+        generated = generated_by_operation.get(operation_id, {})
+        risk = classify_operation(
             {
-                "component_id": str(component.get("component_id", "")),
-                "component_type": str(component.get("component_type", "")),
-                "upstream_operation_ids": related_operations,
-                "upstream_p1_trace_ids": p1_trace_ids,
-                "business_value_weight": str(selected.get("business_value_weight", "review-bound")),
-                "engineering_risk_tier": str(selected.get("engineering_risk_tier", "review-bound")),
-                "implementation_complexity": str(selected.get("implementation_complexity", "review-bound")),
-                "acd_level": str(selected.get("acd_level", "review-bound")),
-                "required_card_type": str(selected.get("required_card_type", "review-bound-card")),
-                "required_reason": str(selected.get("required_reason", "component obligation derived from P2 depth row")),
-                "required_tests": list(selected.get("required_tests", [])),
-                "required_source_ids": list(dict.fromkeys(operation_source_ids + p1_trace_ids + missing)),
-                "available_source_ids": available,
-                "missing_source_types": missing,
-                "source_sufficiency_status": status,
-                "review_bound_missing_sources": missing,
+                "operation_id": operation_id,
+                "method": generated.get("http_method", ""),
+                "path": generated.get("api_endpoint", ""),
+                "summary": portfolio_row.get("statement", ""),
             }
         )
-    return rows
+        upstream_ids = list(dict.fromkeys(claims_by_operation.get(operation_id, [])))
+        source_ids = [contract_id, str(disposition_ledger.get("decision_id") or "").strip()]
+        source_ids = [item for item in source_ids if item]
+        authority_operation_rows.append(
+            {
+                "operation_id": operation_id,
+                "api_endpoint": str(generated.get("api_endpoint") or "").strip(),
+                "http_method": str(generated.get("http_method") or "").strip().upper(),
+                "contract_trace_id": contract_id,
+                "risk_tier": risk["risk_tier"],
+                "risk_triggers": risk["risk_triggers"],
+                "upstream_p1_trace_ids": upstream_ids,
+                "required_source_types": ["P2-CTR", "P2-AGENTIC-DECISION"],
+                "not_required_source_types": [],
+                "bound_source_ids": source_ids,
+                "review_bound_missing_sources": [],
+                "source_files": [
+                    "p2-agentic-architecture-authority.json",
+                    "p2-commitment-disposition-ledger.json",
+                ],
+                "source_anchors": [operation_id.lower(), contract_id.lower()],
+                "source_requirement_status": "sufficient",
+                "classification_rationale": "accepted snapshot-bound Agentic architecture operation",
+                "authority_mode": "snapshot-bound-agentic-architecture-decision",
+                "decision_digest": decision_digest,
+            }
+        )
+        authority_design_rows.append(
+            {
+                "source_id": contract_id,
+                "source_type": "P2-CTR",
+                "operation_id": operation_id,
+                "source_stage": "Agentic-Architecture-Decision",
+                "evidence_ref": f"{operation_id} accepted contract {contract_id}",
+                "trace_status": "available",
+                "upstream_contract_trace_id": contract_id,
+            }
+        )
+        authority_semantic_rows.append(
+            {
+                "operation_id": operation_id,
+                "semantic_status": "resolved",
+                "source_authority": "snapshot-bound-agentic-architecture-decision",
+                "decision_digest": decision_digest,
+                "contract_facts": {
+                    "operation_kind": "decision-authorized-operation",
+                    "source_evidence": [str(portfolio_row.get("statement") or "").strip()],
+                    "guard_conditions": [],
+                    "observed_status_values": [],
+                    "request_response_evidence_keys": [],
+                },
+                "inferred_candidates": {},
+                "review_bound_reasons": [],
+            }
+        )
+        for claim_id in upstream_ids:
+            authority_resolution_rows.append(
+                {
+                    "operation_id": operation_id,
+                    "contract_trace_id": contract_id,
+                    "p2_contract_ids": [contract_id],
+                    "p1_trace_ids": [claim_id],
+                    "resolution_status": "mapped",
+                    "review_bound_reason": "",
+                    "source_requirement_status": "sufficient",
+                    "source_files": [
+                        "p2-agentic-architecture-authority.json",
+                        "p2-commitment-disposition-ledger.json",
+                    ],
+                    "source_anchors": [operation_id.lower(), contract_id.lower()],
+                    "business_value_weight": "BV2",
+                    "business_value_reason": "accepted P1 commitment disposition",
+                    "risk_tier": risk["risk_tier"],
+                    "api_endpoint": str(generated.get("api_endpoint") or "").strip(),
+                    "http_method": str(generated.get("http_method") or "").strip().upper(),
+                    "value_signal_id": claim_id,
+                    "authority_mode": "snapshot-bound-agentic-architecture-decision",
+                }
+            )
+
+    return (
+        authority_operation_rows,
+        authority_resolution_rows,
+        {"operations": authority_semantic_rows},
+        authority_design_rows,
+    )
 
 
 def write_compact_cross_phase_bridge_surfaces(
@@ -1083,19 +1247,6 @@ def write_compact_cross_phase_bridge_surfaces(
         business_value_signal_registry,
         operation_source_obligation_rows,
     )
-    implementation_depth_rows = build_implementation_depth_obligation_rows(
-        operation_source_obligation_rows,
-        p1_value_resolution_rows,
-    )
-    component_catalog_rows = build_implementation_component_catalog_rows(
-        endpoint_rows,
-        schema_registry_rows,
-        operation_source_obligation_rows,
-    )
-    component_obligation_rows = build_component_action_card_obligation_rows(
-        component_catalog_rows,
-        implementation_depth_rows,
-    )
     operation_ids = [
         str(row.get("operation_id", "")).strip()
         for row in p1_value_resolution_rows
@@ -1106,10 +1257,76 @@ def write_compact_cross_phase_bridge_surfaces(
         endpoint_rows=endpoint_rows,
         operation_ids=list(dict.fromkeys(operation_ids)),
     )
+    p2_commitment_disposition_ledger = load_json_object(
+        resolve_cross_phase_surface_path(
+            output_dir,
+            "phase2",
+            "p2-commitment-disposition-ledger.json",
+        )
+    )
+    p2_architecture_authority = load_json_object(output_dir / "p2-agentic-architecture-authority.json")
+    (
+        operation_source_obligation_rows,
+        p1_value_resolution_rows,
+        operation_semantic_payload,
+        authority_design_source_rows,
+    ) = apply_agentic_architecture_authority_to_bridge(
+        operation_source_rows=operation_source_obligation_rows,
+        resolution_rows=p1_value_resolution_rows,
+        operation_semantic_payload=operation_semantic_payload,
+        disposition_ledger=p2_commitment_disposition_ledger,
+    )
+    if authority_design_source_rows:
+        operation_design_source_rows = authority_design_source_rows
+    implementation_depth_rows = build_implementation_depth_obligation_rows(
+        operation_source_obligation_rows,
+        p1_value_resolution_rows,
+    )
+    component_catalog_rows = build_implementation_component_catalog_rows(
+        endpoint_rows,
+        schema_registry_rows,
+        operation_source_obligation_rows,
+        architecture_authority=p2_architecture_authority,
+    )
+    component_obligation_rows = build_component_action_card_obligation_rows(
+        component_catalog_rows,
+        implementation_depth_rows,
+        architecture_authority=p2_architecture_authority,
+    )
+    phase1_claim_control_sidecar = sibling_claim_control_sidecar(phase1_prd)
+    p1_commitment_authority_path = resolve_cross_phase_surface_path(
+        output_dir,
+        "phase2",
+        "p1-commitment-authority.json",
+    )
+    p1_commitment_authority = load_json_object(p1_commitment_authority_path)
+    if not p1_commitment_authority_is_valid(p1_commitment_authority) and phase1_claim_control_sidecar:
+        p1_commitment_authority = build_p1_commitment_authority_snapshot(
+            artifact_path=phase1_prd,
+            sidecar_path=phase1_claim_control_sidecar,
+        )
+    p1_claim_control = p1_claim_control_from_authority(p1_commitment_authority)
+    phase2_claim_control_result = verify_phase2_claim_control_report(
+        phase2_root=output_dir,
+        report=load_json_object(output_dir / "phase2-claim-control-report.json"),
+        p1_commitment_authority=p1_commitment_authority,
+    )
+    verified_phase2_claim_control_report = phase2_claim_control_result["report"]
+    phase2_claim_control_verification = phase2_claim_control_result["verification"]
+    semantic_commitment_union = build_semantic_commitment_union(
+        p1_claim_control=p1_claim_control,
+        operation_source_obligations={"operations": operation_source_obligation_rows},
+        p1_operation_resolutions={"resolutions": p1_value_resolution_rows},
+        operation_semantics=operation_semantic_payload,
+        p2_claim_control_report=verified_phase2_claim_control_report,
+        p1_commitment_authority=p1_commitment_authority,
+        p2_claim_control_verification=phase2_claim_control_verification,
+        p2_commitment_disposition_ledger=p2_commitment_disposition_ledger,
+    )
     component_inventory = emit_component_inventory(
         output_dir=output_dir,
         phase1_prd=phase1_prd,
-        phase1_claim_control_sidecar=sibling_claim_control_sidecar(phase1_prd),
+        phase1_claim_control_sidecar=phase1_claim_control_sidecar,
         component_catalog_rows=component_catalog_rows,
         component_obligation_rows=component_obligation_rows,
         operation_resolution_rows=p1_value_resolution_rows,
@@ -1123,6 +1340,9 @@ def write_compact_cross_phase_bridge_surfaces(
         "implementation-depth-obligation-matrix.json": {"operations": implementation_depth_rows},
         "implementation-component-catalog.json": {"components": component_catalog_rows},
         "component-action-card-obligation-matrix.json": {"components": component_obligation_rows},
+        "p1-commitment-authority.json": p1_commitment_authority,
+        "phase2-claim-control-verification.json": phase2_claim_control_verification,
+        "semantic-commitment-union.json": semantic_commitment_union,
     }
     written: dict[str, str] = {}
     for surface_name, payload in surfaces.items():
@@ -1144,6 +1364,10 @@ def write_compact_cross_phase_bridge_surfaces(
             "implementation_components": len(component_catalog_rows),
             "component_action_card_obligations": len(component_obligation_rows),
             "business_value_signals": len(business_value_signal_registry),
+            "semantic_commitments": int(semantic_commitment_union.get("counts", {}).get("commitment_union", 0)),
+            "semantic_commitments_local_return_required": int(
+                semantic_commitment_union.get("counts", {}).get("local_return_required", 0)
+            ),
         },
     }
 
@@ -1781,6 +2005,29 @@ def run_closure(args: argparse.Namespace) -> int:
     missing_stages = missing_required_stages(stage_paths)
     formal_state = "blocked" if missing_stages else "review-bound"
     handoff_state = compact_handoff_state(missing_stages)
+    disposition_ledger = load_json_object(
+        resolve_cross_phase_surface_path(
+            output_dir,
+            "phase2",
+            "p2-commitment-disposition-ledger.json",
+        )
+    )
+    if p2_commitment_disposition_ledger_is_valid(disposition_ledger):
+        authored_handoff = disposition_ledger.get("handoff")
+        authored_status = (
+            str(authored_handoff.get("status") or "").strip()
+            if isinstance(authored_handoff, dict)
+            else ""
+        )
+        if authored_status == "return-required":
+            formal_state = "blocked"
+            handoff_state = "return-required"
+        elif authored_status == "bounded":
+            formal_state = "review-bound"
+            handoff_state = "implementation-planning-bounded"
+        elif authored_status == "ready" and not missing_stages:
+            formal_state = "review-bound"
+            handoff_state = "implementation-planning-ready"
     case_name = derive_case_name(output_dir, args.case_name)
     output_locale = resolve_output_locale(args.output_locale)
     phase1_prd = source_paths[0]
@@ -1879,6 +2126,7 @@ def run_closure(args: argparse.Namespace) -> int:
     }
     write_json(output_dir / ".phase2-diagnostics" / "phase2-closure-runtime-report.json", report)
     emit_review_surface(output_dir, "phase2")
+    dispatch_human_review_sidecar(output_dir, "phase2")
     output_contamination_report = run_phase2_closure_generated_output_contamination_gate(
         output_dir=output_dir,
         stage_paths=stage_paths,

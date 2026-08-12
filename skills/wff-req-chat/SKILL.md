@@ -234,7 +234,9 @@ If the user refuses the necessary source truth and still wants to proceed, the a
 
 ## Fresh-Context Review
 
-Before producing the final packet, run one fresh-context review pass using only the source brief seed, `Product Truth Challenge Notes`, and admission draft. The reviewer should not rely on the full conversation transcript.
+Before producing the final packet, run one bounded fresh-context challenge using the shared `CLAIM -> EXTRACT -> CHALLENGE -> RECONCILE -> STOP` protocol. This is the pre-P1 `source-admission` instance; it aligns the existing office-hours flow with later P1/P2/P3/P4 Agentic authority without creating another lifecycle stage.
+
+Keep the owner's compact admission CLAIM outside the reviewer packet. Give the reviewer only the source brief seed identity/digest as the artifact, the packet/admission contract identity/digest, exact admitted source/context identities/digests, bounded explicit unknowns, and an issues-first instruction. Identity rows accept no extra prose fields. The review packet is capped at 64 KiB, 20 admitted contexts and 50 unknowns; decompose a larger unit before challenge. Do not provide the preferred admission decision, author reasoning, full conversation transcript, session history, or hidden chain-of-thought.
 
 The review must look for:
 
@@ -246,7 +248,9 @@ The review must look for:
 - unsupported claims or hidden assumptions
 - gaps that P1 must preserve instead of inventing away
 
-Default review depth is one pass. Important or high-risk cases may use up to three bounded passes. Repeated unresolved issues go to `Reviewer Concerns` and `Open Truth Gaps`; do not loop indefinitely.
+The intake Agent owns reconciliation. For every material finding, record whether the packet/contract/context is insufficient, the finding is valid and actionable, it remains valid but review-bound, or it does not apply to the supplied review unit. An actionable finding requires a substantive packet change and only the changed review unit may be reviewed again.
+
+Default review depth is one pass. A second pass is allowed only after the source brief, packet contract, or admitted context changes. Maximum depth is three passes; unresolved material issues then remain visible in `Reviewer Concerns`, `Open Truth Gaps`, the admission state, and the claim ceiling. Cross-model review is optional and requires explicit per-invocation authorization; failed or skipped external review remains visible. Do not loop indefinitely.
 
 ## Project Context Candidate Capture
 
@@ -558,6 +562,13 @@ Refuse to present an output as a normal P1 source brief when:
 - high-risk external claims would be needed but no evidence or review-bound warning is allowed
 
 In those cases, provide a provisional intake note or ask the next highest-value question.
+
+## WFF Core Contract Binding
+
+- Machine descriptor: `requirements-intake` under `wff-core-contract` `1.0.0`.
+- Consumes route, handoff, artifact identity, evidence, and claim-state contracts.
+- Core validates the structural envelope only; intake Agentic reasoning still owns question choice, source interpretation, and provisional truth.
+- Missing Core registration or required contract compatibility blocks handoff rather than fabricating P1 readiness.
 
 ## Handoff To wff-req
 

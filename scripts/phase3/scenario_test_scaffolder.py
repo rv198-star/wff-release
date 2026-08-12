@@ -25,12 +25,23 @@ from phase3.test_scaffolder_common import (
     endpoint_index,
     failure_condition_signal_lines,
     failure_has_runtime_signal,
+    field_invalid_failure_has_concrete_payload_shape,
     normalize_field_token,
     operation_supports_persistence_roundtrip,
     persistence_roundtrip_assertion_lines,
     remap_operation_ids_to_runtime_contract,
     render_harness_import,
     resolve_response_field,
+    response_data_fields,
+    response_data_for_operation,
+)
+from phase3.scenario_replay_test_common import (
+    first_matching_failure_code,
+    literal_ts_value,
+    response_data_example_record,
+    response_is_array,
+    scalar_business_value_fields,
+    ts_property_access,
 )
 try:
     from phase3.behavior_contract import (
@@ -206,14 +217,6 @@ def collect_runtime_failure_codes(
     return list(dict.fromkeys(failure_codes))
 
 
-def first_matching_failure_code(failure_codes: list[str], pattern: str) -> str:
-    regex = re.compile(pattern)
-    for code in failure_codes:
-        if regex.search(code):
-            return code
-    return ""
-
-
 def preferred_failure_code(
     row: dict[str, object],
     endpoint_rows: list[dict[str, object]],
@@ -272,6 +275,10 @@ def scenario_failure_variants(
                 if not code:
                     continue
                 if not failure_has_runtime_signal_for_endpoint(row, failure, behavior_card_models=behavior_card_models):
+                    continue
+                if label == "invalid request" and not field_invalid_failure_has_concrete_payload_shape(
+                    row.get("request_body_example", {}), failure
+                ):
                     continue
                 if status.startswith(status_prefixes) or code_pattern.search(code):
                     variants.append(
@@ -363,14 +370,6 @@ def score_id_field_candidate(param_key: str, field: str) -> int:
     return overlap * 10 if overlap else -1
 
 
-def response_data_for_operation(endpoint_rows: list[dict[str, object]], operation_id: str) -> object:
-    row = endpoint_index(endpoint_rows).get(operation_id, {})
-    response = row.get("response_body_example", {})
-    if isinstance(response, dict):
-        return response.get("data", {})
-    return {}
-
-
 def response_id_fields(endpoint_rows: list[dict[str, object]], operation_id: str) -> list[str]:
     def is_id_field(key: object) -> bool:
         value = str(key)
@@ -384,46 +383,30 @@ def response_id_fields(endpoint_rows: list[dict[str, object]], operation_id: str
     return []
 
 
-def response_data_fields(endpoint_rows: list[dict[str, object]], operation_id: str) -> list[str]:
-    data = response_data_for_operation(endpoint_rows, operation_id)
-    if isinstance(data, dict):
-        return list(data.keys())
-    if isinstance(data, list) and data and isinstance(data[0], dict):
-        return list(data[0].keys())
-    return []
-
-
-def response_is_array(endpoint_rows: list[dict[str, object]], operation_id: str) -> bool:
-    return isinstance(response_data_for_operation(endpoint_rows, operation_id), list)
-
-
-def response_data_example_record(endpoint_rows: list[dict[str, object]], operation_id: str) -> dict[str, object]:
-    data = response_data_for_operation(endpoint_rows, operation_id)
-    if isinstance(data, dict):
-        return data
-    if isinstance(data, list) and data and isinstance(data[0], dict):
-        return data[0]
-    return {}
-
-
-def ts_property_access(field: str) -> str:
-    return f".{field}" if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", field) else f"[{json.dumps(field, ensure_ascii=False)}]"
-
-
-def literal_ts_value(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False)
-
-
-def scalar_business_value_fields(endpoint_rows: list[dict[str, object]], operation_id: str) -> dict[str, object]:
-    record = response_data_example_record(endpoint_rows, operation_id)
-    values: dict[str, object] = {}
-    for field, value in record.items():
-        normalized = normalize_field_token(field)
-        if normalized in {"traceid", "createdat", "updatedat"} or normalized.endswith("id"):
+def response_identifier_type_assertions(
+    endpoint_rows: list[dict[str, object]],
+    operation_id: str,
+    *,
+    record_expr: str,
+    fields: list[str],
+) -> list[str]:
+    """Render identifier assertions from the frozen response example type, not the field name."""
+    example = response_data_example_record(endpoint_rows, operation_id)
+    lines: list[str] = []
+    for field in fields:
+        if not (field.endswith("Id") or field.endswith("_id")):
             continue
-        if isinstance(value, (str, int, float, bool)) and value is not None:
-            values[field] = value
-    return values
+        value = example.get(field)
+        if isinstance(value, bool):
+            ts_type = "Boolean"
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            ts_type = "Number"
+        elif isinstance(value, str):
+            ts_type = "String"
+        else:
+            continue
+        lines.append(f"    expect({record_expr}{ts_property_access(field)}).toEqual(expect.any({ts_type}));")
+    return lines
 
 
 def endpoint_row_for_operation(endpoint_rows: list[dict[str, object]], operation_id: str) -> dict[str, object]:
@@ -800,6 +783,10 @@ def render_concurrent_conflict_body(
         [
             "    const beforeRows = await collectScenarioState(runtime);",
             "    const payload = buildFailurePayload(failureOperationId, failureCode);",
+            "    for (const [field, value] of Object.entries(successPayload)) {",
+            "      const normalizedField = field.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();",
+            "      if ((normalizedField === 'version' || normalizedField.endsWith('_version')) && field in payload) payload[field] = value;",
+            "    }",
             *failure_condition_signal_lines("version_conflict"),
             "    const error = await captureApiError(",
             "      invokeHttpOperation(runtime, failureOperationId, buildBehaviorCardPayload(failureOperationId, payload, behaviorEvidenceKeysByOperation)),",
@@ -987,11 +974,12 @@ def render_operation_chain_body(
             f"    expect(String(finalData{ts_property_access(field)} ?? '')).not.toHaveLength(0);"
             for field in final_fields
         ],
-        *[
-            f"    expect(finalData{ts_property_access(field)}).toEqual(expect.any(String));"
-            for field in final_fields
-            if field.endswith("Id") or field.endswith("_id")
-        ],
+        *response_identifier_type_assertions(
+            endpoint_rows,
+            operation_ids[-1] if operation_ids else "",
+            record_expr="finalData",
+            fields=final_fields,
+        ),
         *[
             f"    expect(finalData{ts_property_access(field)}).toEqual({literal_ts_value(value)});"
             for field, value in scalar_business_value_fields(endpoint_rows, operation_ids[-1] if operation_ids else "").items()
@@ -1043,11 +1031,12 @@ def render_generic_success_body(
             for field in final_fields
         ],
         "    expect(Boolean(finalRecord[finalDataFields[0]])).toBe(true);",
-        *[
-            f"    expect(finalRecord{ts_property_access(field)}).toEqual(expect.any(String));"
-            for field in final_fields
-            if field.endswith("Id") or field.endswith("_id")
-        ],
+        *response_identifier_type_assertions(
+            endpoint_rows,
+            primary_operation_id,
+            record_expr="finalRecord",
+            fields=final_fields,
+        ),
         *[
             f"    expect({'finalRecord' if final_is_array else 'data'}{ts_property_access(field)}).toEqual({literal_ts_value(value)});"
             for field, value in scalar_business_value_fields(endpoint_rows, primary_operation_id).items()

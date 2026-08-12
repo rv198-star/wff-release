@@ -1,7 +1,6 @@
 # WFF 首读入口
 
-这是本安装包的低上下文首读文件。
-先用它选择入口，再决定是否展开完整 README、skill 目录、scripts 或 docs 树。
+这是本安装包的低上下文首读文件；先用它选择入口，再决定是否展开完整 README、skill 目录、scripts 或 docs 树。
 
 ## 先选入口
 | 当前任务 | 先用 | 再看 |
@@ -29,5 +28,5 @@
 - `INSTALL-PACK-README.zh-CN.md`：安装布局、根命令、支持目录规则和详细运行说明入口。
 - `AGENTS.md`：面向 agent 的本安装包简短操作指引。
 - `SKILL_INSTALL_PACK_MANIFEST.json`：准确列出包含的 skills、scripts、docs、references 和 profile metadata。
-- pack_name: `wff-v1.6.0-skills-install-pack`
+- pack_name: `wff-v1.9.2-skills-install-pack`
 - install_set_id: `full-pack`

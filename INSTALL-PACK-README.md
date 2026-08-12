@@ -5,9 +5,9 @@
 首次阅读：先打开 `WFF-START-HERE.zh-CN.md`，按短入口图选择任务路线，再展开完整安装包。
 
 ## 标识
-- pack_name: `wff-v1.6.0-skills-install-pack`
-- generated_at: `2026-07-05T04:47:51+00:00`
-- source_revision: `2989df038c98ed5e501120260b9c8e319aef4610`
+- pack_name: `wff-v1.9.2-skills-install-pack`
+- generated_at: `2026-08-12T12:33:02+00:00`
+- source_revision: `fab0cee6f9ef7346469a858dbc75724adf06069b`
 
 ## 能力边界
 - `Phase 1` 到 `Phase 4`：GA 主线能力。
@@ -35,7 +35,7 @@
 
 ## 解压后的预期目录结构
 ```text
-wff-v1.6.0-skills-install-pack/
+wff-v1.9.2-skills-install-pack/
 ├── AGENTS.md
 ├── README.md
 ├── wff-init
@@ -85,7 +85,7 @@ wff-v1.6.0-skills-install-pack/
 │       ├── wff-req/
 │       └── wff-x/
 ├── .wff/
-│   └── wff-v1.6.0-skills-install-pack/
+│   └── wff-v1.9.2-skills-install-pack/
 │       ├── scripts/
 │       ├── docs/
 │       ├── templates/
@@ -100,7 +100,7 @@ wff-v1.6.0-skills-install-pack/
 
 ```text
 /Users/edy/project/party/
-└── wff-v1.6.0-skills-install-pack/
+└── wff-v1.9.2-skills-install-pack/
     ├── skills/
     ├── scripts/
     ├── docs/
@@ -114,7 +114,7 @@ wff-v1.6.0-skills-install-pack/
 ## 项目初始化
 ```bash
 cd /path/to/your-project
-/path/to/wff-v1.6.0-skills-install-pack/wff-init
+/path/to/wff-v1.9.2-skills-install-pack/wff-init
 ```
 
 `wff-init` 只创建或更新 `.wff/`，遇到冲突会停止。仅支持两个参数：
@@ -124,15 +124,16 @@ cd /path/to/your-project
 
 ## Role-Agent 平台适配器
 ```bash
-/path/to/wff-v1.6.0-skills-install-pack/wff-agent setup opencode all --project-root /path/to/your-project
-/path/to/wff-v1.6.0-skills-install-pack/wff-agent setup claude-code wff-programmer wff-reviewer --project-root /path/to/your-project
-/path/to/wff-v1.6.0-skills-install-pack/wff-agent setup codex wff-product-manager --project-root /path/to/your-project
+/path/to/wff-v1.9.2-skills-install-pack/wff-agent setup opencode all --project-root /path/to/your-project
+/path/to/wff-v1.9.2-skills-install-pack/wff-agent setup claude-code wff-programmer wff-reviewer --project-root /path/to/your-project
+/path/to/wff-v1.9.2-skills-install-pack/wff-agent setup codex wff-product-manager --project-root /path/to/your-project
 ```
 
 `wff-agent` 导出角色配置，不调用 LLM，不运行独立 Agent runtime，也不会替代 WFF 生命周期技能和验证证据。角色说明见 `docs/WFF-ROLE-AGENTS.zh-CN.md`；全局路线图见 `docs/public/wff-orientation-map.zh-CN.md`。
 
 ## 运行提示
-- 在执行 P3 / P4 / PX / 发布验证前，先检查 Python 3.10+、Node.js 18+（推荐 Node 22）、匹配生成 P3 workspace 的 pnpm、Docker 与 Compose v2+ 和外网访问。
+- 在执行 P3 / P4 / PX / 发布验证前，先检查 Python 3.12、Node.js 18+（推荐 Node 22）、匹配生成 P3 workspace 的 pnpm、Docker 与 Compose v2+ 和外网访问。
+- `scripts/wff_core` 是共享的 WFF Core `1.0.0` 语义运行时，只定义生命周期、交接、证据与声明信封；它不是插件 SDK、生命周期阶段，也不拥有业务、架构或实现真相。
 - Phase 3 会生成 Node.js workspace，在 dispatch 执行前仍需要先完成依赖 bootstrap。
 - 快速验证 / 聚焦验证（例如 `--validation-level fast`）只适合诊断和局部修复检查，不能替代发布证明。
 - 严格运行验证前，先执行 `python3 scripts/phase3/phase3_toolchain_bootstrap.py --workspace-root <phase3-output-dir> --install --strict --output <phase3-output-dir>/phase3-toolchain-bootstrap.json`。

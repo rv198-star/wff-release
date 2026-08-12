@@ -13,6 +13,7 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
+from common.wff_core_runtime import WFFCoreConsumerError, require_capability_binding  # noqa: E402
 from release.role_agent_manifest import (  # noqa: E402
     RoleAgentManifestError,
     load_role_agent_manifest,
@@ -246,6 +247,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    try:
+        require_capability_binding(
+            "role-agent-adaptation",
+            required_contracts=(
+                "lifecycle-route-contract",
+                "extension-registration-contract",
+                "agentic-boundary-contract",
+            ),
+        )
+    except WFFCoreConsumerError as exc:
+        raise WffAgentError(str(exc)) from exc
     if args.command != "setup":
         raise WffAgentError(f"unsupported command: {args.command}")
 

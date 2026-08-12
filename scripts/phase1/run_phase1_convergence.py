@@ -29,6 +29,7 @@ from pathlib import Path
 
 from common.output_language import resolve_output_locale
 from common.cross_phase_surface_policy import resolve_cross_phase_surface_path
+from common.semantic_consistency import p1_agentic_product_authority_is_valid
 from common.wff_runtime_paths import resolve_wff_base_trace_scripts
 from phase1.phase1_converge_prd import apply_narrative_compression_rewrite, load_narrative_compression_rewrite
 from phase1.phase1_emit_depth_runtime_artifacts import (
@@ -106,6 +107,7 @@ class Phase1ConvergenceRuntimeContext:
     thinking_value_gain_output_profile: str
     output_json_path: Path | None
     auto_remediate: bool
+    agentic_product_direct_driver: Path | None
     output_locale: str
 
 
@@ -756,6 +758,116 @@ def render_phase1_acceptance_matrix_markdown(assessment: dict[str, object]) -> s
     return "\n".join(lines).rstrip() + "\n"
 
 
+def load_p1_agentic_product_authority(output_dir: Path) -> dict[str, object]:
+    path = output_dir / "p1-agentic-product-authority.json"
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"status": "invalid-p1-agentic-product-authority", "path": str(path)}
+    if not isinstance(payload, dict) or not p1_agentic_product_authority_is_valid(payload):
+        return {"status": "invalid-p1-agentic-product-authority", "path": str(path)}
+    return payload
+
+
+def apply_p1_agentic_authority_ceiling(
+    *,
+    assessment: dict[str, object],
+    authority: dict[str, object],
+) -> dict[str, object]:
+    if not authority:
+        return assessment
+    result = dict(assessment)
+    acceptance_rows = [dict(row) for row in result.get("acceptance_rows", []) if isinstance(row, dict)]
+    if authority.get("status") != "accepted-p1-agentic-product-authority":
+        acceptance_rows.append(
+            {
+                "key": "agentic_product_authority",
+                "label": "当前快照 Agentic 产品权威",
+                "status": "BLOCKED",
+                "why": "P1 Agentic product authority is missing, invalid, or stale.",
+            }
+        )
+        result["acceptance_rows"] = acceptance_rows
+        result["blockers_count"] = int(result.get("blockers_count", 0) or 0) + 1
+        result["verdict"] = "RETURN-REMEDIATE"
+        result["document_delivery_state"] = "blocked"
+        result["agentic_product_authority"] = {
+            "status": "invalid",
+            "claim_ceiling": "No current-snapshot product authority is available.",
+        }
+        return result
+
+    world = authority.get("world_alignment")
+    accepted_world = world.get("accepted_world", {}) if isinstance(world, dict) else {}
+    world_state = str(accepted_world.get("truth_state") or "review-bound") if isinstance(accepted_world, dict) else "review-bound"
+    features = authority.get("feature_dispositions")
+    feature_rows = [row for row in features if isinstance(row, dict)] if isinstance(features, list) else []
+    bounded_dispositions = {
+        "later-slice",
+        "deferred-seam",
+        "unresolved-review-bound",
+        "context-completion",
+    }
+    bounded_features = [
+        row for row in feature_rows if str(row.get("disposition") or "") in bounded_dispositions
+    ]
+    commitments = authority.get("commitments")
+    commitment_rows = [row for row in commitments if isinstance(row, dict)] if isinstance(commitments, list) else []
+    accepted_count = sum(1 for row in commitment_rows if row.get("status") == "accepted")
+    review_bound_count = sum(1 for row in commitment_rows if row.get("status") == "review-bound")
+    authority_bounded = world_state in {"agentic-candidate", "agentic-hypothesis", "review-bound", "unresolved"} or bool(bounded_features) or review_bound_count > 0
+
+    acceptance_rows.append(
+        {
+            "key": "agentic_product_authority",
+            "label": "当前快照 Agentic 产品权威",
+            "status": "PASS",
+            "why": "An accepted decision and portable commitment authority are bound to the current admitted source snapshot.",
+        }
+    )
+    if authority_bounded:
+        acceptance_rows.append(
+            {
+                "key": "agentic_world_truth_ceiling",
+                "label": "产品世界真相上限",
+                "status": "REVIEW-BOUND",
+                "why": (
+                    f"accepted_world_truth_state={world_state}; "
+                    f"bounded_feature_count={len(bounded_features)}; "
+                    f"review_bound_commitment_count={review_bound_count}"
+                ),
+            }
+        )
+        for row in acceptance_rows:
+            if row.get("key") == "phase2_handoff_safe":
+                row["status"] = "REVIEW-BOUND"
+                row["why"] = (
+                    "P2 may consume only the named accepted commitments and must preserve the Agentic product/world claim ceiling; "
+                    "candidate or unresolved world truth is not an unqualified safe-start claim."
+                )
+        result["document_delivery_state"] = "review-ready"
+        result["verdict"] = "PASS with review-bound items"
+
+    result["acceptance_rows"] = acceptance_rows
+    result["review_bound_items_count"] = sum(1 for row in acceptance_rows if row.get("status") == "REVIEW-BOUND")
+    result["blockers_count"] = sum(1 for row in acceptance_rows if row.get("status") == "BLOCKED")
+    result["agentic_product_authority"] = {
+        "status": "accepted",
+        "decision_id": authority.get("decision_id", ""),
+        "decision_digest": authority.get("decision_digest", ""),
+        "authority_digest": authority.get("content_digest", ""),
+        "accepted_world_truth_state": world_state,
+        "accepted_commitment_count": accepted_count,
+        "review_bound_commitment_count": review_bound_count,
+        "bounded_feature_count": len(bounded_features),
+        "claim_ceiling": authority.get("claim_ceiling", ""),
+        "unqualified_downstream_start_safe": not authority_bounded,
+    }
+    return result
+
+
 def build_phase1_mainline_assessment(
     *,
     depth_mode: str,
@@ -1184,7 +1296,7 @@ def build_phase1_mainline_assessment(
     else:
         verdict = "RETURN-REMEDIATE"
 
-    return {
+    assessment = {
         "phase": "P1",
         "depth_mode": depth_mode,
         "depth_posture": depth_posture or "not-explicit",
@@ -1213,6 +1325,10 @@ def build_phase1_mainline_assessment(
         "agentic_loop_deferred_focus_areas": agentic_loop_deferred_focus_areas,
         "same_run_required": same_run_required,
     }
+    return apply_p1_agentic_authority_ceiling(
+        assessment=assessment,
+        authority=load_p1_agentic_product_authority(output_dir),
+    )
 
 
 def resolve_stage_map(stage_paths: list[Path]) -> dict[str, Path]:
@@ -1572,6 +1688,7 @@ def execute_remediation_plan(
     depth_mode: str,
     thinking_value_gain_mode: str = "off",
     thinking_value_gain_output_profile: str = "coverage_rich",
+    agentic_product_direct_driver: Path | None = None,
     output_locale: str | None = None,
 ) -> dict[str, object]:
     stage_map = resolve_stage_map(stage_paths)
@@ -1602,6 +1719,8 @@ def execute_remediation_plan(
         ]
         if output_locale:
             generator_cmd.extend(["--output-locale", str(output_locale)])
+        if agentic_product_direct_driver is not None:
+            generator_cmd.extend(["--agentic-product-direct-driver", str(agentic_product_direct_driver)])
         if thinking_value_gain_mode != "off":
             generator_cmd.extend(["--thinking-value-gain-mode", thinking_value_gain_mode])
             generator_cmd.extend(["--thinking-value-gain-output-profile", thinking_value_gain_output_profile])
@@ -1914,6 +2033,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output-json")
     parser.add_argument(
+        "--agentic-product-direct-driver",
+        help="optional accepted P1 direct-driver JSON that must survive same-run stage refresh/remediation",
+    )
+    parser.add_argument(
         "--auto-remediate",
         action="store_true",
         help="on gate failure, regenerate stage outputs and/or reassemble PRD based on failed-gate mapping",
@@ -1960,6 +2083,11 @@ def build_phase1_convergence_runtime_context(args: argparse.Namespace) -> Phase1
         thinking_value_gain_output_profile=str(getattr(args, "thinking_value_gain_output_profile", "coverage_rich")),
         output_json_path=Path(args.output_json).resolve() if args.output_json else None,
         auto_remediate=bool(args.auto_remediate),
+        agentic_product_direct_driver=(
+            Path(args.agentic_product_direct_driver).resolve()
+            if getattr(args, "agentic_product_direct_driver", None)
+            else None
+        ),
         output_locale=resolve_output_locale(args.output_locale),
     )
 
@@ -2532,6 +2660,7 @@ def main(argv: list[str] | None = None) -> int:
                         depth_mode=context.depth_mode,
                         thinking_value_gain_mode=context.thinking_value_gain_mode,
                         thinking_value_gain_output_profile=context.thinking_value_gain_output_profile,
+                        agentic_product_direct_driver=context.agentic_product_direct_driver,
                         output_locale=context.output_locale,
                     )
                     round_result["remediation_execution"] = remediation_result
@@ -2583,6 +2712,7 @@ def main(argv: list[str] | None = None) -> int:
                     depth_mode=context.depth_mode,
                     thinking_value_gain_mode=context.thinking_value_gain_mode,
                     thinking_value_gain_output_profile=context.thinking_value_gain_output_profile,
+                    agentic_product_direct_driver=context.agentic_product_direct_driver,
                     output_locale=context.output_locale,
                 )
                 round_result["remediation_execution"] = remediation_result
@@ -2656,6 +2786,12 @@ def main(argv: list[str] | None = None) -> int:
                     "blockers_count": mainline_assessment["blockers_count"],
                     "document_delivery_state": mainline_assessment["document_delivery_state"],
                     "evidence_confidence_state": mainline_assessment["evidence_confidence_state"],
+                    "agentic_product_authority": mainline_assessment.get("agentic_product_authority", {}),
+                    "claim_ceiling": (
+                        mainline_assessment.get("agentic_product_authority", {}).get("claim_ceiling", "")
+                        if isinstance(mainline_assessment.get("agentic_product_authority"), dict)
+                        else ""
+                    ),
                     "scorecard_path": str(scorecard_path),
                     "acceptance_matrix_path": str(acceptance_matrix_path),
                     "prd": str(chosen_prd_path),

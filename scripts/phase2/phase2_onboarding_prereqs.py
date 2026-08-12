@@ -5,12 +5,68 @@ Helpers for deriving Phase-3 onboarding environment and dependency prerequisites
 
 from __future__ import annotations
 
-from phase2.phase2_quality_check import (
-    block_text,
-    extract_block_scalar,
-    extract_structured_block,
-    normalize_text,
-)
+import re
+
+
+def normalize_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip())
+
+
+def block_text(text: str, block_name: str) -> str:
+    lines = text.splitlines()
+    marker = f"- {block_name}:"
+    start = next((index for index, line in enumerate(lines) if line.startswith(marker)), None)
+    if start is None:
+        return ""
+    collected = [lines[start]]
+    for line in lines[start + 1 :]:
+        if line.startswith("## ") or (line.startswith("- ") and not line.startswith("  - ")):
+            break
+        collected.append(line)
+    return "\n".join(collected).strip()
+
+
+def extract_block_scalar(block: str, field_name: str) -> str:
+    nested = re.search(
+        rf"{re.escape(field_name)}:\s*\n\s+- `?([^`\n]+)`?",
+        block,
+        flags=re.IGNORECASE,
+    )
+    if nested:
+        return nested.group(1).strip()
+    inline = re.search(
+        rf"^\s*- {re.escape(field_name)}:\s*`?([^`\n][^\n`]*)`?\s*$",
+        block,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    return inline.group(1).strip() if inline else ""
+
+
+def extract_structured_block(entry: str, field_name: str, *, indent: int = 4) -> str:
+    lines = entry.splitlines()
+    marker_pattern = re.compile(rf"^(\s*)- {re.escape(field_name)}:\s*(.*)$", flags=re.IGNORECASE)
+    start = None
+    marker_indent = indent
+    remainder = ""
+    for index, line in enumerate(lines):
+        match = marker_pattern.match(line)
+        if match:
+            start = index
+            marker_indent = len(match.group(1))
+            remainder = match.group(2).strip()
+            break
+    if start is None:
+        return ""
+    collected = [remainder] if remainder else []
+    for line in lines[start + 1 :]:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        current_indent = len(line) - len(line.lstrip(" "))
+        if current_indent <= marker_indent and stripped.startswith("- "):
+            break
+        collected.append(stripped.strip("`"))
+    return "\n".join(collected)
 
 
 def bullet_items_from_block(block: str) -> list[str]:

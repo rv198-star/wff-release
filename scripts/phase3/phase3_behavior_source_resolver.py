@@ -21,7 +21,7 @@ from typing import Any
 
 from common.cross_phase_surface_policy import find_cross_phase_surface_path
 
-TRACE_ID_RE = re.compile(r"\bP[12]-(?:US|UC|REQ|AC|DTR|CTR|RP|RT)-\d+\b")
+TRACE_ID_RE = re.compile(r"\bP[12]-(?:EP|US|UC|REQ|AC|CON|DTR|CTR|RP|RT)(?:-[A-Za-z0-9]+)+\b")
 
 
 def _normalize(value: str) -> str:
@@ -98,8 +98,33 @@ def load_p1_value_operation_resolution_matrix(phase2_root: Path) -> dict[str, di
         if not isinstance(row, dict):
             continue
         operation_id = str(row.get("operation_id", "")).strip()
-        if operation_id:
-            rows[operation_id] = row
+        if not operation_id:
+            continue
+        existing = rows.get(operation_id)
+        if existing is None:
+            rows[operation_id] = dict(row)
+            continue
+        merged = dict(existing)
+        for key in (
+            "p1_trace_ids",
+            "p2_contract_ids",
+            "p2_flow_ids",
+            "p2_sequence_ids",
+            "p2_state_ids",
+            "source_anchors",
+            "source_files",
+        ):
+            values: list[str] = []
+            for source in (existing, row):
+                raw = source.get(key)
+                candidates = raw if isinstance(raw, list) else [raw]
+                for item in candidates:
+                    text = str(item or "").strip()
+                    if text and text not in values:
+                        values.append(text)
+            if values:
+                merged[key] = values
+        rows[operation_id] = merged
     return rows
 
 
@@ -170,7 +195,13 @@ def _structured_semantics_row(row: dict[str, Any] | None) -> dict[str, Any] | No
     if status != "resolved":
         return {
             "status": "review_bound",
-            "source_authority": "p2-structured",
+            "source_authority": str(row.get("source_authority") or "p2-structured"),
+            "contract_facts": dict(row.get("contract_facts", {}))
+            if isinstance(row.get("contract_facts"), dict)
+            else {},
+            "inferred_candidates": dict(row.get("inferred_candidates", {}))
+            if isinstance(row.get("inferred_candidates"), dict)
+            else {},
             "review_bound_reasons": row.get("review_bound_reasons", ["operation_semantics_not_found"]),
         }
     return {

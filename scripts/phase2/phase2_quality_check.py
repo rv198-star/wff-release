@@ -1058,6 +1058,8 @@ def count_structured_entries_with_fields(block: str, *, label_prefix: str, requi
 
 def normalized_optional_stage_status(value: str) -> str:
     lowered = value.strip().lower()
+    if lowered == "activated-provider-neutral":
+        return "active"
     return lowered if lowered in OPTIONAL_STAGE_02_5_STATUS_VALUES else ""
 
 

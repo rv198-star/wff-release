@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { URL, pathToFileURL } from "node:url";
-import { handleGeneratedApiRequest } from "./generated-api-router.js";
+import { checkGeneratedRouteReadiness, handleGeneratedApiRequest } from "./generated-api-router.js";
 import { checkDatabaseReadiness } from "./runtime/database.js";
 
 const host = process.env.HOST || "0.0.0.0";
@@ -31,10 +31,12 @@ export async function createApiServer() {
     }
 
     if (method === "GET" && url.pathname === "/readyz") {
-      const database = await checkDatabaseReadiness();
-      sendJson(response, database.ready ? 200 : 503, {
-        status: database.ready ? "ready" : "not_ready",
+      const [database, routes] = await Promise.all([checkDatabaseReadiness(), checkGeneratedRouteReadiness()]);
+      const ready = database.ready && routes.ready;
+      sendJson(response, ready ? 200 : 503, {
+        status: ready ? "ready" : "not_ready",
         database,
+        routes,
       });
       return;
     }

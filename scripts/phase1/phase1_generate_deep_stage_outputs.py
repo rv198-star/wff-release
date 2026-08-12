@@ -486,6 +486,75 @@ def build_phase1_source_sections(source_text: str) -> Phase1SourceSections:
     )
 
 
+def _apply_agentic_product_authority_to_domain_context(
+    context: dict[str, object],
+    direct_driver: dict[str, object] | None,
+) -> dict[str, object]:
+    if not isinstance(direct_driver, dict):
+        return context
+    canonical = direct_driver.get("canonical_context")
+    if not isinstance(canonical, dict):
+        return context
+    result = dict(context)
+    primary_segment = str(canonical.get("primary_segment") or "").strip()
+    if primary_segment:
+        result["segments"] = [primary_segment]
+    for key in (
+        "objectives",
+        "modules",
+        "flows",
+        "first_slice_modules",
+        "constraints",
+        "nfrs",
+        "out_of_scope",
+        "p0",
+        "p1",
+        "p2",
+        "business_value_signals",
+        "pressure_signals",
+        "commercial_decision_signals",
+        "user_experience_signals",
+    ):
+        value = canonical.get(key)
+        if isinstance(value, list) and value:
+            result[key] = value
+    result["authority_workflow_topology"] = str(canonical.get("workflow_topology") or "").strip()
+    result["authority_workflow_topology_mode"] = str(canonical.get("workflow_topology_mode") or "review-bound").strip()
+    result["authority_ownership_posture"] = str(canonical.get("ownership_posture") or "review-bound").strip()
+    result["world_knowledge_backfill"] = [
+        dict(row) for row in canonical.get("world_knowledge_backfill", []) if isinstance(row, dict)
+    ]
+    result["product_world_decision"] = dict(canonical.get("product_world_decision") or {})
+    profile = dict(result.get("source_semantic_profile") or {})
+    if primary_segment:
+        profile["primary_actor"] = primary_segment
+    flows = result.get("flows", [])
+    if isinstance(flows, list):
+        profile["flow_steps"] = [
+            str(step).strip()
+            for row in flows
+            if isinstance(row, dict)
+            for step in row.get("steps", [])
+            if str(step).strip()
+        ]
+    modules = result.get("modules", [])
+    if isinstance(modules, list):
+        profile["module_name"] = str(canonical.get("workflow_topology_mode") or "authority-governed product outcomes")
+        profile["core_objects"] = [
+            str(row.get("core_objects") or "").strip()
+            for row in modules
+            if isinstance(row, dict) and str(row.get("core_objects") or "").strip()
+        ]
+    result["source_semantic_profile"] = profile
+    result["agentic_product_context_authority"] = {
+        "mode": "accepted-snapshot-bound-agentic-product-decision",
+        "decision_id": str(direct_driver.get("agentic_product_authority", {}).get("decision_id") or "")
+        if isinstance(direct_driver.get("agentic_product_authority"), dict)
+        else "",
+    }
+    return result
+
+
 @dataclass(frozen=True)
 class Phase1SourceSnapshot:
     sections: Phase1SourceSections
@@ -505,10 +574,20 @@ class Phase1SourceSnapshot:
     main_roles: list[str]
 
 
-def build_phase1_source_snapshot(source_text: str) -> Phase1SourceSnapshot:
+def build_phase1_source_snapshot(
+    source_text: str,
+    *,
+    product_source_direct_driver: dict[str, object] | None = None,
+) -> Phase1SourceSnapshot:
     sections = build_phase1_source_sections(source_text)
-    context = extract_domain_context(source_text)
-    business_world_model = build_business_world_model(source_text)
+    context = _apply_agentic_product_authority_to_domain_context(
+        extract_domain_context(source_text),
+        product_source_direct_driver,
+    )
+    business_world_model = build_business_world_model(
+        source_text,
+        product_source_direct_driver=product_source_direct_driver,
+    )
     segments = list(context["segments"])
     primary_segment = str(segments[0]) if segments else REVIEW_BOUND_MISSING_SOURCE_ROLE
     roles = list(context["roles"])
@@ -530,8 +609,20 @@ def build_phase1_source_snapshot(source_text: str) -> Phase1SourceSnapshot:
         flows=flows,
         first_slice_modules=first_slice_modules,
         module_names=module_names,
-        module_chain=" -> ".join(module_names) or "source-defined workflow",
-        primary_flow_name=dict_sequence_field_text(flows, 0, "name", "Primary Flow"),
+        module_chain=(
+            str(context.get("authority_workflow_topology") or "").strip()
+            or " -> ".join(module_names)
+            or "source-defined workflow"
+        ),
+        primary_flow_name=(
+            {
+                "independent-outcomes": "Authority-governed independent outcomes",
+                "ordered-flow": "Authority-governed ordered flow",
+                "mixed": "Authority-governed mixed topology",
+                "review-bound": "Authority-governed review-bound topology",
+            }.get(str(context.get("authority_workflow_topology_mode") or "").strip())
+            or dict_sequence_field_text(flows, 0, "name", "Primary Flow")
+        ),
         main_roles=main_roles or [REVIEW_BOUND_MISSING_SOURCE_ROLE],
     )
 
@@ -1665,23 +1756,245 @@ def signal_phrase(values: list[str], fallback: str, *, limit: int = 2) -> str:
     return "; ".join(picked[:limit])
 
 
+def _apply_agentic_product_authority_to_world_model(
+    model: dict[str, object],
+    direct_driver: dict[str, object],
+) -> dict[str, object]:
+    authority = direct_driver.get("agentic_product_authority")
+    if not isinstance(authority, dict):
+        return model
+    accepted_world = authority.get("accepted_world")
+    product_world_decision = authority.get("product_world_decision")
+    if not isinstance(accepted_world, dict) or not isinstance(product_world_decision, dict):
+        return model
+    result = dict(model)
+    truth_state = str(accepted_world.get("truth_state") or "review-bound")
+    world_model = str(product_world_decision.get("summary") or accepted_world.get("model") or "").strip()
+    source_refs = [str(item).strip() for item in accepted_world.get("source_refs", []) if str(item).strip()]
+    world_knowledge_backfill = [
+        dict(row) for row in authority.get("world_knowledge_backfill", []) if isinstance(row, dict)
+    ]
+    accepted_backfill_refs = [
+        str(item).strip() for item in product_world_decision.get("accepted_backfill_refs", []) if str(item).strip()
+    ]
+    topology_decision = product_world_decision.get("topology") if isinstance(product_world_decision.get("topology"), dict) else {}
+    ownership_decision = product_world_decision.get("ownership") if isinstance(product_world_decision.get("ownership"), dict) else {}
+    topology_mode = str(topology_decision.get("mode") or "review-bound").strip()
+    topology_statement = str(topology_decision.get("statement") or "review-bound product topology").strip()
+    judgment = authority.get("product_judgment") if isinstance(authority.get("product_judgment"), dict) else {}
+    sufficiency = authority.get("context_sufficiency") if isinstance(authority.get("context_sufficiency"), dict) else {}
+    canonical = direct_driver.get("canonical_context") if isinstance(direct_driver.get("canonical_context"), dict) else {}
+    product_goal = str(judgment.get("product_goal") or world_model).strip()
+    status_quo = str(judgment.get("status_quo_to_beat") or "review-bound status quo").strip()
+    why_this_not_that = str(judgment.get("why_this_not_that") or product_goal).strip()
+    mvp_wedge = str(judgment.get("mvp_wedge") or product_goal).strip()
+    acceptance_should_prove = str(judgment.get("acceptance_should_prove") or product_goal).strip()
+    primary_user = str(judgment.get("primary_user_or_buyer") or "review-bound product focus").strip()
+    continuation_owner = str(judgment.get("continuation_owner") or "P1 host Agent pending owner confirmation").strip()
+    proof_that_changes_decision = str(judgment.get("proof_that_changes_decision") or acceptance_should_prove).strip()
+    independent_flow_names = [
+        str(row.get("name") or "").strip()
+        for row in canonical.get("flows", [])
+        if isinstance(row, dict) and str(row.get("name") or "").strip()
+    ]
+    canonical_modules = [
+        str(row.get("module") or "").strip()
+        for row in canonical.get("modules", [])
+        if isinstance(row, dict) and str(row.get("module") or "").strip()
+    ]
+    result["status"] = "accepted-snapshot-bound-agentic-product-authority"
+    result["authority"] = {
+        "mode": "snapshot-bound-agentic-product-decision",
+        "decision_id": authority.get("decision_id", ""),
+        "decision_digest": authority.get("decision_digest", ""),
+        "input_snapshot_digest": authority.get("input_snapshot_digest", ""),
+        "claim_ceiling": authority.get("claim_ceiling", ""),
+    }
+    result["product_world_decision"] = {
+        "artifact_type": "product_world_decision",
+        "truth_state": truth_state,
+        "chosen_product_world": world_model,
+        "category_framing": world_model,
+        "decision_basis": str(accepted_world.get("rationale") or ""),
+        "source_refs": source_refs,
+        "accepted_backfill_refs": accepted_backfill_refs,
+        "topology": dict(topology_decision),
+        "ownership": dict(ownership_decision),
+        "world_knowledge_contract": authority.get("world_knowledge_contract", ""),
+        "candidate_not_confirmed_truth": truth_state in {"agentic-candidate", "agentic-hypothesis"},
+        "world_knowledge_not_source_truth": truth_state == "agentic-world-knowledge",
+        "decision_id": authority.get("decision_id", ""),
+    }
+    result["world_knowledge_backfill"] = world_knowledge_backfill
+    option_set = result.get("product_world_option_set")
+    if isinstance(option_set, dict):
+        option_set = dict(option_set)
+        option_set["truth_state"] = truth_state
+        option_set["chosen"] = world_model
+        option_set["authority"] = "snapshot-bound-agentic-product-decision"
+        option_set["source_refs"] = source_refs
+        result["product_world_option_set"] = option_set
+    result["core_thesis"] = {"truth_state": truth_state, "value": product_goal, "source_signals": source_refs}
+    result["why_now"] = {"truth_state": truth_state, "value": status_quo, "source_signals": source_refs}
+    result["why_this_not_that"] = {
+        "truth_state": truth_state,
+        "value": why_this_not_that,
+        "source_signals": source_refs,
+    }
+    result["value_mechanism"] = {
+        "truth_state": truth_state,
+        "value": mvp_wedge,
+        "source_signals": source_refs,
+    }
+    result["proof_artifact_for_continue"] = {
+        "truth_state": truth_state,
+        "value": proof_that_changes_decision,
+        "source_signals": source_refs,
+    }
+    result["decision_trigger"] = {
+        "truth_state": truth_state,
+        "value": acceptance_should_prove,
+        "source_signals": source_refs,
+    }
+    result["buyer_budget_chain"] = {
+        "truth_state": truth_state,
+        "pain_holder": primary_user,
+        "continuation_owner": continuation_owner,
+        "spend_at_risk": str(authority.get("claim_ceiling") or ""),
+        "proof_artifact_for_continue": proof_that_changes_decision,
+        "decision_trigger": acceptance_should_prove,
+        "current_truth_state": truth_state,
+        "missing_evidence_to_unlock": "; ".join(
+            str(item).strip() for item in sufficiency.get("missing_facts", []) if str(item).strip()
+        ),
+    }
+    result["chosen_business_thesis"] = {
+        "artifact_type": "chosen_business_thesis",
+        "truth_state": truth_state,
+        "derived_from": "accepted-p1-agentic-product-authority",
+        "chosen_thesis": product_goal,
+        "business_argument": why_this_not_that,
+        "why_this_not_alternatives": why_this_not_that,
+        "rejected_alternatives": [],
+        "current_state_substitute_to_beat": status_quo,
+        "buyer_user_operator_value": mvp_wedge,
+        "proof_target": proof_that_changes_decision,
+        "review_bound_truth": "; ".join(
+            str(item).strip() for item in sufficiency.get("missing_facts", []) if str(item).strip()
+        ),
+        "product_boundary_implication": mvp_wedge,
+        "reality_density_focus": acceptance_should_prove,
+        "quality_gate": {
+            "judgment": "accepted-agentic-authority",
+            "missing_or_weak_signals": "explicitly review-bound",
+            "script_boundary": "renderer consumes authority; it does not decide product truth",
+        },
+    }
+    result["commercial_argument_draft"] = {
+        "artifact_type": "commercial_argument_draft",
+        "truth_state": truth_state,
+        "generation_mode": "accepted-agentic-authority",
+        "quality_state": "authority-bounded",
+        "argument_narrative": why_this_not_that,
+        "primary_substitute_pressure": status_quo,
+        "substitute_pressure_types": [],
+        "why_substitute_is_not_enough": why_this_not_that,
+        "proof_that_changes_decision": proof_that_changes_decision,
+        "directional_proof_when_exact_roi_missing": acceptance_should_prove,
+        "value_mechanism": mvp_wedge,
+        "architecture_pressure": f"preserve exact portable commitments and the accepted product-world topology: {topology_statement}",
+        "review_bound_truth": "; ".join(
+            str(item).strip() for item in sufficiency.get("missing_facts", []) if str(item).strip()
+        ),
+        "source_grounding_notes": source_refs,
+        "rewrite_required": "false",
+    }
+    topology = result.get("topology_profile")
+    if isinstance(topology, dict):
+        topology = dict(topology)
+        topology["topology_archetype"] = {
+            "independent-outcomes": "authority-governed-multi-outcome",
+            "ordered-flow": "authority-governed-bounded-loop",
+            "mixed": "authority-governed-mixed-topology",
+            "review-bound": "authority-governed-review-bound-topology",
+        }.get(topology_mode, "authority-governed-review-bound-topology")
+        topology["topology_rationale"] = topology_statement
+        topology["ordinary_real_world_baseline_definition"] = world_model
+        topology["misfit_risk_if_wrong"] = "overwriting source-defined structure or promoting unaccepted backfill creates a false product world"
+        topology["structure_implications"] = (
+            "preserve each accepted outcome independently and connect only through accepted shared rules"
+            if topology_mode == "independent-outcomes"
+            else "follow the explicit Agentic product-world topology without renderer-invented ordering"
+        )
+        result["topology_profile"] = topology
+    operating = result.get("operating_baseline_model")
+    if isinstance(operating, dict):
+        operating = dict(operating)
+        operating["truth_state"] = truth_state
+        operating["baseline_statement"] = world_model
+        operating["workflow_backbone"] = independent_flow_names
+        operating["workflow_topology"] = str(canonical.get("workflow_topology") or "")
+        operating["source_refs"] = source_refs
+        operating["candidate_not_confirmed_truth"] = truth_state in {"agentic-candidate", "agentic-hypothesis"}
+        operating["world_knowledge_not_source_truth"] = truth_state == "agentic-world-knowledge"
+        operating["world_knowledge_backfill_refs"] = accepted_backfill_refs
+        operating["ownership_posture"] = str(ownership_decision.get("posture") or "review-bound")
+        result["operating_baseline_model"] = operating
+    for key in ("business_release_truth_pack", "planning_control_truth_pack"):
+        surface = result.get(key)
+        if isinstance(surface, dict):
+            surface = dict(surface)
+            surface["truth_state"] = truth_state
+            surface["chosen_product_world"] = world_model
+            surface["agentic_product_decision_id"] = authority.get("decision_id", "")
+            surface["agentic_product_decision_digest"] = authority.get("decision_digest", "")
+            surface["source_refs"] = source_refs
+            surface["claim_ceiling"] = authority.get("claim_ceiling", "")
+            surface["core_thesis"] = product_goal
+            surface["why_now"] = status_quo
+            surface["why_this_not_that"] = why_this_not_that
+            surface["value_mechanism"] = mvp_wedge
+            surface["proof_artifact_for_continue"] = proof_that_changes_decision
+            surface["decision_trigger"] = acceptance_should_prove
+            surface["pain_holder"] = primary_user
+            surface["continuation_owner"] = continuation_owner
+            surface["workflow_backbone"] = independent_flow_names
+            surface["workflow_topology"] = topology_statement
+            surface["workflow_topology_mode"] = topology_mode
+            surface["ownership_posture"] = str(ownership_decision.get("posture") or "review-bound")
+            surface["world_knowledge_backfill_refs"] = accepted_backfill_refs
+            surface["authority_modules"] = canonical_modules
+            surface["review_bound_items"] = [
+                str(item).strip() for item in sufficiency.get("missing_facts", []) if str(item).strip()
+            ]
+            result[key] = surface
+    result["agentic_product_authority"] = authority
+    return result
+
+
 def build_business_world_model(
     source_text: str,
     *,
     product_source_direct_driver: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    context = extract_domain_context(source_text)
-    direct_driver = product_source_direct_driver or build_product_source_direct_driver(source_text, context=context)
+    raw_context = extract_domain_context(source_text)
+    direct_driver = product_source_direct_driver or build_product_source_direct_driver(source_text, context=raw_context)
+    context = _apply_agentic_product_authority_to_domain_context(raw_context, direct_driver)
     segments = [str(item).strip() for item in context.get("segments", []) if str(item).strip()]
     module_rows = [row for row in context.get("modules", []) if isinstance(row, dict)]
     flow_rows = [row for row in context.get("flows", []) if isinstance(row, dict)]
-    flow_summary = " -> ".join(
-        str(row.get("module", "")).strip() for row in module_rows if str(row.get("module", "")).strip()
-    ) or " -> ".join(
-        str(row.get("name", "")).strip() for row in flow_rows if str(row.get("name", "")).strip()
-    ) or "source-defined workflow"
+    flow_summary = (
+        str(context.get("authority_workflow_topology") or "").strip()
+        or " -> ".join(
+            str(row.get("module", "")).strip() for row in module_rows if str(row.get("module", "")).strip()
+        )
+        or " -> ".join(
+            str(row.get("name", "")).strip() for row in flow_rows if str(row.get("name", "")).strip()
+        )
+        or "source-defined workflow"
+    )
     domain_posture = infer_source_semantic_posture(context, text=source_text)
-    return compile_business_world_truth_spine(
+    model = compile_business_world_truth_spine(
         {
             "source_text": source_text,
             "domain_posture": domain_posture,
@@ -1703,6 +2016,7 @@ def build_business_world_model(
             "product_source_direct_driver": direct_driver,
         }
     )
+    return _apply_agentic_product_authority_to_world_model(model, direct_driver)
 
 
 def _value_gain_audit(target: str, downstream_value: str, *, output_profile: str = "coverage_rich") -> dict[str, object]:
@@ -5795,8 +6109,13 @@ def build_phase1_deep_stage_texts(
     version: str,
     owner: str,
     skip_stage_02b: bool,
-) -> Phase1DeepStageTexts:
-    source_snapshot = build_phase1_source_snapshot(source_text)
+    product_source_direct_driver: dict[str, object] | None = None,
+    return_snapshot: bool = False,
+) -> Phase1DeepStageTexts | tuple[Phase1DeepStageTexts, Phase1SourceSnapshot]:
+    source_snapshot = build_phase1_source_snapshot(
+        source_text,
+        product_source_direct_driver=product_source_direct_driver,
+    )
     stage_01_text = build_stage_01(source_text, version, owner, source_snapshot=source_snapshot)
     stage_02a_text = build_stage_02a(source_text, version, owner, source_snapshot=source_snapshot)
     stage_02b_text = (
@@ -5822,13 +6141,14 @@ def build_phase1_deep_stage_texts(
         owner=owner,
         source_snapshot=source_snapshot,
     )
-    return Phase1DeepStageTexts(
+    texts = Phase1DeepStageTexts(
         stage_01_text=stage_01_text,
         stage_02a_text=stage_02a_text,
         stage_02b_text=stage_02b_text,
         stage_03_text=stage_03_text,
         stage_04_text=stage_04_text,
     )
+    return (texts, source_snapshot) if return_snapshot else texts
 
 
 def write_business_world_model_artifacts(
@@ -5890,6 +6210,10 @@ def main() -> int:
         help="Mindthus TVG exit-side output profile when --thinking-value-gain-mode=full-use",
     )
     parser.add_argument(
+        "--agentic-product-direct-driver",
+        help="accepted decision-derived P1 product/source direct driver; candidate/default drivers are not authority",
+    )
+    parser.add_argument(
         "--skip-stage-02b",
         action="store_true",
         help="emit a rich Stage-02b skip-stub instead of the full deepening artifact",
@@ -5918,17 +6242,27 @@ def main() -> int:
         output_dir / "stage-04-requirements-validation-and-concept-proof.md",
     ]
 
-    stage_texts = build_phase1_deep_stage_texts(
+    accepted_direct_driver: dict[str, object] | None = None
+    if args.agentic_product_direct_driver:
+        driver_path = Path(args.agentic_product_direct_driver).resolve()
+        value = json.loads(driver_path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict) or value.get("driver_id") != "p1-agentic-product-authority-driver.v1":
+            raise ValueError("accepted P1 Agentic product direct driver is invalid")
+        accepted_direct_driver = value
+
+    stage_texts, source_snapshot = build_phase1_deep_stage_texts(
         source_text,
         version=args.version,
         owner=args.owner,
         skip_stage_02b=args.skip_stage_02b,
+        product_source_direct_driver=accepted_direct_driver,
+        return_snapshot=True,
     )
 
     for path, text in zip(stage_paths, stage_texts.ordered_texts()):
         write(path, text, args.output_locale)
     business_world_model = apply_commercial_argument_rewrite(
-        build_business_world_model(source_text),
+        source_snapshot.business_world_model,
         load_commercial_argument_rewrite(output_dir),
     )
     if args.thinking_value_gain_mode == "full-use":

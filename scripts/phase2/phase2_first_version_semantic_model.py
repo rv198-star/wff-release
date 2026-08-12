@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from phase2.phase2_first_version_cli import *  # noqa: F401,F403
+from phase2.canonical_authority_convergence import P2CanonicalAuthorityConvergenceError
 
 def _short_stable_suffix(raw: str) -> str:
     return short_stable_suffix(raw)
@@ -1041,7 +1042,49 @@ def text_has_any(text: str, *needles: str) -> bool:
     return any(needle.lower() in lowered for needle in needles)
 
 
+def authority_service_specs(context: dict[str, object]) -> list[ServiceSpec]:
+    model = context.get("agentic_architecture_model")
+    if not isinstance(model, dict):
+        return []
+    operations = [row for row in model.get("operations", []) if isinstance(row, dict)]
+    if not operations:
+        raise P2CanonicalAuthorityConvergenceError("accepted P2 authority produced no operation generation model")
+    specs: list[ServiceSpec] = []
+    for row in operations:
+        operation_id = str(row.get("operation_id") or "").strip()
+        service_id = str(row.get("service_id") or "").strip()
+        contract_id = str(row.get("contract_id") or "").strip()
+        if not operation_id or not service_id or not contract_id:
+            raise P2CanonicalAuthorityConvergenceError("accepted P2 operation is missing service/operation/contract identity")
+        aggregate_id = str(row.get("aggregate_id") or "").strip()
+        statement = str(row.get("statement") or operation_id).strip()
+        technical_name = str(row.get("technical_name") or "").strip() or choose_technical_pascal(operation_id, prefix="Operation")
+        technical_slug = str(row.get("technical_slug") or "").strip() or choose_technical_slug(operation_id, prefix="operation")
+        specs.append(
+            ServiceSpec(
+                service_name=f"{service_id}.{operation_id}",
+                domain=service_id,
+                home_module=service_id,
+                service_type="authority-operation",
+                owns_or_coordinates=aggregate_id or statement,
+                primary_inbound=operation_id,
+                primary_outbound=str(row.get("event_id") or "authority-bound").strip(),
+                purpose=statement,
+                public_contract=contract_id,
+                endpoint_name=operation_id,
+                method=str(row.get("method") or "POST").strip(),
+                path=str(row.get("path") or f"/api/v1/{technical_slug}").strip(),
+                technical_name=technical_name,
+                technical_slug=technical_slug,
+            )
+        )
+    return specs
+
+
 def build_service_specs(context: dict[str, object], complexity_profile: str) -> list[ServiceSpec]:
+    authority_specs = authority_service_specs(context)
+    if authority_specs:
+        return authority_specs
     root_namespace = str(context["root_namespace"])
     modules = require_context_modules(context)
     executable_modules = [
@@ -1274,9 +1317,48 @@ def external_dependency_rows(categories: list[str], root_namespace: str) -> list
 
 def render_stage_02_5(*, phase1_prd: Path, context: dict[str, object], categories: list[str]) -> str:
     root_namespace = str(context["root_namespace"])
-    category_names = [external_integration_display_name(category) for category in categories]
-    category_summary = ", ".join(f"`{name}`" for name in category_names) if category_names else "`none-detected`"
-    dependency_rows = external_dependency_rows(categories, root_namespace)
+    architecture_model = context.get("agentic_architecture_model")
+    architecture_model = architecture_model if isinstance(architecture_model, dict) else {}
+    authority_dependencies = [
+        row
+        for row in architecture_model.get("dependency_dispositions", [])
+        if isinstance(row, dict)
+        and str(row.get("dependency_id") or "").strip() in set(categories)
+        and str(row.get("disposition") or "").strip() == "activate"
+    ]
+    authority_dependency_by_id = {
+        str(row.get("dependency_id") or "").strip(): row
+        for row in authority_dependencies
+        if str(row.get("dependency_id") or "").strip()
+    }
+    if authority_dependencies:
+        dependency_rows = [
+            [
+                str(row.get("dependency_id") or "").strip(),
+                "external-provider-port",
+                str(row.get("statement") or "accepted external dependency").strip(),
+                ", ".join(str(item).strip() for item in row.get("commitment_ids", []) if str(item).strip()) or "accepted P1 commitments",
+                "first-wave accepted dependency seam",
+                "activate provider-neutral architecture lane; concrete provider remains review-bound",
+                "re-enter before vendor-specific auth/SLA/quota/callback or production rollout is claimed",
+            ]
+            for row in authority_dependencies
+        ]
+        category_summary = ", ".join(f"`{row[0]}`" for row in dependency_rows)
+        trigger_basis = "accepted P2 dependency authority activated: " + category_summary
+        stage_status = "activated-provider-neutral"
+        trigger_summary = "The accepted P2 authority requires explicit provider-neutral integration seams for the listed first-wave dependencies."
+        decision_reason = "Stage-02.5 is active because dependency truth is accepted by P2 authority; vendor selection, SLA, auth details, and production readiness remain review-bound."
+        reactivation_rule = "Re-enter this stage before any provider-specific SDK/auth/callback/SLA/quota decision or production-readiness claim."
+    else:
+        category_names = [external_integration_display_name(category) for category in categories]
+        category_summary = ", ".join(f"`{name}`" for name in category_names) if category_names else "`none-detected`"
+        dependency_rows = external_dependency_rows(categories, root_namespace)
+        trigger_basis = f"Phase-1 external integration categories detected: {category_summary}"
+        stage_status = "skipped"
+        trigger_summary = "Phase-1 contains external-integration signals, but there is no accepted P2 dependency authority that justifies an active provider design lane."
+        decision_reason = "The renderer preserves a review-bound seam only; it does not promote vocabulary matches into dependency truth."
+        reactivation_rule = "Activate Stage-02.5 only when P2 authority explicitly activates a dependency or a stronger delivery decision binds provider-specific details."
 
     idr_entries: list[str] = []
     adapter_rows: list[list[str]] = []
@@ -1287,7 +1369,22 @@ def render_stage_02_5(*, phase1_prd: Path, context: dict[str, object], categorie
         dependency_type = row[1]
         capability = row[2]
         consuming_module = row[3]
-        internal_interface = f"{to_snake(dependency_type)}_port"
+        authority_dependency = authority_dependency_by_id.get(dependency_id, {})
+        internal_interface = str(authority_dependency.get("internal_port") or f"{to_snake(dependency_id if authority_dependency else dependency_type)}_port").strip()
+        if authority_dependency:
+            activation_note = (
+                f"`{dependency_id}` is active as a provider-neutral architecture seam because the accepted P2 authority requires it; "
+                "provider/vendor/auth/SLA/quota details remain review-bound."
+            )
+            timeout_line = "provider timeout budget remains review-bound until a concrete provider contract is accepted"
+            retry_line = "retry/circuit-breaker detail remains provider-bound; stable dependency failure codes must be preserved meanwhile"
+        else:
+            activation_note = (
+                f"`{dependency_id}` remains skipped because Phase-1 identifies the capability need but does not yet bind provider, "
+                f"SLA, data-sovereignty, or sandbox strategy for {consuming_module}."
+            )
+            timeout_line = "provider-specific budget will be added when Stage-02.5 activates; current Phase-2 package only preserves the need for an explicit timeout budget"
+            retry_line = "provider-specific retry, quota, and circuit-breaker rules are deferred until activation instead of being guessed in design prose"
         idr_entries.append(
             "\n".join(
                 [
@@ -1295,14 +1392,14 @@ def render_stage_02_5(*, phase1_prd: Path, context: dict[str, object], categorie
                     f"    - idr_id: `IDR-{idx:02d}`",
                     f"    - dependency_id: `{dependency_id}`",
                     "    - provider: not-selected-in-first-wave",
-                    "    - integration_pattern: preserve adapter-layer seam only; do not freeze vendor SDK details before a real MVP binding exists",
+                    "    - integration_pattern: preserve provider-neutral adapter/port boundary; do not freeze vendor SDK details without explicit authority",
                     f"    - internal_interface: `{internal_interface}`",
-                    "    - authentication_method: define only when a named provider is activated; until then keep auth posture review-bound rather than fabricated",
-                    "    - key_management: secret-store plus rotation policy placeholder, to be finalized only with a concrete vendor decision",
-                    "    - timeout: provider-specific budget will be added when Stage-02.5 activates; current Phase-2 package only preserves the need for an explicit timeout budget",
-                    "    - retry_policy: provider-specific retry, quota, and circuit-breaker rules are deferred until activation instead of being guessed in design prose",
-                    "    - fallback_strategy: fail closed, surface review-bound state, and preserve audit visibility instead of inventing false availability guarantees",
-                    f"    - activation_note: `{dependency_id}` remains skipped because Phase-1 identifies the capability need but does not yet bind provider, SLA, data-sovereignty, or sandbox strategy for {consuming_module}.",
+                    "    - authentication_method: review-bound until a concrete provider/auth contract is accepted",
+                    "    - key_management: review-bound until provider credential semantics are accepted",
+                    f"    - timeout: {timeout_line}",
+                    f"    - retry_policy: {retry_line}",
+                    "    - fallback_strategy: fail closed, surface dependency-unavailable/review-bound state, and preserve audit visibility",
+                    f"    - activation_note: {activation_note}",
                 ]
             )
         )
@@ -1310,30 +1407,30 @@ def render_stage_02_5(*, phase1_prd: Path, context: dict[str, object], categorie
             [
                 dependency_id,
                 internal_interface,
-                "provider endpoint to be named on activation",
-                "map external timeout/rate-limit/provider errors into stable business/system error envelope",
-                "contract fixture + sandbox or mock declared only when provider is selected",
+                "provider endpoint remains review-bound until vendor binding",
+                "map dependency unavailable / timeout / quota / provider errors into the accepted stable business/system error envelope",
+                "provider-neutral contract fixture now; vendor sandbox/mock only after provider selection",
             ]
         )
         test_rows.append(
             [
                 dependency_id,
-                "contract fixtures preserve payload shape without binding a real provider",
-                "activate vendor-mock smoke tests when provider is selected",
-                "run provider quota / auth / callback tests only after activation",
-                "do not label the case provider-ready while Stage-02.5 is skipped",
-                "tenant deny, timeout, quota exhaustion, and callback signature failure remain mandatory negative paths once activated",
+                "exercise provider-neutral port contract and dependency-unavailable path locally",
+                "run adapter contract fixtures without claiming vendor readiness",
+                "add provider sandbox/auth/quota tests only after a concrete provider is accepted",
+                "keep provider readiness explicitly review-bound even though the architecture seam is active",
+                "timeout, provider unavailable, quota/auth failure, and malformed provider response remain mandatory negative paths when corresponding provider semantics are bound",
             ]
         )
         risk_rows.append(
             [
                 f"RISK-{idx:02d}",
                 dependency_id,
-                f"{capability} could become release-critical later and force a rushed provider decision if the seam is not kept explicit now.",
+                f"{capability} is first-wave architecture-relevant, but provider choice and runtime quality are still unproven.",
+                "high" if authority_dependency else "medium",
                 "medium",
-                "medium",
-                "keep adapter/interface name stable, preserve review-bound language, and reopen Stage-02.5 before any provider-specific commitment",
-                "phase-2 architecture owner",
+                "keep the accepted internal port stable and require explicit provider-specific re-entry before implementation claims vendor readiness",
+                str(authority_dependency.get("owner") or "phase-2 architecture owner").strip(),
             ]
         )
 
@@ -1342,6 +1439,11 @@ def render_stage_02_5(*, phase1_prd: Path, context: dict[str, object], categorie
         {
             "phase1_prd": phase1_prd,
             "category_summary": category_summary,
+            "trigger_basis": trigger_basis,
+            "stage_status": stage_status,
+            "trigger_summary": trigger_summary,
+            "decision_reason": decision_reason,
+            "reactivation_rule": reactivation_rule,
             "dependency_manifest_table": make_markdown_table(
                 ["dependency_id", "dependency_type", "capability", "consuming_module", "mvp_criticality", "current_decision", "reactivation_trigger"],
                 dependency_rows,

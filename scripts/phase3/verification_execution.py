@@ -168,18 +168,19 @@ def extract_vitest_suite_paths(payload: dict[str, Any], *, workspace_root: Path)
             for item in assertion_results
             if isinstance(item, dict) and str(item.get("status", "")).strip()
         ]
+        if suite_status == "failed":
+            recognized = True
+            failed.add(suite_name)
+            continue
         if assertion_statuses:
             recognized = True
             if any(status == "failed" for status in assertion_statuses):
                 failed.add(suite_name)
             elif all(status in non_failing_assertion_statuses for status in assertion_statuses):
                 passed.add(suite_name)
-        elif suite_status in {"passed", "failed"}:
+        elif suite_status == "passed":
             recognized = True
-            if suite_status == "passed":
-                passed.add(suite_name)
-            else:
-                failed.add(suite_name)
+            passed.add(suite_name)
     return sorted(passed), sorted(failed), recognized
 
 

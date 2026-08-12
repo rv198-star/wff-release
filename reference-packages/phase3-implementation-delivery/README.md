@@ -32,9 +32,15 @@ Aggregate entry:
 - `skills/wff-impl/`
 - `scripts/phase3/run_impl.py`
 
+Strict runtime aggregate:
+
+- clean `full-lifecycle` / `full-pack` profiles use `scripts/phase3/run_impl.py --mainline-verification-mode strict-runtime` for current S3 materialization, toolchain/runtime evidence, PostgreSQL preflight where required, Trace refresh, exact binding, and delivery closure;
+- unresolved Agentic regions stop at `authoring-required`; a same-decision authored root may be supplied on rerun;
+- only passed retained test evidence may confirm Trace, and current Authority Delta evidence may refine P3-local persistence/runtime precision without mutating P1/P2.
+
 Compatibility entry:
 
-- legacy first-version runner is full-pack/source-tree only; slim install profiles use `scripts/phase3/run_impl.py` plus focused capability runners.
+- legacy first-version/foundation runners remain source-tree or maintainer-only compatibility surfaces; clean full-lifecycle/full-pack P3 closure does not depend on them. Narrower implementation profiles may omit release/assurance sidecars and therefore block explicit strict-runtime closure rather than silently falling back.
 
 ## 3. Control boundary
 

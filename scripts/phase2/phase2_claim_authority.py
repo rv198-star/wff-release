@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import re
+import shutil
 from typing import Any
 
 from common.claim_control_runtime import (
@@ -18,6 +20,27 @@ PHASE1_UPSTREAM_CLAIM_REF_RE = re.compile(
 
 def default_claim_control_sidecar_path(artifact_path: Path) -> Path:
     return artifact_path.with_name(f"{artifact_path.stem}.claim-control.json")
+
+
+PORTABLE_PHASE1_CLAIM_CONTROL_RELATIVE_PATH = Path(".phase2-evidence") / "p1-upstream.claim-control.json"
+
+
+def materialize_portable_phase1_claim_control(*, phase1_prd: Path, output_dir: Path) -> Path | None:
+    source = default_claim_control_sidecar_path(phase1_prd)
+    if not source.is_file():
+        return None
+    target = output_dir / PORTABLE_PHASE1_CLAIM_CONTROL_RELATIVE_PATH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if source.resolve() != target.resolve():
+        shutil.copy2(source, target)
+    return target
+
+
+def portable_phase1_claim_control_reference(*, phase1_prd: Path, output_dir: Path, artifact_path: Path) -> Path | None:
+    portable = materialize_portable_phase1_claim_control(phase1_prd=phase1_prd, output_dir=output_dir)
+    if portable is None:
+        return None
+    return Path(os.path.relpath(portable, start=artifact_path.parent))
 
 
 def phase1_claims_for_phase2(phase1_prd: Path) -> tuple[list[Any], str, Path | None]:

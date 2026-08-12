@@ -5,20 +5,323 @@ import type { AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "pg";
-import { issueAuthToken } from "../../apps/api/src/common/auth-session";
 import { createApiServer } from "../../apps/api/src/main";
 import { runMigrations } from "../../apps/api/src/runtime/database";
-import { getOperationSpec } from "../../apps/api/src/common/operation-support";
-import {
-  buildFailurePayload as buildFailurePayloadSupport,
-  buildOperationPayload as buildOperationPayloadSupport,
-  getAuditRecords as getAuditRecordsSupport,
-  normalizeIdValue as normalizeRuntimeIdentifierValue,
-  persistenceProbeHints as persistenceProbeHintsSupport,
-  resetGeneratedRuntime,
-  seedGeneratedRuntimePersistence,
-  seedGeneratedRuntimeState,
-} from "../../apps/api/src/common/generated-runtime";
+
+const modularOperationSpecs = __WFF_MODULAR_OPERATION_SPECS__ as Record<string, Record<string, unknown>>;
+const modularPersistenceHints = __WFF_MODULAR_PERSISTENCE_HINTS__ as Record<string, Record<string, unknown>>;
+const modularBaselineFixtures = __WFF_MODULAR_BASELINE_FIXTURES__ as {
+  rows?: Array<{
+    table: string;
+    values: Record<string, unknown>;
+    uuid_fields?: string[];
+    reasons?: string[];
+    claim_ceiling?: string;
+  }>;
+  claim_ceiling?: string;
+};
+
+function getOperationSpec(operationId: string): Record<string, unknown> {
+  const spec = modularOperationSpecs[operationId];
+  if (!spec) throw new Error(`operation_spec_missing:${operationId}`);
+  return spec;
+}
+
+function operationPathParameterNames(spec: Record<string, unknown>): string[] {
+  return [...String(spec.path ?? "").matchAll(/\{([^}]+)\}/g)]
+    .map((match) => String(match[1] ?? "").trim())
+    .filter(Boolean);
+}
+
+function operationFieldType(operationId: string, field: string): string {
+  const spec = getOperationSpec(operationId);
+  const fieldTypes = isRecord(spec.fieldTypes) ? spec.fieldTypes : {};
+  const direct = String(fieldTypes[field] ?? '').trim().toLowerCase();
+  if (direct) return direct;
+  return String(fieldTypes[snakeCase(field)] ?? '').trim().toLowerCase();
+}
+
+function normalizeFixturePayloadValue(operationId: string, field: string, value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const normalizedField = snakeCase(field);
+  if (operationFieldType(operationId, field) === "uuid") {
+    return normalizeRuntimeIdentifierValue(normalizedField, value);
+  }
+  return value;
+}
+
+function missingFixturePayloadValue(operationId: string, field: string): unknown {
+  const normalizedField = snakeCase(field);
+  const fieldType = operationFieldType(operationId, field);
+  if (fieldType === "integer" || fieldType.startsWith("int") || fieldType.startsWith("bigint") || fieldType.startsWith("smallint")) {
+    return 2147483647;
+  }
+  if (fieldType === "number" || fieldType.startsWith("numeric") || fieldType.startsWith("decimal")) {
+    return 2147483647;
+  }
+  if (fieldType === "uuid") {
+    return normalizeRuntimeIdentifierValue(normalizedField, `missing-${normalizedField}`);
+  }
+  return `missing-${normalizedField}`;
+}
+
+function buildOperationPayloadSupport(operationId: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const spec = getOperationSpec(operationId);
+  const rawParameterExamples = isRecord(spec.parameterExamples) ? deepClone(spec.parameterExamples) : {};
+  const parameterExamples = Object.fromEntries(
+    Object.entries(rawParameterExamples).map(([key, value]) => [key, normalizeFixturePayloadValue(operationId, key, value)]),
+  );
+  const rawExample = isRecord(spec.requestExample) ? deepClone(spec.requestExample) : {};
+  const requestExample = Object.fromEntries(
+    Object.entries(rawExample).map(([key, value]) => [key, normalizeFixturePayloadValue(operationId, key, value)]),
+  );
+  const normalizedOverrides = Object.fromEntries(
+    Object.entries(overrides).map(([key, value]) => [key, normalizeFixturePayloadValue(operationId, key, value)]),
+  );
+  const payload: Record<string, unknown> = { ...parameterExamples, ...requestExample, ...normalizedOverrides };
+  const pathParams: Record<string, unknown> = {};
+  for (const name of operationPathParameterNames(spec)) {
+    const snakeName = snakeCase(name);
+    const value = payload[name] ?? payload[snakeName];
+    if (value !== undefined) pathParams[name] = normalizeFixturePayloadValue(operationId, name, value);
+  }
+  if (Object.keys(pathParams).length > 0) {
+    payload.path_params = pathParams;
+    payload.pathParams = pathParams;
+  }
+  const tenantId = String(payload.tenant_id ?? payload.tenantId ?? "t1");
+  payload.auth_context = {
+    tenant_id: tenantId,
+    subject_id: "phase3-runtime-test",
+    session_id: "phase3-runtime-test-session",
+    roles: ["authenticated"],
+  };
+  return payload;
+}
+
+function buildFailurePayloadSupport(operationId: string, errorCode: string): Record<string, unknown> {
+  const payload = buildOperationPayloadSupport(operationId);
+  payload.__wff_validation_negative_evidence = true;
+  const normalized = errorCode.toLowerCase();
+  const spec = getOperationSpec(operationId);
+  const hints = isRecord(spec.failureFieldHints) ? spec.failureFieldHints : {};
+  const candidate = String(hints[errorCode] ?? hints[normalized] ?? "").trim();
+  if (candidate) {
+    delete payload[candidate];
+    const pathParams = isRecord(payload.path_params) ? { ...payload.path_params } : {};
+    const pathName = operationPathParameterNames(spec).find((name) => snakeCase(name) === snakeCase(candidate));
+    if (pathName) {
+      delete pathParams[pathName];
+      payload.path_params = pathParams;
+      payload.pathParams = pathParams;
+    }
+    isolateFieldNegativeReplayIdentity(operationId, payload, candidate);
+  }
+  if (/(conflict|stale|version|duplicate)/.test(normalized)) {
+    const versionFields = Object.keys(payload).filter((field) => {
+      const normalizedField = snakeCase(field);
+      return normalizedField === "expected_version" || normalizedField === "row_version" || normalizedField === "version" || normalizedField.endsWith("_version");
+    });
+    for (const field of versionFields) {
+      const current = Number(payload[field]);
+      payload[field] = Number.isFinite(current) ? current + 1 : 2;
+    }
+  }
+  if (/not_found/.test(normalized)) {
+    const spec = getOperationSpec(operationId);
+    const missingPathParams = Object.fromEntries(
+      operationPathParameterNames(spec).map((name) => [
+        name,
+        missingFixturePayloadValue(operationId, name),
+      ]),
+    );
+    if (Object.keys(missingPathParams).length > 0) {
+      payload.path_params = missingPathParams;
+      payload.pathParams = missingPathParams;
+    }
+  }
+  if (/forbidden/.test(normalized)) {
+    payload.auth_context = {
+      tenant_id: "wrong-tenant",
+      subject_id: "phase3-forbidden",
+      session_id: "phase3-forbidden-session",
+      roles: ["authenticated"],
+    };
+  }
+  return payload;
+}
+
+function getAuditRecordsSupport(): Record<string, unknown>[] {
+  return [];
+}
+
+function normalizeRuntimeIdentifierValue(field: string, value: string): string {
+  const text = String(value ?? "").trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text)) {
+    return text.toLowerCase();
+  }
+  const normalizedField = snakeCase(field);
+  if (!(normalizedField === "id" || normalizedField.endsWith("_id"))) return text;
+  const digest = createHash("sha256").update(`${normalizedField}:${text}`).digest("hex");
+  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+}
+
+function persistenceProbeHintsSupport(operationId: string): Record<string, unknown> {
+  return modularPersistenceHints[operationId] ?? {
+    tableCandidates: [],
+    strictTableCandidates: [],
+    idFieldCandidates: [],
+    tableFieldTypes: {},
+    positiveInsertWriteTable: '',
+    positiveInsertUniqueConstraints: [],
+  };
+}
+
+function fieldNegativeReplayIsolationPriority(field: string): number {
+  const normalized = snakeCase(field);
+  if (normalized.includes('idempotency')) return 120;
+  if (normalized.includes('client_request_id')) return 115;
+  if (normalized.endsWith('_request_id')) return 110;
+  if (normalized.includes('request') && normalized.endsWith('_id')) return 100;
+  return 0;
+}
+
+function fieldNegativeReplayIsolationValue(operationId: string, field: string, current: unknown): unknown {
+  const normalized = snakeCase(field);
+  const fieldType = operationFieldType(operationId, normalized);
+  if (fieldType === 'uuid') {
+    return normalizeRuntimeIdentifierValue(normalized, `validation-negative-${normalized}`);
+  }
+  if (fieldType === 'integer' || fieldType.startsWith('int') || fieldType.startsWith('bigint') || fieldType.startsWith('smallint')) {
+    const numeric = Number(current);
+    return Number.isFinite(numeric) ? numeric + 1000000 : 2147483646;
+  }
+  if (fieldType === 'number' || fieldType.startsWith('numeric') || fieldType.startsWith('decimal')) {
+    const numeric = Number(current);
+    return Number.isFinite(numeric) ? numeric + 1000000 : 2147483646;
+  }
+  const text = String(current ?? '').trim();
+  return `${text || normalized}-validation-negative`;
+}
+
+function isolateFieldNegativeReplayIdentity(
+  operationId: string,
+  payload: Record<string, unknown>,
+  invalidField: string,
+): void {
+  const hints = persistenceProbeHintsSupport(operationId);
+  const uniqueGroups = Array.isArray(hints.positiveInsertUniqueConstraints)
+    ? hints.positiveInsertUniqueConstraints.filter((group): group is unknown[] => Array.isArray(group))
+    : [];
+  const invalid = snakeCase(invalidField);
+  for (const rawGroup of uniqueGroups) {
+    const group = rawGroup.map((field) => snakeCase(String(field ?? '').trim())).filter(Boolean);
+    if (group.length === 0) continue;
+    // If the intentionally invalid/missing field already participates in this replay
+    // identity, deleting it is itself sufficient isolation and must stay untouched.
+    if (group.includes(invalid)) return;
+    const candidates = group
+      .filter((field) => recordFieldValue(payload, field) !== undefined)
+      .map((field) => ({ field, priority: fieldNegativeReplayIsolationPriority(field) }))
+      .filter((row) => row.priority > 0)
+      .sort((left, right) => right.priority - left.priority || left.field.localeCompare(right.field));
+    const selected = candidates[0];
+    if (!selected) continue;
+    const current = recordFieldValue(payload, selected.field);
+    payload[selected.field] = fieldNegativeReplayIsolationValue(operationId, selected.field, current);
+    return;
+  }
+}
+
+const positiveInsertPreparation = new WeakMap<BackendRuntime, Set<string>>();
+
+function resetPositiveInsertPreparation(runtime: BackendRuntime): void {
+  positiveInsertPreparation.delete(runtime);
+}
+
+async function preparePositiveInsertValidationState(
+  runtime: BackendRuntime,
+  operationId: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  if (payload.__wff_validation_negative_evidence === true) return;
+  const hints = persistenceProbeHintsSupport(operationId);
+  const writeTable = String(hints.positiveInsertWriteTable ?? '').trim();
+  const uniqueGroups = Array.isArray(hints.positiveInsertUniqueConstraints)
+    ? hints.positiveInsertUniqueConstraints.filter((group): group is unknown[] => Array.isArray(group))
+    : [];
+  if (!writeTable || uniqueGroups.length === 0) return;
+
+  let prepared = positiveInsertPreparation.get(runtime);
+  if (!prepared) {
+    prepared = new Set<string>();
+    positiveInsertPreparation.set(runtime, prepared);
+  }
+  if (prepared.has(operationId)) return;
+
+  const fixtures = Array.isArray(modularBaselineFixtures.rows) ? modularBaselineFixtures.rows : [];
+  for (const fixture of fixtures) {
+    if (fixture.table !== writeTable || !isRecord(fixture.values)) continue;
+    const fixtureValues = fixture.values;
+    const uuidFields = new Set((fixture.uuid_fields ?? []).map((field) => snakeCase(field)));
+    const conflicts = uniqueGroups.some((rawGroup) => {
+      const group = rawGroup.map((field) => String(field ?? '').trim()).filter(Boolean);
+      return group.length > 0 && group.every((field) => {
+        const payloadValue = recordFieldValue(payload, field);
+        const fixtureValue = recordFieldValue(fixtureValues, field);
+        if (payloadValue === undefined || fixtureValue === undefined) return false;
+        return stableJson(normalizeFixturePayloadValue(operationId, field, payloadValue))
+          === stableJson(uuidFields.has(snakeCase(field)) && typeof fixtureValue === 'string'
+            ? normalizeRuntimeIdentifierValue(field, fixtureValue)
+            : fixtureValue);
+      });
+    });
+    if (!conflicts) continue;
+
+    const columns = Object.keys(fixtureValues);
+    const params = columns.map((column) => {
+      const value = fixtureValues[column];
+      return uuidFields.has(snakeCase(column)) && typeof value === 'string'
+        ? normalizeRuntimeIdentifierValue(column, value)
+        : value;
+    });
+    const predicates = columns.map((column, index) => `${quoteIdentifier(column)} IS NOT DISTINCT FROM $${index + 1}`).join(' AND ');
+    await runtime.query(`DELETE FROM ${quoteIdentifier(writeTable)} WHERE ${predicates}`, params);
+  }
+  prepared.add(operationId);
+}
+
+function resetGeneratedRuntime(): void {}
+async function seedGeneratedRuntimePersistence(): Promise<void> {
+  const fixtures = Array.isArray(modularBaselineFixtures.rows) ? modularBaselineFixtures.rows : [];
+  if (fixtures.length === 0) return;
+  const connectionString = ensureDatabaseUrl();
+  const client = new Client({ connectionString });
+  await client.connect();
+  try {
+    for (const fixture of fixtures) {
+      const values = isRecord(fixture.values) ? fixture.values : {};
+      const columns = Object.keys(values);
+      if (!columns.length) continue;
+      const uuidFields = new Set((fixture.uuid_fields ?? []).map((field) => snakeCase(field)));
+      const params = columns.map((column) => {
+        const value = values[column];
+        return uuidFields.has(snakeCase(column)) && typeof value === "string"
+          ? normalizeRuntimeIdentifierValue(column, value)
+          : value;
+      });
+      const names = columns.map(quoteIdentifier).join(", ");
+      const placeholders = columns.map((_column, index) => `$${index + 1}`).join(", ");
+      await client.query(
+        `INSERT INTO ${quoteIdentifier(fixture.table)} (${names}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`,
+        params,
+      );
+    }
+  } finally {
+    await client.end();
+  }
+}
+function seedGeneratedRuntimeState(): void {}
 
 export { normalizeRuntimeIdentifierValue };
 
@@ -818,7 +1121,7 @@ function applyPayloadToHttpRequest(spec: Record<string, unknown>, payload: Recor
   const url = new URL(resolvedPath, runtime.baseUrl);
   const requestBody = isRecord(payload.body) ? deepClone(payload.body) : {};
   for (const [key, value] of Object.entries(payload)) {
-    if (["body", "query", "path_params", "pathParams", "auth_context", "authContext"].includes(key)) {
+    if (["body", "query", "path_params", "pathParams", "auth_context", "authContext", "__wff_validation_negative_evidence"].includes(key)) {
       continue;
     }
     requestBody[key] = value;
@@ -826,7 +1129,7 @@ function applyPayloadToHttpRequest(spec: Record<string, unknown>, payload: Recor
   const headers: Record<string, string> = {};
   const authContext = isRecord(payload.auth_context) ? payload.auth_context : {};
   if (Object.keys(authContext).length > 0) {
-    headers.authorization = `Bearer ${issueAuthToken(authContext)}`;
+    headers["x-phase3-auth-context"] = encodeURIComponent(JSON.stringify(authContext));
   }
   if (method === 'GET' || method === 'HEAD') {
     for (const [key, value] of Object.entries(requestBody)) {
@@ -865,6 +1168,7 @@ export async function startBackendRuntime(): Promise<BackendRuntime> {
     await ensureWorkerDatabaseReady();
   }
   ensureAuthTokenSecret();
+  process.env.PHASE3_ALLOW_AUTH_CONTEXT_HEADER = 'true';
   const host = '127.0.0.1';
   const server = await createApiServer();
   await new Promise<void>((resolve) => {
@@ -879,6 +1183,7 @@ export async function startBackendRuntime(): Promise<BackendRuntime> {
       return;
     },
     async initializeDatabase(): Promise<void> {
+      resetPositiveInsertPreparation(runtime);
       await runSerializedDatabaseReset(async () => {
         if (!databaseRebuilt) {
           await rebuildDatabaseState();
@@ -889,6 +1194,7 @@ export async function startBackendRuntime(): Promise<BackendRuntime> {
       });
     },
     async restoreScenario(): Promise<void> {
+      resetPositiveInsertPreparation(runtime);
       await runSerializedDatabaseReset(async () => {
         await restoreDatabaseState();
       });
@@ -897,6 +1203,7 @@ export async function startBackendRuntime(): Promise<BackendRuntime> {
       restoreRuntimeOnlyState();
     },
     async resetDatabase(): Promise<void> {
+      resetPositiveInsertPreparation(runtime);
       await runSerializedDatabaseReset(async () => {
         await rebuildDatabaseState();
         databaseRebuilt = true;
@@ -945,6 +1252,7 @@ export function buildFailurePayload(operationId: string, errorCode: string): Rec
 }
 
 export async function invokeHttpOperation(runtime: BackendRuntime, operationId: string, payload: Record<string, unknown>): Promise<unknown> {
+  await preparePositiveInsertValidationState(runtime, operationId, payload);
   const spec = getOperationSpec(operationId) as unknown as Record<string, unknown>;
   const request = applyPayloadToHttpRequest(spec, payload, runtime);
   const response = await fetch(request.url, request.init);
@@ -962,6 +1270,7 @@ export async function invokeHttpOperationWithAuthHeader(
   payload: Record<string, unknown>,
   authorization: string,
 ): Promise<unknown> {
+  await preparePositiveInsertValidationState(runtime, operationId, payload);
   const spec = getOperationSpec(operationId) as unknown as Record<string, unknown>;
   const request = withAuthorizationHeader(applyPayloadToHttpRequest(spec, payload, runtime), authorization);
   const response = await fetch(request.url, request.init);
@@ -1076,11 +1385,40 @@ function recordFieldValue(record: Record<string, unknown>, field: string): unkno
   return record[field] ?? record[normalized] ?? record[camel];
 }
 
-function resolveProbeColumn(candidateField: string, columns: string[]): string {
+function persistenceFieldType(hints: Record<string, unknown>, tableName: string, field: string): string {
+  const tableFieldTypes = isRecord(hints.tableFieldTypes) ? hints.tableFieldTypes : {};
+  const tableTypes = isRecord(tableFieldTypes[tableName]) ? tableFieldTypes[tableName] as Record<string, unknown> : {};
+  const direct = String(tableTypes[field] ?? '').trim().toLowerCase();
+  if (direct) return direct;
+  return String(tableTypes[snakeCase(field)] ?? '').trim().toLowerCase();
+}
+
+function identifierFieldTypesCompatible(sourceType: string, targetType: string): boolean {
+  const source = sourceType.trim().toLowerCase();
+  const target = targetType.trim().toLowerCase();
+  if (!source || !target) return true;
+  const integerLike = (value: string) => value === 'integer' || value.startsWith('int') || value.startsWith('bigint') || value.startsWith('smallint');
+  const numericLike = (value: string) => value === 'number' || value.startsWith('numeric') || value.startsWith('decimal');
+  if (source === 'uuid' || target === 'uuid') return source === 'uuid' && target === 'uuid';
+  if (integerLike(source) || integerLike(target)) return integerLike(source) && integerLike(target);
+  if (numericLike(source) || numericLike(target)) return (numericLike(source) || integerLike(source)) && (numericLike(target) || integerLike(target));
+  return source === target || (source.includes('string') && target.includes('string'));
+}
+
+function resolveProbeColumn(
+  candidateField: string,
+  columns: string[],
+  operationId: string,
+  tableName: string,
+  hints: Record<string, unknown>,
+): string {
   const requested = snakeCase(candidateField);
+  const sourceType = operationFieldType(operationId, candidateField);
   let bestColumn = '';
   let bestScore = -1;
   for (const column of columns) {
+    const targetType = persistenceFieldType(hints, tableName, column);
+    if (!identifierFieldTypesCompatible(sourceType, targetType)) continue;
     const score = scoreContextKey(requested, snakeCase(column));
     if (score > bestScore) {
       bestColumn = column;
@@ -1182,7 +1520,7 @@ function stableJson(value: unknown): string {
   return JSON.stringify(canonicalizePersistenceValue(value));
 }
 
-function normalizeIdentifierComparableValue(field: string, value: unknown): unknown {
+function normalizeIdentifierComparableValue(operationId: string, field: string, value: unknown): unknown {
   if (value === undefined || value === null) {
     return value;
   }
@@ -1190,12 +1528,15 @@ function normalizeIdentifierComparableValue(field: string, value: unknown): unkn
   if (!text) {
     return canonicalizePersistenceValue(value);
   }
-  return normalizeRuntimeIdentifierValue(field, text);
+  if (operationFieldType(operationId, field) === "uuid") {
+    return normalizeRuntimeIdentifierValue(field, text);
+  }
+  return canonicalizePersistenceValue(value);
 }
 
-function persistenceValuesMatch(field: string, expected: unknown, actual: unknown): boolean {
+function persistenceValuesMatch(operationId: string, field: string, expected: unknown, actual: unknown): boolean {
   if (isIdentifierLikeField(field)) {
-    return stableJson(normalizeIdentifierComparableValue(field, expected)) === stableJson(normalizeIdentifierComparableValue(field, actual));
+    return stableJson(normalizeIdentifierComparableValue(operationId, field, expected)) === stableJson(normalizeIdentifierComparableValue(operationId, field, actual));
   }
   return stableJson(expected) === stableJson(normalizePersistenceComparableValue(expected, actual));
 }
@@ -1263,7 +1604,7 @@ export async function collectPersistenceRoundTripEvidence(runtime: BackendRuntim
     for (const record of records) {
       const candidateFields = uniqueStrings([...idFieldCandidates, ...recordIdFieldCandidates(record)]);
       for (const idField of candidateFields) {
-        const probeColumn = resolveProbeColumn(idField, columns);
+        const probeColumn = resolveProbeColumn(idField, columns, operationId, tableName, hints);
         if (!probeColumn) {
           continue;
         }
@@ -1271,7 +1612,7 @@ export async function collectPersistenceRoundTripEvidence(runtime: BackendRuntim
         if (!idValue) {
           continue;
         }
-        const normalizedIdValue = normalizeRuntimeIdentifierValue(probeColumn, idValue);
+        const normalizedIdValue = normalizeIdentifierComparableValue(operationId, probeColumn, idValue);
         const countRows = await runtime.query<{ count: number }>(
           `SELECT COUNT(*)::int AS count FROM "${tableName}" WHERE "${probeColumn}" = $1`,
           [normalizedIdValue],
@@ -1301,7 +1642,7 @@ export async function collectPersistenceRoundTripEvidence(runtime: BackendRuntim
           if (!isIdentifierLikeField(fieldName)) {
             checkedValueFieldNames.push(fieldName);
           }
-          if (!persistenceValuesMatch(comparableColumn, expectedValue, persistedRow[comparableColumn])) {
+          if (!persistenceValuesMatch(operationId, comparableColumn, expectedValue, persistedRow[comparableColumn])) {
             mismatchedFieldNames.push(fieldName);
           }
         }

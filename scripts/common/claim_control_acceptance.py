@@ -335,8 +335,15 @@ def _upstream_surface_paths(surface: dict[str, Any]) -> tuple[list[str], str]:
     return [str(item).strip() for item in raw_paths if str(item).strip()], "ok"
 
 
+def _resolve_upstream_surface_path(raw_path: str, *, surface_path: Path) -> Path:
+    path = Path(raw_path)
+    return path if path.is_absolute() else surface_path.parent / path
+
+
 def _accepted_upstream_surfaces(
     surface: dict[str, Any],
+    *,
+    surface_path: Path,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, str], list[str], list[str], list[str]]:
     upstream_paths, _ = _upstream_surface_paths(surface)
     upstream_claims_by_id: dict[str, dict[str, Any]] = {}
@@ -346,7 +353,7 @@ def _accepted_upstream_surfaces(
     hash_mismatches: list[str] = []
 
     for raw_path in upstream_paths:
-        upstream_path = Path(raw_path)
+        upstream_path = _resolve_upstream_surface_path(raw_path, surface_path=surface_path)
         if not upstream_path.name.endswith(".claim-control.json"):
             invalid_paths.append(raw_path)
             continue
@@ -851,12 +858,14 @@ def _enforce_upstream_claim_identity(
         invalid_paths,
         missing_surfaces,
         hash_mismatches,
-    ) = _accepted_upstream_surfaces(surface)
+    ) = _accepted_upstream_surfaces(surface, surface_path=surface_path)
     mismatches = _upstream_claim_identity_mismatches(surface, upstream_claims_by_id, upstream_claim_paths_by_id)
     requires_upstream = _surface_requires_upstream_claim_control(surface)
     evidence_claim_refs = _current_evidence_source_claim_refs(mechanism_report)
     self_reference_paths = [
-        path for path in upstream_paths if Path(path).resolve() == surface_path.resolve()
+        path
+        for path in upstream_paths
+        if _resolve_upstream_surface_path(path, surface_path=surface_path).resolve() == surface_path.resolve()
     ]
     unresolved_refs = (
         sorted(ref for ref in evidence_claim_refs if ref not in upstream_claims_by_id)

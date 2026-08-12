@@ -33,7 +33,7 @@
 
 ## 4. Process Checkpoints
 - ownership boundaries explicit
-- aggregate lifecycle and write ownership aligned
+- aggregate lifecycle and write ownership aligned; accepted table-backed read models/current-system compatibility snapshots without writer authority still appear in the schema draft with their accepted operation service as documentation ownership, without inventing a writer
 - storage rationale explicit
 - index strategy explicit and tied to concrete access paths, not only declared as leftover DDL hints
 - interface contracts explicit
@@ -57,7 +57,7 @@
 - API endpoint draft records response_profile, retryability_policy, and idempotency_rule for implementation-facing endpoints
 - business errors and system errors stay distinguishable in the response/error contract and endpoint failure semantics
 - scenario coverage across all known business scenarios explicit
-- scenario coverage includes ≥2 explicitly labeled concurrent-conflict rows with visible coordination/locking/merge strategy
+- scenario coverage satisfies the active profile's concurrent-conflict minimum with visible coordination/locking/merge strategy, but only using operations whose accepted durable semantics actually reject a competing write; replay-safe `return-existing` and read-only operations must not be relabeled as `409 version_conflict` to fill the denominator
 - critical, failure-path, or concurrent-conflict scenarios keep GWT-compatible acceptance structure: dedicated `given / when / then` columns when helpful, otherwise explicit Given/When/Then language inside `acceptance_criteria`
 - public boundary-visible names explicit
 - security posture explicit
@@ -82,7 +82,7 @@
 - diagram obligation: `required` (hard gate: absence of structured visual representation = gate fail; stage must be downgraded to `blocked`, not `provisional` or `pass`)
 - provisional items must keep provenance markers
 - scenario coverage matrix is required for all known business scenarios
-- concurrency or authoritative-write conflict must not be left implicit; if multiple actors or retries can touch the same authoritative surface, include explicit concurrent-conflict scenarios
+- concurrency or authoritative-write behavior must not be left implicit; use explicit concurrent-conflict scenarios when accepted persistence semantics reject competing writes, and preserve replay/idempotency behavior without manufacturing `409` semantics when accepted authority is `return-existing`
 - freeze public boundary-visible names and contracts only; defer internal class/method/file symbols
 - technology selection must include comparison dimensions and evidence sources
 - tradeoff-heavy reasoning must close as a bundle; if a multi-candidate selection is kept, explain why baseline loses, who wins under the dominant constraint, and which tradeoffs are deliberately accepted

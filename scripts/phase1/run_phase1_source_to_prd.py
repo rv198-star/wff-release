@@ -26,13 +26,33 @@ from typing import Any
 
 from common.output_language import localize_phase1_execution_report, resolve_output_locale
 from common.cross_phase_surface_policy import resolve_cross_phase_surface_path
+from common.wff_core_runtime import WFFCoreConsumerError, require_capability_binding
 from common.human_review_surface import emit_human_review_surface
+from common.human_review_sidecar import dispatch_human_review_sidecar
+from common.agentic_decision_authority import (
+    AgenticDecisionAuthorityError,
+    build_application_receipt,
+    load_json_object,
+    write_json_atomic,
+)
 from common.claim_control_runtime import (
     CanonicalName,
     ClaimRecord,
     ClaimRelation,
     accepted_claims_from_phase1_trace_units,
     emit_path_b_claim_control_sidecar,
+)
+from phase1.agentic_product_authority import (
+    P1AgenticProductAuthorityError,
+    build_decision_bound_direct_driver,
+    build_decision_template,
+    build_p1_agentic_product_authority,
+    build_p1_agentic_product_candidate,
+    validate_p1_agentic_product_decision,
+)
+from phase1.canonical_authority_convergence import (
+    P1CanonicalAuthorityConvergenceError,
+    verify_p1_canonical_prd,
 )
 from phase1.phase1_emit_depth_runtime_artifacts import DEPTH_RUNTIME_SUMMARY_FILENAME, DEPTH_RUNTIME_TEXT_ARTIFACTS
 from phase1.phase1_generation_kernel import extract_domain_context, source_fact_text, source_packet_admission_state
@@ -514,7 +534,6 @@ class Phase1SourceToPrdContext:
     prd_zh: Path
     evidence: Path
     report: Path
-    snapshot: Path
     depth_runtime_summary: Path
     gate_json_draft: Path
     gate_json_final: Path
@@ -527,6 +546,14 @@ class Phase1SourceToPrdContext:
     prd_claim_input: Path
     prd_claim_surface: Path
     prd_claim_control: Path
+    agentic_product_decision: Path | None
+    agentic_candidate: Path
+    agentic_decision_template: Path
+    agentic_decision_evidence: Path
+    agentic_direct_driver: Path
+    agentic_product_authority: Path
+    agentic_canonical_convergence_report: Path
+    agentic_application_receipt: Path
 
 
 @dataclass(frozen=True)
@@ -586,6 +613,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--commercial-argument-rewrite",
         help="optional agent/operator-authored commercial-argument-rewrite.json to apply during PRD assembly",
+    )
+    parser.add_argument(
+        "--agentic-product-decision",
+        help="accepted host-Agent P1 product/world decision bound to the current admitted source snapshot",
     )
     parser.add_argument(
         "--narrative-compression-rewrite",
@@ -650,7 +681,6 @@ def build_phase1_source_to_prd_context(args: argparse.Namespace) -> Phase1Source
         prd_zh=output_dir / f"{prd_stem}.zh-CN.md",
         evidence=output_dir / f"{prd_stem}-convergence-evidence.md",
         report=output_dir / "phase-1-execution-report.md",
-        snapshot=resolve_cross_phase_surface_path(output_dir, "phase1", "phase1-runtime-snapshot.json"),
         depth_runtime_summary=output_dir / DEPTH_RUNTIME_SUMMARY_FILENAME,
         gate_json_draft=resolve_cross_phase_surface_path(output_dir, "phase1", "phase1-convergence-gates-draft.json"),
         gate_json_final=resolve_cross_phase_surface_path(output_dir, "phase1", "phase1-convergence-gates-final.json"),
@@ -663,6 +693,18 @@ def build_phase1_source_to_prd_context(args: argparse.Namespace) -> Phase1Source
         prd_claim_input=evidence_dir / f"{prd_stem}.claim-input.json",
         prd_claim_surface=evidence_dir / f"{prd_stem}.claim-surface.json",
         prd_claim_control=output_dir / f"{prd_stem}.claim-control.json",
+        agentic_product_decision=(
+            Path(args.agentic_product_decision).resolve()
+            if getattr(args, "agentic_product_decision", None)
+            else None
+        ),
+        agentic_candidate=evidence_dir / "p1-agentic-product-candidate.json",
+        agentic_decision_template=evidence_dir / "p1-agentic-product-decision.template.json",
+        agentic_decision_evidence=evidence_dir / "p1-agentic-product-decision.json",
+        agentic_direct_driver=evidence_dir / "p1-agentic-product-direct-driver.json",
+        agentic_product_authority=output_dir / "p1-agentic-product-authority.json",
+        agentic_canonical_convergence_report=output_dir / "p1-canonical-authority-convergence.json",
+        agentic_application_receipt=output_dir / "p1-agentic-product-application-receipt.json",
     )
 
 
@@ -676,17 +718,6 @@ def print_phase1_source_to_prd_start(context: Phase1SourceToPrdContext) -> None:
     print(f"thinking_value_gain_mode: {context.thinking_value_gain_mode}")
     print(f"thinking_value_gain_output_profile: {context.thinking_value_gain_output_profile}")
     print(f"skip_stage_02b: {'yes' if context.skip_stage_02b else 'no'}")
-
-
-def build_record_phase1_runtime_snapshot_command(context: Phase1SourceToPrdContext) -> list[str]:
-    return [
-        context.python,
-        str(context.script_dir / "record_phase1_runtime_snapshot.py"),
-        "--repo-root",
-        str(context.repo_root),
-        "--output",
-        str(context.snapshot),
-    ]
 
 
 def build_phase1_deep_stage_command(context: Phase1SourceToPrdContext) -> list[str]:
@@ -708,6 +739,12 @@ def build_phase1_deep_stage_command(context: Phase1SourceToPrdContext) -> list[s
         "--thinking-value-gain-output-profile",
         context.thinking_value_gain_output_profile,
     ]
+    command.extend(
+        [
+            "--agentic-product-direct-driver",
+            str(context.agentic_direct_driver),
+        ]
+    )
     if context.skip_stage_02b:
         command.append("--skip-stage-02b")
     return command
@@ -830,7 +867,12 @@ def build_phase1_emit_depth_runtime_artifacts_command(context: Phase1SourceToPrd
     ]
 
 
-def build_phase1_gate_command(context: Phase1SourceToPrdContext, *, output_json_path: Path) -> list[str]:
+def build_phase1_gate_command(
+    context: Phase1SourceToPrdContext,
+    *,
+    output_json_path: Path,
+    auto_remediate: bool | None = None,
+) -> list[str]:
     command = [
         context.python,
         str(context.script_dir / "run_phase1_convergence.py"),
@@ -855,6 +897,8 @@ def build_phase1_gate_command(context: Phase1SourceToPrdContext, *, output_json_
         "--require-non-shrinking",
         "--output-json",
         str(output_json_path),
+        "--agentic-product-direct-driver",
+        str(context.agentic_direct_driver),
         "--output-locale",
         context.canonical_output_locale,
         "--stage",
@@ -868,7 +912,12 @@ def build_phase1_gate_command(context: Phase1SourceToPrdContext, *, output_json_
         "--stage",
         str(context.stage_04),
     ]
-    if not context.no_auto_remediate:
+    auto_remediate_enabled = (
+        not context.no_auto_remediate
+        if auto_remediate is None
+        else bool(auto_remediate) and not context.no_auto_remediate
+    )
+    if auto_remediate_enabled:
         command.append("--auto-remediate")
     return command
 
@@ -984,22 +1033,6 @@ def append_optional_step_skip(
     )
 
 
-def run_phase1_runtime_snapshot_if_available(
-    context: Phase1SourceToPrdContext,
-    *,
-    segments: list[dict[str, Any]] | None = None,
-) -> bool:
-    command = build_record_phase1_runtime_snapshot_command(context)
-    if not (context.script_dir / "record_phase1_runtime_snapshot.py").exists():
-        append_optional_step_skip(segments, name="runtime_snapshot", command=command)
-        return False
-    if segments is None:
-        run(command)
-    else:
-        run_timed(command, segments=segments, name="runtime_snapshot")
-    return True
-
-
 def run_phase1_prd_excellence_regression_if_available(
     context: Phase1SourceToPrdContext,
     *,
@@ -1067,16 +1100,25 @@ def run_phase1_gate_and_refresh_report(
     output_json_path: Path,
     segments: list[dict[str, Any]] | None = None,
     label_prefix: str = "",
+    auto_remediate: bool | None = None,
 ) -> int:
     if segments is None:
         gate_code = run_allow_returncodes(
-            build_phase1_gate_command(context, output_json_path=output_json_path),
+            build_phase1_gate_command(
+                context,
+                output_json_path=output_json_path,
+                auto_remediate=auto_remediate,
+            ),
             allowed=(0, 2),
         )
         run(build_phase1_execution_report_command(context, gate_json_path=output_json_path))
         return gate_code
     gate_code = run_allow_returncodes_timed(
-        build_phase1_gate_command(context, output_json_path=output_json_path),
+        build_phase1_gate_command(
+            context,
+            output_json_path=output_json_path,
+            auto_remediate=auto_remediate,
+        ),
         allowed=(0, 2),
         segments=segments,
         name=f"{label_prefix}gate".strip("_"),
@@ -1363,24 +1405,62 @@ def _phase1_prd_claim_surface_payload(context: Phase1SourceToPrdContext, *, prd_
         prd_text=prd_text,
     )
     flow_claims, flow_source_rows, compatibility_rows = _flow_claims_from_source_contexts(context, prd_text=prd_text)
-    claims = _unique_claim_records([*trace_claims, *flow_claims])
+    authority_claims: list[ClaimRecord] = []
+    authority = _load_optional_authority(context.agentic_product_authority)
+    for row in authority.get("commitments", []) if isinstance(authority.get("commitments"), list) else []:
+        if not isinstance(row, dict):
+            continue
+        commitment_id = str(row.get("commitment_id") or "").strip()
+        if not commitment_id:
+            continue
+        authority_claims.append(
+            ClaimRecord(
+                id=commitment_id,
+                kind=str(row.get("kind") or "requirement").strip() or "requirement",
+                text=str(row.get("statement") or commitment_id).strip() or commitment_id,
+                source_refs=[str(item).strip() for item in row.get("source_refs", []) if str(item).strip()],
+                status=str(row.get("status") or "review-bound").strip() or "review-bound",
+            )
+        )
+    claims = _unique_claim_records([*authority_claims, *trace_claims, *flow_claims])
     relations = _phase1_flow_transition_relations(flow_claims)
     names = _phase1_flow_canonical_names(flow_claims)
     source_rows = [*trace_source_rows, *flow_source_rows]
     compatibility_rows = [*trace_compatibility_rows, *compatibility_rows]
     compilation_status = "compiled-with-compatibility-fallback" if compatibility_rows else "compiled"
+    if authority_claims:
+        compilation_status = "compiled"
     if not claims:
         compilation_status = "empty"
     return {
         "artifact_kind": "phase1-prd-claim-surface",
         "version": "phase1-prd-claim-surface/v0.1",
         "artifact_id": "p1-prd-main",
-        "authority_mode": "phase1-compiled-claim-surface",
+        "authority_mode": (
+            "snapshot-bound-agentic-product-authority"
+            if authority_claims
+            else "phase1-compiled-claim-surface"
+        ),
         "compilation_status": compilation_status,
         "claim_surface_path": str(context.prd_claim_surface),
         "source_context_paths": sorted({row["source_path"] for row in source_rows}),
         "compatibility_source_paths": sorted({row["source_path"] for row in compatibility_rows}),
-        "source_rows": source_rows,
+        "source_rows": [
+            *(
+                [
+                    {
+                        "claim_group": "agentic_portable_commitments",
+                        "source_path": str(context.agentic_product_authority),
+                        "source_name": context.agentic_product_authority.name,
+                        "claim_count": len(authority_claims),
+                        "source_mode": "accepted-snapshot-bound-agentic-product-authority",
+                    }
+                ]
+                if authority_claims
+                else []
+            ),
+            *source_rows,
+        ],
         "compatibility_rows": compatibility_rows,
         "claims": [claim.to_dict() for claim in claims],
         "relations": [relation.to_dict() for relation in relations],
@@ -1464,6 +1544,7 @@ def emit_phase1_claim_control_sidecar(context: Phase1SourceToPrdContext) -> dict
 
     prd_text = context.prd.read_text(encoding="utf-8")
     claim_surface = build_phase1_prd_claim_surface(context, prd_text=prd_text)
+    authority = _load_optional_authority(context.agentic_product_authority)
     claims = _claims_from_claim_surface(claim_surface)
     flow_relations = _relations_from_claim_surface(claim_surface)
     flow_names = _names_from_claim_surface(claim_surface)
@@ -1483,7 +1564,9 @@ def emit_phase1_claim_control_sidecar(context: Phase1SourceToPrdContext) -> dict
             "claim_surface_path": str(context.prd_claim_surface),
             "source_context_paths": claim_surface["source_context_paths"],
             "compatibility_source_paths": claim_surface["compatibility_source_paths"],
-            "policy": "P1 sidecar consumes the compiled claim surface first; rendered PRD is a validation target, not the claim source.",
+            "agentic_product_authority_path": str(context.agentic_product_authority),
+            "agentic_product_authority_digest": str(authority.get("content_digest") or ""),
+            "policy": "P1 sidecar consumes accepted snapshot-bound Agentic commitments first; rendered PRD remains a validation projection, not a parallel truth source.",
         },
     )
 
@@ -1538,6 +1621,181 @@ def _heading_section(text: str, titles: tuple[str, ...]) -> str:
     return match.group("body") if match else ""
 
 
+def _load_optional_authority(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    return load_json_object(path)
+
+
+def prepare_phase1_agentic_product_authority(context: Phase1SourceToPrdContext) -> dict[str, Any]:
+    candidate = build_p1_agentic_product_candidate(context.source)
+    write_json_atomic(context.agentic_candidate, candidate)
+    write_json_atomic(context.agentic_decision_template, build_decision_template(candidate))
+    if context.agentic_product_decision is None:
+        raise P1AgenticProductAuthorityError(
+            "current-snapshot P1 Agentic product decision is required; "
+            f"candidate={context.agentic_candidate}; template={context.agentic_decision_template}"
+        )
+    decision = load_json_object(context.agentic_product_decision)
+    validate_p1_agentic_product_decision(decision, candidate=candidate)
+    write_json_atomic(context.agentic_decision_evidence, decision)
+    driver = build_decision_bound_direct_driver(candidate, decision)
+    write_json_atomic(context.agentic_direct_driver, driver)
+    authority = build_p1_agentic_product_authority(candidate, decision)
+    write_json_atomic(context.agentic_product_authority, authority)
+    return decision
+
+
+def verify_phase1_agentic_canonical_prd(context: Phase1SourceToPrdContext) -> dict[str, Any]:
+    authority = load_json_object(context.agentic_product_authority)
+    return verify_p1_canonical_prd(
+        prd_path=context.prd,
+        authority=authority,
+        report_path=context.agentic_canonical_convergence_report,
+    )
+
+
+def _agentic_authority_markdown(authority: dict[str, Any], *, surface: str) -> str:
+    commitments = authority.get("commitments", []) if isinstance(authority.get("commitments"), list) else []
+    features = authority.get("feature_dispositions", []) if isinstance(authority.get("feature_dispositions"), list) else []
+    lines = [
+        "",
+        "## Snapshot-Bound Agentic Product Authority",
+        "",
+        f"- surface: `{surface}`",
+        f"- decision_id: `{authority.get('decision_id', '')}`",
+        f"- decision_digest: `{authority.get('decision_digest', '')}`",
+        f"- input_snapshot_digest: `{authority.get('input_snapshot_digest', '')}`",
+        f"- authority_digest: `{authority.get('content_digest', '')}`",
+        f"- claim_ceiling: {authority.get('claim_ceiling', '')}",
+        "- authoritative_document_delivery_state: `review-ready` when accepted world or material features remain candidate/review-bound; otherwise bounded by the accepted decision.",
+        "- supersedes_generic_safe_start_projection: `true`",
+        "",
+        "### Material Feature Dispositions",
+        "",
+        "| Feature ID | Disposition | Truth State | Statement | Source Refs | Ceiling |",
+        "|---|---|---|---|---|---|",
+    ]
+    for row in features:
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            "| {feature_id} | `{disposition}` | `{truth_state}` | {statement} | {refs} | {ceiling} |".format(
+                feature_id=str(row.get("feature_id") or ""),
+                disposition=str(row.get("disposition") or ""),
+                truth_state=str(row.get("truth_state") or ""),
+                statement=str(row.get("statement") or "").replace("|", "\\|"),
+                refs=", ".join(f"`{item}`" for item in row.get("source_refs", []) if str(item).strip()) or "-",
+                ceiling=str(row.get("claim_ceiling") or "").replace("|", "\\|"),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "### Portable Commitments",
+            "",
+            "| Commitment ID | Kind | Status | Truth State | Statement | Feature IDs | Source Refs |",
+            "|---|---|---|---|---|---|---|",
+        ]
+    )
+    for row in commitments:
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            "| {commitment_id} | `{kind}` | `{status}` | `{truth_state}` | {statement} | {features} | {refs} |".format(
+                commitment_id=str(row.get("commitment_id") or ""),
+                kind=str(row.get("kind") or ""),
+                status=str(row.get("status") or ""),
+                truth_state=str(row.get("truth_state") or ""),
+                statement=str(row.get("statement") or "").replace("|", "\\|"),
+                features=", ".join(f"`{item}`" for item in row.get("feature_ids", []) if str(item).strip()) or "-",
+                refs=", ".join(f"`{item}`" for item in row.get("source_refs", []) if str(item).strip()) or "-",
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "> Candidate worlds and mechanical feature hints are non-authoritative. "
+            "Only this accepted decision defines the bounded P1 product/commitment authority.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def publish_phase1_agentic_authority_projections(context: Phase1SourceToPrdContext) -> None:
+    authority = load_json_object(context.agentic_product_authority)
+    for path in (context.stage_01, context.stage_02a, context.stage_02b, context.stage_03, context.stage_04, context.prd):
+        text = path.read_text(encoding="utf-8")
+        if "## Snapshot-Bound Agentic Product Authority" in text:
+            continue
+        path.write_text(text.rstrip() + "\n" + _agentic_authority_markdown(authority, surface=path.name), encoding="utf-8")
+
+
+def finalize_phase1_agentic_application(context: Phase1SourceToPrdContext) -> dict[str, Any]:
+    decision = load_json_object(context.agentic_decision_evidence)
+    authority = load_json_object(context.agentic_product_authority)
+    claim_control = load_json_object(context.prd_claim_control)
+    claim_rows = claim_control.get("claim_index", {}).get("claims", [])
+    claim_ids = {
+        str(row.get("id") or "")
+        for row in claim_rows
+        if isinstance(row, dict) and str(row.get("id") or "")
+    } if isinstance(claim_rows, list) else set()
+    prd_text = context.prd.read_text(encoding="utf-8")
+    accepted_commitments = [
+        row
+        for row in authority.get("commitments", [])
+        if isinstance(row, dict) and row.get("status") == "accepted"
+    ]
+    missing = sorted(
+        {
+            str(row.get("commitment_id") or "")
+            for row in accepted_commitments
+            if str(row.get("commitment_id") or "") not in claim_ids
+            or str(row.get("commitment_id") or "") not in prd_text
+        }
+    )
+    convergence = load_json_object(context.agentic_canonical_convergence_report)
+    if convergence.get("status") != "pass":
+        raise P1CanonicalAuthorityConvergenceError("P1 canonical authority convergence is not accepted")
+    if convergence.get("authority_digest") != authority.get("content_digest"):
+        raise P1CanonicalAuthorityConvergenceError("P1 convergence report authority binding is invalid")
+    if convergence.get("artifact_name") != context.prd.name:
+        raise P1CanonicalAuthorityConvergenceError("P1 convergence report artifact identity is invalid")
+
+    receipt = build_application_receipt(
+        decision=decision,
+        writer_id="phase1-source-to-prd-canonical-writer.v1",
+        output_paths=(
+            context.stage_01,
+            context.stage_02a,
+            context.stage_02b,
+            context.stage_03,
+            context.stage_04,
+            context.prd,
+            context.prd_claim_control,
+            context.agentic_product_authority,
+            context.agentic_canonical_convergence_report,
+            context.output_dir / "phase1-business-world-model.json",
+            context.output_dir / "phase1-product-world-decision.json",
+        ),
+        application_status="complete" if not missing else "blocked",
+        missing_applications=missing,
+        unused_decisions=(),
+        claim_ceiling=(
+            "This receipt proves lossless application of the accepted P1 decision to current-generation P1 authority surfaces. "
+            "It does not prove domain-expert correctness, owner confirmation, P2 quality, L2/L2+, or production readiness."
+        ),
+    )
+    write_json_atomic(context.agentic_application_receipt, receipt)
+    if missing:
+        raise P1AgenticProductAuthorityError(
+            "accepted P1 commitments were not losslessly applied: " + ", ".join(missing)
+        )
+    return receipt
+
+
 def load_phase1_gate_payload(context: Phase1SourceToPrdContext) -> dict[str, Any] | None:
     if not context.gate_json_final.exists():
         return None
@@ -1570,9 +1828,10 @@ def run_phase1_source_to_prd(context: Phase1SourceToPrdContext) -> Phase1SourceT
     timing_started_monotonic = time.monotonic()
     timing_segments: list[dict[str, Any]] = []
     try:
-        run_phase1_runtime_snapshot_if_available(context, segments=timing_segments)
+        prepare_phase1_agentic_product_authority(context)
         for command in phase1_main_stage_commands(context):
             run_timed(command, segments=timing_segments, name=command_segment_name(command, "phase1_step"))
+        publish_phase1_agentic_authority_projections(context)
 
         started_at = utc_now_iso()
         started_monotonic = time.monotonic()
@@ -1590,16 +1849,31 @@ def run_phase1_source_to_prd(context: Phase1SourceToPrdContext) -> Phase1SourceT
             segments=timing_segments,
             label_prefix="draft_",
         )
+
+        started_at = utc_now_iso()
+        started_monotonic = time.monotonic()
+        publish_phase1_agentic_authority_projections(context)
+        verify_phase1_agentic_canonical_prd(context)
+        append_timing_segment(
+            timing_segments,
+            name="p1_existing_renderer_authority_verification",
+            started_at=started_at,
+            started_monotonic=started_monotonic,
+            status="pass",
+        )
+
         final_gate_code = run_phase1_gate_and_refresh_report(
             context,
             output_json_path=context.gate_json_final,
             segments=timing_segments,
             label_prefix="final_",
+            auto_remediate=False,
         )
-        run_phase1_postrun_audits(context, segments=timing_segments)
+        verify_phase1_agentic_canonical_prd(context)
         started_at = utc_now_iso()
         started_monotonic = time.monotonic()
         emit_phase1_claim_control_sidecar(context)
+        finalize_phase1_agentic_application(context)
         append_timing_segment(
             timing_segments,
             name="claim_control_sidecar",
@@ -1610,6 +1884,7 @@ def run_phase1_source_to_prd(context: Phase1SourceToPrdContext) -> Phase1SourceT
         started_at = utc_now_iso()
         started_monotonic = time.monotonic()
         emit_human_review_surface(context.output_dir, "phase1")
+        dispatch_human_review_sidecar(context.output_dir, "phase1")
         append_timing_segment(
             timing_segments,
             name="human_review_surface",
@@ -1617,6 +1892,7 @@ def run_phase1_source_to_prd(context: Phase1SourceToPrdContext) -> Phase1SourceT
             started_monotonic=started_monotonic,
             status="pass",
         )
+        run_phase1_postrun_audits(context, segments=timing_segments)
         return Phase1SourceToPrdResult(
             draft_gate_code=draft_gate_code,
             final_gate_code=final_gate_code,
@@ -1660,6 +1936,9 @@ def emit_phase1_source_to_prd_summary(context: Phase1SourceToPrdContext, result:
     else:
         print("prd_excellence_regression: not-bundled optional release/development evidence")
     print(f"prd_claim_control: {context.prd_claim_control}")
+    print(f"agentic_product_authority: {context.agentic_product_authority}")
+    print(f"agentic_canonical_convergence: {context.agentic_canonical_convergence_report}")
+    print(f"agentic_application_receipt: {context.agentic_application_receipt}")
     print(f"timing_report: {context.timing_report}")
     if result.draft_gate_code != 0 or result.final_gate_code != 0:
         print("FINAL: BLOCKED")
@@ -1680,14 +1959,35 @@ emit_phase1_full_trial_summary = emit_phase1_source_to_prd_summary
 def main(argv: list[str] | None = None) -> int:
     args = parse_phase1_source_to_prd_args(argv)
     try:
+        require_capability_binding(
+            "product-requirements",
+            phase_id="P1",
+            route_key="wff-req",
+            required_contracts=(
+                "phase-contract",
+                "handoff-contract",
+                "artifact-identity-contract",
+                "evidence-contract",
+                "claim-state-contract",
+            ),
+        )
         context = build_phase1_source_to_prd_context(args)
         validate_phase1_source_admission(context.source)
-    except ValueError as exc:
+    except (
+        ValueError,
+        WFFCoreConsumerError,
+        AgenticDecisionAuthorityError,
+        P1AgenticProductAuthorityError,
+    ) as exc:
         print(f"[BLOCKED] {exc}")
         return 2
 
     print_phase1_source_to_prd_start(context)
-    result = run_phase1_source_to_prd(context)
+    try:
+        result = run_phase1_source_to_prd(context)
+    except (AgenticDecisionAuthorityError, P1AgenticProductAuthorityError) as exc:
+        print(f"[BLOCKED] {exc}")
+        return 2
     return emit_phase1_source_to_prd_summary(context, result)
 
 

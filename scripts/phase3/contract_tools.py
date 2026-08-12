@@ -530,6 +530,7 @@ def endpoint_rows_from_openapi_spec(payload: dict[str, Any]) -> list[dict[str, o
                     )
 
             request_example, response_example = _merge_seed_example_fields(path, request_example, response_example)
+            semantic_literal_fields = operation.get("x-wff-semantic-literal-fields", [])
             rows.append(
                 {
                     "endpoint_name": operation_id,
@@ -538,6 +539,12 @@ def endpoint_rows_from_openapi_spec(payload: dict[str, Any]) -> list[dict[str, o
                     "purpose": str(operation.get("summary", "")).strip() or operation_id,
                     "request_body_example": request_example,
                     "response_body_example": response_example,
+                    "response_example_authority": str(operation.get("x-wff-response-example-authority", "")).strip(),
+                    "semantic_literal_fields": (
+                        [str(item).strip() for item in semantic_literal_fields if str(item).strip()]
+                        if isinstance(semantic_literal_fields, list)
+                        else []
+                    ),
                     "failure_codes": failure_codes,
                 }
             )
@@ -1873,6 +1880,9 @@ def build_openapi_spec(
             endpoint_name=endpoint_name,
         )
 
+        response_profile = str(row.get("response_profile") or "").strip()
+        mechanical_response_example = "contract-bound response for" in response_profile.casefold()
+        semantic_literal_fields = row.get("semantic_literal_fields", [])
         operation: dict[str, object] = {
             "operationId": endpoint_name,
             "summary": str(row["purpose"]),
@@ -1882,19 +1892,29 @@ def build_openapi_spec(
             "x-pagination-rule": row.get("pagination_rule", ""),
             "x-retryability-policy": row.get("retryability_policy", ""),
             "x-idempotency-rule": row.get("idempotency_rule", ""),
+            "x-wff-response-example-authority": (
+                "mechanical-shape-only" if mechanical_response_example else "source-explicit-example"
+            ),
         }
+        if isinstance(semantic_literal_fields, list) and semantic_literal_fields:
+            operation["x-wff-semantic-literal-fields"] = [
+                str(item).strip() for item in semantic_literal_fields if str(item).strip()
+            ]
 
         path_parameters = re.findall(r"{([^}]+)}", resolved_path)
         if path_parameters:
-            operation["parameters"] = [
-                {
+            operation["parameters"] = []
+            for name in path_parameters:
+                example = request_example.get(name) if isinstance(request_example, dict) else None
+                parameter: dict[str, object] = {
                     "name": name,
                     "in": "path",
                     "required": True,
-                    "schema": {"type": "string"},
+                    "schema": infer_json_schema(example) if example not in (None, "") else {"type": "string"},
                 }
-                for name in path_parameters
-            ]
+                if example not in (None, ""):
+                    parameter["example"] = example
+                operation["parameters"].append(parameter)  # type: ignore[union-attr]
 
         if method == "get":
             query_params = []

@@ -28,6 +28,7 @@ from phase4.phase4_common import (
     compact_token,
     dedupe_preserve_order,
     discover_openapi_path,
+    discover_phase3_trace_registry_path,
     ensure_list,
     extract_phase3_surface_markers_from_file,
     extract_operation_ids_from_file,
@@ -37,7 +38,9 @@ from phase4.phase4_common import (
     load_json,
     markdown_heading_section,
     load_json_if_exists,
+    load_phase3_current_closure_summary,
     load_phase3_mainline_summary,
+    load_phase3_trace_registry_for_validation,
     load_openapi_spec,
     load_phase3_runtime_environment_summary,
     prefixed_id,
@@ -280,6 +283,39 @@ def extract_first_backticked_value(block: str, field_name: str) -> str:
     return match.group(1).strip() if match else ""
 
 
+def accepted_identity_choice_value(value: str) -> str:
+    """Return only affirmative structured identity/key posture accepted by P2.
+
+    P4 validates accepted decisions; it must not convert review-bound, deferred,
+    provider-neutral, or explicitly unaccepted placeholders into decision truth.
+    """
+    text = " ".join(str(value).replace(" ", " ").split()).strip()
+    if not text:
+        return ""
+    lowered = text.casefold()
+    if any(
+        token in lowered
+        for token in (
+            "review-bound",
+            "review bound",
+            "deferred",
+            "defer ",
+            "not accepted",
+            "not selected",
+            "provider-neutral",
+            "provider neutral",
+            "no identity provider",
+            "no provider selected",
+            "no key product selected",
+            "no token lifecycle",
+            "unresolved",
+            "unknown",
+        )
+    ):
+        return ""
+    return text
+
+
 def build_phase2_decision_records(phase2_root: Path | None) -> dict[str, Any]:
     if phase2_root is None:
         return {
@@ -382,58 +418,78 @@ def build_phase2_decision_records(phase2_root: Path | None) -> dict[str, Any]:
         break
 
     identity_block = block_text(text, "identity_and_key_management_choice_posture")
-    recommended_approach = extract_first_backticked_value(identity_block, "recommended_approach")
-    access_token_lifetime = extract_first_backticked_value(identity_block, "access_token_lifetime")
-    refresh_strategy = extract_first_backticked_value(identity_block, "refresh_strategy")
-    rotation_policy = extract_first_backticked_value(identity_block, "rotation_policy")
-    secret_storage = extract_first_backticked_value(identity_block, "secret_storage")
-    tenant_isolation_note = extract_first_backticked_value(identity_block, "tenant_isolation_note")
-    if identity_block:
-        records.extend(
-            [
-                {
-                    "decision_id": "ID-01",
-                    "category": "identity",
-                    "priority": "critical",
-                    "title": "Managed OIDC + tenant-scoped BFF posture",
-                    "summary": recommended_approach,
-                    "source_section": "10.9 Identity, Auth Vendor, and Key Lifecycle",
-                    "match_tokens": signal_tokens(
-                        "Managed OIDC + tenant-scoped BFF posture",
-                        recommended_approach,
-                        "cross-tenant deny audit protected endpoint role claims policy check",
-                    ),
-                },
-                {
-                    "decision_id": "ID-02",
-                    "category": "identity",
-                    "priority": "high",
-                    "title": "Token lifecycle and rotation posture",
-                    "summary": " ".join(part for part in [access_token_lifetime, refresh_strategy, rotation_policy] if part),
-                    "source_section": "10.9 Identity, Auth Vendor, and Key Lifecycle",
-                    "match_tokens": signal_tokens(
-                        "Token lifecycle and rotation posture",
-                        access_token_lifetime,
-                        refresh_strategy,
-                        rotation_policy,
-                        "auth context deny forbidden expired credential protected endpoint session reuse",
-                    ),
-                },
-                {
-                    "decision_id": "ID-03",
-                    "category": "identity",
-                    "priority": "high",
-                    "title": "Key management and tenant isolation posture",
-                    "summary": " ".join(part for part in [secret_storage, tenant_isolation_note] if part),
-                    "source_section": "10.9 Identity, Auth Vendor, and Key Lifecycle",
-                    "match_tokens": signal_tokens(
-                        "Key management and tenant isolation posture",
-                        secret_storage,
-                        tenant_isolation_note,
-                        "secret rotation kms tenant isolation audit log deny path",
-                    ),
-                },
-            ]
+    recommended_approach = accepted_identity_choice_value(
+        extract_first_backticked_value(identity_block, "recommended_approach")
+    )
+    access_token_lifetime = accepted_identity_choice_value(
+        extract_first_backticked_value(identity_block, "access_token_lifetime")
+    )
+    refresh_strategy = accepted_identity_choice_value(
+        extract_first_backticked_value(identity_block, "refresh_strategy")
+    )
+    rotation_policy = accepted_identity_choice_value(
+        extract_first_backticked_value(identity_block, "rotation_policy")
+    )
+    secret_storage = accepted_identity_choice_value(
+        extract_first_backticked_value(identity_block, "secret_storage")
+    )
+    tenant_isolation_note = accepted_identity_choice_value(
+        extract_first_backticked_value(identity_block, "tenant_isolation_note")
+    )
+    if recommended_approach:
+        records.append(
+            {
+                "decision_id": "ID-01",
+                "category": "identity",
+                "priority": "critical",
+                "title": "Managed OIDC + tenant-scoped BFF posture",
+                "summary": recommended_approach,
+                "source_section": "10.9 Identity, Auth Vendor, and Key Lifecycle",
+                "match_tokens": signal_tokens(
+                    "Managed OIDC + tenant-scoped BFF posture",
+                    recommended_approach,
+                    "cross-tenant deny audit protected endpoint role claims policy check",
+                ),
+            }
+        )
+    token_lifecycle_summary = " ".join(
+        part for part in [access_token_lifetime, refresh_strategy, rotation_policy] if part
+    )
+    if token_lifecycle_summary:
+        records.append(
+            {
+                "decision_id": "ID-02",
+                "category": "identity",
+                "priority": "high",
+                "title": "Token lifecycle and rotation posture",
+                "summary": token_lifecycle_summary,
+                "source_section": "10.9 Identity, Auth Vendor, and Key Lifecycle",
+                "match_tokens": signal_tokens(
+                    "Token lifecycle and rotation posture",
+                    access_token_lifetime,
+                    refresh_strategy,
+                    rotation_policy,
+                    "auth context deny forbidden expired credential protected endpoint session reuse",
+                ),
+            }
+        )
+    key_management_summary = " ".join(part for part in [secret_storage, tenant_isolation_note] if part)
+    if key_management_summary:
+        records.append(
+            {
+                "decision_id": "ID-03",
+                "category": "identity",
+                "priority": "high",
+                "title": "Key management and tenant isolation posture",
+                "summary": key_management_summary,
+                "source_section": "10.9 Identity, Auth Vendor, and Key Lifecycle",
+                "match_tokens": signal_tokens(
+                    "Key management and tenant isolation posture",
+                    secret_storage,
+                    tenant_isolation_note,
+                    "secret rotation kms tenant isolation audit log deny path",
+                ),
+            }
         )
 
     return {
@@ -540,6 +596,65 @@ def build_phase2_decision_alignment(
             "unmapped_decision_count": len(rows) - mapped_decision_count,
             "high_priority_unmapped_count": high_priority_unmapped_count,
             "decision_alignment_complete": decision_alignment_complete,
+        },
+    }
+
+
+def build_current_p3_constraint_alignment(
+    *,
+    phase3_root: Path,
+    acceptance_items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    bindings = load_json_if_exists(phase3_root / "implementation-bindings.json") or {}
+    operation_rows = [row for row in ensure_list(bindings.get("rows")) if isinstance(row, dict)]
+    item_by_source = {
+        str(item.get("source_id") or "").strip().upper(): item
+        for item in acceptance_items
+        if str(item.get("source_id") or "").strip()
+    }
+    item_links: dict[str, list[str]] = {item["test_id"]: [] for item in acceptance_items}
+    matches_by_constraint: dict[str, list[str]] = {}
+    for binding in operation_rows:
+        contract_id = str(binding.get("contract_id") or binding.get("source_id") or "").strip().upper()
+        item = item_by_source.get(contract_id)
+        if item is None:
+            continue
+        for constraint_id in ensure_list(binding.get("constraint_ids")):
+            constraint = str(constraint_id).strip()
+            if not constraint:
+                continue
+            matches_by_constraint[constraint] = dedupe_preserve_order(
+                [*matches_by_constraint.get(constraint, []), item["test_id"]]
+            )
+            item_links[item["test_id"]] = dedupe_preserve_order([*item_links[item["test_id"]], constraint])
+    rows = [
+        {
+            "decision_id": constraint_id,
+            "category": "preserved-p2-constraint",
+            "priority": "high",
+            "title": constraint_id,
+            "source_section": "P3 exact preserved_constraint_ids",
+            "coverage_status": "mapped" if test_ids else "unmapped",
+            "coverage_strength": "direct" if test_ids else "none",
+            "match_mode": "exact-contract-binding",
+            "matched_test_ids": test_ids,
+            "matched_acceptance_types": ["functional"] if test_ids else [],
+            "match_signals": ["p3-exact-binding"] if test_ids else [],
+            "summary": "Inherited from the frozen P3 exact-binding preservation denominator; P4 did not re-author P2 truth.",
+        }
+        for constraint_id, test_ids in sorted(matches_by_constraint.items())
+    ]
+    mapped = len([row for row in rows if row["coverage_status"] == "mapped"])
+    return {
+        "rows": rows,
+        "item_links": item_links,
+        "summary": {
+            "decision_count": len(rows),
+            "mapped_decision_count": mapped,
+            "unmapped_decision_count": len(rows) - mapped,
+            "high_priority_unmapped_count": len([row for row in rows if row["coverage_status"] != "mapped"]),
+            "decision_alignment_complete": bool(rows) and mapped == len(rows),
+            "source_mode": "inherited-from-p3-exact-closure",
         },
     }
 
@@ -1498,7 +1613,7 @@ def build_phase4_stage1_planning(
 
     openapi_path = discover_openapi_path(phase3_root)
     openapi_spec = load_openapi_spec(openapi_path)
-    trace_registry = load_json(phase3_root / "phase-3-trace-registry-final.json")
+    trace_registry = load_phase3_trace_registry_for_validation(phase3_root)
     delivery_gate = load_json_if_exists(phase3_root / "phase3-delivery-gate.json") or {}
     phase3_mainline_summary = load_phase3_mainline_summary(phase3_root)
     frontend_packets = load_frontend_packets(phase3_root)
@@ -1529,6 +1644,11 @@ def build_phase4_stage1_planning(
         )
     acceptance_items, api_lookup = apply_risk_metadata(acceptance_items, operation_rows)
     decision_alignment = build_phase2_decision_alignment(phase2_decisions["records"], acceptance_items, api_lookup)
+    if not phase2_decisions["records"] and load_phase3_current_closure_summary(phase3_root).get("complete"):
+        decision_alignment = build_current_p3_constraint_alignment(
+            phase3_root=phase3_root,
+            acceptance_items=acceptance_items,
+        )
     acceptance_items = [
         {
             **item,

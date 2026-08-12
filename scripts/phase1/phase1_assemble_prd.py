@@ -1431,6 +1431,13 @@ def compact_business_loop_reader_surface(items: list[str], *, fallback: str, lim
 
 def business_loop_reader_surface(runtime_context: dict[str, object], limit: int = 4) -> str:
     items = business_loop_items(runtime_context, max(limit, 6))
+    if authority_requires_independent_outcomes(runtime_context):
+        visible = [compact_business_loop_reader_item(item) for item in items[:limit] if compact_business_loop_reader_item(item)]
+        return (
+            f"并列独立结果（{' / '.join(visible)}）"
+            if visible
+            else "并列独立的 source-defined outcomes"
+        )
     return compact_business_loop_reader_surface(items, fallback="source-defined business loop", limit=limit)
 
 
@@ -1475,6 +1482,11 @@ def build_problem_chain_line(source_text: str, runtime_context: dict[str, object
     business_loop = business_loop_reader_surface(runtime_context, limit=5)
     objects = semantic_profile_phrase(runtime_context, source_text, key="core_objects", fallback="核心业务对象链", limit=3)
     outcome = semantic_profile_phrase(runtime_context, source_text, key="outcomes", fallback="可评审业务结果", limit=2)
+    if authority_requires_independent_outcomes(runtime_context):
+        return (
+            f"团队当前缺的是让 {business_loop} 各自可独立闭环、同时通过最小共享证据保持可审阅连接的产品结构。"
+            f"如果把它们强行串成单一路径，{objects} 的边界、状态与可见性会被混淆，{outcome} 也会失真。"
+        )
     return (
         f"团队当前缺的是一条把 {business_loop} 放进同一条可执行主线的完整闭环。没有这条主线，"
         f"{objects} 会在环节之间失去连续状态、owner、blocked reason 和下一步动作，{outcome} 也会重新回到人工解释。"
@@ -1484,6 +1496,8 @@ def build_problem_chain_line(source_text: str, runtime_context: dict[str, object
 def build_problem_boundary_line(source_text: str, runtime_context: dict[str, object]) -> str:
     business_loop = business_loop_reader_surface(runtime_context, limit=5)
     objects = semantic_profile_phrase(runtime_context, source_text, key="core_objects", fallback="核心业务对象", limit=3)
+    if authority_requires_independent_outcomes(runtime_context):
+        return f"必须让 {business_loop} 分别围绕 {objects} 保持可独立完成，并只通过 accepted shared trace / visibility rules 连接；不得凭文档顺序生成串行依赖。"
     return f"必须把 {business_loop} 组织成围绕 {objects} 的可重复执行闭环，而不是只输出一次性记录、局部页面或审计形状。"
 
 
@@ -1514,9 +1528,17 @@ def render_problem_signal_lines(source_text: str, runtime_context: dict[str, obj
         f"- operating visibility note: 当前域的核心压力来自 {objects}、状态推进、证据和 review/closure 的连续可见。",
         f"- source evidence note: 当前语义投射来自 {evidence}；脚本只装配该证据，不把熟悉案例分支当作业务真相。",
         f"- gap question: 当前围绕 {business_loop_reader_surface(runtime_context, limit=5)} 的业务主线，哪些环节仍会让 {objects}、blocked reason 或 next action 在 handoff 中丢失。",
-        f"- current visibility position question: 当前记录链路是否能让 {role_text} 看到同一条 {objects} 推进链。",
+        (
+            f"- current visibility position question: 当前记录是否能让 {role_text} 分别看到各 accepted outcome 的 {objects} 状态，并只通过允许的共享证据连接。"
+            if authority_requires_independent_outcomes(runtime_context)
+            else f"- current visibility position question: 当前记录链路是否能让 {role_text} 看到同一条 {objects} 推进链。"
+        ),
         f"- partial_tool_gap_question: 单点工具可以数字化某一步，但不能持续保留 {constraints}、端到端上下文和复盘连续性。",
-        f"- business_change_question: 如果 {objects}、状态推进和复盘被组织成同一条闭环，团队的日常执行和判断会如何变化",
+        (
+            f"- business_change_question: 如果 {objects} 在各 accepted outcome 内独立推进，同时通过最小共享证据可审阅连接，团队的日常执行和判断会如何变化"
+            if authority_requires_independent_outcomes(runtime_context)
+            else f"- business_change_question: 如果 {objects}、状态推进和复盘被组织成同一条闭环，团队的日常执行和判断会如何变化"
+        ),
     ]
     return lines
 
@@ -1603,7 +1625,10 @@ def module_names(runtime_context: dict[str, object], limit: int | None = None) -
 
 def module_chain_text(runtime_context: dict[str, object], limit: int | None = None) -> str:
     names = module_names(runtime_context, limit)
-    return " -> ".join(names) if names else REVIEW_BOUND_MISSING_SOURCE_MODULE_CHAIN
+    if not names:
+        return REVIEW_BOUND_MISSING_SOURCE_MODULE_CHAIN
+    separator = " | " if authority_requires_independent_outcomes(runtime_context) else " -> "
+    return separator.join(names)
 
 
 def core_object_names(runtime_context: dict[str, object], limit: int | None = None) -> list[str]:
@@ -1637,12 +1662,21 @@ def detect_domain_baseline_pack(runtime_context: dict[str, object]) -> dict[str,
     primary_role = roles[0]
     downstream_role = roles[1] if len(roles) > 1 else primary_role
     constraint_phrase = plain_label_surface(constraints[:2], REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT, limit=2)
+    if authority_step_ownership_review_bound(runtime_context):
+        coordination_line = (
+            "coordination_density: in-scope roles and visibility boundaries must stay explicit, while exact handoff/step ownership "
+            "remains review-bound until accepted authority names it."
+        )
+    else:
+        coordination_line = (
+            f"coordination_density: {primary_role} 到 {downstream_role} 的 handoff 必须保留 owner、state、blocked reason、next action 和 evidence context。"
+        )
     return {
         "domain": "source_semantic_profile",
         "overview_lines": [
             f"ordinary_real_world_baseline: 首波流程应证明 {object_phrase} 能从 {first_step} 推进到 {last_step}，而不是停在薄登记、薄记录或报告壳。",
             f"real_world_constraint: {constraint_phrase} 必须跟随 {object_phrase} 的状态推进保持可见，缺失时只能 blocked/review-bound。",
-            f"coordination_density: {primary_role} 到 {downstream_role} 的 handoff 必须保留 owner、state、blocked reason、next action 和 evidence context。",
+            coordination_line,
         ],
         "topic_lines": {},
         "acceptance_rows": [
@@ -1833,7 +1867,11 @@ def build_mainline_scenario_bundles(runtime_context: dict[str, object]) -> list[
     ]
     bundles: list[dict[str, object]] = []
     if ia_rows:
-        row_groups = split_contiguous_groups(ia_rows, 3)
+        row_groups = (
+            [[row] for row in ia_rows[:3]]
+            if agentic_product_authority_active(runtime_context)
+            else split_contiguous_groups(ia_rows, 3)
+        )
         step_groups = (
             split_contiguous_groups(mainline_steps, len(row_groups))
             if mainline_steps
@@ -1943,11 +1981,15 @@ def render_mainline_business_scenario_block(
     modules = list(bundle.get("modules", []))
     actors = list(bundle.get("actors", []))
     objects = list(bundle.get("objects", []))
+    authority_mode = agentic_product_authority_active(runtime_context)
+    independent = authority_requires_independent_outcomes(runtime_context)
+    ownership_review_bound = authority_step_ownership_review_bound(runtime_context)
     title = str(bundle.get("title", "")).strip() or f"source-defined mainline slice {label}"
-    module_chain_display = " -> ".join(f"`{module}`" for module in modules) if modules else "`source-defined mainline`"
+    chain_separator = " / " if independent else " -> "
+    module_chain_display = chain_separator.join(f"`{module}`" for module in modules) if modules else "`source-defined mainline`"
     object_chain_display = ", ".join(f"`{object_name}`" for object_name in objects[:6]) if objects else "`source-defined business object`"
-    module_chain = " -> ".join(plain_truth_text(module) for module in modules if plain_truth_text(module)) or "source-defined mainline"
-    actor_chain = " -> ".join(plain_truth_text(actor) for actor in actors if plain_truth_text(actor)) or plain_truth_text(
+    module_chain = chain_separator.join(plain_truth_text(module) for module in modules if plain_truth_text(module)) or "source-defined mainline"
+    actor_chain = chain_separator.join(plain_truth_text(actor) for actor in actors if plain_truth_text(actor)) or plain_truth_text(
         str(bundle.get("primary_segment", "primary operator"))
     )
     object_chain = "、".join(plain_truth_text(object_name) for object_name in objects[:6] if plain_truth_text(object_name)) or "source-defined business object"
@@ -1955,9 +1997,14 @@ def render_mainline_business_scenario_block(
     output_anchor = reader_facing_digest_phrase(str(bundle.get("output_anchor", "")).strip() or "source-defined business outcome")
     downstream_dependency = reader_facing_digest_phrase(str(bundle.get("downstream_dependency", "")).strip() or output_anchor)
     downstream_owner = str(bundle.get("downstream_owner", "")).strip() or str(bundle.get("primary_segment", "primary operator")).strip()
+    ownership_surface = authority_review_bound_actor(runtime_context) if ownership_review_bound else actor_chain
+    downstream_visibility_surface = "shared review/evidence surface" if ownership_review_bound else plain_truth_text(downstream_owner)
     handoff_surface = " / ".join(dedupe_runtime_phrases([output_anchor, downstream_dependency])) or output_anchor
     path_steps = [reader_facing_digest_phrase(str(step).strip()) for step in bundle.get("path_steps", []) if str(step).strip()]
-    main_success_path = " -> ".join(path_steps[:6]) if path_steps else f"{input_anchor} -> {output_anchor}"
+    if independent:
+        main_success_path = "；".join(path_steps[:6]) if path_steps else f"{input_anchor}；{output_anchor}"
+    else:
+        main_success_path = " -> ".join(path_steps[:6]) if path_steps else f"{input_anchor} -> {output_anchor}"
     title_hint = title.casefold()
     if re.search(r"review|closure|结论|复盘|离院|出院|follow-?up", title_hint):
         exception_hint = "insufficient evidence, unresolved status, blocked closure, audit gap"
@@ -1976,32 +2023,52 @@ def render_mainline_business_scenario_block(
         else f"若 {input_anchor} 仍不完整，阻止进入下一工作流状态；允许保存草稿，但必须显式保留 blocked reason 与 review-bound risk。"
     )
     structure_implication = (
-        f"{module_chain} 必须保持为一个有类型的主线切片，不能被拆成互不相连的设置页或报告页。"
+        f"{module_chain} 中的每个 accepted outcome 必须保持独立可审阅；文档顺序不得创建业务时序。"
+        if independent and modules
+        else f"{module_chain} 必须保持为一个有类型的主线切片，并遵循 accepted ordered-flow，不得被拆成互不相连的设置页或报告页。"
         if modules
         else "源素材定义的主线切片必须保持类型清晰和连续，不能退化成互不相连的页面。"
     )
     baseline_consequence = (
-        f"如果 {input_anchor} 过薄，下游团队必须先重建 {object_chain}，{plain_truth_text(downstream_owner)} 才能继续。"
+        f"如果 {input_anchor} 过薄，下游团队必须先重建 {object_chain}；exact downstream ownership 继续保持 review-bound。"
+        if ownership_review_bound and objects
+        else "如果入口上下文过薄，下游团队必须先重建缺失上下文；exact downstream ownership 继续保持 review-bound。"
+        if ownership_review_bound
+        else f"如果 {input_anchor} 过薄，下游团队必须先重建 {object_chain}，{plain_truth_text(downstream_owner)} 才能继续。"
         if objects
         else f"如果 {input_anchor} 过薄，下游团队必须先重建缺失上下文，{plain_truth_text(downstream_owner)} 才能继续。"
     )
     scenario_consequence = (
-        f"团队会回到围绕 {module_chain} 人工重建上下文，{plain_truth_text(downstream_owner)} 只能收到过薄或含糊的 {downstream_dependency}；如果下一动作无法被明确记录，产品会退化为报告系统，并不会稳定支持真实工作。"
+        f"若 {module_chain} 的独立义务、状态和证据边界被压平，下游只能人工重建 authority context，并可能错误串联不同 outcome。"
+        if independent and modules
+        else f"团队会回到围绕 {module_chain} 人工重建上下文，shared review/evidence surface 只能收到过薄或含糊的 {downstream_dependency}；exact ownership 仍须由 accepted authority 决定。"
+        if ownership_review_bound and modules
+        else f"团队会回到人工重建上下文，shared review/evidence surface 只能收到过薄或含糊的 {downstream_dependency}；exact ownership 仍须由 accepted authority 决定。"
+        if ownership_review_bound
+        else f"团队会回到围绕 {module_chain} 人工重建上下文，{plain_truth_text(downstream_owner)} 只能收到过薄或含糊的 {downstream_dependency}；如果下一动作无法被明确记录，产品会退化为报告系统，并不会稳定支持真实工作。"
         if modules
         else f"团队会回到人工重建上下文，{plain_truth_text(downstream_owner)} 只能收到过薄或含糊的 {downstream_dependency}；如果下一动作无法被明确记录，产品会退化为报告系统，并不会稳定支持真实工作。"
     )
     lines = [
         f"#### Scenario {label}: {title}",
         f"- scenario_title: {title}",
-        f"- primary actors: {actor_chain}",
+        (
+            f"- participating roles (exact ownership review-bound): {actor_chain}"
+            if ownership_review_bound
+            else f"- primary actors: {actor_chain}"
+        ),
         f"- module contract chain: {module_chain_display}",
         f"- concrete business objects: {object_chain_display}",
         f"- trigger: {input_anchor} 进入主线切片。",
-        f"- preconditions: {input_anchor} 已可用，{actor_chain} 可以操作 {object_chain}，且 owner / audit context 保持可见。",
+        (
+            f"- preconditions: {input_anchor} 已可用，{actor_chain} 保持在参与/可见性边界内；exact step ownership 为 `{ownership_surface}`，不得由角色顺序推断。"
+            if ownership_review_bound
+            else f"- preconditions: {input_anchor} 已可用，{actor_chain} 可以操作 {object_chain}，且 owner / audit context 保持可见。"
+        ),
         f"- main success path: {main_success_path}",
         f"- key exception paths: {exception_hint}",
         f"- success criteria: {success_criteria}",
-        f"- downstream_handoff_contract: {handoff_surface} 需要向 {plain_truth_text(downstream_owner)} 保持可见，并在需要时带上 owner、state 和 blocked-reason context。",
+        f"- downstream_handoff_contract: {handoff_surface} 需要向 {downstream_visibility_surface} 保持可见，并在需要时带上 owner、state 和 blocked-reason context；exact receiving owner 保持 {'review-bound' if ownership_review_bound else 'accepted'}。",
         f"- blocked_path: {blocked_path}",
         f"- structure implication: {structure_implication}",
         f"- baseline consequence: {baseline_consequence}",
@@ -2041,6 +2108,21 @@ def render_mainline_business_scenarios(runtime_context: dict[str, object]) -> li
 
 
 def render_dynamic_flowchart(runtime_context: dict[str, object]) -> list[str]:
+    if authority_requires_independent_outcomes(runtime_context):
+        names = [
+            str(flow.get("title") or "").strip()
+            for flow in runtime_context.get("source_flows", [])
+            if isinstance(flow, dict) and str(flow.get("title") or "").strip()
+        ][:8]
+        if not names:
+            names = module_names(runtime_context, 8)
+        lines = ["```mermaid", "flowchart TB", "    AUTHORITY[Accepted P1 authority: independent outcomes]"]
+        for idx, name in enumerate(names, start=1):
+            node_id = f"OUTCOME_{idx}"
+            lines.append(f"    {node_id}[{name}]")
+            lines.append(f"    AUTHORITY --> {node_id}")
+        lines.append("```")
+        return lines
     names = canonical_operational_flow_steps(runtime_context)[:8]
     if not names:
         names = ["source-defined first flow step", "source-defined second flow step"]
@@ -2064,6 +2146,13 @@ def render_dynamic_er_diagram(runtime_context: dict[str, object]) -> list[str]:
             "    %% review-bound missing source object relationship",
             "```",
         ]
+    if authority_requires_independent_outcomes(runtime_context):
+        lines = ["```mermaid", "erDiagram", "    %% object identities are preserved; cross-outcome relationships remain authority-bound"]
+        for idx, obj in enumerate(objects, start=1):
+            entity_id = mermaid_er_entity_id(obj, fallback=f"REVIEW_BOUND_OBJECT_{idx}")
+            lines.extend([f"    {entity_id} {{", "        string authority_bound", "    }"])
+        lines.append("```")
+        return lines
     lines = ["```mermaid", "erDiagram"]
     for idx, (left, right) in enumerate(zip(objects, objects[1:]), start=1):
         left_id = mermaid_er_entity_id(left, fallback=f"REVIEW_BOUND_OBJECT_{idx}")
@@ -2494,6 +2583,26 @@ def canonical_operational_flow_steps(runtime_context: dict[str, object]) -> list
     seen: set[str] = set()
     ia_rows = [row for row in runtime_context.get("ia_matrix", []) if isinstance(row, dict)]
     source_flows = [flow for flow in runtime_context.get("source_flows", []) if isinstance(flow, dict)]
+    if agentic_product_authority_active(runtime_context):
+        ownership_review_bound = authority_step_ownership_review_bound(runtime_context)
+        independent = authority_requires_independent_outcomes(runtime_context)
+        for flow_index, flow in enumerate(source_flows, start=1):
+            title = str(flow.get("title") or flow.get("name") or "accepted outcome").strip()
+            for raw_step in flow.get("steps", []):
+                cleaned = clean_operational_flow_step_text(raw_step)
+                if not cleaned:
+                    continue
+                if ownership_review_bound:
+                    candidate = f"accepted outcome {flow_index}: {cleaned}" if independent else cleaned
+                else:
+                    candidate = f"{title}: {cleaned}"
+                key = normalized_match_key(candidate)
+                if key in seen:
+                    continue
+                seen.add(key)
+                steps.append(candidate)
+        if steps:
+            return steps
     module_contract_steps: list[str] = []
     if len(ia_rows) >= 2 and len(source_flows) >= 2:
         for row in ia_rows:
@@ -2593,9 +2702,14 @@ def render_operational_flow_spec_lines(runtime_context: dict[str, object]) -> li
     return rendered_lines
 
 
-def render_flow_summary_lines(flows: list[dict[str, object]]) -> list[str]:
+def render_flow_summary_lines(
+    flows: list[dict[str, object]],
+    *,
+    authority_mode: bool = False,
+) -> list[str]:
+    separator = "；" if authority_mode else " -> "
     return [
-        f"- {flow['title']}: {reader_facing_digest_phrase(' -> '.join(flow['steps'])) if flow.get('steps') else '流程步骤待澄清'}"
+        f"- {flow['title']}: {reader_facing_digest_phrase(separator.join(flow['steps'])) if flow.get('steps') else '流程步骤待澄清'}"
         for flow in flows
     ]
 
@@ -2933,24 +3047,45 @@ def phase1_ia_navigation_modules(runtime_context: dict[str, object]) -> str:
 
 def render_phase1_information_architecture_lines(runtime_context: dict[str, object]) -> list[str]:
     navigation_modules = phase1_ia_navigation_modules(runtime_context)
+    independent = authority_requires_independent_outcomes(runtime_context)
+    strategy_lines = (
+        [
+            "- organization strategy: outcome-boundary-first + shared review/trace visibility",
+            f"- navigation: {navigation_modules}",
+            "- labeling: 优先使用各 accepted outcome 的业务语言，不用页面顺序暗示执行依赖",
+            f"- screen/module consequence: {navigation_modules}",
+            "- architecture impact: 每个 outcome 可独立进入和完成；共享 review surface 只聚合允许的 evidence/visibility",
+            "",
+            "### Information Architecture Direction",
+            "- authority-topology-first: IA 必须保留 accepted independent outcomes，不得用 workflow-first 导航把它们串行化。",
+            "- screen/object matrix must make outcome ownership and shared visibility boundaries explicit.",
+            "- failure risk: a global workflow navigation can create false prerequisites between independent outcomes.",
+            "- screen spec precursor: each screen/module declares outcome, required information objects, entry/exit conditions, and only authority-approved dependencies.",
+            "- constraints: IA 必须区分 outcome-local state 与 shared trace / visibility surface。",
+        ]
+        if independent
+        else [
+            "- organization strategy: 源流程优先（source-flow-first）+ 对象可追踪（object-traceable）",
+            f"- navigation: {navigation_modules}",
+            "- labeling: 优先使用业务可理解语言，而不是内部系统术语",
+            f"- screen/module consequence: {navigation_modules}",
+            "- architecture impact: 页面必须沿着对象链和流程链展开，而不是按零散功能页拼装",
+            "",
+            "### Information Architecture Direction",
+            "- workflow-first: 选择工作流优先，是因为导航必须贴合真实运营链路。",
+            "- screen/object matrix must stay visible enough for design and architecture handoff.",
+            "- failure risk: if screens are grouped only by subsystem, users lose object traceability.",
+            "- screen spec precursor: each screen/module must declare primary actor, required information objects, entry conditions, exit actions, and dependency.",
+            "- constraints: IA 必须围绕对象可追踪性和模块依赖可见性展开。",
+        ]
+    )
     return [
         "## 11. Information Architecture Direction",
         "### IA Direction Summary",
-        "- organization strategy: 源流程优先（source-flow-first）+ 对象可追踪（object-traceable）",
-        f"- navigation: {navigation_modules}",
-        "- labeling: 优先使用业务可理解语言，而不是内部系统术语",
-        f"- screen/module consequence: {navigation_modules}",
-        "- architecture impact: 页面必须沿着对象链和流程链展开，而不是按零散功能页拼装",
-        "",
-        "### Information Architecture Direction",
-        "- workflow-first: 选择工作流优先，是因为导航必须贴合真实运营链路。",
-        "- screen/object matrix must stay visible enough for design and architecture handoff.",
-        "- failure risk: if screens are grouped only by subsystem, users lose object traceability.",
-        "- screen spec precursor: each screen/module must declare primary actor, required information objects, entry conditions, exit actions, and dependency.",
-        "- constraints: IA 必须围绕对象可追踪性和模块依赖可见性展开。",
+        *strategy_lines,
         "",
         "### IA Decision Alternatives Comparison",
-        render_ia_alternatives_table(),
+        render_ia_alternatives_table(runtime_context),
         "",
         "### IA Spec Matrix",
         render_expanded_ia_spec_matrix(runtime_context),
@@ -3129,6 +3264,10 @@ def render_phase1_user_requirements_lines(
         "### Requirement Translation Registry",
         render_requirement_translation_table_from_rows(dynamic_requirement_rows),
         "",
+        "### Accepted Agentic Product Commitment Registry",
+        "This registry is the exact accepted P1 denominator. Existing requirement prose may explain it but cannot replace, reorder, or upgrade it.",
+        render_agentic_product_commitment_registry(runtime_context),
+        "",
         f"### {payload_contract_heading(runtime_context)}",
         render_payload_contract_table(runtime_context),
         "- payload_vs_generic: 不是 generic 文本列表；payload 必须绑定 target_asset_id、priority、owner_hint、blocked_reason。",
@@ -3243,7 +3382,7 @@ def render_phase1_decision_handoff_lines(
         "- workflow prototype should expose at least one blocked/recovery edge and one clean closure path.",
         "",
         "### Architecture Can Start",
-        f"- 以 {runtime_context['object_chain']} 作为核心对象链。",
+        f"- 以 {authority_product_object_chain_surface(runtime_context)} 作为核心对象链。",
         "- 按 source brief 中的模块责任矩阵启动模块或服务划分，而不是使用固定领域模板。",
         "- 先固定对象依赖顺序和状态约束，再讨论 backlog 和排期。",
         "- core business objects must stay explicit across the first-wave module chain.",
@@ -3442,7 +3581,11 @@ def render_phase1_document_opening_lines(
         "- 仍待评审:",
         f"  - {context_surfaces.review_bound_summary}",
         "- 问题机制:",
-        "  - 当前源素材（source）描述的经营问题需要被重编译成同一条把信号、行动与复盘放在一起的经营主线。",
+        (
+            "  - 当前源素材（source）描述的各 accepted outcome 需要分别保留信号、行动与复盘闭环；共享 evidence / visibility 只用于审阅连接，不创建串行执行依赖。"
+            if authority_requires_independent_outcomes(runtime_context)
+            else "  - 当前源素材（source）描述的经营问题需要被重编译成同一条把信号、行动与复盘放在一起的经营主线。"
+        ),
         "",
         "### Integrated Problem Evidence",
         f"- source vision: {runtime_context['executive_summary']}",
@@ -3451,6 +3594,9 @@ def render_phase1_document_opening_lines(
         "",
         "### Protected Business-World Truth Spine",
         *render_business_world_truth_lines(runtime_context),
+        "",
+        "### World-Knowledge Backfill Boundary",
+        *render_world_knowledge_backfill_lines(runtime_context),
         "",
         "### Business Proof Track",
         *render_business_proof_track_lines(runtime_context),
@@ -3528,6 +3674,22 @@ def render_cross_phase_handoff_digest_lines(
 
 
 def render_phase1_users_stakeholders_lines(source_text: str, runtime_context: dict[str, object]) -> list[str]:
+    independent = authority_requires_independent_outcomes(runtime_context)
+    ownership_review_bound = authority_step_ownership_review_bound(runtime_context)
+    if independent:
+        interaction_lines = [
+            f"- 首波用户边界围绕 {runtime_context['primary_segment']}，但 accepted outcomes 保持并列独立，不从角色列表推导执行顺序。",
+            "- 多角色可以在共享 review / evidence surface 上看到允许的信息，但共享可见性不等于串行 handoff。",
+        ]
+        adoption_line = "- 若独立 outcome 被强行串成单一路径，用户会承担不必要的前置依赖并失去原本的独立闭环价值。"
+    else:
+        interaction_lines = [
+            f"- 首发主链围绕 {runtime_context['primary_segment']} 发起，并与其他 source-defined 角色共同完成业务判断、执行推进与周期复盘。",
+            "- 关键要求不是让所有角色拥有同样入口，而是让协作角色在同一条业务主线上看到一致的证据、下一步动作和结果判断。",
+        ]
+        adoption_line = "- 若用户只能看到零散页面而不是同一条业务主线，产品会退化成被动报表或记录工具。"
+    if ownership_review_bound:
+        interaction_lines.append("- exact entry / step / handoff ownership remains review-bound; renderer must not assign it from role order.")
     return [
         "## 3. Target Users & Key Roles",
         *render_phase1_role_boundary_lines(source_text, runtime_context),
@@ -3541,15 +3703,14 @@ def render_phase1_users_stakeholders_lines(source_text: str, runtime_context: di
         render_design_requirements_extraction(runtime_context),
         "",
         "### Role Interaction Note",
-        f"- 首发主链围绕 {runtime_context['primary_segment']} 发起，并与其他 source-defined 角色共同完成业务判断、执行推进与周期复盘。",
-        "- 关键要求不是让所有角色拥有同样入口，而是让协作角色在同一条业务主线上看到一致的证据、下一步动作和结果判断。",
-        "- anti-pattern to avoid: 把角色边界压缩成一个抽象管理员入口，导致关键责任链和真实协作顺序消失。",
+        *interaction_lines,
+        "- anti-pattern to avoid: 把角色边界压缩成一个抽象管理员入口，或在 authority 未确认时发明角色 ownership。",
         "- remaining_unknown: 真实组织内的角色轮换、兼职流程和异常协作细节仍待验证。",
         "- review-bound: target role fit and collaboration detail remain review-bound until real walkthrough evidence exists.",
         "",
         "### Fragile Points in Adoption",
-        f"- 若 {runtime_context['primary_segment']} 无法顺畅完成入口流程，首轮上线不会形成真实使用。",
-        "- 若 evidence、action 与 review 之间仍然断裂，协作角色会回退到纸质、Excel 或聊天串补位。",
+        f"- 若 {runtime_context['primary_segment']} 无法完成 accepted outcome 对应的核心体验，首轮上线不会形成真实使用。",
+        "- 若 evidence、action 与 review 之间仍然断裂，协作角色会回退到线下或其他工具补位。",
         "- 若 review 仍然不能支撑继续 / 调整判断，业务方不会把该系统纳入正式运营。",
         "",
         "## 4. Stakeholder Analysis",
@@ -3557,7 +3718,7 @@ def render_phase1_users_stakeholders_lines(source_text: str, runtime_context: di
         *render_bullet_lines(list(runtime_context["target_user_roles"]), f"{REVIEW_BOUND_MISSING_SOURCE_ROLE}."),
         "",
         "### Adoption Fragility",
-        "- 若用户只能看到零散页面而不是同一条业务主线，产品会退化成被动报表或记录工具。",
+        adoption_line,
         "- 若证据、下一动作与结果判断之间不能形成连续判断，关键角色不会持续投入时间与注意力。",
         "- 若 MVP 边界与范围外项不明确，实施阶段会快速失控。",
         "",
@@ -3568,16 +3729,29 @@ def render_phase1_users_stakeholders_lines(source_text: str, runtime_context: di
 
 
 def render_phase1_requirements_structure_lines(runtime_context: dict[str, object]) -> list[str]:
+    independent = authority_requires_independent_outcomes(runtime_context)
+    structure_lines = (
+        [
+            "- chosen_panorama_structure: authority-topology-first / independent outcomes",
+            f"- workflow topology: {runtime_context['workflow_backbone']}",
+            "- structure rule: 每个 accepted outcome 独立表达入口、动作、异常和完成条件；共享 trace / visibility 不能变成执行顺序。",
+            "- decomposition rule: 先保住 outcome boundary，再展开 outcome-local objects、states 和 exception paths。",
+        ]
+        if independent
+        else [
+            "- chosen_panorama_structure: workflow-first",
+            f"- workflow backbone: {runtime_context['workflow_backbone']}",
+            "- structure rule: 以 source brief 的业务流程和模块责任矩阵为主骨架。",
+            "- decomposition rule: 先保住核心对象链，再展开页面、状态与异常路径。",
+        ]
+    )
     return [
         "## 8. Requirements Structure",
         "### Goal",
         "把当前方案交付为一个可操作、可执行、可复盘、可切片扩展的业务过程，而不是功能目录。",
         "",
         "### Structure Choice",
-        "- chosen_panorama_structure: workflow-first",
-        f"- workflow backbone: {runtime_context['workflow_backbone']}",
-        "- structure rule: 以 source brief 的业务流程和模块责任矩阵为主骨架。",
-        "- decomposition rule: 先保住核心对象链，再展开页面、状态与异常路径。",
+        *structure_lines,
         "",
         "### Source Module Capability Ledger",
         *(list(runtime_context["module_capabilities"]) if runtime_context["module_capabilities"] else ["- source brief 尚未提供结构化模块矩阵。"]),
@@ -3676,7 +3850,11 @@ def render_phase1_product_direction_lines(
         "",
         "### First-wave Value Proposition",
         f"- first_wave_value: {context_surfaces.compact_value_mechanism_line}",
-        f"- decision_ready_surface: 同一主线必须同时保留下一动作与 {context_surfaces.compact_proof_artifact_line}。",
+        (
+            f"- decision_ready_surface: shared review surface 可以汇总 {context_surfaces.compact_proof_artifact_line}，但不得把独立 outcome 改写成串行执行链。"
+            if authority_requires_independent_outcomes(runtime_context)
+            else f"- decision_ready_surface: 同一主线必须同时保留下一动作与 {context_surfaces.compact_proof_artifact_line}。"
+        ),
         "",
         "### What This Product Is Not",
         "- 不是只补一个局部表单或单一报表页的工具。",
@@ -3756,8 +3934,10 @@ def render_phase1_strategic_context_lines(
 def render_phase1_role_boundary_lines(source_text: str, runtime_context: dict[str, object]) -> list[str]:
     primary_segment = str(runtime_context.get("primary_segment", "primary segment")).strip() or "primary segment"
     roles = list(runtime_context.get("target_user_roles", []))
+    ownership_review_bound = authority_step_ownership_review_bound(runtime_context)
     execution_operator = str(roles[1]).strip() if len(roles) > 1 else primary_segment
     decision_owner = str(roles[-1]).strip() if roles else "review-bound missing source decision owner"
+    continuation_owner = product_source_driver_continuation_owner(runtime_context)
     boundary_lines = render_segment_landscape_boundary(source_text, primary_segment)
     lines = [
         "### Primary Boundary",
@@ -3767,13 +3947,44 @@ def render_phase1_role_boundary_lines(source_text: str, runtime_context: dict[st
     ]
     if boundary_lines:
         lines.append("")
-    lines.extend(
-        [
-            "### Why This Segment, Not Others",
+    if ownership_review_bound:
+        why_lines = [
+            "- why this not that: preserve the accepted in-scope user boundary without inventing entry or step ownership.",
+            f"- {primary_segment} 定义首波用户边界；exact entry / step ownership 继续保持 review-bound。",
+            "- 首版保留源素材中的角色差异，不把多个角色压成一个虚构 primary operator。",
+            "- 只有 accepted authority 明确指定的角色责任才可以进入 canonical ownership 表达。",
+        ]
+        reasoning_lines = [
+            f"- first-wave user boundary: `{primary_segment}` remains in scope; exact entry ownership is review-bound.",
+            f"- execution operator: `{authority_review_bound_actor(runtime_context)}`; no role is promoted by list position.",
+            (
+                f"- decision owner: `{continuation_owner}` is the current bounded authority-routing owner; confirmed business continuation ownership remains review-bound."
+                if continuation_owner
+                else "- decision owner: `review-bound missing source decision owner` remains unresolved until accepted authority names it."
+            ),
+        ]
+    else:
+        why_lines = [
             "- why this not that: the first-wave boundary is intentionally narrowed to one primary entry role.",
             f"- {primary_segment} 直接位于 source brief 的主业务链路入口，最适合作为首发主边界。",
             "- 首版先收敛一个主边界，避免同时服务过多角色导致流程和权限设计失焦。",
             "- 其他角色仍在范围内，但优先作为协作角色而不是并行主入口。",
+        ]
+        reasoning_lines = [
+            f"- first-wave entry role: `{primary_segment}` remains the first-wave entry operator.",
+            (
+                f"- execution operator: `{execution_operator}` keeps the mid-flow handoff executable."
+                if len(roles) > 1
+                else f"- execution operator: `{primary_segment}` also acts as the execution operator when the source only names one active role."
+            ),
+            f"- decision owner: `{decision_owner}` decides whether the first-wave workflow is strong enough to continue."
+            if roles
+            else "- decision owner: `review-bound missing source decision owner` remains unresolved until the source names the continuation owner.",
+        ]
+    lines.extend(
+        [
+            "### Why This Segment, Not Others",
+            *why_lines,
             "",
             "### Secondary / Supporting Roles",
             *render_bullet_lines(
@@ -3792,17 +4003,9 @@ def render_phase1_role_boundary_lines(source_text: str, runtime_context: dict[st
             "",
             "### Reasoning Unit 1: Primary Boundary Lock",
             "- Reasoning Unit 1: Primary Boundary Lock",
-            "- boundary_lock_reasoning: keep the primary boundary narrow enough to avoid a false multi-role shell.",
+            "- boundary_lock_reasoning: keep the accepted user boundary explicit without inventing role ownership.",
             "- tradeoff_or_tension: coverage vs focus",
-            f"- first-wave entry role: `{primary_segment}` remains the first-wave entry operator.",
-            (
-                f"- execution operator: `{execution_operator}` keeps the mid-flow handoff executable."
-                if len(roles) > 1
-                else f"- execution operator: `{primary_segment}` also acts as the execution operator when the source only names one active role."
-            ),
-            f"- decision owner: `{decision_owner}` decides whether the first-wave workflow is strong enough to continue."
-            if roles
-            else "- decision owner: `review-bound missing source decision owner` remains unresolved until the source names the continuation owner.",
+            *reasoning_lines,
             "- governance reviewer: IT/legal reviewer or governance reviewer inspects retention, permission, and accountability boundaries when the organization requires formal review.",
             "",
         ]
@@ -3818,11 +4021,17 @@ def render_role_chain_table(runtime_context: dict[str, object]) -> str:
         if reader_facing_digest_phrase(item)
     ]
     loop_label = plain_label_surface(loop_items, "源素材定义的主业务流", limit=4)
+    ownership_review_bound = authority_step_ownership_review_bound(runtime_context)
     rows = []
     for role in roles:
-        goal = f"推动 {loop_label} 进入下一步可评审的业务结果"
-        friction = "若系统连续性断裂，团队会回到人工重建上下文"
-        responsibility = "完成首波职责，并保持上下文、下一动作和证据连续"
+        if ownership_review_bound:
+            goal = f"作为 in-scope role 参与 {loop_label}；具体负责哪一步继续由 accepted authority 决定"
+            friction = "若角色责任被模板提前指定，会把 review-bound ownership 错写成 canonical truth"
+            responsibility = "保留角色边界、可见性与证据要求；不声明未确认的 step ownership"
+        else:
+            goal = f"推动 {loop_label} 进入下一步可评审的业务结果"
+            friction = "若系统连续性断裂，团队会回到人工重建上下文"
+            responsibility = "完成首波职责，并保持上下文、下一动作和证据连续"
         rows.append([role, goal, friction, responsibility])
     return markdown_table(
         ["角色 (role)", "目标 (goal)", "阻力 / 摩擦 (friction)", "首波职责 (first-wave responsibility)"],
@@ -3833,12 +4042,18 @@ def render_role_chain_table(runtime_context: dict[str, object]) -> str:
 def render_jtbd_table(runtime_context: dict[str, object]) -> str:
     roles = list(runtime_context.get("target_user_roles", []))
     loop_label = business_loop_plain_surface(runtime_context, limit=4)
+    ownership_review_bound = authority_step_ownership_review_bound(runtime_context)
     rows = []
     for role in roles:
         context = "日常业务操作中"
-        main_job = f"保持 {loop_label} 连续推进，同时不丢失下一步判断"
-        success = "下一步保持可理解、可执行、可评审"
-        failure = "工作流断裂，团队回到人工重建上下文"
+        if ownership_review_bound:
+            main_job = f"在 {loop_label} 中完成 accepted authority 明确允许的角色动作，并保持未确认 ownership 可见"
+            success = "角色边界清楚，但未确认的 step ownership 没有被模板升级"
+            failure = "角色顺序或职责被模板推断，导致下游把候选 ownership 当成真相"
+        else:
+            main_job = f"保持 {loop_label} 连续推进，同时不丢失下一步判断"
+            success = "下一步保持可理解、可执行、可评审"
+            failure = "工作流断裂，团队回到人工重建上下文"
         rows.append([role, context, main_job, success, failure])
     return markdown_table(
         ["role", "context", "main job", "success signal", "failure consequence"],
@@ -3918,7 +4133,13 @@ def render_key_path_blocks(runtime_context: dict[str, object]) -> list[str]:
 def render_design_requirements_extraction(runtime_context: dict[str, object]) -> str:
     roles = list(runtime_context.get("target_user_roles", []))
     ia_rows = list(runtime_context.get("ia_matrix", []))
+    ownership_review_bound = authority_step_ownership_review_bound(runtime_context)
+    review_bound_role = authority_review_bound_actor(runtime_context)
+    primary_role = review_bound_role if ownership_review_bound else (roles[0] if roles else "primary role")
+    supporting_role = review_bound_role if ownership_review_bound else (roles[1] if len(roles) > 1 else "supporting role")
+    governance_role = review_bound_role if ownership_review_bound else (roles[2] if len(roles) > 2 else "governance role")
     supporting_context = "handoff into the next responsible module with source evidence intact"
+
     def required_outcome(index: int, fallback: str) -> str:
         if index < len(ia_rows):
             output_name = str(ia_rows[index].get("output", "")).strip()
@@ -3932,30 +4153,30 @@ def render_design_requirements_extraction(runtime_context: dict[str, object]) ->
     rows = [
         [
             "DR-01",
-            roles[0] if roles else "primary role",
+            primary_role,
             "first-touch workflow entry",
             required_outcome(0, "complete the first-wave entry outcome"),
             "clarify the first-wave entry state and object identity",
         ],
-        ["DR-02", roles[0] if roles else "primary role", "active record handling", "implied_design_requirement", "keep current record, status, and next action visible together"],
+        ["DR-02", primary_role, "active record handling", "implied_design_requirement", "keep current record, status, and next action visible together"],
         [
             "DR-03",
-            roles[1] if len(roles) > 1 else "supporting role",
+            supporting_role,
             supporting_context,
             required_outcome(1, "preserve the next module handoff outcome"),
             "preserve upstream record integrity before any downstream edit",
         ],
-        ["DR-04", roles[1] if len(roles) > 1 else "supporting role", "error or exception handling", "implied_design_requirement", "expose recovery/retry and blocked reasons without losing context"],
+        ["DR-04", supporting_role, "error or exception handling", "implied_design_requirement", "expose recovery/retry and blocked reasons without losing context"],
         [
             "DR-05",
-            roles[2] if len(roles) > 2 else "governance role",
+            governance_role,
             "audit and retention review",
             required_outcome(2, "make audit and retention outcome explicit"),
             "make role boundary, change log, and data retention explicit",
         ],
         [
             "DR-06",
-            roles[0] if roles else "primary role",
+            primary_role,
             "closure and outcome confirmation",
             required_outcome(max(0, min(len(ia_rows) - 1, 2)), "show the closure outcome explicitly"),
             "show what must happen before the business record can be closed",
@@ -3969,23 +4190,39 @@ def render_design_requirements_extraction(runtime_context: dict[str, object]) ->
 
 def render_structure_alternatives_table(runtime_context: dict[str, object]) -> str:
     workflow_backbone = module_chain_text(runtime_context, 4)
-    return markdown_table(
-        ["candidate", "backbone shape", "strength", "failure risk", "verdict"],
-        [
+    if authority_requires_independent_outcomes(runtime_context):
+        rows = [
+            ["record-first", "shared record spine", "good data continuity", "can erase outcome boundaries", "rejected"],
+            ["serial-workflow-first", "force accepted outcomes into one chain", "simple diagram", "changes accepted topology and creates false prerequisites", "rejected"],
+            ["authority-topology-first", workflow_backbone, "preserves independent closure plus accepted shared trace", "requires explicit per-outcome state modeling", "chosen"],
+        ]
+    else:
+        rows = [
             ["record-first", "object onboarding -> object maintenance", "good domain clarity", "can hide cross-module workflow continuity", "rejected"],
             ["module-first", "module silos", "easy to map to menus", "can break the end-to-end source-defined workflow", "rejected"],
             ["workflow-first", workflow_backbone, "preserves operational continuity", "needs stronger state and role modeling", "chosen"],
-        ],
+        ]
+    return markdown_table(
+        ["candidate", "backbone shape", "strength", "failure risk", "verdict"],
+        rows,
     )
 
 
 def render_problem_to_structure_mapping(runtime_context: dict[str, object]) -> str:
-    rows = [
-        ["paper/Excel fragmentation", "workflow-first", "preserve one continuous object chain instead of isolated pages"],
-        ["state transition ambiguity", "workflow-first", "make each module handoff explicit in the main flow"],
-        ["audit and retention risk", "structure plus boundary rules", "bind status changes to role, time, and event records"],
-        ["scope drift", "priority split", "keep P0/P1/P2 and out-of-scope visible together"],
-    ]
+    if authority_requires_independent_outcomes(runtime_context):
+        rows = [
+            ["outcome conflation", "authority-topology-first", "preserve independent completion instead of inventing one serial workflow"],
+            ["shared-trace ambiguity", "authority-topology-first", "make allowed cross-outcome trace and visibility explicit without execution dependency"],
+            ["privacy / boundary risk", "structure plus boundary rules", "bind visibility and state changes to accepted policy boundaries"],
+            ["scope drift", "priority split", "keep first-wave, deferred, and out-of-scope decisions visible together"],
+        ]
+    else:
+        rows = [
+            ["paper/Excel fragmentation", "workflow-first", "preserve one continuous object chain instead of isolated pages"],
+            ["state transition ambiguity", "workflow-first", "make each module handoff explicit in the main flow"],
+            ["audit and retention risk", "structure plus boundary rules", "bind status changes to role, time, and event records"],
+            ["scope drift", "priority split", "keep P0/P1/P2 and out-of-scope visible together"],
+        ]
     return markdown_table(
         ["problem_cluster", "chosen_panorama_structure", "why_this_structure_not_that"],
         rows,
@@ -3993,8 +4230,14 @@ def render_problem_to_structure_mapping(runtime_context: dict[str, object]) -> s
 
 
 def render_backbone_activities_table(runtime_context: dict[str, object]) -> str:
+    independent = authority_requires_independent_outcomes(runtime_context)
     rows = [
-        [f"Step {step_no}", "workflow backbone", reader_facing_digest_phrase(step), "保持对象连续性与可审计状态变更"]
+        [
+            f"{'Obligation' if independent else 'Step'} {step_no}",
+            "accepted outcome obligation" if independent else "workflow backbone",
+            reader_facing_digest_phrase(step),
+            "保持 outcome-local truth、对象连续性与可审计状态" if independent else "保持对象连续性与可审计状态变更",
+        ]
         for step_no, step in enumerate(canonical_operational_flow_steps(runtime_context), start=1)
     ]
     return markdown_table(
@@ -4005,9 +4248,16 @@ def render_backbone_activities_table(runtime_context: dict[str, object]) -> str:
 
 def render_process_identification_table(runtime_context: dict[str, object]) -> str:
     ia_rows = list(runtime_context.get("ia_matrix", []))
+    ownership_review_bound = authority_step_ownership_review_bound(runtime_context)
     rows = []
     for row in ia_rows:
-        actor = str(row.get("primary_actor", "")).strip() or str(runtime_context.get("primary_segment", "primary role"))
+        module = str(row.get("module", "")).strip()
+        assigned_actor = authority_assigned_actor_for_commitment(runtime_context, module)
+        actor = assigned_actor or (
+            authority_review_bound_actor(runtime_context)
+            if ownership_review_bound
+            else str(row.get("primary_actor", "")).strip() or str(runtime_context.get("primary_segment", "primary role"))
+        )
         rows.append(
             [
                 "main flow",
@@ -4026,6 +4276,7 @@ def render_process_identification_table(runtime_context: dict[str, object]) -> s
 
 def render_workflow_state_detail(runtime_context: dict[str, object]) -> list[str]:
     rows = list(runtime_context.get("ia_matrix", []))
+    independent = authority_requires_independent_outcomes(runtime_context)
     states = ["scope_ready"]
     lines: list[str] = []
     for idx, row in enumerate(rows[:6], start=1):
@@ -4034,14 +4285,24 @@ def render_workflow_state_detail(runtime_context: dict[str, object]) -> list[str
         states.append(f"{module_key}_active")
         input_name = str(row.get("input", "")).strip() or "source-defined input"
         output_name = str(row.get("output", "")).strip() or "source-defined output"
-        lines.append(f"- Step {idx}: {module}; state: {module_key}_active")
-        lines.append(f"- Step {idx} transition: {input_name} -> {output_name}")
+        label = "Outcome" if independent else "Step"
+        lines.append(f"- {label} {idx}: {module}; state: {module_key}_active")
+        lines.append(f"- {label} {idx} local transition: {input_name} -> {output_name}")
     if not lines:
         lines.append(f"- Step 1: {REVIEW_BOUND_MISSING_SOURCE_MODULE_CHAIN}; state: source_state_active")
+    if independent and len(states) > 1:
+        state_line = " | ".join(states[1:])
+        topology_line = "- topology_guard: each outcome state machine starts independently; no outcome completion activates another outcome"
+        decomposition_line = "- actor/system decomposition: actor ownership remains authority-bound; shared review preserves evidence but does not create handoff order"
+    else:
+        state_line = " -> ".join(states) if len(states) > 1 else "source_state_active"
+        topology_line = "- topology_guard: state transitions follow the source-defined mainline"
+        decomposition_line = "- actor/system decomposition: upstream role initiates, downstream role confirms, system preserves contract and audit boundary"
     return [
-        f"- state: {' -> '.join(states) if len(states) > 1 else 'source_state_active'}",
+        f"- state: {state_line}",
         *lines,
-        "- actor/system decomposition: upstream role initiates, downstream role confirms, system preserves contract and audit boundary",
+        topology_line,
+        decomposition_line,
         "- tension register: coverage vs focus; automation vs trust; breadth vs MVP speed",
     ]
 
@@ -4067,11 +4328,16 @@ def render_constraint_stress_test(runtime_context: dict[str, object]) -> str:
 def render_priority_split(runtime_context: dict[str, object]) -> list[str]:
     names = module_names(runtime_context, 5)
     p0 = ", ".join(names) if names else "source-defined core modules"
+    exclusion = (
+        "- exclusion logic: anything that neither protects an accepted first-wave outcome nor an accepted shared trace/visibility rule stays outside P0"
+        if authority_requires_independent_outcomes(runtime_context)
+        else "- exclusion logic: anything that does not directly protect the first-wave source-defined workflow stays outside P0"
+    )
     return [
         f"- P0: {p0}",
         "- P1: broader visibility, richer admin surfaces, and secondary refinements",
         "- P2: external integrations, multi-instance support, and optional expansion surfaces",
-        "- exclusion logic: anything that does not directly protect the first-wave source-defined workflow stays outside P0",
+        exclusion,
     ]
 
 
@@ -4122,6 +4388,14 @@ def render_module_matrix_with_notes(runtime_context: dict[str, object]) -> str:
 
 def render_domain_direction_block(runtime_context: dict[str, object]) -> list[str]:
     objects = core_object_names(runtime_context, 8)
+    if authority_requires_independent_outcomes(runtime_context):
+        return [
+            f"- core entities: {', '.join(objects) if objects else 'source-defined core objects'}",
+            "- entity catalog: objects stay attached to their accepted outcome or shared trace/visibility role; cross-outcome ownership is not inferred",
+            "- relationship direction: review-bound across independent outcomes unless an accepted statement explicitly defines the relation",
+            "- object lifecycle notes: each outcome-local object must enter, change, and close through its own auditable states",
+            "- interface payload anchor: shared object references preserve identity and visibility boundaries without implying workflow handoff",
+        ]
     return [
         f"- core entities: {', '.join(objects) if objects else 'source-defined core objects'}",
         "- entity catalog: each entity belongs to one owning module and one explicit workflow role",
@@ -4132,12 +4406,22 @@ def render_domain_direction_block(runtime_context: dict[str, object]) -> list[st
 
 
 def render_first_wave_decision_table(runtime_context: dict[str, object]) -> str:
+    task_fields = (
+        "actor_ref (review-bound until authority names owner), status, evidence state, blocked reason"
+        if authority_step_ownership_review_bound(runtime_context)
+        else "assignee, status, due cycle, blocked reason"
+    )
+    task_rationale = (
+        "preserve action traceability without inventing operational ownership"
+        if authority_step_ownership_review_bound(runtime_context)
+        else "preserve downstream operational ownership"
+    )
     return markdown_table(
         ["dimension", "first-wave decision", "rationale"],
         [
             ["account boundary", "single-account business boundary", "source MVP does not require broader cross-boundary coordination"],
             ["sampling window", "per-cycle analysis and review history", "retain history long enough for audit and comparison"],
-            ["task fields", "assignee, status, due cycle, blocked reason", "preserve downstream operational ownership"],
+            ["task fields", task_fields, task_rationale],
             ["extension fields", "extension seam only", "avoid introducing non-source semantics into MVP"],
         ],
     )
@@ -4173,24 +4457,37 @@ def render_workflow_mapping_table(runtime_context: dict[str, object]) -> str:
     return markdown_table(["workflow step", "primary object", "secondary object", "downstream effect"], rows)
 
 
-def render_ia_alternatives_table() -> str:
-    return markdown_table(
-        ["alternative", "organizing axis", "strength", "failure risk", "verdict"],
-        [
+def render_ia_alternatives_table(runtime_context: dict[str, object]) -> str:
+    if authority_requires_independent_outcomes(runtime_context):
+        rows = [
+            ["module-first", "group by internal subsystem", "easy to mirror backend modules", "can hide accepted outcome semantics", "rejected"],
+            ["workflow-first", "group all outcomes by one operational sequence", "simple global navigation", "creates false prerequisites between independent outcomes", "rejected"],
+            ["outcome-boundary-first", "group by accepted independent outcome with shared review/trace surfaces", "preserves closure and visibility truth", "requires explicit shared-boundary discipline", "chosen"],
+        ]
+    else:
+        rows = [
             ["module-first", "group by internal subsystem", "easy to mirror backend modules", "users may not see the end-to-end workflow", "rejected"],
             ["role-first", "group by staff role", "good for access control", "shared objects can fragment across screens", "rejected"],
             ["workflow-first", "group by operational sequence", "keeps navigation and object traceability aligned", "needs stronger state and dependency discipline", "chosen"],
-        ],
+        ]
+    return markdown_table(
+        ["alternative", "organizing axis", "strength", "failure risk", "verdict"],
+        rows,
     )
 
 
 def render_expanded_ia_spec_matrix(runtime_context: dict[str, object]) -> str:
     roles = list(runtime_context.get("target_user_roles", []))
+    authority_actor = authority_review_bound_actor(runtime_context)
     rows: list[list[str]] = []
     ia_rows = list(runtime_context.get("ia_matrix", []))
     for idx, row in enumerate(ia_rows, start=1):
+        module = str(row.get("module", f"module_{idx}")).strip()
         actor = str(row.get("primary_actor", "")).strip()
-        if not actor:
+        if agentic_product_authority_active(runtime_context):
+            assigned_actor = authority_assigned_actor_for_commitment(runtime_context, module)
+            actor = assigned_actor or (actor if "review-bound" in actor.casefold() else authority_actor)
+        elif not actor:
             if len(roles) == 1:
                 actor = roles[0]
             elif idx == 1 and str(runtime_context.get("primary_segment", "")).strip():
@@ -4209,17 +4506,21 @@ def render_expanded_ia_spec_matrix(runtime_context: dict[str, object]) -> str:
             or f"depends on {entry_conditions or 'upstream contract'}"
         )
         rows.append([
-            str(row.get("module", f"module_{idx}")).strip(),
+            module,
             actor,
             str(row.get("core_objects", "")).strip() or "source-defined information objects",
             entry_conditions,
             exit_actions,
             downstream_dependency,
         ])
+    authority_mode = agentic_product_authority_active(runtime_context)
+    supporting_actor = authority_actor if authority_mode else (roles[1] if len(roles) > 1 else (roles[0] if roles else "supporting actor"))
+    governance_actor = authority_actor if authority_mode else (roles[-1] if roles else "governance actor")
+    primary_actor = authority_actor if authority_mode else (roles[0] if roles else "primary actor")
     supplemental_rows = [
         [
             "cross-module handoff queue",
-            roles[1] if len(roles) > 1 else (roles[0] if roles else "supporting actor"),
+            supporting_actor,
             "active business record / owner_hint / blocked_reason / next-step context",
             "an upstream module marks the record handoff-ready",
             "the downstream actor accepts, rejects, or returns-for-clarification",
@@ -4227,7 +4528,7 @@ def render_expanded_ia_spec_matrix(runtime_context: dict[str, object]) -> str:
         ],
         [
             "audit and review workspace",
-            roles[2] if len(roles) > 2 else (roles[-1] if roles else "governance actor"),
+            governance_actor,
             "state history / audit trail / closure evidence / retention boundary",
             "a business record reaches review-ready or closure-ready state",
             "review decision and closure evidence stay queryable together",
@@ -4235,7 +4536,7 @@ def render_expanded_ia_spec_matrix(runtime_context: dict[str, object]) -> str:
         ],
         [
             "exception recovery console",
-            roles[1] if len(roles) > 1 else (roles[0] if roles else "supporting actor"),
+            supporting_actor,
             "blocked_reason / missing input / invalid state / dependency unavailable",
             "the main flow cannot proceed safely",
             "recovery path or escalation is recorded before the workflow resumes",
@@ -4243,7 +4544,7 @@ def render_expanded_ia_spec_matrix(runtime_context: dict[str, object]) -> str:
         ],
         [
             "record timeline workspace",
-            roles[0] if roles else "primary actor",
+            primary_actor,
             "business record / state history / owner timeline / next-step note",
             "a record is opened from any primary module",
             "the operator can inspect prior steps before continuing",
@@ -4251,7 +4552,7 @@ def render_expanded_ia_spec_matrix(runtime_context: dict[str, object]) -> str:
         ],
         [
             "search and retrieval workspace",
-            roles[0] if roles else "primary actor",
+            primary_actor,
             "record identity / owner / status / recent outcome / audit hint",
             "the team needs to retrieve an in-flight or recently closed record",
             "the chosen record re-enters the workflow with intact context",
@@ -4259,7 +4560,7 @@ def render_expanded_ia_spec_matrix(runtime_context: dict[str, object]) -> str:
         ],
         [
             "scope boundary ledger",
-            roles[-1] if roles else "governance actor",
+            governance_actor,
             "in-scope / later-slice / out-of-scope / non-goal decision",
             "first-wave scope is reviewed or changed",
             "scope decision remains visible before downstream design starts",
@@ -4267,7 +4568,7 @@ def render_expanded_ia_spec_matrix(runtime_context: dict[str, object]) -> str:
         ],
         [
             "validation evidence workspace",
-            roles[-1] if roles else "governance actor",
+            governance_actor,
             "assumption / evidence source / pass-fail threshold / review note",
             "a product assumption must be validated or kept review-bound",
             "validation outcome updates the next product decision",
@@ -4285,11 +4586,17 @@ def render_expanded_ia_spec_matrix(runtime_context: dict[str, object]) -> str:
 
 
 def render_slice_candidate_table(runtime_context: dict[str, object]) -> str:
+    if authority_requires_independent_outcomes(runtime_context):
+        chosen = ["independent-outcomes-first", module_chain_text(runtime_context, 5), "high", "medium", "low-medium", "high", "low", "chosen"]
+        rejected = ["serial-workflow-first", "force accepted outcomes into one execution chain", "medium", "low", "high", "low", "high", "rejected"]
+    else:
+        chosen = ["workflow-loop-first", module_chain_text(runtime_context, 5), "high", "medium", "medium", "high", "medium", "chosen"]
+        rejected = ["admin-dashboard-first", "dashboard and reporting only", "medium", "low", "low", "low", "high", "rejected"]
     return markdown_table(
         ["candidate", "what_is_in_first_slice", "user_value_speed", "evidence_confidence", "dependency_complexity", "validation_leverage", "risk_of_overreach", "verdict"],
         [
-            ["workflow-loop-first", module_chain_text(runtime_context, 5), "high", "medium", "medium", "high", "medium", "chosen"],
-            ["admin-dashboard-first", "dashboard and reporting only", "medium", "low", "low", "low", "high", "rejected"],
+            chosen,
+            rejected,
             ["single-module-first", module_names(runtime_context, 1)[0] if module_names(runtime_context, 1) else "first module only", "medium", "medium", "medium", "medium", "medium", "rejected"],
         ],
     )
@@ -4313,11 +4620,26 @@ def render_slice_lists(runtime_context: dict[str, object]) -> list[str]:
     flow_steps = semantic_profile_list(profile, "flow_steps", canonical_operational_flow_steps(runtime_context)[:3] or ["entry", "execution", "closure"])
     object_surface = plain_label_surface(objects[:2], "source-defined business record", limit=2)
     flow_surface = plain_label_surface(flow_steps[:3], "entry to closure", limit=3)
+    later_slices = "broader role surfaces, richer review analytics, integrations, and automation layers"
+    if authority_requires_independent_outcomes(runtime_context):
+        return [
+            "- chosen_slice_strategy: independent-outcomes-first",
+            "- why_this_slice_not_that: it preserves each accepted outcome as independently closable and testable",
+            "- explicit_exclusion_rule: no serial dependency may be invented from document order",
+            f"- independent_outcome_set: {module_chain_text(runtime_context, 5)}",
+            "- shared_connection_rule: outcomes may share only accepted trace / visibility / evidence rules; shared review does not imply execution order",
+            f"- minimum_viable_experience_loop: each accepted outcome must close independently while {object_surface} remains traceable within its own boundary",
+            "- baseline: establish each outcome's own entry, evidence, and truth boundary",
+            "- execute: execute outcome-local actions without requiring another independent outcome to run first",
+            "- review: compare outcome evidence together only at the review surface; do not serialize execution",
+            f"- first_slice: {', '.join(module_names(runtime_context, 5)) if module_names(runtime_context, 5) else 'source-defined independent outcomes'}",
+            f"- later_slices: {later_slices}",
+            "- deferred_items: integrations, multi-instance support, mobile native app",
+        ]
     if runtime_context_has_chinese(runtime_context):
         minimum_loop = f"单个 {object_surface} 能沿 {flow_surface} 连续推进，且无需人工重建上下文"
     else:
         minimum_loop = f"a single {object_surface} can move through {flow_surface} with explicit handoff context"
-    later_slices = "broader role surfaces, richer review analytics, integrations, and automation layers"
     return [
         "- chosen_slice_strategy: workflow-loop-first",
         "- why_this_slice_not_that: it protects the shortest complete source-defined workflow",
@@ -4355,6 +4677,14 @@ def render_carryover_ledger(runtime_context: dict[str, object]) -> str:
 
 
 def render_value_loop_notes(runtime_context: dict[str, object]) -> list[str]:
+    if authority_requires_independent_outcomes(runtime_context):
+        return [
+            "- Value Loop and Downstream Preservation Notes",
+            "- each accepted outcome must reach its own traceable closure state",
+            "- shared trace / visibility / review surfaces may connect outcomes without creating execution order",
+            "- downstream closure is evaluated per outcome; aggregate review is not a workflow handoff",
+            "- false completeness risk: serializing independent outcomes would make the package look orderly while changing the accepted product world",
+        ]
     return [
         "- Value Loop and Downstream Preservation Notes",
         "- the first-wave value loop is complete only when the same business record reaches a traceable closure state",
@@ -4378,22 +4708,37 @@ def render_transition_rules(runtime_context: dict[str, object]) -> list[str]:
     names = module_names(runtime_context, 6)
     states = [re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") or f"module_{idx}" for idx, name in enumerate(names, start=1)]
     lines: list[str] = []
+    independent = authority_requires_independent_outcomes(runtime_context)
     if states:
-        lines.append(f"- draft -> {states[0]}_ready")
-        for idx, current in enumerate(states):
-            lines.extend(
-                [
-                    f"- {current}_ready -> {current}_in_progress",
-                    f"- {current}_in_progress -> {current}_handoff_ready",
-                    f"- {current}_in_progress -> {current}_blocked",
-                    f"- {current}_blocked -> {current}_clarification_needed",
-                    f"- {current}_clarification_needed -> {current}_ready",
-                ]
-            )
-            if idx + 1 < len(states):
-                lines.append(f"- {current}_handoff_ready -> {states[idx + 1]}_ready")
-            else:
-                lines.append(f"- {current}_handoff_ready -> review_ready")
+        if independent:
+            for current in states:
+                lines.extend(
+                    [
+                        f"- draft -> {current}_ready",
+                        f"- {current}_ready -> {current}_in_progress",
+                        f"- {current}_in_progress -> {current}_review_ready",
+                        f"- {current}_in_progress -> {current}_blocked",
+                        f"- {current}_blocked -> {current}_clarification_needed",
+                        f"- {current}_clarification_needed -> {current}_ready",
+                    ]
+                )
+            lines.append("- topology_guard: no accepted outcome transition creates readiness for another independent outcome")
+        else:
+            lines.append(f"- draft -> {states[0]}_ready")
+            for idx, current in enumerate(states):
+                lines.extend(
+                    [
+                        f"- {current}_ready -> {current}_in_progress",
+                        f"- {current}_in_progress -> {current}_handoff_ready",
+                        f"- {current}_in_progress -> {current}_blocked",
+                        f"- {current}_blocked -> {current}_clarification_needed",
+                        f"- {current}_clarification_needed -> {current}_ready",
+                    ]
+                )
+                if idx + 1 < len(states):
+                    lines.append(f"- {current}_handoff_ready -> {states[idx + 1]}_ready")
+                else:
+                    lines.append(f"- {current}_handoff_ready -> review_ready")
     else:
         lines.append("- draft -> active -> review_ready")
     lines.extend(
@@ -4516,6 +4861,16 @@ def flow_step_owner_surface(runtime_context: dict[str, object], step_text: objec
         if not isinstance(row, dict):
             continue
         module = str(row.get("module", "")).strip()
+        if module and normalized_match_key(module) in normalized_match_key(step):
+            assigned_actor = authority_assigned_actor_for_commitment(runtime_context, module)
+            if assigned_actor:
+                return assigned_actor
+    if authority_step_ownership_review_bound(runtime_context):
+        return authority_review_bound_actor(runtime_context)
+    for row in runtime_context.get("ia_matrix", []):
+        if not isinstance(row, dict):
+            continue
+        module = str(row.get("module", "")).strip()
         actor = str(row.get("primary_actor", "")).strip()
         if module and actor and normalized_match_key(module) in normalized_match_key(step):
             return actor
@@ -4555,11 +4910,12 @@ def flow_step_owner_surface(runtime_context: dict[str, object], step_text: objec
 def render_flow_step_deepening_lines(runtime_context: dict[str, object]) -> list[str]:
     lines: list[str] = []
     title = str(runtime_context.get("workflow_backbone", "")).strip() or "canonical operational flow"
+    owner_label = "responsibility_context" if authority_ownership_assignment_map(runtime_context) else "owner"
     for step_no, step in enumerate(canonical_operational_flow_steps(runtime_context), start=1):
         rendered_action = reader_facing_digest_phrase(step)
         owner = flow_step_owner_surface(runtime_context, step)
         lines.append(
-            f"- Step {step_no}: {rendered_action} | owner: {owner} | "
+            f"- Step {step_no}: {rendered_action} | {owner_label}: {owner} | "
             "system_behavior: 保持对象连续性与下一步可见性 | "
             f"postconditions: 下游模块无需重建上下文即可消费该输出 | flow_context: {title}"
         )
@@ -5411,6 +5767,150 @@ def plain_role_surface(value: str, fallback: str = "primary operator") -> str:
     return cleaned or fallback
 
 
+def agentic_product_authority_surface(runtime_context: dict[str, object]) -> dict[str, object]:
+    business_world_model = runtime_context.get("business_world_model", {})
+    if not isinstance(business_world_model, dict):
+        return {}
+    authority = business_world_model.get("agentic_product_authority", {})
+    return authority if isinstance(authority, dict) else {}
+
+
+def agentic_product_authority_active(runtime_context: dict[str, object]) -> bool:
+    authority = agentic_product_authority_surface(runtime_context)
+    return bool(authority.get("decision_id") and authority.get("commitments"))
+
+
+def authority_review_bound_actor(runtime_context: dict[str, object]) -> str:
+    return (
+        "review-bound unless accepted authority explicitly names actor"
+        if agentic_product_authority_active(runtime_context)
+        else "source-defined primary actor"
+    )
+
+
+def authority_product_world_decision(runtime_context: dict[str, object]) -> dict[str, object]:
+    authority = agentic_product_authority_surface(runtime_context)
+    decision = authority.get("product_world_decision", {}) if isinstance(authority, dict) else {}
+    return decision if isinstance(decision, dict) else {}
+
+
+def authority_workflow_topology(runtime_context: dict[str, object]) -> str:
+    decision = authority_product_world_decision(runtime_context)
+    topology = decision.get("topology", {}) if isinstance(decision, dict) else {}
+    if isinstance(topology, dict):
+        return str(topology.get("statement") or "").strip()
+    return ""
+
+
+def authority_workflow_topology_mode(runtime_context: dict[str, object]) -> str:
+    decision = authority_product_world_decision(runtime_context)
+    topology = decision.get("topology", {}) if isinstance(decision, dict) else {}
+    if isinstance(topology, dict):
+        return str(topology.get("mode") or "review-bound").strip()
+    return "review-bound"
+
+
+def authority_requires_independent_outcomes(runtime_context: dict[str, object]) -> bool:
+    if not agentic_product_authority_active(runtime_context):
+        return False
+    return authority_workflow_topology_mode(runtime_context) == "independent-outcomes"
+
+
+def authority_ownership_assignment_map(runtime_context: dict[str, object]) -> dict[str, str]:
+    decision = authority_product_world_decision(runtime_context)
+    ownership = decision.get("ownership", {}) if isinstance(decision, dict) else {}
+    assignments = ownership.get("assignments", []) if isinstance(ownership, dict) else []
+    result: dict[str, str] = {}
+    if not isinstance(assignments, list):
+        return result
+    for row in assignments:
+        if not isinstance(row, dict):
+            continue
+        role = str(row.get("role") or "").strip()
+        if not role:
+            continue
+        for commitment_id in row.get("commitment_ids", []):
+            commitment = str(commitment_id or "").strip()
+            if commitment:
+                result[commitment] = role
+    return result
+
+
+def authority_assigned_actor_for_commitment(runtime_context: dict[str, object], commitment_id: object) -> str:
+    commitment = str(commitment_id or "").strip()
+    if not commitment:
+        return ""
+    return authority_ownership_assignment_map(runtime_context).get(commitment, "")
+
+
+def authority_canonical_product_object_names(runtime_context: dict[str, object]) -> list[str]:
+    decision = authority_product_world_decision(runtime_context)
+    objects = decision.get("objects", []) if isinstance(decision, dict) else []
+    if not isinstance(objects, list):
+        return []
+    return [
+        str(row.get("name") or "").strip()
+        for row in objects
+        if isinstance(row, dict) and str(row.get("name") or "").strip()
+    ]
+
+
+def authority_product_object_chain_surface(runtime_context: dict[str, object]) -> str:
+    names = authority_canonical_product_object_names(runtime_context)
+    if names:
+        separator = " | " if authority_requires_independent_outcomes(runtime_context) else " -> "
+        return separator.join(names)
+    return str(runtime_context.get("object_chain", "")).strip() or "source-defined business object chain"
+
+
+def authority_step_ownership_review_bound(runtime_context: dict[str, object]) -> bool:
+    if not agentic_product_authority_active(runtime_context):
+        return False
+    decision = authority_product_world_decision(runtime_context)
+    ownership = decision.get("ownership", {}) if isinstance(decision, dict) else {}
+    if not isinstance(ownership, dict):
+        return True
+    return str(ownership.get("posture") or "review-bound").strip() in {"review-bound", "mixed"}
+
+
+def render_agentic_product_commitment_registry(runtime_context: dict[str, object]) -> str:
+    authority = agentic_product_authority_surface(runtime_context)
+    commitments = authority.get("commitments", []) if isinstance(authority.get("commitments"), list) else []
+    rows: list[list[str]] = []
+    for row in commitments:
+        if not isinstance(row, dict):
+            continue
+        commitment_id = str(row.get("commitment_id", "")).strip()
+        statement = str(row.get("statement", "")).strip()
+        if not commitment_id or not statement:
+            continue
+        rows.append(
+            [
+                commitment_id,
+                str(row.get("kind", "requirement")).strip() or "requirement",
+                str(row.get("status", "review-bound")).strip() or "review-bound",
+                str(row.get("truth_state", "review-bound")).strip() or "review-bound",
+                statement,
+                ", ".join(str(item).strip() for item in row.get("feature_ids", []) if str(item).strip()) or "-",
+                str(row.get("claim_ceiling", "")).strip() or "bounded by accepted P1 authority",
+            ]
+        )
+    if not rows:
+        return "- status: `not-available`"
+    return markdown_table(
+        [
+            "commitment_id",
+            "kind",
+            "status",
+            "truth_state",
+            "canonical_statement",
+            "feature_ids",
+            "claim_ceiling",
+        ],
+        rows,
+    )
+
+
 def product_source_driver_summary(runtime_context: dict[str, object]) -> dict[str, object]:
     business_world_model = runtime_context.get("business_world_model", {})
     if not isinstance(business_world_model, dict):
@@ -5615,11 +6115,15 @@ def compact_direction_anchor(runtime_context: dict[str, object]) -> str:
 
 def compact_need_framing(runtime_context: dict[str, object]) -> str:
     module_surface = business_loop_reader_surface(runtime_context, limit=4)
+    if authority_requires_independent_outcomes(runtime_context):
+        return f"先让 {module_surface} 各自形成可判定闭环，并只保留 accepted shared trace / visibility connection；不得压成单一 workflow。"
     return f"先围绕 {module_surface} 收成一条可判定的主线闭环，而不是继续堆孤立页面、局部表单或事后汇总。"
 
 
 def compact_positioning_choice(runtime_context: dict[str, object]) -> str:
     module_surface = business_loop_reader_surface(runtime_context, limit=4)
+    if authority_requires_independent_outcomes(runtime_context):
+        return f"定位上优先保住 {module_surface} 的独立可验证价值与最小共享证据，而不是把多个 outcome 串成一个通用 workflow。"
     return f"定位上优先卖 {module_surface} 的主线闭环能力，而不是卖单点页面、单点可视化或脱离主链的事后报告。"
 
 
@@ -5805,11 +6309,18 @@ def render_capability_recompilation_lines(runtime_context: dict[str, object]) ->
     proof_artifact = compact_proof_artifact_phrase(runtime_context)
     continuation_owner = continuation_owner_surface(runtime_context)
     object_surface = compact_operating_object_surface(runtime_context, limit=3)
-    lines = [
-        f"- mainline_recompile: 把 {module_surface} 从分散步骤重编成同一条连续主线，而不是继续依赖模块切换和人工补位。",
-        f"- decision_surface_recompile: 把下一动作、{proof_artifact} 与责任判断放到同一评审界面（review surface），让 `{continuation_owner}` 能直接做继续 / 调整 / 暂停。",
-        f"- object_integrity_recompile: 把 {object_surface} 作为贯穿对象保留在主线里，避免记录、状态与 review 证据脱钩。",
-    ]
+    if authority_requires_independent_outcomes(runtime_context):
+        lines = [
+            f"- outcome_recompile: 保持 {module_surface} 为并列独立 outcome；每个 outcome 独立闭环，不从文档顺序推导串行依赖。",
+            f"- decision_surface_recompile: 评审界面可以汇总 {proof_artifact}，但共享 evidence surface 不得把独立 outcome 改写成执行顺序；`{continuation_owner}` 只在 accepted claim ceiling 内做继续 / 调整 / 暂停判断。",
+            f"- object_integrity_recompile: {object_surface} 只通过 accepted shared trace / visibility rules 跨 outcome 关联，不生成额外 handoff truth。",
+        ]
+    else:
+        lines = [
+            f"- mainline_recompile: 把 {module_surface} 从分散步骤重编成同一条连续主线，而不是继续依赖模块切换和人工补位。",
+            f"- decision_surface_recompile: 把下一动作、{proof_artifact} 与责任判断放到同一评审界面（review surface），让 `{continuation_owner}` 能直接做继续 / 调整 / 暂停。",
+            f"- object_integrity_recompile: 把 {object_surface} 作为贯穿对象保留在主线里，避免记录、状态与 review 证据脱钩。",
+        ]
     return list(dict.fromkeys(lines))
 
 
@@ -6036,6 +6547,54 @@ def render_chosen_business_thesis_lines(runtime_context: dict[str, object]) -> l
     if review_bound:
         lines.append(f"- review_bound_truth: {review_bound}")
     return lines
+
+def render_world_knowledge_backfill_lines(runtime_context: dict[str, object]) -> list[str]:
+    authority = agentic_product_authority_surface(runtime_context)
+    if not authority:
+        return ["- status: `not-applicable-without-agentic-product-authority`"]
+    contract = str(authority.get("world_knowledge_contract") or "").strip()
+    decision = authority_product_world_decision(runtime_context)
+    topology = decision.get("topology", {}) if isinstance(decision.get("topology"), dict) else {}
+    ownership = decision.get("ownership", {}) if isinstance(decision.get("ownership"), dict) else {}
+    objects = [row for row in decision.get("objects", []) if isinstance(row, dict)] if isinstance(decision.get("objects"), list) else []
+    assignments = [row for row in ownership.get("assignments", []) if isinstance(row, dict)] if isinstance(ownership.get("assignments"), list) else []
+    rows = [row for row in authority.get("world_knowledge_backfill", []) if isinstance(row, dict)]
+    lines = [
+        f"- contract: `{contract or 'missing-world-knowledge-contract'}`",
+        "- precedence: source-established product truth > accepted world-knowledge enrichment > renderer/template preference.",
+        f"- product_world_summary: {str(decision.get('summary') or 'review-bound').strip()}",
+        f"- topology: `{str(topology.get('mode') or 'review-bound').strip()}` / {str(topology.get('statement') or 'review-bound').strip()}",
+        f"- ownership_posture: `{str(ownership.get('posture') or 'review-bound').strip()}` / {str(ownership.get('statement') or 'review-bound').strip()}",
+    ]
+    if objects:
+        object_surface = "; ".join(
+            f"{str(row.get('object_id') or 'missing-object-id').strip()}: {str(row.get('name') or 'unnamed-object').strip()} [{str(row.get('basis') or 'review-bound').strip()}]"
+            for row in objects
+        )
+        lines.append(f"- canonical_product_objects: {object_surface}")
+    if assignments:
+        assignment_surface = "; ".join(
+            f"{str(row.get('role') or 'review-bound-role').strip()} -> {', '.join(str(item).strip() for item in row.get('commitment_ids', []) if str(item).strip())}"
+            for row in assignments
+        )
+        lines.append(f"- accepted_role_assignments: {assignment_surface}")
+    if not rows:
+        lines.append("- backfill_status: `none-required`; an empty backfill is valid when the admitted source already establishes a sufficient product world.")
+        return lines
+    for row in rows:
+        backfill_id = str(row.get("backfill_id") or "missing-id").strip()
+        status = str(row.get("status") or "review-bound").strip()
+        truth_state = str(row.get("truth_state") or "review-bound").strip()
+        compatibility = str(row.get("source_compatibility") or "uncertain").strip()
+        statement = str(row.get("statement") or "").strip()
+        dimensions = ", ".join(str(item).strip() for item in row.get("affected_dimensions", []) if str(item).strip())
+        ceiling = str(row.get("claim_ceiling") or "").strip()
+        lines.append(
+            f"- `{backfill_id}` [{status} / {truth_state} / source={compatibility}] {statement} "
+            f"(dimensions: {dimensions or 'unspecified'}; ceiling: {ceiling or 'bounded by P1 authority'})"
+        )
+    return lines
+
 
 def render_business_world_truth_lines(runtime_context: dict[str, object]) -> list[str]:
     model = runtime_context.get("business_world_model", {})
@@ -6709,12 +7268,17 @@ def render_loop_business_scenario_lines(
             )
         return lines
 
-    module_chain = " -> ".join(
+    authority_mode = agentic_product_authority_active(runtime_context)
+    independent = authority_requires_independent_outcomes(runtime_context)
+    ownership_review_bound = authority_step_ownership_review_bound(runtime_context)
+    nonserial_role_boundary = independent or ownership_review_bound
+    chain_separator = " / " if independent else " -> "
+    module_chain = chain_separator.join(
         plain_truth_text(str(module))
         for module in scenario_context.get("modules", [])
         if plain_truth_text(str(module))
     ) or "source-defined mainline"
-    actor_chain = " -> ".join(
+    actor_chain = chain_separator.join(
         plain_truth_text(str(actor))
         for actor in scenario_context.get("actors", [])
         if plain_truth_text(str(actor))
@@ -6755,13 +7319,23 @@ def render_loop_business_scenario_lines(
     reviewer_role = coordination_roles[2] if len(coordination_roles) > 2 else downstream_role
 
     lines.append(
-        f"- business_value_mechanism: 在 {scenario_title}，必须把 {input_anchor} 稳定推进到 {output_anchor}，并保持 {object_chain}、责任归属与下一动作仍在同一条主线上可见。"
+        f"- business_value_mechanism: 在 {scenario_title}，每个 linked obligation、{object_chain}、truth state 与 claim ceiling 必须在同一 accepted outcome 下独立可审阅；不得因文档顺序形成串行主线。"
+        if independent
+        else f"- business_value_mechanism: 在 {scenario_title}，必须把 {input_anchor} 稳定推进到 {output_anchor}，并保持 {object_chain}、责任边界与下一动作仍在 accepted ordered-flow 上可见。"
     )
     if "coordination_density" in missing_dimensions or "role_handoffs" in focus or "handoff_contracts" in focus:
         lines.extend(
             [
-                f"- coordination_roles: 上游 {plain_truth_text(upstream_role)} -> 下游 {plain_truth_text(downstream_role)} -> 评审者 {plain_truth_text(reviewer_role)} 必须保持显式，不能被压平成一个 generic operator。",
-                f"- role_handoff_contract: {plain_truth_text(upstream_role)} 把 {output_anchor} 交给 {plain_truth_text(downstream_role)} 时，owner、state、blocked reason 和 next action 仍要可见，{plain_truth_text(reviewer_role)} 可以直接评审而不必重建缺失上下文。",
+                f"- coordination_roles: 相关角色 {plain_truth_text(upstream_role)} / {plain_truth_text(downstream_role)} / {plain_truth_text(reviewer_role)} 必须保持边界显式；该集合不声明未被 authority 接受的串行角色交接。"
+                if nonserial_role_boundary
+                else f"- coordination_roles: 上游 {plain_truth_text(upstream_role)} -> 下游 {plain_truth_text(downstream_role)} -> 评审者 {plain_truth_text(reviewer_role)} 必须保持显式，不能被压平成一个 generic operator。",
+                (
+                    "- role_boundary_contract: related roles remain in scope and keep visibility/evidence boundaries explicit; exact handoff ownership remains review-bound until accepted authority names it."
+                    if ownership_review_bound
+                    else "- role_boundary_contract: independently accepted outcomes keep role boundaries local; a shared review surface does not create cross-outcome handoff order."
+                    if independent
+                    else f"- role_handoff_contract: {plain_truth_text(upstream_role)} 把 {output_anchor} 交给 {plain_truth_text(downstream_role)} 时，owner、state、blocked reason 和 next action 仍要可见，{plain_truth_text(reviewer_role)} 可以直接评审而不必重建缺失上下文。"
+                ),
             ]
         )
     if "real_world_constraint_density" in missing_dimensions or "real_world_baseline" in focus:
@@ -6793,7 +7367,9 @@ def render_loop_business_scenario_lines(
         )
     if "user_task_experience" in focus or experience_context:
         lines.append(
-            f"- user_task_experience_gain: 把 {module_chain} 和 {object_chain} 保持在同一条链上，可以为 {actor_chain} 减少 {experience_phrase}。"
+            f"- user_task_experience_gain: 保持 {module_chain} 的独立 outcome、{object_chain} 与证据边界可分别消费，可以为 {actor_chain} 减少 {experience_phrase}，且不制造跨 outcome 顺序。"
+            if independent
+            else f"- user_task_experience_gain: 把 {module_chain} 和 {object_chain} 保持在 accepted ordered-flow 上，可以为 {actor_chain} 减少 {experience_phrase}。"
         )
     return lines
 
@@ -6811,14 +7387,60 @@ def render_reasoning_units(source_text: str, runtime_context: dict[str, object])
         fallback=REVIEW_BOUND_MISSING_SOURCE_CONSTRAINT,
         limit=2,
     )
-    problem_mechanism = f"{objects} 的状态、owner、证据与下一步动作若不能沿显式主链推进，业务执行会重新回到人工拼接。"
-    decision_effect = f"recompile the source into one operating chain grounded in {evidence} rather than isolated pages or audit-shaped records"
+    independent = authority_requires_independent_outcomes(runtime_context)
+    problem_mechanism = (
+        f"{objects} 若被跨 outcome 串行化，会把独立完成条件、visibility 和 evidence boundary 混成伪 workflow。"
+        if independent
+        else f"{objects} 的状态、owner、证据与下一步动作若不能沿显式主链推进，业务执行会重新回到人工拼接。"
+    )
+    decision_effect = (
+        f"preserve accepted independent outcomes grounded in {evidence}; shared trace does not create execution order"
+        if independent
+        else f"recompile the source into one operating chain grounded in {evidence} rather than isolated pages or audit-shaped records"
+    )
     out_of_scope = [str(item).strip() for item in runtime_context.get("out_of_scope_items", []) if str(item).strip()]
     remaining_unknown = plain_label_surface(out_of_scope[:3], f"{constraints} still need later validation", limit=3)
+    structure_units = (
+        [
+            "### Reasoning Unit 3: Authority-Topology Panorama Choice",
+            "- chosen_panorama_structure: independent-outcomes-first",
+            "- why_this_structure_not_that: preserve independently closable accepted outcomes plus only approved shared trace/visibility",
+            "- alternatives_compared: record-first, serial-workflow-first, authority-topology-first",
+            "",
+            "### Reasoning Unit 4: Priority Cutline for First-Wave Structure",
+            f"- independent_outcome_set: {business_loop_plain_surface(runtime_context, 5)}",
+            "- explicit_exclusion_rule: no dependency is created from document order",
+            "- review-bound: future expansion remains visible but not silently committed",
+            "",
+            "### Reasoning Unit 5: Outcome-Boundary IA Direction",
+            "- architecture impact: navigation preserves outcome-local entry/closure and separates shared review/trace surfaces",
+            "- failure risk: a global operating sequence would change accepted product topology",
+            "- screen spec precursor: IA anchors each accepted outcome and only authority-approved shared dependencies",
+            "",
+        ]
+        if independent
+        else [
+            "### Reasoning Unit 3: Workflow-First Panorama Choice",
+            "- chosen_panorama_structure: workflow-first",
+            "- why_this_structure_not_that: it preserves the shortest executable source-defined loop",
+            "- alternatives_compared: record-first, module-first, workflow-first",
+            "",
+            "### Reasoning Unit 4: Priority Cutline for First-Wave Structure",
+            f"- dependency_first_chain: {business_loop_plain_surface(runtime_context, 5)}",
+            "- explicit_exclusion_rule: capabilities outside the chain stay out of first-wave delivery",
+            "- review-bound: future expansion remains visible but not silently committed",
+            "",
+            "### Reasoning Unit 5: Workflow-First IA Direction",
+            "- architecture impact: navigation and screen/object matrix must mirror the operating sequence",
+            "- failure risk: users lose context if screens are organized only by internal module names",
+            "- screen spec precursor: IA spec matrix anchors the first-wave screens",
+            "",
+        ]
+    )
     return [
         "### Reasoning Unit 1: Primary Boundary Lock",
         f"- chosen segment: `{runtime_context['primary_segment']}`",
-        "- why this not that: first-wave entry must stay singular enough to avoid cross-role ambiguity",
+        "- why this not that: preserve the accepted user boundary without inferring unconfirmed ownership",
         "- tradeoff_or_tension: coverage vs focus",
         "",
         "### Reasoning Unit 2: Problem Mechanism Reframe",
@@ -6826,21 +7448,7 @@ def render_reasoning_units(source_text: str, runtime_context: dict[str, object])
         f"- problem_mechanism: {problem_mechanism}",
         f"- decision_effect: {decision_effect}",
         "",
-        "### Reasoning Unit 3: Workflow-First Panorama Choice",
-        "- chosen_panorama_structure: workflow-first",
-        "- why_this_structure_not_that: it preserves the shortest executable source-defined loop",
-        "- alternatives_compared: record-first, module-first, workflow-first",
-        "",
-        "### Reasoning Unit 4: Priority Cutline for First-Wave Structure",
-        f"- dependency_first_chain: {business_loop_plain_surface(runtime_context, 5)}",
-        "- explicit_exclusion_rule: capabilities outside the chain stay out of first-wave delivery",
-        "- review-bound: future expansion remains visible but not silently committed",
-        "",
-        "### Reasoning Unit 5: Workflow-First IA Direction",
-        "- architecture impact: navigation and screen/object matrix must mirror the operating sequence",
-        "- failure risk: users lose context if screens are organized only by internal module names",
-        "- screen spec precursor: IA spec matrix anchors the first-wave screens",
-        "",
+        *structure_units,
         "### Reasoning Unit 6: Deferred Honesty and Assumption Carryover",
         "- carryover rule: 源素材中写到的详细能力不得静默消失",
         f"- remaining_unknown: {remaining_unknown}",
@@ -6927,7 +7535,11 @@ def render_flow_process_table(
     if context_rows:
         for row in context_rows:
             module = str(row.get("module", "")).strip() or "business flow"
-            actor = str(row.get("primary_actor", "")).strip() or "source-defined primary actor"
+            actor = str(row.get("primary_actor", "")).strip()
+            if runtime_context and agentic_product_authority_active(runtime_context):
+                assigned_actor = authority_assigned_actor_for_commitment(runtime_context, module)
+                actor = assigned_actor or (actor if "review-bound" in actor.casefold() else authority_review_bound_actor(runtime_context))
+            actor = actor or "source-defined primary actor"
             trigger = str(row.get("input", "") or row.get("entry_condition", "")).strip() or "source-defined trigger"
             output = str(row.get("output", "") or row.get("exit_action", "")).strip() or "flow outcome"
             responsibility = str(row.get("responsibility", "")).strip() or "progress the business record through the defined flow steps"
@@ -7802,7 +8414,11 @@ def render_competitive_landscape_table(source_text: str, runtime_context: dict[s
             "review-bound / 当前替代成本主要体现为内部时间、协作损耗与判断滞后，仍待 field validation。",
             f"能勉强把流程跑完，但 {proof_phrase or '`source-defined proof artifact`'} 与下一动作仍分散，无法在一次 review 中直接判断是否继续投入。",
             "source-grounded",
-            f"首版必须先把 {workflow_backbone} 收成同一条可 review 的连续主线。",
+            (
+                f"首版必须让 {workflow_backbone} 各自形成可 review 的独立闭环，并只保留 accepted shared evidence / visibility connection。"
+                if authority_requires_independent_outcomes(runtime_context)
+                else f"首版必须先把 {workflow_backbone} 收成同一条可 review 的连续主线。"
+            ),
         ],
         [
             "单点数字化工具",
@@ -8497,6 +9113,16 @@ def build_phase1_loop_runtime_context(loop_plan: dict[str, object] | None) -> Ph
     )
 
 
+def authority_canonical_context_from_world_model(
+    business_world_model: dict[str, object],
+) -> dict[str, object]:
+    summary = business_world_model.get("product_source_direct_driver_summary", {})
+    if not isinstance(summary, dict):
+        return {}
+    canonical = summary.get("canonical_context", {})
+    return canonical if isinstance(canonical, dict) else {}
+
+
 def build_phase1_provisional_runtime_context(
     *,
     primary_problem_context: Phase1PrimaryProblemContext,
@@ -8505,20 +9131,39 @@ def build_phase1_provisional_runtime_context(
     business_world_context: Phase1BusinessWorldContext,
 ) -> dict[str, object]:
     business_value_signals = signal_context.business_value_signals
+    canonical = authority_canonical_context_from_world_model(business_world_context.business_world_model)
+    authority_modules = [row for row in canonical.get("modules", []) if isinstance(row, dict)] if canonical else []
+    authority_flows = [
+        {
+            "title": str(row.get("name") or "").strip(),
+            "steps": [str(item).strip() for item in row.get("steps", []) if str(item).strip()],
+            "topology": str(row.get("topology") or "").strip(),
+        }
+        for row in canonical.get("flows", [])
+        if isinstance(row, dict) and str(row.get("name") or "").strip()
+    ] if canonical else []
+    authority_primary = str(canonical.get("primary_segment") or "").strip() if canonical else ""
+    authority_topology = str(canonical.get("workflow_topology") or "").strip() if canonical else ""
+    authority_objects = [
+        str(row.get("core_objects") or "").strip()
+        for row in authority_modules
+        if str(row.get("core_objects") or "").strip()
+    ]
     context = {
-        "primary_segment": primary_problem_context.primary_segment,
+        "primary_segment": authority_primary or primary_problem_context.primary_segment,
         "target_user_roles": primary_problem_context.target_user_items,
         "executive_summary": primary_problem_context.executive_summary,
         "problem_statement": primary_problem_context.problem_statement,
-        "workflow_backbone": source_structure_context.workflow_backbone,
-        "object_chain": source_structure_context.object_chain,
-        "screen_terms": source_structure_context.screen_terms,
-        "ia_matrix": source_structure_context.ia_matrix,
+        "workflow_backbone": authority_topology or source_structure_context.workflow_backbone,
+        "authority_workflow_topology": authority_topology,
+        "object_chain": " | ".join(authority_objects) if authority_objects else source_structure_context.object_chain,
+        "screen_terms": [str(row.get("module") or "").strip() for row in authority_modules if str(row.get("module") or "").strip()] or source_structure_context.screen_terms,
+        "ia_matrix": authority_modules or source_structure_context.ia_matrix,
         "core_business_objects": source_structure_context.core_business_objects,
-        "source_flows": source_structure_context.source_flows,
-        "out_of_scope_items": source_structure_context.out_of_scope_items,
-        "non_functional_requirements": source_structure_context.non_functional_requirements,
-        "architectural_constraints": source_structure_context.architectural_constraints,
+        "source_flows": authority_flows or source_structure_context.source_flows,
+        "out_of_scope_items": [str(item).strip() for item in canonical.get("out_of_scope", []) if str(item).strip()] or source_structure_context.out_of_scope_items,
+        "non_functional_requirements": [str(item).strip() for item in canonical.get("nfrs", []) if str(item).strip()] or source_structure_context.non_functional_requirements,
+        "architectural_constraints": [str(item).strip() for item in canonical.get("constraints", []) if str(item).strip()] or source_structure_context.architectural_constraints,
         "business_value_signals": business_value_signals,
         "pressure_signals": signal_context.pressure_signals,
         "commercial_decision_signals": signal_context.commercial_decision_signals,
@@ -8618,7 +9263,10 @@ def build_runtime_context(
     return {
         **provisional_context,
         "module_capabilities": render_module_capability_lines(ia_matrix),
-        "flow_summary_lines": render_flow_summary_lines(source_flows),
+        "flow_summary_lines": render_flow_summary_lines(
+            source_flows,
+            authority_mode=agentic_product_authority_active(provisional_context),
+        ),
         "loop_targets": loop_context.loop_targets,
         "loop_focus_areas": loop_context.loop_focus_areas,
         "loop_target_count": loop_context.loop_target_count,

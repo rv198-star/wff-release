@@ -684,23 +684,25 @@ def score_primary_record_hint(field: str, depth: int, entity_candidates: list[st
 
 
 def operation_primary_record_hint(spec: dict[str, Any]) -> str:
+    entity_candidates = operation_entity_candidates(spec)
+    scored_candidates: list[tuple[int, int, int, int, str]] = []
     path_params = spec.get("pathParams", [])
     if isinstance(path_params, list):
-        for param in path_params:
+        for order, param in enumerate(path_params):
             normalized = snake_case(str(param).strip())
             if normalized:
-                return normalized
+                score = score_primary_record_hint(normalized, 0, entity_candidates)
+                scored_candidates.append((score, 0, 0, order, normalized))
     response_data = response_example_data(spec)
-    scored_candidates: list[tuple[int, int, str]] = []
     for order, (field, depth) in enumerate(collect_response_id_field_candidates(response_data)):
         normalized = snake_case(field)
         if not normalized:
             continue
-        score = score_primary_record_hint(normalized, depth, operation_entity_candidates(spec))
-        scored_candidates.append((score, depth, f"{order:04d}:{normalized}"))
+        score = score_primary_record_hint(normalized, depth, entity_candidates)
+        scored_candidates.append((score, depth, 1, order, normalized))
     if scored_candidates:
-        scored_candidates.sort(key=lambda item: (-item[0], item[1], item[2]))
-        return scored_candidates[0][2].split(":", 1)[1]
+        scored_candidates.sort(key=lambda item: (-item[0], item[1], item[2], item[3], item[4]))
+        return scored_candidates[0][4]
     return snake_case(primary_response_id_field(spec))
 
 

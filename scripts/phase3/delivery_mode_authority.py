@@ -11,7 +11,6 @@ from typing import Any
 CLI_MODES = (
     "delivery-gate",
     "delivery-handoff",
-    "productness-gate",
     "api-docs",
     "code-review",
     "security-audit",
@@ -33,13 +32,6 @@ PHASE3_MODE_AUTHORITY: dict[str, dict[str, Any]] = {
         "blocking_scope": "handoff artifact generation/support when selected",
         "formal_p3_closure_authority": False,
         "claim_ceiling": "handoff artifact support only; not full P3 closure",
-    },
-    "productness-gate": {
-        "mode": "productness-gate",
-        "validation_profile": "phase",
-        "blocking_scope": "frontend/productness contract evidence when selected or required",
-        "formal_p3_closure_authority": False,
-        "claim_ceiling": "frontend/productness contract evidence only; not full P3 closure",
     },
     "api-docs": {
         "mode": "api-docs",

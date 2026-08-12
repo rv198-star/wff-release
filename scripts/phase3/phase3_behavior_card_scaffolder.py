@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 
-TRACE_ID_RE = re.compile(r"\bP[12]-(?:EP|US|UC|REQ|AC|DTR|CTR|RP|RT)-\d+\b")
+TRACE_ID_RE = re.compile(r"\bP[12]-(?:EP|US|UC|REQ|AC|CON|DTR|CTR|RP|RT)(?:-[A-Za-z0-9]+)+\b")
 
 
 def _slug_operation(operation_id: str) -> str:
@@ -40,7 +40,7 @@ def _source_ref(source: dict[str, Any]) -> str:
 def _source_ref_for_step(source: dict[str, Any], source_type: str, source_bundle: dict[str, Any]) -> str:
     statuses = source_bundle.get("source_requirement_statuses", {})
     if isinstance(statuses, dict) and str(statuses.get(source_type, "")).replace("_", "-") == "not-required":
-        return "not required for low-risk read operation"
+        return "not required by accepted P2 operation-source obligation"
     return _source_ref(source)
 
 
@@ -132,7 +132,25 @@ def generate_behavior_card(source_bundle: dict[str, Any], risk_result: dict[str,
         if TRACE_ID_RE.fullmatch(str(item).strip())
     ]
     risk_result = risk_result or {}
-    review_bound = [str(item) for item in source_bundle.get("review_bound", []) if str(item).strip()]
+    source_requirement_statuses_raw = source_bundle.get("source_requirement_statuses", {})
+    source_requirement_statuses = source_requirement_statuses_raw if isinstance(source_requirement_statuses_raw, dict) else {}
+    source_by_type = {
+        "P2-CTR": source_bundle.get("contract_source", {}) if isinstance(source_bundle.get("contract_source"), dict) else {},
+        "P2-FLOW": source_bundle.get("flow_source", {}) if isinstance(source_bundle.get("flow_source"), dict) else {},
+        "P2-SEQ": source_bundle.get("sequence_source", {}) if isinstance(source_bundle.get("sequence_source"), dict) else {},
+        "P2-STATE": source_bundle.get("state_source", {}) if isinstance(source_bundle.get("state_source"), dict) else {},
+    }
+    not_required_reasons = {
+        str(source.get("reason") or "").strip()
+        for source_type, source in source_by_type.items()
+        if str(source_requirement_statuses.get(source_type, "")).replace("_", "-") == "not-required"
+        and str(source.get("reason") or "").strip()
+    }
+    review_bound = [
+        str(item)
+        for item in source_bundle.get("review_bound", [])
+        if str(item).strip() and str(item).strip() not in not_required_reasons
+    ]
     contract = source_bundle.get("contract_source", {}) if isinstance(source_bundle.get("contract_source"), dict) else {}
     flow = source_bundle.get("flow_source", {}) if isinstance(source_bundle.get("flow_source"), dict) else {}
     sequence = source_bundle.get("sequence_source", {}) if isinstance(source_bundle.get("sequence_source"), dict) else {}
@@ -142,7 +160,12 @@ def generate_behavior_card(source_bundle: dict[str, Any], risk_result: dict[str,
     required_source_type_values = [str(item) for item in source_bundle.get("required_source_types", []) if str(item).strip()]
     required_sources = [source_by_type[source_type] for source_type in required_source_type_values if source_type in source_by_type]
     sources = required_sources or [contract, flow, sequence, state]
-    source_refs = [_source_ref(contract), _source_ref(flow), _source_ref(sequence), _source_ref(state)]
+    source_refs = [
+        _source_ref_for_step(contract, "P2-CTR", source_bundle),
+        _source_ref_for_step(flow, "P2-FLOW", source_bundle),
+        _source_ref_for_step(sequence, "P2-SEQ", source_bundle),
+        _source_ref_for_step(state, "P2-STATE", source_bundle),
+    ]
     trace_authority_status = _trace_authority_status(sources)
     operation_risk_row_status = str(source_bundle.get("operation_risk_row_status", "unknown"))
     risk_tier = str(source_bundle.get("risk_tier") or risk_result.get("risk_tier") or risk_result.get("risk_level", "unknown"))
@@ -156,11 +179,79 @@ def generate_behavior_card(source_bundle: dict[str, Any], risk_result: dict[str,
     replay_test = _format_mapping(str(source_bundle.get("replay_test", "")), "tests/replays/* replay linked by operation trace")
     sql_test = _format_mapping(str(source_bundle.get("sql_test", "")), f"tests/sql/{persistence_surfaces.split(',')[0].strip()}.sql.test.ts")
     unit_test = _format_mapping(str(source_bundle.get("unit_test", "")), f"tests/unit/api/modules/{operation_id}.unit.test.ts")
+    p3_declared_tests = _format_mapping(str(source_bundle.get("p3_declared_tests", "")), "not supplied")
     controller_target = _format_mapping(str(source_bundle.get("controller_target", "")), "generated controller method")
     service_target = _format_mapping(str(source_bundle.get("service_target", "")), "behavior-card service method")
     repository_target = _format_mapping(str(source_bundle.get("repository_target", "")), "behavior-card repository/adapter method")
     db_target = _format_mapping(str(source_bundle.get("db_target", "")), persistence_surfaces)
     semantic_section, state_transition, invariants, transaction_rule, audit_effect = _semantic_payload_section(source_bundle.get("operation_semantics"))
+    persistence_mode = str(source_bundle.get("persistence_mode") or "").strip()
+    read_only = persistence_mode == "read-only"
+    if read_only:
+        pseudocode_steps = f"""1. Receive `{operation_id}` and preserve caller trace context.
+   - source: {_source_ref(contract)}
+   - implementation owner: controller
+2. Validate required business context, tenant/permission posture, and read-contract fields before source access.
+   - source: {_source_ref(contract)}
+   - implementation owner: service validation
+3. Read the accepted current projection and source-backed evidence without acquiring writer authority.
+   - source: {_source_ref_for_step(flow, "P2-FLOW", source_bundle)}
+   - implementation owner: repository / read adapter
+4. Apply the accepted read-only compatibility, filtering, and failure rules; reject forbidden, invalid, or missing-source outcomes explicitly.
+   - source: {_source_ref_for_step(state, "P2-STATE", source_bundle)}
+   - implementation owner: service policy
+5. Preserve the no-mutation boundary: do not create, update, delete, or append durable business/audit state for this read operation.
+   - source: {_source_ref_for_step(sequence, "P2-SEQ", source_bundle)}
+   - implementation owner: repository / adapter
+6. Return the frozen response envelope with trace metadata and stable machine-readable error semantics.
+   - source: {_source_ref(contract)}
+   - implementation owner: controller response mapper"""
+        test_mapping_rows = f"""| step-1 receive and trace | {contract_test} | {scenario_test} | {replay_test} | n/a | {unit_test} |
+| step-2 validate read context | {contract_test} | {scenario_test} | {replay_test} | n/a | {unit_test} |
+| step-3 read projection | {contract_test} | {scenario_test} | {replay_test} | {sql_test} | {unit_test} |
+| step-4 apply read rule | {contract_test} | {scenario_test} | {replay_test} | {sql_test} | {unit_test} |
+| step-5 prove no mutation | {contract_test} | {scenario_test} | {replay_test} | {sql_test} | {unit_test} |
+| step-6 return envelope | {contract_test} | {scenario_test} | {replay_test} | n/a | {unit_test} |"""
+        implementation_mapping_rows = f"""| step-1 receive and trace | {controller_target} | n/a | n/a | n/a |
+| step-2 validate read context | {controller_target} | {service_target} | n/a | n/a |
+| step-3 read projection | n/a | {service_target} | {repository_target} | {db_target} |
+| step-4 apply read rule | n/a | {service_target} | {repository_target} | {db_target} |
+| step-5 prove no mutation | n/a | {service_target} | {repository_target} | {db_target} |
+| step-6 return envelope | {controller_target} | {service_target} | n/a | n/a |"""
+        state_transition = "none; accepted operation is read-only"
+        transaction_rule = "read-only; no durable write, replay mutation, or writer authority"
+        audit_effect = "no durable audit/event write from this operation; trace/evidence remains observational"
+    else:
+        pseudocode_steps = f"""1. Receive `{operation_id}` and preserve caller trace context.
+   - source: {_source_ref(contract)}
+   - implementation owner: controller
+2. Validate required business context, tenant/permission posture, and contract fields before any state change.
+   - source: {_source_ref(contract)}
+   - implementation owner: service validation
+3. Load the current aggregate, version, and persistence evidence needed to decide the operation honestly.
+   - source: {_source_ref_for_step(flow, "P2-FLOW", source_bundle)}
+   - implementation owner: repository
+4. Apply the P2 behavior/state rule and reject stale, forbidden, or invalid transitions with explicit business errors.
+   - source: {_source_ref_for_step(state, "P2-STATE", source_bundle)}
+   - implementation owner: service policy
+5. Persist the state change and audit/event evidence atomically when the operation mutates durable state.
+   - source: {_source_ref_for_step(sequence, "P2-SEQ", source_bundle)}
+   - implementation owner: repository / adapter
+6. Return the frozen response envelope with trace metadata and stable machine-readable error semantics.
+   - source: {_source_ref(contract)}
+   - implementation owner: controller response mapper"""
+        test_mapping_rows = f"""| step-1 receive and trace | {contract_test} | {scenario_test} | {replay_test} | n/a | {unit_test} |
+| step-2 validate context | {contract_test} | {scenario_test} | {replay_test} | n/a | {unit_test} |
+| step-3 load aggregate | {contract_test} | {scenario_test} | {replay_test} | {sql_test} | {unit_test} |
+| step-4 apply rule | {contract_test} | {scenario_test} | {replay_test} | {sql_test} | {unit_test} |
+| step-5 persist effects | {contract_test} | {scenario_test} | {replay_test} | {sql_test} | {unit_test} |
+| step-6 return envelope | {contract_test} | {scenario_test} | {replay_test} | n/a | {unit_test} |"""
+        implementation_mapping_rows = f"""| step-1 receive and trace | {controller_target} | n/a | n/a | n/a |
+| step-2 validate context | {controller_target} | {service_target} | n/a | n/a |
+| step-3 load aggregate | n/a | {service_target} | {repository_target} | {db_target} |
+| step-4 apply rule | n/a | {service_target} | {repository_target} | {db_target} |
+| step-5 persist effects | n/a | {service_target} | {repository_target} | {db_target} |
+| step-6 return envelope | {controller_target} | {service_target} | n/a | n/a |"""
 
     return f"""# 可溯源业务行为卡：{operation_id}
 
@@ -191,6 +282,7 @@ def generate_behavior_card(source_bundle: dict[str, Any], risk_result: dict[str,
   - replay test: {replay_test}
   - service implementation: {service_target}
   - repository / adapter implementation: {repository_target}
+  - accepted P3 declared tests: {p3_declared_tests}
 
 ## 1. Business Intent
 
@@ -207,24 +299,7 @@ def generate_behavior_card(source_bundle: dict[str, Any], risk_result: dict[str,
 {semantic_section}
 ## 3. Human-Readable Pseudocode
 
-1. Receive `{operation_id}` and preserve caller trace context.
-   - source: {_source_ref(contract)}
-   - implementation owner: controller
-2. Validate required business context, tenant/permission posture, and contract fields before any state change.
-   - source: {_source_ref(contract)}
-   - implementation owner: service validation
-3. Load the current aggregate, version, and persistence evidence needed to decide the operation honestly.
-   - source: {_source_ref_for_step(flow, "P2-FLOW", source_bundle)}
-   - implementation owner: repository
-4. Apply the P2 behavior/state rule and reject stale, forbidden, or invalid transitions with explicit business errors.
-   - source: {_source_ref_for_step(state, "P2-STATE", source_bundle)}
-   - implementation owner: service policy
-5. Persist the state change and audit/event evidence atomically when the operation mutates durable state.
-   - source: {_source_ref_for_step(sequence, "P2-SEQ", source_bundle)}
-   - implementation owner: repository / adapter
-6. Return the frozen response envelope with trace metadata and stable machine-readable error semantics.
-   - source: {_source_ref(contract)}
-   - implementation owner: controller response mapper
+{pseudocode_steps}
 
 ## 4. Error Trigger Table
 
@@ -248,23 +323,13 @@ def generate_behavior_card(source_bundle: dict[str, Any], risk_result: dict[str,
 
 | behavior step | contract test | scenario test | replay test | SQL test | unit test |
 |---|---|---|---|---|---|
-| step-1 receive and trace | {contract_test} | {scenario_test} | {replay_test} | n/a | {unit_test} |
-| step-2 validate context | {contract_test} | {scenario_test} | {replay_test} | n/a | {unit_test} |
-| step-3 load aggregate | {contract_test} | {scenario_test} | {replay_test} | {sql_test} | {unit_test} |
-| step-4 apply rule | {contract_test} | {scenario_test} | {replay_test} | {sql_test} | {unit_test} |
-| step-5 persist effects | {contract_test} | {scenario_test} | {replay_test} | {sql_test} | {unit_test} |
-| step-6 return envelope | {contract_test} | {scenario_test} | {replay_test} | n/a | {unit_test} |
+{test_mapping_rows}
 
 ## 7. Implementation Mapping
 
 | behavior step | controller | service | repository/adapter | DB/schema |
 |---|---|---|---|---|
-| step-1 receive and trace | {controller_target} | n/a | n/a | n/a |
-| step-2 validate context | {controller_target} | {service_target} | n/a | n/a |
-| step-3 load aggregate | n/a | {service_target} | {repository_target} | {db_target} |
-| step-4 apply rule | n/a | {service_target} | {repository_target} | {db_target} |
-| step-5 persist effects | n/a | {service_target} | {repository_target} | {db_target} |
-| step-6 return envelope | {controller_target} | {service_target} | n/a | n/a |
+{implementation_mapping_rows}
 
 ## 8. Review-Bound Items
 

@@ -15,7 +15,7 @@ It exists to prevent "rename v5 to v6 and patch the prose" from being treated as
 For the default official Phase-2 mainline, treat:
 
 ```bash
-python3 scripts/phase2/run_phase2_first_version.py \
+python3 scripts/phase2/run_phase2_fresh_generation.py \
   --phase1-prd <phase1-prd.md> \
   [--existing-system-architecture-change-intake <p2-existing-system-architecture-change-intake.md>] \
   --output-dir <case-phase2-root> \
@@ -27,7 +27,7 @@ as the canonical one-shot Phase-2 mainline surface.
 
 Interpretation:
 
-- `run_phase2_first_version.py`
+- `run_phase2_fresh_generation.py`
   - official fresh-run entry
 - `run_phase2_manual_closure.py`
   - closure wrapper over authored Stage outputs
@@ -176,7 +176,7 @@ If a `P2 Existing-System Architecture Change Intake Packet` is present:
 3. Stage-02: derive domain/module/service/event/entity structure from Stage-01 while preserving the object and naming surfaces needed by downstream contract rows.
 4. Stage-03: derive storage/interface/schema/scenario/tech-selection outputs from Stage-02, explicitly bind Phase-1 trace units via `upstream_trace_ids`, keep schema migration posture visible when rollout sequencing matters, and when multi-candidate tradeoff evaluation is active, close the full tradeoff bundle (`matrix -> baseline insufficiency -> optimum candidate -> key tradeoff decisions`) instead of stopping at the comparison table.
 5. Stage-04: converge the design into delivery slices, verification, readiness, Engineering Spec Pack input, auth/vendor/token lifecycle posture, and onboarding summary while preserving the upstream trace chain into replay and RBI rows.
-6. For the canonical one-shot mainline, use `scripts/phase2/run_phase2_first_version.py --run-wrapper`.
+6. For the canonical one-shot mainline, use `scripts/phase2/run_phase2_fresh_generation.py --run-wrapper`.
 7. Run `scripts/phase2/run_phase2_manual_closure.py` directly only when Stage-01..04 are already authored and the current task is explicit closure / remediation.
 8. Let the runner classify the case complexity from the Phase-1 PRD (`auto`) unless there is a documented reason to override; if override is necessary, carry the justification into the execution report.
 
@@ -185,7 +185,7 @@ If a `P2 Existing-System Architecture Change Intake Packet` is present:
 `scripts/phase2/run_phase2_manual_closure.py` is the official closure runner over already-authored Stage outputs.
 
 It is not the canonical fresh-run mainline entry.
-The canonical mainline entry is `scripts/phase2/run_phase2_first_version.py --run-wrapper`.
+The canonical mainline entry is `scripts/phase2/run_phase2_fresh_generation.py --run-wrapper`.
 
 It is not the first-pass content generator.
 Its job is to:
@@ -206,7 +206,7 @@ If a generated Phase-2 version claims to be "skill-first" or "fresh first-pass":
 - the manifest must exist
 - the authored Stage outputs must not merely be edited copies of the previous version
 
-For the default official mainline, the case should be generated and closed through `scripts/phase2/run_phase2_first_version.py --run-wrapper`.
+For the default official mainline, the case should be generated and closed through `scripts/phase2/run_phase2_fresh_generation.py --run-wrapper`.
 
 If those conditions are not met, treat the run as remediation on an existing Phase-2 case, not as a fresh first-pass generation.
 

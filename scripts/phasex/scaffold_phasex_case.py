@@ -16,6 +16,7 @@ from pathlib import Path
 from common.human_review_surface import emit_human_review_surface
 from common.script_data_assets import load_script_text_asset
 from common.claim_control_runtime import ClaimRecord, emit_path_b_claim_control_sidecar
+from common.wff_core_runtime import WFFCoreConsumerError, require_capability_binding
 from phasex.phasex_claim_routing import audit_phasex_artifact_claim_refs, phasex_claim_control_route_decision
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -477,6 +478,23 @@ def emit_phasex_claim_control_sidecars(
 
 def main() -> None:
     args = parse_args()
+    try:
+        require_capability_binding(
+            "brownfield-assessment",
+            phase_id="PX",
+            route_key="wff-x",
+            required_contracts=(
+                "lifecycle-route-contract",
+                "phase-contract",
+                "handoff-contract",
+                "artifact-identity-contract",
+                "evidence-contract",
+                "claim-state-contract",
+                "reentry-return-contract",
+            ),
+        )
+    except WFFCoreConsumerError as exc:
+        raise SystemExit(f"[BLOCKED] {exc}") from exc
     system_root = Path(args.system_root).resolve()
     output_dir = Path(args.output_dir).resolve()
     case_name = args.case_name or infer_case_name(output_dir)

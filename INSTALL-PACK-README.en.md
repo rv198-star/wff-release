@@ -5,9 +5,9 @@ This archive is the public install pack for WFF skills. It is smaller than the i
 First read: open `WFF-START-HERE.md` before scanning the full pack.
 
 ## Identity
-- pack_name: `wff-v1.6.0-skills-install-pack`
-- generated_at: `2026-07-05T04:47:51+00:00`
-- source_revision: `2989df038c98ed5e501120260b9c8e319aef4610`
+- pack_name: `wff-v1.9.2-skills-install-pack`
+- generated_at: `2026-08-12T12:33:02+00:00`
+- source_revision: `fab0cee6f9ef7346469a858dbc75724adf06069b`
 
 ## Capability Boundary
 - `Phase 1` to `Phase 4`: GA mainline capability.
@@ -35,7 +35,7 @@ The installation unit is the whole skill directory, not just `SKILL.md`. Do not 
 
 ## Expected Directory Shape After Unzip
 ```text
-wff-v1.6.0-skills-install-pack/
+wff-v1.9.2-skills-install-pack/
 ├── AGENTS.md
 ├── README.md
 ├── wff-init
@@ -85,7 +85,7 @@ Installed skills still need access to the unpacked install-pack root or an equiv
 │       ├── wff-req/
 │       └── wff-x/
 ├── .wff/
-│   └── wff-v1.6.0-skills-install-pack/
+│   └── wff-v1.9.2-skills-install-pack/
 │       ├── scripts/
 │       ├── docs/
 │       ├── templates/
@@ -100,7 +100,7 @@ Use Layout A when the agent platform scans a fixed skills directory. Do not put 
 
 ```text
 /Users/edy/project/party/
-└── wff-v1.6.0-skills-install-pack/
+└── wff-v1.9.2-skills-install-pack/
     ├── skills/
     ├── scripts/
     ├── docs/
@@ -114,7 +114,7 @@ Layout B has the lowest risk of broken relative references.
 ## Project Init
 ```bash
 cd /path/to/your-project
-/path/to/wff-v1.6.0-skills-install-pack/wff-init
+/path/to/wff-v1.9.2-skills-install-pack/wff-init
 ```
 
 `wff-init` only creates or updates `.wff/` and stops on conflicts. Supported parameters:
@@ -124,15 +124,16 @@ cd /path/to/your-project
 
 ## Role-Agent Platform Adapter
 ```bash
-/path/to/wff-v1.6.0-skills-install-pack/wff-agent setup opencode all --project-root /path/to/your-project
-/path/to/wff-v1.6.0-skills-install-pack/wff-agent setup claude-code wff-programmer wff-reviewer --project-root /path/to/your-project
-/path/to/wff-v1.6.0-skills-install-pack/wff-agent setup codex wff-product-manager --project-root /path/to/your-project
+/path/to/wff-v1.9.2-skills-install-pack/wff-agent setup opencode all --project-root /path/to/your-project
+/path/to/wff-v1.9.2-skills-install-pack/wff-agent setup claude-code wff-programmer wff-reviewer --project-root /path/to/your-project
+/path/to/wff-v1.9.2-skills-install-pack/wff-agent setup codex wff-product-manager --project-root /path/to/your-project
 ```
 
 `wff-agent` exports role-agent files. It does not call an LLM, run an agent runtime, or replace WFF lifecycle skills and validation evidence. Read `docs/WFF-ROLE-AGENTS.zh-CN.md` for role guidance and `docs/public/wff-orientation-map.zh-CN.md` for the global route map.
 
 ## Runtime Notes
-- Check Python 3.10+, Node.js 18+ or preferred Node 22, pnpm matching the generated P3 workspace, Docker with Compose v2+, and outbound network access before P3 / P4 / PX / release validation.
+- Check Python 3.12, Node.js 18+ or preferred Node 22, pnpm matching the generated P3 workspace, Docker with Compose v2+, and outbound network access before P3 / P4 / PX / release validation.
+- `scripts/wff_core` is the shared WFF Core `1.0.0` semantic runtime. It defines lifecycle, handoff, evidence, and claim envelopes; it is not a plugin SDK, lifecycle phase, or owner of business/architecture/implementation truth.
 - Phase 3 generates a Node.js workspace and needs dependency bootstrap before dispatch execution.
 - Use `--validation-level fast` or `--validation-level focused` for diagnostics only; they do not replace release-proof strict evidence.
 - For strict runtime validation, first run `python3 scripts/phase3/phase3_toolchain_bootstrap.py --workspace-root <phase3-output-dir> --install --strict --output <phase3-output-dir>/phase3-toolchain-bootstrap.json`.

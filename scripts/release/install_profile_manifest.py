@@ -14,6 +14,7 @@ from release.skill_catalog import catalog_by_name, load_skill_catalog
 
 MANIFEST_PATH = Path("config/wff-install-profiles.json")
 BUILDABLE_PROFILE_STATUSES = {"default", "supported", "preview"}
+REPOSITORY_CORE_SOURCE_BOOTSTRAP = Path("wff-core", "src").as_posix()
 
 
 class InstallProfileError(ValueError):
@@ -81,6 +82,7 @@ def validate_install_profile_manifest(repo_root: Path, manifest: dict[str, Any])
     _validate_target_packages(manifest, capability_ids, resource_module_ids, errors)
     _validate_capability_packages(repo_root, manifest, resource_module_ids, skill_catalog, errors)
     _validate_resource_modules(repo_root, manifest, errors)
+    _validate_core_runtime(repo_root, manifest, resource_module_ids, errors)
 
     for profile in profiles:
         profile_id = str(profile.get("id", "")).strip() or "<missing>"
@@ -200,6 +202,54 @@ def _validate_resource_modules(repo_root: Path, manifest: dict[str, Any], errors
         for relative_path in paths:
             if not (repo_root / str(relative_path)).exists():
                 errors.append(f"resource_module {module_id} references missing path: {relative_path}")
+        script_data_assets = module.get("script_data_assets", [])
+        if not isinstance(script_data_assets, list):
+            errors.append(f"resource_module {module_id} script_data_assets must be a list")
+            continue
+        for relative_path in script_data_assets:
+            normalized = str(relative_path)
+            if not normalized.startswith("scripts/"):
+                errors.append(
+                    f"resource_module {module_id} script_data_asset must live under scripts/: {relative_path}"
+                )
+            elif not (repo_root / normalized).is_file():
+                errors.append(f"resource_module {module_id} references missing script_data_asset: {relative_path}")
+
+
+def _validate_core_runtime(
+    repo_root: Path,
+    manifest: dict[str, Any],
+    resource_module_ids: set[str],
+    errors: list[str],
+) -> None:
+    core = manifest.get("core_runtime")
+    if not isinstance(core, dict):
+        errors.append("core_runtime must be an object")
+        return
+    expected = {
+        "contract_id": "wff-core-contract",
+        "contract_version": "1.0.0",
+        "p1_semantic_projection_sha256": "22a93eb1d2fabdddd2cc24bcf001aff14c6593e0a9ce6434b8c2c7feed7b4d9e",
+        "source_path": "wff-core/src/wff_core",
+        "package_path": "scripts/wff_core",
+        "consumer_adapter": "scripts/common/wff_core_runtime.py",
+        "repository_source_bootstrap": REPOSITORY_CORE_SOURCE_BOOTSTRAP,
+        "install_pack_import_mode": "packaged-core",
+        "install_pack_fallback_policy": "excluded",
+    }
+    for key, value in expected.items():
+        if core.get(key) != value:
+            errors.append(f"core_runtime {key} must be {value}")
+    if core.get("required_for_buildable_profiles") is not True:
+        errors.append("core_runtime required_for_buildable_profiles must be true")
+    if not str(core.get("claim_ceiling") or "").strip():
+        errors.append("core_runtime claim_ceiling must be non-empty")
+    if "wff-core-runtime" not in resource_module_ids:
+        errors.append("resource_modules must define wff-core-runtime")
+    for key in ("source_path", "consumer_adapter", "repository_source_bootstrap"):
+        path = repo_root / str(core.get(key) or "")
+        if not path.exists():
+            errors.append(f"core_runtime {key} path is missing: {path}")
 
 
 def _validate_profile(

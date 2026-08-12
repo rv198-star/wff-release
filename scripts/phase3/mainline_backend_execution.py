@@ -100,13 +100,17 @@ def build_phase3_mainline_backend_packet(
     rows = implementation_bindings.get("rows", [])
     if not isinstance(rows, list):
         rows = []
+    non_operation_rows = implementation_bindings.get("non_operation_rows", [])
+    if not isinstance(non_operation_rows, list):
+        non_operation_rows = []
+    execution_rows = [*rows, *non_operation_rows]
 
     implementation_targets: list[str] = []
     source_rows: list[dict[str, str]] = []
     work_package_ids: list[str] = []
     collected_tests: list[str] = []
 
-    for row in rows:
+    for row in execution_rows:
         if not isinstance(row, dict):
             continue
         for raw_target in row.get("implementation_targets", []):
@@ -117,8 +121,8 @@ def build_phase3_mainline_backend_packet(
             wp_id = normalize_target(raw_wp)
             if wp_id and wp_id not in work_package_ids:
                 work_package_ids.append(wp_id)
-        source_id = normalize_target(str(row.get("source_id", "")))
-        source_type = normalize_target(str(row.get("source_type", "")))
+        source_id = normalize_target(str(row.get("source_id") or row.get("non_operation_realization_id") or ""))
+        source_type = normalize_target(str(row.get("source_type") or ("non-operation" if row.get("non_operation_realization_id") else "")))
         source_subject = normalize_target(str(row.get("source_subject", "")))
         if source_id:
             source_rows.append(

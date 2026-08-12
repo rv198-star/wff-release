@@ -505,6 +505,17 @@ def render_report(
             mainline_acceptance_name = Path(str(gate_payload["phase_acceptance_matrix_path"])).name
         if gate_payload.get("phase_verdict_path"):
             mainline_verdict_name = Path(str(gate_payload["phase_verdict_path"])).name
+    agentic_product_authority = {}
+    if isinstance(mainline_assessment, dict):
+        authority_value = mainline_assessment.get("agentic_product_authority")
+        if isinstance(authority_value, dict):
+            agentic_product_authority = authority_value
+        assessed_delivery_state = str(mainline_assessment.get("document_delivery_state") or "").strip()
+        if assessed_delivery_state:
+            delivery_state = assessed_delivery_state
+        if str(mainline_assessment.get("verdict") or "") == "PASS with review-bound items":
+            formal_state = "PASS with constrained/review-bound conditions"
+        current_status = overall_status(formal_state, delivery_state, evidence_state)
 
     lines = [
         "# Phase-1 Execution Report",
@@ -529,6 +540,22 @@ def render_report(
         f"  - `{delivery_state or 'not-explicit'}`",
         "- evidence_confidence_state:",
         f"  - `{evidence_state or 'not-explicit'}`",
+        *(
+            [
+                "- agentic_product_authority_status:",
+                f"  - `{agentic_product_authority.get('status', 'not-explicit')}`",
+                "- agentic_product_decision_id:",
+                f"  - `{agentic_product_authority.get('decision_id', '')}`",
+                "- accepted_world_truth_state:",
+                f"  - `{agentic_product_authority.get('accepted_world_truth_state', 'not-explicit')}`",
+                "- agentic_product_claim_ceiling:",
+                f"  - {agentic_product_authority.get('claim_ceiling', '')}",
+                "- unqualified_downstream_start_safe:",
+                f"  - `{str(bool(agentic_product_authority.get('unqualified_downstream_start_safe', False))).lower()}`",
+            ]
+            if agentic_product_authority
+            else []
+        ),
         "",
         "## 2. Stage Output Inventory",
         f"- stage_01_output: `{stage_paths['stage_01'].name}`",
@@ -642,7 +669,7 @@ def render_report(
             f"  - `{evidence_state or 'not-explicit'}`",
             "- reasoning:",
             (
-                "  - executable gates passed; the document is safe for downstream start, but evidence confidence remains below implementation-commit level"
+                "  - executable gates passed; P2 may consume only the named accepted commitments under the current Agentic product/world claim ceiling"
                 if formal_state == "PASS with constrained/review-bound conditions"
                 else "  - all executable gates and final PRD checks passed"
                 if formal_state == "PASS"

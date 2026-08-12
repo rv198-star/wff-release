@@ -99,12 +99,27 @@ def extract_identity_field(tech_stack_text: str, key: str) -> str:
 
 
 def explicit_external_auth_requirement(engineering_spec_text: str) -> bool:
+    """Return true only for affirmative external-auth authority, never review/defer prose."""
     normalized = engineering_spec_text.lower()
-    patterns = (
-        r"\b(use|must use|require|requires|required|selected|chosen)\b[^.\n]{0,80}\b(oidc|oauth2|openid)\b",
-        r"\b(oidc|oauth2|openid)\b[^.\n]{0,80}\b(provider|idp|identity provider)\b",
+    negative_patterns = (
+        r"\bdefer(?:red)?\b",
+        r"\breview[- ]bound\b",
+        r"\bnot\s+(?:selected|chosen|required|accepted)\b",
+        r"\bno\b[^.\n]{0,80}\b(?:provider|idp|identity provider)\b[^.\n]{0,40}\baccepted\b",
+        r"\bprovider[- ]neutral\b",
     )
-    return any(re.search(pattern, normalized) for pattern in patterns)
+    affirmative_patterns = (
+        r"\b(use|must use|require|requires|required|selected|chosen)\b[^.\n]{0,80}\b(oidc|oauth2|openid)\b",
+        r"\b(oidc|oauth2|openid)\b[^.\n]{0,80}\b(?:provider|idp|identity provider)\b[^.\n]{0,40}\b(?:is|are|must be)?\s*(required|selected|chosen|mandatory)\b",
+    )
+    for clause in re.split(r"[.\n]+", normalized):
+        if not re.search(r"\b(oidc|oauth2|openid)\b", clause):
+            continue
+        if any(re.search(pattern, clause) for pattern in negative_patterns):
+            continue
+        if any(re.search(pattern, clause) for pattern in affirmative_patterns):
+            return True
+    return False
 
 
 def package_dependency_names(output_dir: Path) -> set[str]:
@@ -124,12 +139,79 @@ def package_dependency_names(output_dir: Path) -> set[str]:
     return dependency_names
 
 
-def load_phase2_engineering_spec(output_dir: Path) -> str:
+def phase2_root_from_metadata(output_dir: Path) -> Path | None:
     metadata = load_json_if_exists(output_dir / "phase3-run-metadata.json") or {}
     phase2_root = Path(str(metadata.get("phase2_root") or "")).resolve() if metadata.get("phase2_root") else None
-    if not phase2_root or not phase2_root.exists():
+    return phase2_root if phase2_root and phase2_root.exists() else None
+
+
+def load_phase2_engineering_spec(output_dir: Path) -> str:
+    phase2_root = phase2_root_from_metadata(output_dir)
+    if phase2_root is None:
         return ""
     return read_text_if_exists(phase2_root / "engineering-spec-pack.md")
+
+
+def load_phase2_authority(output_dir: Path) -> dict[str, Any]:
+    phase2_root = phase2_root_from_metadata(output_dir)
+    if phase2_root is None:
+        return {}
+    for path in (
+        phase2_root / "p2-agentic-architecture-authority.json",
+        phase2_root / ".phase2-evidence" / "p2-agentic-architecture-authority.json",
+    ):
+        payload = load_json_if_exists(path)
+        if isinstance(payload, dict) and payload:
+            return payload
+    return {}
+
+
+def _row_mentions_audit(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(_row_mentions_audit(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_row_mentions_audit(item) for item in value)
+    if not isinstance(value, str):
+        return False
+    normalized = re.sub(r"[_-]+", " ", value.casefold())
+    return bool(re.search(r"\baudit(?:able|ed|ing)?\b", normalized))
+
+
+def accepted_audit_authority_refs(authority: dict[str, Any]) -> list[str]:
+    """Return accepted P2 authority identities that explicitly own an audit obligation."""
+    status = str(authority.get("status") or "").strip().casefold()
+    if status and "accepted" not in status:
+        return []
+    result: list[str] = []
+    surfaces = (
+        "non_operation_realizations",
+        "commitment_dispositions",
+        "aggregate_and_writer_decisions",
+        "service_portfolio",
+        "data_and_interaction_decisions",
+        "state_invariant_policy_failure_decisions",
+    )
+    identity_fields = (
+        "realization_id",
+        "commitment_id",
+        "aggregate_id",
+        "service_id",
+        "decision_id",
+        "policy_id",
+        "invariant_id",
+    )
+    for surface in surfaces:
+        rows = authority.get(surface, [])
+        if not isinstance(rows, list):
+            continue
+        for index, row in enumerate(rows):
+            if not isinstance(row, dict) or not _row_mentions_audit(row):
+                continue
+            identity = next((str(row.get(field) or "").strip() for field in identity_fields if str(row.get(field) or "").strip()), "")
+            ref = identity or f"{surface}[{index}]"
+            if ref not in result:
+                result.append(ref)
+    return result
 
 
 def declared_auth_posture(*, tech_stack_text: str, engineering_spec_text: str) -> dict[str, Any]:
@@ -211,6 +293,8 @@ def analyze_phase3_security(
     auth_sources = matching_source_paths(output_dir, ("auth", "oidc", "session", "rbac"))
     errors_text = read_text_if_exists(errors_path)
     engineering_spec_text = load_phase2_engineering_spec(output_dir)
+    phase2_authority = load_phase2_authority(output_dir)
+    accepted_audit_refs = accepted_audit_authority_refs(phase2_authority)
     declared_auth = declared_auth_posture(
         tech_stack_text=tech_stack_text,
         engineering_spec_text=engineering_spec_text,
@@ -250,6 +334,7 @@ def analyze_phase3_security(
         "oidc_issuer_placeholder_present": text_contains(env_example_path, "OIDC_ISSUER_URL="),
         "oidc_client_id_placeholder_present": text_contains(env_example_path, "OIDC_CLIENT_ID="),
         "tenant_isolation_verification_present": bool(tenant_tests),
+        "audit_surface_required": bool(accepted_audit_refs),
         "audit_surface_present": bool(audit_tests),
         "auth_surface_present": bool(auth_sources),
         "error_envelope_present": all(field in errors_text for field in ("error_kind", "error_code", "retryability")),
@@ -322,7 +407,7 @@ def analyze_phase3_security(
                 "evidence": str(env_example_path.relative_to(output_dir)) if env_example_path.exists() else ".env.example missing",
             }
         )
-    if not checks["audit_surface_present"]:
+    if checks["audit_surface_required"] and not checks["audit_surface_present"]:
         findings.append(
             {
                 "severity": "high",
@@ -341,6 +426,7 @@ def analyze_phase3_security(
         "checks": checks,
         "evidence": {
             "tenant_tests": tenant_tests,
+            "accepted_audit_authority_refs": accepted_audit_refs,
             "audit_tests": audit_tests,
             "auth_sources": auth_sources,
             "declared_auth": declared_auth,
@@ -379,6 +465,7 @@ def build_report_markdown(report: dict[str, Any], output_locale: str | None = No
             f"- oidc_issuer_placeholder_present: {checks.get('oidc_issuer_placeholder_present', False)}",
             f"- oidc_client_id_placeholder_present: {checks.get('oidc_client_id_placeholder_present', False)}",
             f"- tenant_isolation_verification_present: {checks.get('tenant_isolation_verification_present', False)}",
+            f"- audit_surface_required: {checks.get('audit_surface_required', False)}",
             f"- audit_surface_present: {checks.get('audit_surface_present', False)}",
             f"- auth_surface_present: {checks.get('auth_surface_present', False)}",
             f"- error_envelope_present: {checks.get('error_envelope_present', False)}",

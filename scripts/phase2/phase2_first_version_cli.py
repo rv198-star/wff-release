@@ -28,6 +28,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--output-dir", required=True, help="Fresh Phase-2 case root.")
+    parser.add_argument(
+        "--agentic-architecture-decision",
+        help="accepted host-Agent P2 architecture decision bound to the exact accepted P1 authority snapshot",
+    )
     parser.add_argument("--version", default="v-next", help="Phase-2 version label.")
     parser.add_argument("--case-name", default="", help="Optional case-name override.")
     parser.add_argument(

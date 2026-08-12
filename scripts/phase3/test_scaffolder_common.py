@@ -216,6 +216,32 @@ def failure_condition_signal_lines(error_code: str, payload_name: str = "payload
     return []
 
 
+def failure_requires_exact_field_hint(failure: dict[str, object]) -> bool:
+    """Return whether this caller-input failure must be shaped by an exact compiled field hint."""
+    from phase3.impl_verification_pack import _failure_field_hint_eligible
+
+    code = str(failure.get("error_code", "")).strip()
+    try:
+        status = int(str(failure.get("status", "")).strip())
+    except ValueError:
+        return False
+    return bool(code and _failure_field_hint_eligible(status, code))
+
+
+def field_invalid_failure_has_concrete_payload_shape(
+    request_example: object,
+    failure: dict[str, object],
+) -> bool:
+    """Return whether the runtime harness can construct this field-invalid negative payload exactly."""
+    from phase3.impl_verification_pack import _failure_field_hint
+
+    if not failure_requires_exact_field_hint(failure) or not isinstance(request_example, dict):
+        return False
+    code = str(failure.get("error_code", "")).strip()
+    request_fields = [str(name).strip() for name in request_example if str(name).strip()]
+    return bool(_failure_field_hint(code, request_fields))
+
+
 def failure_has_runtime_signal(
     error_code: str,
     *,

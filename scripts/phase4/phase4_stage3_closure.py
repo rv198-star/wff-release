@@ -43,6 +43,9 @@ def decide_closure(items: list[dict[str, Any]]) -> tuple[str, str]:
     data_fidelity_items = [item for item in items if item["acceptance_type"] == "data-fidelity"]
     ui_items = [item for item in items if item["acceptance_type"] == "ui-review"]
     visual_items = [item for item in items if item["acceptance_type"] == "visual-evidence"]
+    evidence_consumption_items = [
+        item for item in items if item["acceptance_type"] == "evidence-consumption"
+    ]
     non_functional_items = [item for item in items if item["acceptance_type"] != "functional"]
     signoff_pending_items = [
         item
@@ -61,8 +64,10 @@ def decide_closure(items: list[dict[str, Any]]) -> tuple[str, str]:
         return "return", "One or more mandatory functional acceptance items did not pass."
     if any(item["status"] not in {"pass", "conditional-pass"} for item in data_fidelity_items):
         return "return", "One or more mandatory data-fidelity acceptance items did not pass."
+    if any(item["status"] in {"fail", "blocked"} for item in evidence_consumption_items):
+        return "return", "A required current-generation evidence item failed and was not honestly disposed."
     if any(item["status"] == "fail" for item in non_functional_items):
-        return "return", "A non-functional UI/visual acceptance item failed explicitly."
+        return "return", "A non-functional or evidence-consumption acceptance item failed explicitly."
     if ui_blocked_items or visual_blocked_items:
         reasons: list[str] = []
         if ui_blocked_items:
@@ -79,7 +84,8 @@ def decide_closure(items: list[dict[str, Any]]) -> tuple[str, str]:
     visual_pending = any(item["status"] in {"review-bound", "blocked", "not-run"} for item in visual_items)
     signoff_pending = bool(signoff_pending_items)
     signoff_not_ready = bool(signoff_not_ready_items)
-    if ui_pending or visual_pending or signoff_pending or signoff_not_ready:
+    evidence_pending = any(item["status"] == "review-bound" for item in evidence_consumption_items)
+    if ui_pending or visual_pending or signoff_pending or signoff_not_ready or evidence_pending:
         reasons: list[str] = []
         if ui_pending:
             reasons.append("some UI review items remain unresolved")
@@ -89,6 +95,8 @@ def decide_closure(items: list[dict[str, Any]]) -> tuple[str, str]:
             reasons.append("critical-path human signoff is still pending")
         if signoff_not_ready:
             reasons.append("some critical-path items have not yet reached the human signoff boundary")
+        if evidence_pending:
+            reasons.append("current-generation evidence retains an exact bounded review disposition")
         return "pass-with-review-bound-items", "Functional items passed, but " + "; ".join(reasons) + "."
     return "pass", "All acceptance item types passed with explicit evidence."
 
@@ -323,6 +331,31 @@ def classify_remediation_target(
         )
 
     returned_items = [item for item in items if item.get("status") in {"fail", "blocked", "not-run"}]
+    semantic_ledger_routes = [
+        route
+        for item in returned_items
+        if item.get("test_id") == "TEST-EVIDENCE-SEMANTIC-REALIZATION"
+        for route in ensure_list(item.get("semantic_ledger_routes"))
+        if isinstance(route, dict)
+    ]
+    blocking_semantic_routes = [
+        route
+        for route in semantic_ledger_routes
+        if str(route.get("status") or "") != "review-bound"
+    ]
+    if blocking_semantic_routes:
+        if any(str(route.get("owner_phase") or "") == "P2" for route in blocking_semantic_routes):
+            return (
+                "P2",
+                "phase2-semantic-disposition-gap",
+                "One or more explicit commitments still require the Phase-2 owner to supply an exact disposition; rerun P2, then P3 and P4 from the new authority.",
+            )
+        return (
+            "P3",
+            "phase3-semantic-realization-gap",
+            "Accepted Phase-2 commitments lack an exact Phase-3 implementation or evidence realization; rerun P3, then P4 from the existing Phase-2 authority.",
+        )
+
     functional_or_data = [
         item for item in returned_items if item.get("acceptance_type") in {"functional", "data-fidelity"}
     ]
@@ -462,6 +495,13 @@ def build_remediation_packet(
     )
     if stage1_summary.get("phase3_mainline_verdict"):
         evidence_refs.append(str(stage1_summary.get("phase3_mainline_verdict")))
+    semantic_ledger_routes = [
+        route
+        for item in returned_items
+        if item.get("test_id") == "TEST-EVIDENCE-SEMANTIC-REALIZATION"
+        for route in ensure_list(item.get("semantic_ledger_routes"))
+        if isinstance(route, dict)
+    ]
     return {
         "generated_at": utc_now_iso(),
         "closure_decision": decision,
@@ -481,9 +521,13 @@ def build_remediation_packet(
                 "status": str(item.get("status") or ""),
                 "actual_result": str(item.get("actual_result") or ""),
                 "evidence_path": [str(path) for path in ensure_list(item.get("evidence_path")) if str(path).strip()],
+                "semantic_ledger_routes": [
+                    dict(route) for route in ensure_list(item.get("semantic_ledger_routes")) if isinstance(route, dict)
+                ],
             }
             for item in returned_items
         ],
+        "semantic_ledger_routes": semantic_ledger_routes,
         "evidence_refs": list(dict.fromkeys(evidence_refs)),
         "suggested_commands": suggested_commands_for_target(
             return_target,

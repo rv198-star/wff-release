@@ -3,10 +3,39 @@
 
 from __future__ import annotations
 
+import json
+
 from phase2.phase2_first_version_stage_renderers import *  # noqa: F401,F403
 from common.contamination_boundary import build_output_contamination_report_for_paths
 from common.contamination_boundary import collect_text_output_paths
 from common.source_admission import build_source_admission_report_for_paths
+from common.semantic_consistency import build_p1_commitment_authority_snapshot
+from common.agentic_decision_authority import (
+    AgenticDecisionAuthorityError,
+    build_application_receipt,
+    load_json_object,
+    write_json_atomic,
+)
+from common.wff_core_runtime import WFFCoreConsumerError, require_capability_binding
+from phase2.phase2_claim_authority import (
+    PORTABLE_PHASE1_CLAIM_CONTROL_RELATIVE_PATH,
+    portable_phase1_claim_control_reference,
+)
+from phase2.canonical_authority_convergence import (
+    P2CanonicalAuthorityConvergenceError,
+    apply_p2_authority_to_parsed_context,
+    verify_p2_canonical_artifacts,
+)
+from phase2.agentic_architecture_authority import (
+    P2AgenticArchitectureAuthorityError,
+    architecture_authority_markdown,
+    build_decision_template,
+    build_dependency_routing_receipt,
+    build_disposition_ledger,
+    build_p2_agentic_architecture_authority,
+    build_p2_agentic_architecture_candidate,
+    validate_p2_agentic_architecture_decision,
+)
 
 
 def phase2_first_version_source_admission_report_path(output_dir: Path) -> Path:
@@ -119,13 +148,18 @@ def emit_phase2_first_version_claim_control_sidecars(
     for artifact_path in artifact_paths:
         if not artifact_path.exists():
             continue
+        portable_ref = portable_phase1_claim_control_reference(
+            phase1_prd=phase1_prd,
+            output_dir=output_dir,
+            artifact_path=artifact_path,
+        )
         result = emit_path_b_claim_control_sidecar(
             artifact_path=artifact_path,
             artifact_id=f"p2:{artifact_path.stem}",
             claims=claims,
             view_id=f"p2:{artifact_path.stem}",
             source_count=2 if upstream_sidecar else 1,
-            upstream_surface_paths=[path for path in [phase1_prd, upstream_sidecar] if path],
+            upstream_surface_paths=[path for path in [phase1_prd, portable_ref] if path],
         )
         upstream_ref_audit = audit_phase2_artifact_upstream_claim_refs(
             artifact_path,
@@ -158,6 +192,23 @@ def emit_phase2_first_version_claim_control_sidecars(
         artifact_statuses=[row["overall_status"] for row in results],
         phase1_claim_source_mode=source_mode,
     )
+    commitment_authority = {}
+    commitment_authority_path = resolve_cross_phase_surface_path(
+        output_dir,
+        "phase2",
+        "p1-commitment-authority.json",
+    )
+    if upstream_sidecar:
+        commitment_authority = build_p1_commitment_authority_snapshot(
+            artifact_path=phase1_prd,
+            sidecar_path=upstream_sidecar,
+        )
+        commitment_authority_path.parent.mkdir(parents=True, exist_ok=True)
+        commitment_authority_path.write_text(
+            json.dumps(commitment_authority, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
     report = {
         "artifact_kind": "phase2-claim-control-sidecar-report",
         "overall_status": overall_status,
@@ -166,7 +217,17 @@ def emit_phase2_first_version_claim_control_sidecars(
             phase1_claim_source_mode=source_mode,
         ),
         "phase1_claim_source_mode": source_mode,
-        "phase1_claim_control_sidecar": str(upstream_sidecar) if upstream_sidecar else "",
+        "phase1_claim_control_sidecar": (
+            str(PORTABLE_PHASE1_CLAIM_CONTROL_RELATIVE_PATH)
+            if upstream_sidecar
+            else ""
+        ),
+        "p1_commitment_authority": (
+            str(commitment_authority_path) if commitment_authority else ""
+        ),
+        "p1_commitment_authority_digest": str(
+            commitment_authority.get("content_digest") or ""
+        ),
         "artifacts": results,
     }
     report_path = resolve_cross_phase_surface_path(output_dir, "phase2", "phase2-claim-control-report.json")
@@ -297,6 +358,138 @@ def run_wrapper(
     return proc.returncode
 
 
+def prepare_phase2_agentic_architecture_authority(
+    context: Phase2FirstVersionContext,
+) -> dict[str, Any]:
+    candidate = build_p2_agentic_architecture_candidate(context.phase1_prd)
+    write_json_atomic(context.agentic_candidate, candidate)
+    write_json_atomic(context.agentic_decision_template, build_decision_template(candidate))
+    if context.agentic_architecture_decision is None:
+        raise P2AgenticArchitectureAuthorityError(
+            "current-snapshot P2 Agentic architecture decision is required; "
+            f"candidate={context.agentic_candidate}; template={context.agentic_decision_template}"
+        )
+    decision = load_json_object(context.agentic_architecture_decision)
+    validate_p2_agentic_architecture_decision(decision, candidate=candidate)
+    write_json_atomic(context.agentic_decision_evidence, decision)
+    authority = build_p2_agentic_architecture_authority(candidate, decision)
+    write_json_atomic(context.agentic_architecture_authority, authority)
+    write_json_atomic(context.agentic_disposition_ledger, build_disposition_ledger(authority))
+    write_json_atomic(context.dependency_routing_receipt, build_dependency_routing_receipt(authority))
+    return authority
+
+
+def publish_phase2_agentic_architecture_authority(
+    context: Phase2FirstVersionContext,
+    authority: dict[str, Any],
+) -> None:
+    for path in (
+        context.output_dir / "stage-01-architecture-definition-and-boundary-setting.md",
+        context.output_dir / "stage-02-domain-module-service-decomposition.md",
+        context.output_dir / "stage-02.5-third-party-integration-architecture-design.md",
+        context.output_dir / "stage-03-data-storage-and-interface-design.md",
+        context.output_dir / "stage-04-design-convergence-and-delivery-prototype.md",
+        context.output_dir / "engineering-spec-pack.md",
+        context.output_dir / "phase-3-implementation-entry.md",
+    ):
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        if "## Snapshot-Bound Agentic Architecture Authority" in text:
+            continue
+        path.write_text(
+            text.rstrip() + "\n" + architecture_authority_markdown(authority, surface=path.name),
+            encoding="utf-8",
+        )
+
+
+def finalize_phase2_agentic_architecture_application(
+    context: Phase2FirstVersionContext,
+    authority: dict[str, Any],
+    *,
+    claim_control_report_path: Path,
+) -> dict[str, Any]:
+    decision = load_json_object(context.agentic_decision_evidence)
+    convergence = load_json_object(context.agentic_canonical_convergence_report)
+    if convergence.get("status") != "pass":
+        raise P2CanonicalAuthorityConvergenceError("P2 canonical authority convergence is not accepted")
+    if convergence.get("authority_digest") != authority.get("content_digest"):
+        raise P2CanonicalAuthorityConvergenceError("P2 convergence report authority binding is invalid")
+    output_paths = [
+        path
+        for path in (
+            context.output_dir / "stage-01-architecture-definition-and-boundary-setting.md",
+            context.output_dir / "stage-02-domain-module-service-decomposition.md",
+            context.output_dir / "stage-02.5-third-party-integration-architecture-design.md",
+            context.output_dir / "stage-03-data-storage-and-interface-design.md",
+            context.output_dir / "stage-04-design-convergence-and-delivery-prototype.md",
+            context.output_dir / "engineering-spec-pack.md",
+            context.output_dir / "phase-3-implementation-entry.md",
+            context.agentic_architecture_authority,
+            context.agentic_disposition_ledger,
+            context.dependency_routing_receipt,
+            context.agentic_canonical_convergence_report,
+            context.output_dir / "semantic-commitment-union.json",
+            context.output_dir / ".phase2-evidence" / "operation-source-obligation-matrix.json",
+            context.output_dir / ".phase2-evidence" / "p1-value-to-p2-operation-resolution-matrix.json",
+            context.output_dir / ".phase2-evidence" / "operation-behavior-semantics.json",
+            claim_control_report_path,
+        )
+        if path.exists()
+    ]
+    handoff = authority.get("handoff") if isinstance(authority.get("handoff"), dict) else {}
+    status = str(handoff.get("status") or "return-required")
+    missing: list[str] = []
+    required_projection_names = {
+        "stage-01-architecture-definition-and-boundary-setting.md",
+        "stage-02-domain-module-service-decomposition.md",
+        "stage-03-data-storage-and-interface-design.md",
+        "stage-04-design-convergence-and-delivery-prototype.md",
+        context.agentic_architecture_authority.name,
+        context.agentic_disposition_ledger.name,
+        context.dependency_routing_receipt.name,
+        context.agentic_canonical_convergence_report.name,
+        claim_control_report_path.name,
+    }
+    actual_names = {path.name for path in output_paths}
+    if (context.output_dir / "semantic-commitment-union.json").exists():
+        required_projection_names.update(
+            {
+                "semantic-commitment-union.json",
+                "operation-source-obligation-matrix.json",
+                "p1-value-to-p2-operation-resolution-matrix.json",
+                "operation-behavior-semantics.json",
+            }
+        )
+    missing.extend(sorted(required_projection_names - actual_names))
+    for path in output_paths:
+        if path.suffix != ".md":
+            continue
+        text = path.read_text(encoding="utf-8")
+        if "## Snapshot-Bound Agentic Architecture Authority" not in text:
+            missing.append(path.name)
+    receipt = build_application_receipt(
+        decision=decision,
+        writer_id="phase2-agentic-architecture-canonical-writer.v1",
+        output_paths=output_paths,
+        application_status="complete" if not missing else "blocked",
+        missing_applications=missing,
+        unused_decisions=(),
+        claim_ceiling=(
+            "This receipt proves application of the accepted P2 architecture decision to current P2 authority surfaces. "
+            "It does not prove provider availability, P3 realization, L2/L2+, UAT, or production readiness."
+        ),
+    )
+    write_json_atomic(context.agentic_application_receipt, receipt)
+    if missing:
+        raise P2AgenticArchitectureAuthorityError(
+            "accepted P2 architecture decision was not losslessly applied: " + ", ".join(sorted(set(missing)))
+        )
+    if status == "return-required":
+        return {"receipt": receipt, "handoff_status": status}
+    return {"receipt": receipt, "handoff_status": status}
+
+
 def build_phase2_first_version_context(args: argparse.Namespace) -> Phase2FirstVersionContext:
     repo_root = Path(__file__).resolve().parents[2]
     phase1_prd = Path(args.phase1_prd).resolve()
@@ -321,6 +514,19 @@ def build_phase2_first_version_context(args: argparse.Namespace) -> Phase2FirstV
         phase1_prd=phase1_prd,
         existing_system_architecture_change_intake=existing_system_architecture_change_intake,
         output_dir=output_dir,
+        agentic_architecture_decision=(
+            Path(args.agentic_architecture_decision).resolve()
+            if getattr(args, "agentic_architecture_decision", None)
+            else None
+        ),
+        agentic_candidate=output_dir / ".phase2-evidence" / "p2-agentic-architecture-candidate.json",
+        agentic_decision_template=output_dir / ".phase2-evidence" / "p2-agentic-architecture-decision.template.json",
+        agentic_decision_evidence=output_dir / ".phase2-evidence" / "p2-agentic-architecture-decision.json",
+        agentic_architecture_authority=output_dir / "p2-agentic-architecture-authority.json",
+        agentic_disposition_ledger=output_dir / "p2-commitment-disposition-ledger.json",
+        dependency_routing_receipt=output_dir / "p2-dependency-routing-receipt.json",
+        agentic_application_receipt=output_dir / "p2-agentic-architecture-application-receipt.json",
+        agentic_canonical_convergence_report=output_dir / "p2-canonical-authority-convergence.json",
         phase1_prototype_spec=phase1_prototype_spec,
         phase1_prototype_prompt_pack=phase1_prototype_prompt_pack,
         phase1_interaction_flow_contract=phase1_interaction_flow_contract,
@@ -353,6 +559,15 @@ def run_phase2_first_version(context: Phase2FirstVersionContext) -> Phase2FirstV
     timing_segments: list[dict[str, object]] = []
     timing_report_path = resolve_cross_phase_surface_path(context.output_dir, "phase2", "phase2-timing-report.json")
     try:
+        architecture_authority = load_json_object(context.agentic_architecture_authority)
+        route = architecture_authority.get("stage_02_5_route", {})
+        if not isinstance(route, dict):
+            raise P2AgenticArchitectureAuthorityError("P2 Stage-02.5 route is invalid")
+        dependency_values = architecture_authority.get("dependency_dispositions", [])
+        dependency_rows = [row for row in dependency_values if isinstance(row, dict)] if isinstance(dependency_values, list) else []
+        route_dependency_ids = {
+            str(item).strip() for item in route.get("dependency_ids", []) if str(item).strip()
+        }
         phase1_page_map = phase2_timed_segment(
             timing_segments,
             "extract_prototype_page_map",
@@ -368,17 +583,41 @@ def run_phase2_first_version(context: Phase2FirstVersionContext) -> Phase2FirstV
                 prototype_pages=phase1_page_map,
             ),
         )
+        parsed_phase1_context = phase2_timed_segment(
+            timing_segments,
+            "apply_agentic_architecture_authority",
+            lambda: apply_p2_authority_to_parsed_context(
+                parsed_phase1_context,
+                architecture_authority,
+            ),
+        )
 
-        def detect_integrations() -> tuple[int, list[str]]:
+        def detect_integration_hints() -> tuple[int, list[str]]:
             text = str(parsed_phase1_context["text"])
             return count_external_integrations(text), detect_external_integration_categories(text)
 
-        external_integration_count, external_integration_categories = phase2_timed_segment(
+        mechanical_integration_count, mechanical_integration_categories = phase2_timed_segment(
             timing_segments,
-            "detect_external_integrations",
-            detect_integrations,
+            "detect_external_integration_candidate_hints",
+            detect_integration_hints,
         )
-        with_stage_02_5 = external_integration_count > 0
+        with_stage_02_5 = route.get("decision") == "activate"
+        external_integration_categories = [
+            str(row.get("dependency_id") or row.get("statement") or "dependency").strip()
+            for row in dependency_rows
+            if str(row.get("dependency_id") or "") in route_dependency_ids
+        ]
+        if with_stage_02_5 and not external_integration_categories:
+            raise P2AgenticArchitectureAuthorityError(
+                "accepted Stage-02.5 activation has no authority-bound dependencies"
+            )
+        parsed_phase1_context["architecture_dependency_candidate_hints"] = {
+            "mechanical_count": mechanical_integration_count,
+            "mechanical_categories": mechanical_integration_categories,
+            "authority": "candidate-hint-only",
+            "accepted_route": str(route.get("decision") or ""),
+            "accepted_dependency_ids": sorted(route_dependency_ids),
+        }
         services = phase2_timed_segment(
             timing_segments,
             "build_service_specs",
@@ -512,6 +751,20 @@ def run_phase2_first_version(context: Phase2FirstVersionContext) -> Phase2FirstV
             write_text(context.output_dir / "stage-04-design-convergence-and-delivery-prototype.md", stage_04)
 
         phase2_timed_segment(timing_segments, "write_stage_artifacts", write_stage_artifacts)
+        phase2_timed_segment(
+            timing_segments,
+            "publish_agentic_architecture_authority",
+            lambda: publish_phase2_agentic_architecture_authority(context, architecture_authority),
+        )
+        phase2_timed_segment(
+            timing_segments,
+            "verify_agentic_architecture_canonical_application",
+            lambda: verify_p2_canonical_artifacts(
+                output_dir=context.output_dir,
+                authority=architecture_authority,
+                report_path=context.agentic_canonical_convergence_report,
+            ),
+        )
 
         phase2_timed_segment(
             timing_segments,
@@ -541,6 +794,15 @@ def run_phase2_first_version(context: Phase2FirstVersionContext) -> Phase2FirstV
                 ],
             ),
         )
+        application_result = phase2_timed_segment(
+            timing_segments,
+            "finalize_agentic_architecture_application",
+            lambda: finalize_phase2_agentic_architecture_application(
+                context,
+                architecture_authority,
+                claim_control_report_path=claim_control_result["report_path"],
+            ),
+        )
         audit = phase2_timed_segment(
             timing_segments,
             "inspect_case",
@@ -551,6 +813,9 @@ def run_phase2_first_version(context: Phase2FirstVersionContext) -> Phase2FirstV
             with_stage_02_5=with_stage_02_5,
             timing_report_path=timing_report_path,
             claim_control_report_path=claim_control_result["report_path"],
+            agentic_handoff_status=str(application_result.get("handoff_status") or ""),
+            agentic_application_receipt_path=context.agentic_application_receipt,
+            agentic_canonical_convergence_report_path=context.agentic_canonical_convergence_report,
         )
     finally:
         write_phase2_timing_report(
@@ -580,6 +845,12 @@ def build_phase2_first_version_summary(
         "stage_02_5_generated": result.with_stage_02_5,
         "timing_report": str(result.timing_report_path),
         "claim_control_report": str(result.claim_control_report_path or ""),
+        "agentic_architecture_authority": str(context.agentic_architecture_authority),
+        "agentic_disposition_ledger": str(context.agentic_disposition_ledger),
+        "dependency_routing_receipt": str(context.dependency_routing_receipt),
+        "agentic_application_receipt": str(result.agentic_application_receipt_path or ""),
+        "agentic_canonical_convergence_report": str(result.agentic_canonical_convergence_report_path or ""),
+        "agentic_handoff_status": result.agentic_handoff_status,
     }
     return summary
 
@@ -590,6 +861,22 @@ def emit_phase2_first_version_summary(summary: dict[str, object]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_phase2_first_version_args(argv)
+    try:
+        require_capability_binding(
+            "architecture-design",
+            phase_id="P2",
+            route_key="phase-2",
+            required_contracts=(
+                "phase-contract",
+                "handoff-contract",
+                "artifact-identity-contract",
+                "evidence-contract",
+                "claim-state-contract",
+            ),
+        )
+    except WFFCoreConsumerError as exc:
+        print(f"[BLOCKED] {exc}")
+        return 2
     missing_source_admission_report = run_phase2_first_version_missing_source_admission_preflight(args)
     if missing_source_admission_report is not None:
         source_admission_exit_code = phase2_first_version_source_admission_exit_code(
@@ -610,7 +897,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     if source_admission_exit_code:
         return source_admission_exit_code
-    result = run_phase2_first_version(context)
+    try:
+        prepare_phase2_agentic_architecture_authority(context)
+        result = run_phase2_first_version(context)
+    except (
+        AgenticDecisionAuthorityError,
+        P2AgenticArchitectureAuthorityError,
+        P2CanonicalAuthorityConvergenceError,
+    ) as exc:
+        print(f"[BLOCKED] {exc}")
+        return 2
     emit_review_surface(context.output_dir, "phase2")
     contamination_exit_code = phase2_first_version_output_contamination_exit_code(context)
     if contamination_exit_code:
@@ -641,11 +937,28 @@ def main(argv: list[str] | None = None) -> int:
         )
         if wrapper_exit_code:
             return wrapper_exit_code
+        refreshed_handoff_status = result.agentic_handoff_status
+        if result.claim_control_report_path is not None:
+            authority = load_json_object(context.agentic_architecture_authority)
+            publish_phase2_agentic_architecture_authority(context, authority)
+            verify_p2_canonical_artifacts(
+                output_dir=context.output_dir,
+                authority=authority,
+                report_path=context.agentic_canonical_convergence_report,
+            )
+            refreshed_application = finalize_phase2_agentic_architecture_application(
+                context,
+                authority,
+                claim_control_report_path=Path(result.claim_control_report_path),
+            )
+            refreshed_handoff_status = str(
+                refreshed_application.get("handoff_status") or refreshed_handoff_status
+            )
         contamination_exit_code = phase2_first_version_output_contamination_exit_code(context)
         if contamination_exit_code:
             return contamination_exit_code
-        return 0
-    return 0
+        return 2 if refreshed_handoff_status == "return-required" else 0
+    return 2 if result.agentic_handoff_status == "return-required" else 0
 
 
 if __name__ == "__main__":

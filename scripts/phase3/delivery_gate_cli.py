@@ -220,10 +220,6 @@ def collect_phase3_coverage(*args: Any, **kwargs: Any) -> dict[str, Any]:
 
 
 def validate_phase3_delivery_gate_args(args: argparse.Namespace) -> None:
-    if args.mode == "productness-gate":
-        if not args.frontend_dir:
-            raise ValueError("--frontend-dir is required for --mode productness-gate")
-        return
     if args.mode == "api-docs":
         if not args.baseline_openapi:
             raise ValueError("--baseline-openapi is required for --mode api-docs")
@@ -378,15 +374,6 @@ def emit_phase3_mode_result(
     return emit_phase3_delivery_gate_summary(payload, success=success)
 
 
-def run_productness_gate(frontend_dir: Path | None, ui_ia_contract_path: Path | None) -> dict[str, Any]:
-    return importlib.import_module("phase3.productness_gate").run_gate(frontend_dir, ui_ia_contract_path)
-
-
-def run_productness_gate_mode(context: Phase3DeliveryGateContext) -> int:
-    report = run_productness_gate(context.frontend_dir, context.ui_ia_contract_path)
-    return emit_phase3_mode_result(report, output_path=context.output_path, success=report["verdict"] == "PASS", mode=context.mode)
-
-
 def run_api_docs_mode(context: Phase3DeliveryGateContext) -> int:
     summary = generate_phase3_api_docs(
         baseline_openapi=load_json(context.baseline_openapi_path) or {},
@@ -522,7 +509,6 @@ def build_phase3_mode_handlers(
     analyze_delivery: Callable[..., dict[str, Any]],
 ) -> dict[str, Callable[[Phase3DeliveryGateContext], int]]:
     return {
-        "productness-gate": run_productness_gate_mode,
         "api-docs": run_api_docs_mode,
         "delivery-handoff": run_delivery_handoff_mode,
         "code-review": run_code_review_mode,
@@ -587,7 +573,6 @@ __all__ = [
     "run_phase3_delivery_gate_mode",
     "run_phase3_code_review",
     "run_phase3_security_audit",
-    "run_productness_gate_mode",
     "run_security_audit_mode",
     "validate_phase3_delivery_gate_args",
     "write_phase3_cli_output",

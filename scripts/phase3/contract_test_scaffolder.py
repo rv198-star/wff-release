@@ -25,6 +25,8 @@ from phase3.test_scaffolder_common import (
     WRITE_HTTP_METHODS,
     failure_condition_signal_lines,
     failure_has_runtime_signal,
+    failure_requires_exact_field_hint,
+    field_invalid_failure_has_concrete_payload_shape,
 )
 try:
     from phase3.behavior_contract import (
@@ -194,9 +196,18 @@ def _ts_property_access(field_name: str) -> str:
     return f"[{json.dumps(field_name, ensure_ascii=False)}]"
 
 
-def explicit_business_assertion_lines(response_example: object) -> list[str]:
+def explicit_business_assertion_lines(
+    response_example: object,
+    *,
+    allowed_fields: set[str] | None = None,
+) -> list[str]:
     record = _data_example_record(response_example)
-    literal_fields = [(field, value) for field, value in record.items() if _is_business_literal_field(field, value)]
+    literal_fields = [
+        (field, value)
+        for field, value in record.items()
+        if _is_business_literal_field(field, value)
+        and (allowed_fields is None or field in allowed_fields)
+    ]
     if not literal_fields:
         return []
     lines = ["    const data = Array.isArray(result.data) ? result.data[0] : result.data as Record<string, unknown>;"]
@@ -205,8 +216,13 @@ def explicit_business_assertion_lines(response_example: object) -> list[str]:
     return lines
 
 
-def literal_business_assertion_lines_for_result(response_example: object, result_expr: str = "result") -> list[str]:
-    lines = explicit_business_assertion_lines(response_example)
+def literal_business_assertion_lines_for_result(
+    response_example: object,
+    result_expr: str = "result",
+    *,
+    allowed_fields: set[str] | None = None,
+) -> list[str]:
+    lines = explicit_business_assertion_lines(response_example, allowed_fields=allowed_fields)
     if not lines:
         return []
     lines = list(lines)
@@ -237,9 +253,17 @@ def _contract_test_template_lines(asset_name: str) -> list[str]:
     return load_script_text_asset(__file__, asset_name).splitlines()
 
 
-def render_contract_test_shape_helper_lines(top_level_shape_keys_blob: str) -> list[str]:
+def render_contract_test_shape_helper_lines(
+    top_level_shape_keys_blob: str,
+    *,
+    mechanical_response_example: bool = False,
+    semantic_literal_fields: set[str] | None = None,
+) -> list[str]:
+    semantic_blob = json.dumps(sorted(semantic_literal_fields or set()), ensure_ascii=False)
     return [
         line.replace("__TOP_LEVEL_SHAPE_KEYS__", top_level_shape_keys_blob)
+        .replace("__MECHANICAL_RESPONSE_EXAMPLE__", "true" if mechanical_response_example else "false")
+        .replace("__SEMANTIC_LITERAL_FIELDS__", semantic_blob)
         for line in _contract_test_template_lines("contract-test-shape-helper.ts.template")
     ]
 
@@ -286,8 +310,12 @@ def render_contract_test(
     failure_cases: list[dict[str, str]],
     idempotency_rule: str = "",
     behavior_card_model: dict[str, object] | None = None,
+    external_auth_required: bool = False,
+    synthetic_rollback_probe_supported: bool = False,
+    audit_logging_required: bool = False,
+    response_example_authority: str = "",
+    semantic_literal_fields: list[str] | None = None,
 ) -> str:
-    del request_example
     evidence_keys = behavior_evidence_keys(behavior_card_model)
     evidence_keys_literal = typescript_array_literal(evidence_keys)
     openapi_payload_expr = "buildOperationPayload(operationId)"
@@ -300,11 +328,19 @@ def render_contract_test(
         failure_cases,
         idempotency_rule,
     )
-    requires_transaction_rollback = _requires_transaction_rollback_contract(operation_id, method, response_example)
+    requires_transaction_rollback = bool(
+        synthetic_rollback_probe_supported
+        and _requires_transaction_rollback_contract(operation_id, method, response_example)
+    )
     uses_write_database_path = operation_uses_write_database_path(method)
-    requires_write_audit = method.upper() in WRITE_HTTP_METHODS
+    requires_write_audit = bool(audit_logging_required and method.upper() in WRITE_HTTP_METHODS)
+    mechanical_response_example = str(response_example_authority or "").strip().casefold() == "mechanical-shape-only"
+    semantic_literal_field_set = {
+        str(item).strip() for item in (semantic_literal_fields or []) if str(item).strip()
+    }
+    literal_assertion_fields = semantic_literal_field_set if mechanical_response_example else None
     response_blob = json.dumps(response_example, ensure_ascii=False, indent=2)
-    top_level_shape_keys = ["trace_id", "request_id", "meta"]
+    top_level_shape_keys: list[str] = []
     if schema_has_pagination_contract(success_schema or {}):
         top_level_shape_keys.append("pagination")
     top_level_shape_keys_blob = json.dumps(top_level_shape_keys, ensure_ascii=False)
@@ -313,10 +349,11 @@ def render_contract_test(
         "buildOperationPayload",
         "captureApiError",
         "invokeHttpOperation",
-        "invokeHttpOperationWithAuthHeader",
         "startBackendRuntime",
         "type BackendRuntime",
     ]
+    if external_auth_required:
+        support_imports.insert(4, "invokeHttpOperationWithAuthHeader")
     if requires_roundtrip:
         support_imports[2:2] = [
             "collectPersistenceTargetRowCounts",
@@ -335,7 +372,13 @@ def render_contract_test(
         "let runtime: BackendRuntime;",
         "",
     ]
-    lines.extend(render_contract_test_shape_helper_lines(top_level_shape_keys_blob))
+    lines.extend(
+        render_contract_test_shape_helper_lines(
+            top_level_shape_keys_blob,
+            mechanical_response_example=mechanical_response_example,
+            semantic_literal_fields=semantic_literal_field_set,
+        )
+    )
     if requires_duplicate_submit:
         lines.extend(render_contract_test_duplicate_submit_helper_lines())
     lines.extend(typescript_behavior_card_payload_helper_lines(map_name=None))
@@ -346,42 +389,39 @@ def render_contract_test(
         *(render_behavior_step_test_mapping(behavior_card_model)["contract"].splitlines() if behavior_card_model else []),
         ]
     )
-    lines.extend(render_contract_test_auth_guard_lines())
+    if external_auth_required:
+        lines.extend(render_contract_test_auth_guard_lines())
+        lines.extend(
+            [
+                '  it("accepts valid bearer token before business validation", async () => {',
+                *( ["    await runtime.restoreScenario();"] if uses_write_database_path else [] ),
+                f"    const result = await invokeHttpOperation(runtime, operationId, {success_payload_expr});",
+                "    expectContractShape(result, responseExample);",
+                *literal_business_assertion_lines_for_result(
+                    response_example,
+                    allowed_fields=literal_assertion_fields,
+                ),
+                "  });",
+                "",
+            ]
+        )
     lines.extend(
         [
-        '  it("accepts valid bearer token before business validation", async () => {',
-        *( ["    await runtime.restoreScenario();"] if uses_write_database_path else [] ),
-        f"    const result = await invokeHttpOperation(runtime, operationId, {success_payload_expr});",
-        "    expectContractShape(result, responseExample);",
-        "    expect(result).toHaveProperty('trace_id');",
-        "    expect(result).toHaveProperty('data');",
-        *literal_business_assertion_lines_for_result(response_example),
-        *(
-            [
-                "    const auditRecords = runtime.getAuditRecords();",
-                "    expect(auditRecords.some((entry) => entry.operation_id === operationId && entry.outcome === \"allowed\")).toBe(true);",
-            ]
-            if requires_write_audit
-            else []
-        ),
-        "  });",
-        "",
         '  it("documented OpenAPI request is directly executable", async () => {',
         *( ["    await runtime.restoreScenario();"] if uses_write_database_path else [] ),
         f"    const result = await invokeHttpOperation(runtime, operationId, {openapi_payload_expr});",
         "    expectContractShape(result, responseExample);",
-        "    expect(result).toHaveProperty('trace_id');",
-        "    expect(result).toHaveProperty('data');",
         "  });",
         "",
         '  it("happy path matches the frozen contract", async () => {',
         *( ["    await runtime.restoreScenario();"] if uses_write_database_path else [] ),
         f"    const result = await invokeHttpOperation(runtime, operationId, {success_payload_expr});",
         "    expectContractShape(result, responseExample);",
-        "    expect(result).toHaveProperty('trace_id');",
-        "    expect(result).toHaveProperty('data');",
         *pagination_assertion_lines(success_schema),
-        *explicit_business_assertion_lines(response_example),
+        *explicit_business_assertion_lines(
+            response_example,
+            allowed_fields=literal_assertion_fields,
+        ),
         (
             "\n".join(
                 [
@@ -402,6 +442,14 @@ def render_contract_test(
             if requires_roundtrip
             else ""
         ),
+        *(
+            [
+                "    const auditRecords = runtime.getAuditRecords();",
+                "    expect(auditRecords.some((entry) => entry.operation_id === operationId && entry.outcome === \"allowed\")).toBe(true);",
+            ]
+            if requires_write_audit
+            else []
+        ),
         "  });",
         ]
     )
@@ -418,20 +466,32 @@ def render_contract_test(
                 "    if (await requiresPersistenceRoundTripEvidence(runtime, operationId)) {",
                 "      expect(beforeEvidence.length).toBeGreaterThan(0);",
                 "    }",
-                "    const beforeAllowedAuditCount = runtime.getAuditRecords()",
-                "      .filter((entry) => entry.operation_id === operationId && entry.outcome === \"allowed\").length;",
+                *(
+                    [
+                        "    const beforeAllowedAuditCount = runtime.getAuditRecords()",
+                        "      .filter((entry) => entry.operation_id === operationId && entry.outcome === \"allowed\").length;",
+                    ]
+                    if requires_write_audit
+                    else []
+                ),
                 "    const duplicatePayload = JSON.parse(JSON.stringify(payload)) as Record<string, unknown>;",
                 "    const duplicateError = await captureApiError(invokeHttpOperation(runtime, operationId, duplicatePayload));",
                 "    expect(duplicateError.status).toBe(409);",
                 "    const afterEvidence = await collectPersistenceRoundTripEvidence(runtime, operationId, firstResult);",
                 "    const afterTableCounts = collectEvidenceTableCounts(runtime, afterEvidence);",
                 "    expectEvidenceTableCountsUnchanged(beforeTableCounts, afterTableCounts);",
-                "    const afterAllowedAuditCount = runtime.getAuditRecords()",
-                "      .filter((entry) => entry.operation_id === operationId && entry.outcome === \"allowed\").length;",
-                "    expect(afterAllowedAuditCount).toBe(beforeAllowedAuditCount);",
-                "    const duplicateAuditRecords = runtime.getAuditRecords()",
-                "      .filter((entry) => entry.operation_id === operationId && entry.outcome === \"duplicate\");",
-                "    expect(duplicateAuditRecords.length).toBeGreaterThan(0);",
+                *(
+                    [
+                        "    const afterAllowedAuditCount = runtime.getAuditRecords()",
+                        "      .filter((entry) => entry.operation_id === operationId && entry.outcome === \"allowed\").length;",
+                        "    expect(afterAllowedAuditCount).toBe(beforeAllowedAuditCount);",
+                        "    const duplicateAuditRecords = runtime.getAuditRecords()",
+                        "      .filter((entry) => entry.operation_id === operationId && entry.outcome === \"duplicate\");",
+                        "    expect(duplicateAuditRecords.length).toBeGreaterThan(0);",
+                    ]
+                    if requires_write_audit
+                    else []
+                ),
                 "  });",
             ]
         )
@@ -474,6 +534,16 @@ def render_contract_test(
                 ]
             )
             continue
+        if failure_requires_exact_field_hint(failure) and not field_invalid_failure_has_concrete_payload_shape(
+            request_example, failure
+        ):
+            lines.extend(
+                [
+                    "",
+                    f'  it.skip("review-bound failure contract: {label} lacks a concrete payload-shaping hint", () => {{}});',
+                ]
+            )
+            continue
         lines.extend(
             [
                 "",
@@ -500,6 +570,9 @@ def scaffold_contract_tests(
     output_dir: Path,
     *,
     behavior_card_models: dict[str, dict[str, object]] | None = None,
+    external_auth_required: bool = False,
+    synthetic_rollback_probe_supported: bool = False,
+    audit_logging_required: bool = False,
 ) -> dict[str, object]:
     output_dir.mkdir(parents=True, exist_ok=True)
     created: list[str] = []
@@ -588,6 +661,15 @@ def scaffold_contract_tests(
                     failure_cases=failure_cases,
                     idempotency_rule=str(operation.get("x-idempotency-rule", "")).strip(),
                     behavior_card_model=(behavior_card_models or {}).get(operation_id),
+                    external_auth_required=external_auth_required,
+                    synthetic_rollback_probe_supported=synthetic_rollback_probe_supported,
+                    audit_logging_required=audit_logging_required,
+                    response_example_authority=str(operation.get("x-wff-response-example-authority", "")).strip(),
+                    semantic_literal_fields=[
+                        str(item).strip()
+                        for item in operation.get("x-wff-semantic-literal-fields", [])
+                        if str(item).strip()
+                    ] if isinstance(operation.get("x-wff-semantic-literal-fields"), list) else [],
                 ),
                 encoding="utf-8",
             )

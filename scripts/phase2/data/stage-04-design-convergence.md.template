@@ -11,7 +11,7 @@
 $architecture_convergence_adr_list
   - preserved_contracts:
 $contract_list
-  - convergence_direction: modular monolith with explicit public boundary and replay-ready handoff
+  - convergence_direction: $convergence_direction
   - authority_consumption_note:
     - Stage-04 is a convergence / handoff digest, not the sole authority for surface or binding design
     - page-level authority remains in `prototype-spec.md`; interaction/flow authority remains in `prototype-interaction-flow-contract.md`; binding/traceability authority is compiled in Stage-03 and ESP
@@ -38,20 +38,7 @@ $page_blueprint_block
   - sequence_2: mid-stream replay and ownership verification
   - sequence_3: implementation intake and review closure
 - optimality_review:
-  - acceptable_baseline:
-    - modular monolith + relational core + typed public contracts
-  - optimal_candidate:
-    - keep the current baseline and delay physical decomposition until runtime proof demands it
-  - acceptable_vs_optimal_verdict:
-    - acceptable now and optimal under first-wave certainty / staffing / runtime constraints
-  - why_optimal_not_just_acceptable:
-    - preserves traceability, replay, and design honesty without overcommitting operations complexity
-  - reversibility_posture:
-    - later queue/storage/provider changes remain reversible because contract names and ownership stay stable
-  - strongest_supported_readiness_label:
-    - `implementation-planning-ready`
-  - realizability_judgment:
-    - realizable as designed for implementation planning, with explicit RBI chain preserved for unresolved runtime proofs
+$optimality_review_block
 - design_verification_notes:
 $design_verification_notes_table
 - verification_replay_evidence:
@@ -65,10 +52,7 @@ $observability_readiness_table
 - implementation_handoff_package:
   - downstream_artifact_id: `IMPL-STG00-INPUT-0001`
   - must_preserve:
-    - public-boundary names
-    - tenant policy and audit edges
-    - typed contract identifiers and replay evidence references
-    - RBI ownership and blockers
+$implementation_must_preserve_block
   - contract_bundle:
 $contract_list
   - handoff_rule:
@@ -77,10 +61,9 @@ $contract_list
 $implementation_task_sketch_table
 $nested_wp_entries_block
 - identity_and_key_management_choice_posture:
-  - auth_vendor_slot: keep policy provider replaceable behind the contract boundary
-  - key_posture: scheduled rotation, break-glass audit, no hard-coded runtime secrets
+$identity_key_posture_block
 - glossary_or_onboarding_summary:
-  - workflow spine: ownership handoff -> replay verification -> implementation intake
+  - workflow spine: $workflow_spine_posture
   - intake truth: implementation receives contract-verified design, not production-proof certainty
   - environment_or_dependency_prerequisites:
 $environment_prerequisites
@@ -102,13 +85,4 @@ C4Container
     Rel(replay, entry, "feeds")
 ```
 
-```mermaid
-gantt
-    title First-Wave Implementation Handoff
-    dateFormat  YYYY-MM-DD
-    section Work Packages
-    WP-A1 :a1, 2026-04-08, 3d
-    WP-A2 :a2, after a1, 4d
-    WP-A3 :a3, after a2, 4d
-    WP-A4 :a4, after a3, 3d
-```
+$gantt_block

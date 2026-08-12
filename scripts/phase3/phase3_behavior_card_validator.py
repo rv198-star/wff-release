@@ -29,7 +29,7 @@ REQUIRED_SECTIONS = [
     "Implementation Mapping",
     "Review-Bound Items",
 ]
-TRACE_ID_RE = re.compile(r"\bP[12]-(?:US|UC|REQ|AC|DTR|CTR|RP|RT)-\d+\b")
+TRACE_ID_RE = re.compile(r"\bP[12]-(?:EP|US|UC|REQ|AC|CON|DTR|CTR|RP|RT)(?:-[A-Za-z0-9]+)+\b")
 
 
 def _section(text: str, title: str) -> str:

@@ -99,6 +99,19 @@ When S03 starts, convert each placeholder test in this order:
 
 Do not keep `throw new Error("Implement ...")` in a slice that is being presented as implemented.
 
+### Runtime fixture identity rule
+
+- Generated positive fixtures and persistence probes must preserve the accepted P2 field type for identifiers. Accepted P2 `data_and_interaction_decisions` type authority overrides OpenAPI types mechanically inferred from placeholder examples; OpenAPI is a fallback only when P2 has no accepted type. A genuine type conflict inside accepted P2 authority remains fail-closed / `mixed` rather than being repaired from OpenAPI. For durable update preconditions, a generated validation baseline must represent pre-update state: do not seed it from the update operation's post-update response. When an accepted create/insert operation owns the same aggregate/table, its accepted response may provide the stronger starting shape; do not copy that create request's replay/idempotency key into the baseline unless the update itself requires it. An accepted table-backed read model/current-system snapshot with no writer aggregate must still receive a validation-only baseline row when its exact operation is read-only; project request/response examples only through the accepted table fields, and never infer write authority or production-data truth from that seed. If a positive accepted insert/upsert request would collide with a validation-only baseline row on an accepted P2 unique request key, isolate only that matching baseline row before the first positive invocation in the current scenario; never perform this cleanup for negative/conflict evidence or again during replay. For caller-field negative evidence on a replay-safe write, the negative payload must not reuse a prior successful replay identity that would return-existing before validation; when the intentionally invalid field is not itself part of the replay key, vary only an accepted caller-request/idempotency identity component using a type-compatible validation value, while preserving required foreign/context identity and leaving explicit replay/conflict lanes unchanged. Persistence round-trip probes must choose columns whose accepted P2/schema types are compatible with the response identifier; fuzzy name similarity must never map a UUID identifier onto an integer/string column on another table.
+- A field name ending in `_id` is not sufficient evidence that the value is a UUID.
+- Normalize synthetic identifiers to deterministic UUIDs only when the accepted operation/schema field type is `uuid`.
+- Preserve declared `string` and `integer` legacy/current-system identifiers so Brownfield compatibility fixtures do not silently diverge from their seeded current-state rows. Scenario success assertions must follow the frozen response scalar type as well: an identifier-shaped field name does not authorize a `String` assertion when the accepted/OpenAPI response is numeric.
+- Use the same type-aware rule for request fixtures, not-found path fixtures, and persistence round-trip comparison; do not repair mismatches with scenario-specific fallback data. A not-found path probe must remain type-valid for the accepted identifier field (for example, a positive non-existing integer for an accepted integer id) so it tests not-found semantics instead of input validation. Negative version/conflict evidence must mutate the accepted version-like request field that actually exists (`expected_version`, `row_version`, `version`, or another accepted `*_version` field); do not manufacture a parallel camelCase/snake_case field that the implementation does not consume. Accepted `stale_version` is part of the conflict-family evidence vocabulary alongside explicit conflict/duplicate/idempotency codes.
+- Full-suite SQL verification probes must use identities isolated from validation baseline rows already installed by the runtime harness. If a generated probe primary key would collide with a baseline/current-system seed, select a deterministic same-type probe identity instead; do not weaken uniqueness constraints, skip the SQL test, or delete accepted baseline evidence to make coverage collect.
+
+### Generated kernel coverage rule
+
+- The generated `tests/support/s3-realization-kernel.test.ts` must exercise every exported binding-selection/control primitive that is intentionally included in the API business-runtime coverage denominator, including exact binding selection and fail-closed unknown-slice behavior.
+- Do not lower coverage thresholds or remove shared S3 runtime support from the denominator merely because a small one-operation project gives those shared functions more weight.
 
 ## Test Value Judgment Rule
 
@@ -121,6 +134,7 @@ Allowed weak assertions are narrow guardrails only:
 
 - helper-level null/object guards before deeper checks
 - trace/linkage metadata existence checks when paired with business assertions
+- shared upstream requirement/AC lineage across multiple P3 rows is not itself Trace identity abuse. Keep that lineage visible, but apply reuse/aliasing abuse checks only to the P3 row's own primary source/trace identity; a primary identity reused across incompatible read/write semantics or at suspicious frequency remains a real abuse signal.
 - replay continuity anchors when the replay is explicitly scoped as handoff continuity
 - array length guards when followed by item-level semantic assertions
 

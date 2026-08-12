@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from phase3.action_card_execution_map import build_action_card_execution_context
+from common.action_card_authority_projection import apply_rendered_action_card_convergence
 from common.claim_control_runtime import (
     CanonicalName,
     ClaimRecord,
@@ -15,13 +16,13 @@ from common.claim_control_runtime import (
     emit_path_b_claim_control_sidecar,
 )
 from common.cross_phase_surface_policy import find_cross_phase_surface_path
-from phase3.impl_context import p2_operation_claim_id
-from phase3.impl_context import write_json
+from phase3.impl_context import p2_operation_claim_id, write_json
 from phase3.phase3_implementation_action_card_scaffolder import (
     card_depth_label,
     load_action_card_obligations,
     render_implementation_action_card,
     validate_action_card_obligations,
+    validate_action_card_semantic_convergence,
 )
 
 
@@ -34,11 +35,7 @@ PROPOSED_CLAIM_REF_RE = re.compile(r"(?<![A-Za-z0-9_-])PROPOSED[-:][A-Za-z0-9_.:
 def build_action_card_readiness_summary(component_obligations: dict[str, dict[str, Any]]) -> dict[str, Any]:
     components: list[dict[str, Any]] = []
     counts_by_acd_level: dict[str, int] = {}
-    readiness_counts = {
-        "direct-implementation-ready": 0,
-        "split-required-parent": 0,
-        "review-bound": 0,
-    }
+    readiness_counts = {"direct-implementation-ready": 0, "split-required-parent": 0, "review-bound": 0}
     direct_ready_acd_levels = {"ACD-0", "ACD-1", "ACD-2"}
 
     for component_key, obligation in sorted(component_obligations.items()):
@@ -170,13 +167,13 @@ def run_impl_action_cards(
         write_json(output_dir / "action-card-report.json", summary)
         return summary
     written: list[str] = []
+    rendered_cards: dict[str, str] = {}
     claim_control_sidecars: list[dict[str, Any]] = []
     for component_id, obligation in obligations.get("component_obligations", {}).items():
         card_path = action_dir / f"{str(component_id).lower()}-action-card.md"
-        card_path.write_text(
-            render_implementation_action_card(obligation, catalog.get(component_id)),
-            encoding="utf-8",
-        )
+        card_text = render_implementation_action_card(obligation, catalog.get(component_id))
+        card_path.write_text(card_text, encoding="utf-8")
+        rendered_cards[component_id] = card_text
         written.append(str(card_path))
         claims = _claims_for_action_card(component_id, obligation, upstream_claims)
         relations = _relations_for_action_card(component_id)
@@ -203,16 +200,29 @@ def run_impl_action_cards(
         )
 
     validation = validate_action_card_obligations(obligations)
+    semantic_convergence = apply_rendered_action_card_convergence(
+        validate_action_card_semantic_convergence(obligations),
+        component_obligations=obligations.get("component_obligations", {}),
+        rendered_cards=rendered_cards,
+    )
+    if not semantic_convergence.get("passed"):
+        validation = {
+            "blockers": list(dict.fromkeys(list(validation.get("blockers", [])) + ["action_card_semantic_convergence_blocked"])),
+            "passed": False,
+        }
     readiness_summary = build_action_card_readiness_summary(obligations.get("component_obligations", {}))
     validation_payload = {
         **validation,
         "card_count": len(written),
         "cards": written,
         "readiness_summary": readiness_summary,
+        "semantic_convergence": semantic_convergence,
     }
     write_json(action_dir / "validation.json", validation_payload)
     readiness_summary_path = output_dir / ".phase3-review" / "action-card-readiness-summary.json"
     write_json(readiness_summary_path, readiness_summary)
+    semantic_convergence_path = output_dir / ".phase3-review" / "action-card-semantic-convergence.json"
+    write_json(semantic_convergence_path, semantic_convergence)
     execution_context = build_action_card_execution_context(
         component_obligations=obligations.get("component_obligations", {}),
         component_catalog=catalog,
@@ -227,6 +237,7 @@ def run_impl_action_cards(
             "action_cards": written,
             "validation": validation,
             "readiness_summary": readiness_summary,
+            "semantic_convergence": semantic_convergence,
             "claim_ceiling": "review packet only; human acceptance is not implied",
         },
     )
@@ -238,10 +249,12 @@ def run_impl_action_cards(
         "execution_map_path": str(execution_map_path),
         "human_audit_packet_path": str(audit_packet_path),
         "readiness_summary_path": str(readiness_summary_path),
+        "semantic_convergence_path": str(semantic_convergence_path),
         "card_count": len(written),
         "cards": written,
         "claim_control_sidecars": claim_control_sidecars,
         "readiness_summary": readiness_summary,
+        "semantic_convergence": semantic_convergence,
         "validation": validation,
         "validation_payload": validation_payload,
     }

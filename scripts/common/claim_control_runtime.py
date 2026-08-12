@@ -198,7 +198,12 @@ def _unique_claims(claims: Iterable[ClaimRecord]) -> list[ClaimRecord]:
             kind=str(claim.kind or "claim").strip() or "claim",
             text=str(claim.text or claim_id).strip() or claim_id,
             source_refs=[str(item).strip() for item in claim.source_refs if str(item).strip()],
-            status="accepted",
+            status=(
+                str(claim.status or "accepted").strip().lower()
+                if str(claim.status or "accepted").strip().lower()
+                in {"accepted", "review-bound", "proposed", "rejected"}
+                else "review-bound"
+            ),
         )
     return list(indexed.values())
 
@@ -361,7 +366,8 @@ def emit_path_b_claim_control_sidecar(
 ) -> dict[str, Any]:
     artifact = Path(artifact_path)
     surface_path = Path(sidecar_path) if sidecar_path else default_surface_path(artifact)
-    accepted_claims = _unique_claims(claims)
+    all_claims = _unique_claims(claims)
+    accepted_claims = [claim for claim in all_claims if claim.status == "accepted"]
     accepted_ids = sorted(claim.id for claim in accepted_claims)
     artifact_text = artifact.read_text(encoding="utf-8") if artifact.exists() else ""
     rendered_ids = sorted(claim_id for claim_id in accepted_ids if _claim_ref_is_rendered(artifact_text, claim_id))
@@ -420,7 +426,7 @@ def emit_path_b_claim_control_sidecar(
         "artifact_metadata": metadata,
         "claim_index": {
             "version": "claim-index/v0.1",
-            "claims": [claim.to_dict() for claim in sorted(accepted_claims, key=lambda item: item.id)],
+            "claims": [claim.to_dict() for claim in sorted(all_claims, key=lambda item: item.id)],
         },
         "writing_plan": {
             "version": "writing-plan/v0.1",

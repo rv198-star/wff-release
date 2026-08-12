@@ -12,6 +12,7 @@ from common.claim_control_runtime import (
     emit_path_b_claim_control_sidecar,
 )
 from common.cross_phase_surface_policy import resolve_cross_phase_surface_path
+from phase2.phase2_claim_authority import portable_phase1_claim_control_reference
 
 
 def emit_component_semantic_inventory(
@@ -61,13 +62,18 @@ def emit_component_semantic_inventory(
     )
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     artifact_path.write_text(_render_inventory_markdown(claims), encoding="utf-8")
+    portable_upstream_ref = portable_phase1_claim_control_reference(
+        phase1_prd=phase1_prd,
+        output_dir=output_dir,
+        artifact_path=artifact_path,
+    )
     result = emit_path_b_claim_control_sidecar(
         artifact_path=artifact_path,
         artifact_id="p2:component-semantic-inventory",
         claims=claims,
         view_id="p2:component-semantic-inventory",
         source_count=2 if phase1_claim_control_sidecar else 1,
-        upstream_surface_paths=[path for path in [phase1_prd, phase1_claim_control_sidecar] if path],
+        upstream_surface_paths=[path for path in [phase1_prd, portable_upstream_ref] if path],
         sidecar_path=sidecar_path,
         relations=relations,
         canonical_names=canonical_names,

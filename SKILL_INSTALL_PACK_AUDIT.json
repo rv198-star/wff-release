@@ -1,76 +1,76 @@
 {
   "content_inventory": {
     "category_bytes": {
-      "install-pack-root-guidance": 27078,
+      "install-pack-root-guidance": 26205,
       "optional-runtime-dependency": 4415224,
-      "other": 93724,
-      "runtime-config": 84634,
-      "user-facing-guidance": 5432017,
-      "user-facing-reference-package": 627548,
+      "other": 100779,
+      "runtime-config": 89961,
+      "user-facing-guidance": 225499,
+      "user-facing-reference-package": 632151,
       "user-facing-template": 2936,
-      "user-runtime-script": 5706521,
-      "user-runtime-skill": 229497
+      "user-runtime-script": 6812991,
+      "user-runtime-skill": 344753
     },
     "category_counts": {
       "install-pack-root-guidance": 4,
       "optional-runtime-dependency": 110,
       "other": 12,
       "runtime-config": 4,
-      "user-facing-guidance": 22,
+      "user-facing-guidance": 20,
       "user-facing-reference-package": 180,
       "user-facing-template": 1,
-      "user-runtime-script": 295,
-      "user-runtime-skill": 55
+      "user-runtime-script": 318,
+      "user-runtime-skill": 59
     },
     "policy_findings": [],
     "top_level": [
       {
-        "bytes": 2566,
+        "bytes": 4091,
         "files": 1,
         "path": "AGENTS.md"
       },
       {
-        "bytes": 7338,
+        "bytes": 7566,
         "files": 1,
         "path": "INSTALL-PACK-README.en.md"
       },
       {
-        "bytes": 7212,
+        "bytes": 7426,
         "files": 1,
         "path": "INSTALL-PACK-README.md"
       },
       {
-        "bytes": 7212,
+        "bytes": 7426,
         "files": 1,
         "path": "INSTALL-PACK-README.zh-CN.md"
       },
       {
-        "bytes": 5697,
+        "bytes": 5630,
         "files": 1,
         "path": "INSTALL_PACK_AUDIT.md"
       },
       {
-        "bytes": 7338,
+        "bytes": 7566,
         "files": 1,
         "path": "README.en.md"
       },
       {
-        "bytes": 8587,
+        "bytes": 7274,
         "files": 1,
         "path": "README.md"
       },
       {
-        "bytes": 8587,
+        "bytes": 7274,
         "files": 1,
         "path": "README.zh-CN.md"
       },
       {
-        "bytes": 11212,
+        "bytes": 14653,
         "files": 1,
         "path": "SKILL_INSTALL_PACK_AUDIT.json"
       },
       {
-        "bytes": 48569,
+        "bytes": 51500,
         "files": 1,
         "path": "SKILL_INSTALL_PACK_MANIFEST.json"
       },
@@ -80,32 +80,32 @@
         "path": "WFF-START-HERE.md"
       },
       {
-        "bytes": 2771,
+        "bytes": 2770,
         "files": 1,
         "path": "WFF-START-HERE.zh-CN.md"
       },
       {
-        "bytes": 84634,
+        "bytes": 89961,
         "files": 4,
         "path": "config"
       },
       {
-        "bytes": 5432017,
-        "files": 22,
+        "bytes": 225499,
+        "files": 20,
         "path": "docs"
       },
       {
-        "bytes": 627548,
+        "bytes": 632151,
         "files": 180,
         "path": "reference-packages"
       },
       {
-        "bytes": 490,
+        "bytes": 544,
         "files": 1,
         "path": "requirements.lock.txt"
       },
       {
-        "bytes": 29,
+        "bytes": 70,
         "files": 1,
         "path": "requirements.txt"
       },
@@ -115,13 +115,13 @@
         "path": "runtime-deps"
       },
       {
-        "bytes": 5706521,
-        "files": 295,
+        "bytes": 6812991,
+        "files": 318,
         "path": "scripts"
       },
       {
-        "bytes": 229497,
-        "files": 55,
+        "bytes": 344753,
+        "files": 59,
         "path": "skills"
       },
       {
@@ -140,8 +140,8 @@
         "path": "wff-init"
       }
     ],
-    "total_bytes": 16619179,
-    "total_files": 683
+    "total_bytes": 12650499,
+    "total_files": 708
   },
   "excluded_path_leaks": {
     "pyc_files": [],
@@ -151,7 +151,7 @@
   "hard_failures": [],
   "install_pack_agents_guidance": {
     "exists": true,
-    "line_count": 41,
+    "line_count": 49,
     "max_allowed_lines": 120,
     "missing_required_phrases": [],
     "path": "AGENTS.md",
@@ -159,8 +159,8 @@
   },
   "internal_reference_failures": [],
   "overall_verdict": "pass",
-  "pack_name": "wff-v1.6.0-skills-install-pack",
-  "pack_root": "wff-v1.6.0-skills-install-pack",
+  "pack_name": "wff-v1.9.2-skills-install-pack",
+  "pack_root": "wff-v1.9.2-skills-install-pack",
   "pack_type": "skills-install-pack",
   "phase_checks": {
     "phase1": {
@@ -183,14 +183,8 @@
     },
     "phase2": {
       "classification": "install-pack-ready",
-      "compatibility_file_count": 2,
+      "compatibility_file_count": 1,
       "compatibility_help_probes": [
-        {
-          "command": "scripts/phase2/run_phase2_first_version.py --help",
-          "detail": "",
-          "ok": true,
-          "skipped": false
-        },
         {
           "command": "scripts/phase2/run_phase2_full_trial.py --help",
           "detail": "script not included in this install profile",
@@ -326,55 +320,55 @@
   "root_guidance_context_boundary": {
     "checked_root_guidance_files": [
       {
-        "line_count": 41,
+        "line_count": 49,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "AGENTS.md"
       },
       {
-        "line_count": 153,
+        "line_count": 154,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "INSTALL-PACK-README.en.md"
       },
       {
-        "line_count": 153,
+        "line_count": 154,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "INSTALL-PACK-README.md"
       },
       {
-        "line_count": 153,
+        "line_count": 154,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "INSTALL-PACK-README.zh-CN.md"
       },
       {
-        "line_count": 153,
+        "line_count": 154,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "README.en.md"
       },
       {
-        "line_count": 172,
+        "line_count": 107,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "README.md"
       },
       {
-        "line_count": 172,
+        "line_count": 107,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "README.zh-CN.md"
       },
       {
-        "line_count": 33,
+        "line_count": 32,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "WFF-START-HERE.md"
       },
       {
-        "line_count": 33,
+        "line_count": 32,
         "markers": [],
         "max_allowed_lines": 240,
         "path": "WFF-START-HERE.zh-CN.md"
@@ -410,7 +404,93 @@
     }
   },
   "skill_name_mismatches": [],
-  "source_revision": "2989df038c98ed5e501120260b9c8e319aef4610",
+  "source_revision": "fab0cee6f9ef7346469a858dbc75724adf06069b",
+  "wff_core_runtime": {
+    "actual_files": [
+      "scripts/wff_core/__init__.py",
+      "scripts/wff_core/contracts/__init__.py",
+      "scripts/wff_core/contracts/current-capabilities.json",
+      "scripts/wff_core/contracts/wff-core-contract.json",
+      "scripts/wff_core/errors.py",
+      "scripts/wff_core/manifest.py",
+      "scripts/wff_core/models.py",
+      "scripts/wff_core/operations.py",
+      "scripts/wff_core/registry.py"
+    ],
+    "claim_ceiling": "This audit proves packaged Core identity, direct import, descriptor closure, and required route mappings. It does not prove generated artifact quality, runtime scenario parity, or release readiness.",
+    "forbidden_files": [],
+    "listed_files": [
+      "scripts/wff_core/__init__.py",
+      "scripts/wff_core/contracts/__init__.py",
+      "scripts/wff_core/contracts/current-capabilities.json",
+      "scripts/wff_core/contracts/wff-core-contract.json",
+      "scripts/wff_core/errors.py",
+      "scripts/wff_core/manifest.py",
+      "scripts/wff_core/models.py",
+      "scripts/wff_core/operations.py",
+      "scripts/wff_core/registry.py"
+    ],
+    "manifest": {
+      "alias_count": 36,
+      "claim_ceiling": "The install pack carries the accepted Core semantic runtime and descriptors. This does not prove lifecycle output quality, runtime parity, or release readiness.",
+      "consumer_adapter": "scripts/common/wff_core_runtime.py",
+      "contract_id": "wff-core-contract",
+      "contract_version": "1.0.0",
+      "descriptor_count": 16,
+      "import_mode": "packaged-core",
+      "included_files": [
+        "scripts/wff_core/__init__.py",
+        "scripts/wff_core/contracts/__init__.py",
+        "scripts/wff_core/contracts/current-capabilities.json",
+        "scripts/wff_core/contracts/wff-core-contract.json",
+        "scripts/wff_core/errors.py",
+        "scripts/wff_core/manifest.py",
+        "scripts/wff_core/models.py",
+        "scripts/wff_core/operations.py",
+        "scripts/wff_core/registry.py"
+      ],
+      "p1_semantic_projection_sha256": "22a93eb1d2fabdddd2cc24bcf001aff14c6593e0a9ce6434b8c2c7feed7b4d9e",
+      "package_path": "scripts/wff_core",
+      "repository_fallback_packaging": "excluded",
+      "schema_version": "wff.install-pack-core-runtime.v1",
+      "source_path": "wff-core/src/wff_core",
+      "status": "vendored-public-core-runtime"
+    },
+    "public_api_probe": {
+      "forbidden": [],
+      "operations": 9,
+      "types": 13
+    },
+    "repository_fallback_present": false,
+    "route_results": {
+      "using-wff": "lifecycle-routing",
+      "wff-arch": "architecture-design",
+      "wff-impl": "implementation-delivery",
+      "wff-req": "product-requirements",
+      "wff-req-chat": "requirements-intake",
+      "wff-validation": "validation-closure",
+      "wff-x": "brownfield-assessment"
+    },
+    "snapshot": {
+      "alias_count": 36,
+      "claim_ceiling": "Runtime resolution proves Core package availability and descriptor closure only; it does not prove any lifecycle artifact or release claim.",
+      "compatibility_resolution": "descriptor-route-keys-and-aliases",
+      "contract_id": "wff-core-contract",
+      "contract_version": "1.0.0",
+      "descriptor_count": 16,
+      "external_entries": [
+        "using-wff",
+        "wff-req",
+        "wff-req-chat",
+        "wff-x"
+      ],
+      "import_mode": "packaged-core",
+      "p1_semantic_projection_sha256": "22a93eb1d2fabdddd2cc24bcf001aff14c6593e0a9ce6434b8c2c7feed7b4d9e",
+      "schema_version": "wff.core-runtime-snapshot.v1",
+      "status": "packaged-core-resolved"
+    },
+    "status": "pass"
+  },
   "wff_project_init_support": {
     "help_probes": [
       {

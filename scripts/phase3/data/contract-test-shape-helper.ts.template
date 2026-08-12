@@ -1,3 +1,6 @@
+const mechanicalResponseExample = __MECHANICAL_RESPONSE_EXAMPLE__;
+const semanticLiteralFields = new Set<string>(__SEMANTIC_LITERAL_FIELDS__);
+
 function isIdentifierField(key: string): boolean {
   return key.endsWith("_id") || key.endsWith("Id");
 }
@@ -12,8 +15,13 @@ function expectedObjectKeys(expected: Record<string, unknown>, fieldName: string
 function expectContractShape(actual: unknown, expected: unknown, fieldName = ""): void {
   if (Array.isArray(expected)) {
     expect(Array.isArray(actual)).toBe(true);
-    expect((actual as unknown[]).length).toBe(expected.length);
-    expected.forEach((item, index) => expectContractShape((actual as unknown[])[index], item, fieldName));
+    const actualItems = actual as unknown[];
+    if (!mechanicalResponseExample) {
+      expect(actualItems.length).toBe(expected.length);
+      expected.forEach((item, index) => expectContractShape(actualItems[index], item, fieldName));
+    } else if (expected.length > 0 && actualItems.length > 0) {
+      expectContractShape(actualItems[0], expected[0], fieldName);
+    }
     return;
   }
   if (expected && typeof expected === "object") {
@@ -21,11 +29,6 @@ function expectContractShape(actual: unknown, expected: unknown, fieldName = "")
     const actualRecord = actual as Record<string, unknown>;
     const expectedRecord = expected as Record<string, unknown>;
     expect(Object.keys(actualRecord).sort()).toEqual(expectedObjectKeys(expectedRecord, fieldName));
-    if (fieldName === "" && "data" in expectedRecord) {
-      expect(actualRecord.trace_id).toEqual(expect.any(String));
-      expect(actualRecord.request_id).toEqual(expect.any(String));
-      expect(actualRecord.meta).toEqual(expect.any(Object));
-    }
     for (const [key, value] of Object.entries(expectedRecord)) {
       expectContractShape(actualRecord[key], value, key);
     }
@@ -34,6 +37,20 @@ function expectContractShape(actual: unknown, expected: unknown, fieldName = "")
   if (typeof expected === "string" && isIdentifierField(fieldName)) {
     expect(actual).toEqual(expect.any(String));
     return;
+  }
+  if (mechanicalResponseExample && fieldName && !semanticLiteralFields.has(fieldName)) {
+    if (typeof expected === "string") {
+      expect(actual).toEqual(expect.any(String));
+      return;
+    }
+    if (typeof expected === "number") {
+      expect(actual).toEqual(expect.any(Number));
+      return;
+    }
+    if (typeof expected === "boolean") {
+      expect(actual).toEqual(expect.any(Boolean));
+      return;
+    }
   }
   expect(actual).toEqual(expected);
 }

@@ -1,2 +1,4 @@
+markdown-it-py==4.2.0
 openai==2.43.0
 pytest==9.1.0
+setuptools==83.0.0

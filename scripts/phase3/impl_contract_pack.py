@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from phase3.api_client_scaffolder import build_api_client_document
 from phase3.behavior_card_models import build_behavior_card_models
@@ -34,6 +34,7 @@ def materialize_contract_pack(
     ui_locale: str = "en",
     enable_ui_fallback: bool = False,
     enforce_compiled_authority: bool = False,
+    implementation_authority: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     openapi_path = output_dir / "contracts" / "openapi.yaml"
     shared_types_path = output_dir / "packages" / "shared-types" / "index.ts"
@@ -77,7 +78,12 @@ def materialize_contract_pack(
         },
     )
     behavior_card_models = (
-        build_behavior_card_models(phase2_root=phase2_root, output_dir=output_dir, spec=spec)
+        build_behavior_card_models(
+            phase2_root=phase2_root,
+            output_dir=output_dir,
+            spec=spec,
+            implementation_authority=implementation_authority,
+        )
         if phase2_root is not None
         else {}
     )

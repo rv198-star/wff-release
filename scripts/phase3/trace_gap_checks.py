@@ -83,6 +83,25 @@ def row_trace_ids(row: dict[str, Any]) -> list[str]:
     return sorted(set(values))
 
 
+def row_primary_trace_ids(row: dict[str, Any]) -> list[str]:
+    """Return identities owned by the current trace row, excluding upstream lineage.
+
+    Upstream requirement/AC ids remain traceability inputs, but they are not the
+    identity of the P3 source row itself and therefore must not be treated as
+    reuse/aliasing evidence.
+    """
+    values: list[str] = []
+    for key in ("source_id", "trace_id"):
+        value = str(row.get(key) or "").strip()
+        if value:
+            values.append(value)
+    for key in ("source_ids", "trace_ids"):
+        raw = row.get(key)
+        if isinstance(raw, list):
+            values.extend(str(item).strip() for item in raw if str(item).strip())
+    return sorted(set(values))
+
+
 def trace_sidecar_unavailable(report: dict[str, Any] | None) -> tuple[bool, str]:
     if not isinstance(report, dict):
         return False, ""
@@ -155,7 +174,7 @@ def trace_registry_quality_report(report: dict[str, Any] | None) -> dict[str, An
         status_counts[resolution] += 1
         if resolution in {"suggested", "review", "unresolved"} and not is_unexecutable_contract_trace_gap(row):
             blocking_count += 1
-        for trace_id in row_trace_ids(row):
+        for trace_id in row_primary_trace_ids(row):
             trace_id_rows[trace_id].append({"index": index, "operation_kind": _operation_kind(row)})
 
     abuse_rows: list[dict[str, Any]] = []

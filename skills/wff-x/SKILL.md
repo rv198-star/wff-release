@@ -57,6 +57,13 @@ Read first:
 - `reference-packages/phasex-brownfield-refactoring/README.md`
 - the existing system root
 
+## WFF Core Contract Binding
+
+- Machine descriptor: `brownfield-assessment`, phase `PX`, route `wff-x`, under `wff-core-contract` `1.0.0`.
+- Consumes `lifecycle-route-contract`, `phase-contract`, `handoff-contract`, `artifact-identity-contract`, `evidence-contract`, `claim-state-contract`, and `reentry-return-contract`.
+- Core owns bounded re-entry envelopes and structural identities; PhaseX Agentic work owns existing-system observation and interpretation.
+- Missing or incompatible Core metadata blocks the route instead of guessing a mainline re-entry.
+
 ## Entrypoints
 
 Scaffold a fresh PhaseX case:

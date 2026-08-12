@@ -1303,6 +1303,15 @@ class Phase2FirstVersionContext:
     phase1_prd: Path
     existing_system_architecture_change_intake: Path | None
     output_dir: Path
+    agentic_architecture_decision: Path | None
+    agentic_candidate: Path
+    agentic_decision_template: Path
+    agentic_decision_evidence: Path
+    agentic_architecture_authority: Path
+    agentic_disposition_ledger: Path
+    dependency_routing_receipt: Path
+    agentic_application_receipt: Path
+    agentic_canonical_convergence_report: Path
     phase1_prototype_spec: Path | None
     phase1_prototype_prompt_pack: Path | None
     phase1_interaction_flow_contract: Path | None
@@ -1332,6 +1341,9 @@ class Phase2FirstVersionResult:
     with_stage_02_5: bool
     timing_report_path: Path
     claim_control_report_path: Path | None = None
+    agentic_handoff_status: str = ""
+    agentic_application_receipt_path: Path | None = None
+    agentic_canonical_convergence_report_path: Path | None = None
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

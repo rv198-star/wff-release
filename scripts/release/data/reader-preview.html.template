@@ -1,0 +1,1242 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <meta name="wff-human-review-artifact" content="reader-preview.v1">
+  <meta name="wff-human-review-label" content="@@WFF_DOCUMENT_TITLE@@">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>@@WFF_DOCUMENT_TITLE@@ | WFF 阅读版</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --background: #f6f7f8;
+      --surface: #ffffff;
+      --surface-subtle: #f0f2f4;
+      --foreground: #202428;
+      --muted: #626a73;
+      --border: #d9dde2;
+      --border-strong: #bbc2ca;
+      --accent: #165d9c;
+      --accent-subtle: #e7f1fa;
+      --verified: #16724a;
+      --verified-subtle: #e6f5ee;
+      --mark: #ffdf70;
+      --mark-current: #ffbd3e;
+      --code-background: #171b20;
+      --code-foreground: #e8edf2;
+      --focus: #0877d1;
+      --reader-scale: 1;
+      --topbar-height: 89px;
+      --ui-font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --background: #141719;
+      --surface: #1c2024;
+      --surface-subtle: #252a2f;
+      --foreground: #edf0f2;
+      --muted: #a9b0b7;
+      --border: #343a40;
+      --border-strong: #525a63;
+      --accent: #79b9ed;
+      --accent-subtle: #183b57;
+      --verified: #74d7a9;
+      --verified-subtle: #173c2d;
+      --mark: #795e13;
+      --mark-current: #a66d00;
+      --code-background: #0d1013;
+      --code-foreground: #edf0f2;
+      --focus: #8ac7f4;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root[data-theme="system"] {
+        color-scheme: dark;
+        --background: #141719;
+        --surface: #1c2024;
+        --surface-subtle: #252a2f;
+        --foreground: #edf0f2;
+        --muted: #a9b0b7;
+        --border: #343a40;
+        --border-strong: #525a63;
+        --accent: #79b9ed;
+        --accent-subtle: #183b57;
+        --verified: #74d7a9;
+        --verified-subtle: #173c2d;
+        --mark: #795e13;
+        --mark-current: #a66d00;
+        --code-background: #0d1013;
+        --code-foreground: #edf0f2;
+        --focus: #8ac7f4;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--background);
+      color: var(--foreground);
+      font-family: var(--ui-font);
+      letter-spacing: 0;
+      scroll-behavior: smooth;
+      text-rendering: optimizeLegibility;
+    }
+
+    body {
+      min-width: 0;
+      min-height: 100vh;
+      margin: 0;
+      background: var(--background);
+      color: var(--foreground);
+      overflow-x: hidden;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+      letter-spacing: 0;
+    }
+
+    button {
+      min-height: 44px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--foreground);
+      cursor: pointer;
+      transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease;
+    }
+
+    button:hover {
+      border-color: var(--border-strong);
+      background: var(--surface-subtle);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
+
+    :focus-visible {
+      outline: 3px solid var(--focus);
+      outline-offset: 2px;
+    }
+
+    .skip-link {
+      position: fixed;
+      z-index: 1000;
+      top: 8px;
+      left: 8px;
+      padding: 10px 14px;
+      border-radius: 6px;
+      background: var(--foreground);
+      color: var(--surface);
+      transform: translateY(-160%);
+      transition: transform 180ms ease;
+    }
+
+    .skip-link:focus {
+      transform: translateY(0);
+    }
+
+    .scroll-progress {
+      position: fixed;
+      z-index: 120;
+      top: calc(var(--topbar-height) - 3px);
+      left: 0;
+      width: 100%;
+      height: 3px;
+      background: transparent;
+      pointer-events: none;
+    }
+
+    .scroll-progress > span {
+      display: block;
+      width: 0;
+      height: 100%;
+      background: var(--accent);
+      transform-origin: left center;
+    }
+
+    .topbar {
+      position: sticky;
+      z-index: 100;
+      top: 0;
+      border-bottom: 1px solid var(--border);
+      background: color-mix(in srgb, var(--surface) 95%, transparent);
+      backdrop-filter: blur(10px);
+    }
+
+    .topbar-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 88px;
+      padding: 12px 20px;
+    }
+
+    .identity {
+      display: flex;
+      min-width: 13rem;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .identity-line {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .artifact-name {
+      max-width: 36rem;
+      color: var(--muted);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .verified {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 28px;
+      padding: 2px 9px;
+      border: 1px solid color-mix(in srgb, var(--verified) 38%, var(--border));
+      border-radius: 999px;
+      background: var(--verified-subtle);
+      color: var(--verified);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .verified::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      content: "";
+    }
+
+    .tools {
+      display: flex;
+      min-width: 0;
+      flex: 1;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .search-box {
+      display: grid;
+      min-width: 15rem;
+      height: 44px;
+      flex: 1 1 18rem;
+      grid-template-columns: minmax(8rem, 1fr) auto auto auto;
+      align-items: center;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+    }
+
+    .search-box:focus-within {
+      border-color: var(--focus);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus) 24%, transparent);
+    }
+
+    .search-box input {
+      width: 100%;
+      min-width: 0;
+      height: 42px;
+      padding: 0 12px;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--foreground);
+    }
+
+    .search-result {
+      min-width: 3.6rem;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .search-box button {
+      min-width: 44px;
+      height: 42px;
+      min-height: 42px;
+      border-width: 0 0 0 1px;
+      border-radius: 0;
+    }
+
+    .segment {
+      display: inline-flex;
+      min-height: 44px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+    }
+
+    .segment button {
+      min-width: 44px;
+      min-height: 42px;
+      padding: 0 11px;
+      border-width: 0 0 0 1px;
+      border-radius: 0;
+    }
+
+    .segment button:first-child {
+      border-left: 0;
+    }
+
+    .segment button[aria-pressed="true"] {
+      background: var(--accent-subtle);
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .mobile-theme {
+      display: none;
+    }
+
+    .mobile-theme select {
+      width: 100%;
+      min-height: 44px;
+      padding: 0 34px 0 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--foreground);
+      cursor: pointer;
+    }
+
+    .command {
+      min-width: 58px;
+      padding: 0 13px;
+    }
+
+    .layout {
+      display: grid;
+      width: 100%;
+      max-width: 100rem;
+      min-width: 0;
+      margin: 0 auto;
+      grid-template-columns: minmax(15rem, 18rem) minmax(0, 1fr);
+    }
+
+    .sidebar {
+      min-width: 0;
+      border-right: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .sidebar-inner {
+      position: sticky;
+      top: var(--topbar-height);
+      max-height: calc(100vh - var(--topbar-height));
+      padding: 28px 20px 48px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .toc-label {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .toc-list {
+      display: grid;
+      gap: 2px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .toc-list a {
+      display: block;
+      min-height: 36px;
+      padding: 8px 10px;
+      border-left: 2px solid transparent;
+      border-radius: 0 4px 4px 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+
+    .toc-list a:hover {
+      background: var(--surface-subtle);
+      color: var(--foreground);
+    }
+
+    .toc-list a[aria-current="location"] {
+      border-left-color: var(--accent);
+      background: var(--accent-subtle);
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .toc-depth-1 a {
+      padding-left: 22px;
+    }
+
+    .toc-depth-2 a,
+    .toc-depth-3 a {
+      padding-left: 34px;
+      font-size: 12px;
+    }
+
+    .toc-empty {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .reader-main {
+      min-width: 0;
+      padding: 32px 7vw 80px;
+    }
+
+    .mobile-toc {
+      display: none;
+      max-width: 78ch;
+      margin: 0 auto 24px;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .mobile-toc summary {
+      min-height: 48px;
+      padding: 13px 4px;
+      color: var(--foreground);
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .mobile-toc .toc-list {
+      padding: 0 0 16px;
+    }
+
+    .document-meta {
+      display: grid;
+      max-width: 78ch;
+      margin: 0 auto 32px;
+      padding: 16px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px 24px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .document-meta dt {
+      margin-bottom: 3px;
+      font-weight: 700;
+    }
+
+    .document-meta dd {
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .document-meta a {
+      color: var(--accent);
+      text-underline-offset: 3px;
+    }
+
+    .reader-article {
+      max-width: 78ch;
+      margin: 0 auto;
+      font-size: calc(17px * var(--reader-scale));
+      line-height: 1.8;
+      overflow-wrap: break-word;
+    }
+
+    .reader-article > :first-child {
+      margin-top: 0;
+    }
+
+    .reader-article h1,
+    .reader-article h2,
+    .reader-article h3,
+    .reader-article h4,
+    .reader-article h5,
+    .reader-article h6 {
+      color: var(--foreground);
+      font-family: var(--ui-font);
+      letter-spacing: 0;
+      line-height: 1.35;
+      scroll-margin-top: calc(var(--topbar-height) + 20px);
+      text-wrap: balance;
+    }
+
+    .reader-article h1 {
+      margin: 0 0 28px;
+      font-size: calc(34px * var(--reader-scale));
+      font-weight: 760;
+    }
+
+    .reader-article h2 {
+      margin: 56px 0 18px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+      font-size: calc(25px * var(--reader-scale));
+      font-weight: 720;
+    }
+
+    .reader-article h3 {
+      margin: 36px 0 14px;
+      font-size: calc(20px * var(--reader-scale));
+      font-weight: 700;
+    }
+
+    .reader-article h4,
+    .reader-article h5,
+    .reader-article h6 {
+      margin: 28px 0 12px;
+      font-size: calc(17px * var(--reader-scale));
+      font-weight: 700;
+    }
+
+    .reader-article p {
+      margin: 0 0 18px;
+    }
+
+    .reader-article ul,
+    .reader-article ol {
+      margin: 0 0 20px;
+      padding-left: 1.55em;
+    }
+
+    .reader-article li {
+      margin: 7px 0;
+      padding-left: 0.2em;
+    }
+
+    .reader-article li > ul,
+    .reader-article li > ol {
+      margin-top: 7px;
+      margin-bottom: 7px;
+    }
+
+    .reader-article a {
+      color: var(--accent);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    .reader-article blockquote {
+      margin: 24px 0;
+      padding: 15px 18px;
+      border-left: 4px solid var(--accent);
+      background: var(--accent-subtle);
+      color: var(--foreground);
+    }
+
+    .reader-article blockquote p:last-child {
+      margin-bottom: 0;
+    }
+
+    .reader-article .reader-preamble {
+      padding: 12px 15px;
+      border-left-width: 3px;
+      background: var(--surface-subtle);
+      color: var(--muted);
+      font-size: 0.86em;
+      line-height: 1.65;
+    }
+
+    .reader-article img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      margin: 24px auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+
+    .reader-article hr {
+      height: 1px;
+      margin: 40px 0;
+      border: 0;
+      background: var(--border);
+    }
+
+    .reader-article code {
+      font-family: var(--code-font);
+      font-size: 0.88em;
+    }
+
+    .reader-article :not(pre) > code {
+      padding: 0.15em 0.38em;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--surface-subtle);
+      color: var(--foreground);
+      overflow-wrap: anywhere;
+    }
+
+    .code-block {
+      margin: 24px 0;
+      overflow: hidden;
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      background: var(--code-background);
+    }
+
+    .code-head {
+      display: flex;
+      min-height: 44px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding-left: 14px;
+      border-bottom: 1px solid #353c44;
+      color: #c9d1d9;
+      font-family: var(--code-font);
+      font-size: 12px;
+    }
+
+    .code-copy {
+      min-width: 72px;
+      min-height: 43px;
+      padding: 0 14px;
+      border-width: 0 0 0 1px;
+      border-color: #353c44;
+      border-radius: 0;
+      background: transparent;
+      color: #e8edf2;
+    }
+
+    .code-copy:hover {
+      border-color: #4d5660;
+      background: #252b31;
+    }
+
+    .code-block pre {
+      margin: 0;
+      padding: 18px;
+      color: var(--code-foreground);
+      line-height: 1.65;
+      overflow: auto;
+      overscroll-behavior: contain;
+      tab-size: 2;
+    }
+
+    .code-block code {
+      color: inherit;
+      font-size: 13px;
+      white-space: pre;
+      overflow-wrap: normal;
+    }
+
+    .table-scroll {
+      max-width: 100%;
+      margin: 24px 0 30px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow-x: auto;
+      overscroll-behavior-inline: contain;
+    }
+
+    .reader-article table {
+      width: 100%;
+      min-width: 38rem;
+      border-collapse: collapse;
+      background: var(--surface);
+      font-size: 0.9em;
+      line-height: 1.55;
+    }
+
+    .reader-article th,
+    .reader-article td {
+      padding: 11px 13px;
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .reader-article th:last-child,
+    .reader-article td:last-child {
+      border-right: 0;
+    }
+
+    .reader-article tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .reader-article th {
+      background: var(--surface-subtle);
+      color: var(--foreground);
+      font-weight: 700;
+    }
+
+    mark[data-reader-search] {
+      border-radius: 2px;
+      background: var(--mark);
+      color: #1d1d1d;
+    }
+
+    mark[data-reader-search].is-current {
+      background: var(--mark-current);
+      box-shadow: 0 0 0 2px var(--focus);
+    }
+
+    .reader-footer {
+      max-width: 78ch;
+      margin: 64px auto 0;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    .reader-footer code {
+      font-family: var(--code-font);
+      overflow-wrap: anywhere;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @media (max-width: 1100px) {
+      .topbar-inner {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .identity {
+        width: 100%;
+      }
+
+      .tools {
+        width: 100%;
+        justify-content: flex-start;
+      }
+
+      .layout {
+        grid-template-columns: minmax(13rem, 15rem) minmax(0, 1fr);
+      }
+
+      .reader-main {
+        padding-right: 5vw;
+        padding-left: 5vw;
+      }
+    }
+
+    @media (max-width: 760px) {
+      :root {
+        --topbar-height: 176px;
+      }
+
+      .topbar-inner {
+        gap: 10px;
+        padding: 10px 12px;
+      }
+
+      .artifact-name {
+        max-width: 100%;
+      }
+
+      .search-box {
+        min-width: 100%;
+        flex-basis: 100%;
+      }
+
+      .tools {
+        gap: 7px;
+      }
+
+      .segment {
+        flex: 1 1 auto;
+      }
+
+      .segment button {
+        flex: 1;
+      }
+
+      .theme-segment {
+        display: none;
+      }
+
+      .mobile-theme {
+        display: block;
+        flex: 1 1 112px;
+      }
+
+      .command {
+        flex: 1 1 64px;
+      }
+
+      .layout {
+        display: block;
+      }
+
+      .sidebar {
+        display: none;
+      }
+
+      .reader-main {
+        padding: 24px 18px 64px;
+      }
+
+      .mobile-toc {
+        display: block;
+      }
+
+      .document-meta {
+        grid-template-columns: 1fr;
+      }
+
+      .reader-article {
+        font-size: calc(16px * var(--reader-scale));
+        line-height: 1.78;
+      }
+
+      .reader-article h1 {
+        font-size: calc(29px * var(--reader-scale));
+      }
+
+      .reader-article h2 {
+        margin-top: 44px;
+        font-size: calc(23px * var(--reader-scale));
+      }
+
+      .reader-article h3 {
+        font-size: calc(19px * var(--reader-scale));
+      }
+
+      .reader-article table {
+        min-width: 34rem;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    @media print {
+      :root {
+        color-scheme: light;
+        --background: #ffffff;
+        --surface: #ffffff;
+        --surface-subtle: #f3f4f5;
+        --foreground: #111111;
+        --muted: #444444;
+        --border: #cccccc;
+        --accent: #111111;
+        --accent-subtle: #f3f4f5;
+      }
+
+      .topbar,
+      .scroll-progress,
+      .sidebar,
+      .mobile-toc,
+      .code-copy,
+      .skip-link {
+        display: none !important;
+      }
+
+      .layout {
+        display: block;
+      }
+
+      .reader-main {
+        padding: 0;
+      }
+
+      .reader-article,
+      .document-meta,
+      .reader-footer {
+        max-width: none;
+      }
+
+      .reader-article {
+        font-size: 11pt;
+      }
+
+      .reader-article h1,
+      .reader-article h2,
+      .reader-article h3 {
+        break-after: avoid;
+      }
+
+      .code-block,
+      .table-scroll,
+      blockquote {
+        break-inside: avoid;
+      }
+
+      .table-scroll {
+        overflow: visible;
+      }
+
+      .reader-article table {
+        min-width: 0;
+      }
+    }
+  </style>
+</head>
+<body data-wff-reader-preview data-role="human-review-only">
+  <a class="skip-link" href="#reader-content">跳到正文</a>
+  <header class="topbar" id="topbar">
+    <div class="topbar-inner">
+      <div class="identity">
+        <div class="identity-line">
+          <span class="brand">WFF 本地阅读版</span>
+          <span class="verified">目标已验收</span>
+        </div>
+        <span class="artifact-name">@@WFF_ARTIFACT_LABEL@@ · @@WFF_READER_NAME@@</span>
+      </div>
+      <div class="tools" aria-label="阅读工具">
+        <div class="search-box" role="search">
+          <label class="sr-only" for="reader-search">查找正文</label>
+          <input id="reader-search" type="search" placeholder="查找正文" autocomplete="off" aria-controls="reader-article" aria-describedby="search-result">
+          <span class="search-result" id="search-result">0/0</span>
+          <button type="button" id="search-previous" title="上一个匹配项" aria-label="上一个匹配项" disabled>上一个</button>
+          <button type="button" id="search-next" title="下一个匹配项" aria-label="下一个匹配项" disabled>下一个</button>
+        </div>
+        <div class="segment theme-segment" role="group" aria-label="颜色主题">
+          <button type="button" data-theme-choice="system" aria-pressed="true">跟随系统</button>
+          <button type="button" data-theme-choice="light" aria-pressed="false">浅色</button>
+          <button type="button" data-theme-choice="dark" aria-pressed="false">深色</button>
+        </div>
+        <label class="mobile-theme">
+          <span class="sr-only">颜色主题</span>
+          <select id="mobile-theme-select" aria-label="颜色主题">
+            <option value="system">跟随系统</option>
+            <option value="light">浅色</option>
+            <option value="dark">深色</option>
+          </select>
+        </label>
+        <div class="segment" role="group" aria-label="正文字号">
+          <button type="button" id="font-decrease" title="减小字号" aria-label="减小字号">A-</button>
+          <button type="button" id="font-reset" title="恢复字号" aria-label="恢复默认字号">A</button>
+          <button type="button" id="font-increase" title="增大字号" aria-label="增大字号">A+</button>
+        </div>
+        <button type="button" class="command" id="print-document">打印</button>
+      </div>
+    </div>
+  </header>
+  <div class="scroll-progress" aria-hidden="true"><span id="scroll-progress-value"></span></div>
+
+  <div class="layout">
+    <aside class="sidebar" aria-label="文档目录">
+      <div class="sidebar-inner">
+        <p class="toc-label">文档目录</p>
+        <ol class="toc-list">@@WFF_TOC_ITEMS@@</ol>
+      </div>
+    </aside>
+
+    <main class="reader-main" id="reader-content" tabindex="-1">
+      <details class="mobile-toc">
+        <summary>文档目录</summary>
+        <ol class="toc-list">@@WFF_TOC_ITEMS@@</ol>
+      </details>
+
+      <dl class="document-meta" aria-label="阅读版元数据">
+        <div>
+          <dt>产物类型</dt>
+          <dd>@@WFF_KIND_LABEL@@</dd>
+        </div>
+        <div>
+          <dt>本地化状态</dt>
+          <dd>zh-CN reader target acceptance: pass</dd>
+        </div>
+        <div>
+          <dt>阅读版 Markdown</dt>
+          <dd><a href="@@WFF_READER_HREF@@">@@WFF_READER_NAME@@</a></dd>
+        </div>
+        <div>
+          <dt>Canonical</dt>
+          <dd><a href="@@WFF_CANONICAL_HREF@@">@@WFF_CANONICAL_NAME@@</a></dd>
+        </div>
+        <div>
+          <dt>Integrity</dt>
+          <dd><a href="@@WFF_INTEGRITY_HREF@@">@@WFF_INTEGRITY_NAME@@</a></dd>
+        </div>
+      </dl>
+
+      <article class="reader-article" id="reader-article">@@WFF_DOCUMENT_BODY@@</article>
+
+      <footer class="reader-footer">
+        <div>reader sha256: <code>@@WFF_READER_SHA@@</code></div>
+        <div>canonical sha256: <code>@@WFF_CANONICAL_SHA@@</code></div>
+      </footer>
+    </main>
+  </div>
+
+  <div class="sr-only" id="live-status" aria-live="polite"></div>
+  <script>
+    (() => {
+      "use strict";
+
+      const root = document.documentElement;
+      const topbar = document.getElementById("topbar");
+      const article = document.getElementById("reader-article");
+      const liveStatus = document.getElementById("live-status");
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+      const updateTopbarHeight = () => {
+        root.style.setProperty("--topbar-height", `${Math.ceil(topbar.getBoundingClientRect().height)}px`);
+      };
+      updateTopbarHeight();
+      if ("ResizeObserver" in window) {
+        new ResizeObserver(updateTopbarHeight).observe(topbar);
+      } else {
+        window.addEventListener("resize", updateTopbarHeight, { passive: true });
+      }
+
+      const themeButtons = Array.from(document.querySelectorAll("[data-theme-choice]"));
+      const mobileTheme = document.getElementById("mobile-theme-select");
+      const setTheme = (theme, label) => {
+        root.dataset.theme = theme;
+        themeButtons.forEach((item) => {
+          item.setAttribute("aria-pressed", String(item.dataset.themeChoice === theme));
+        });
+        mobileTheme.value = theme;
+        liveStatus.textContent = `已切换为${label}主题`;
+      };
+      themeButtons.forEach((button) => {
+        button.addEventListener("click", () => setTheme(button.dataset.themeChoice, button.textContent));
+      });
+      mobileTheme.addEventListener("change", () => {
+        setTheme(mobileTheme.value, mobileTheme.options[mobileTheme.selectedIndex].textContent);
+      });
+
+      let fontScale = 1;
+      const setFontScale = (next) => {
+        fontScale = Math.min(1.25, Math.max(0.85, next));
+        root.style.setProperty("--reader-scale", fontScale.toFixed(2));
+        document.getElementById("font-decrease").disabled = fontScale <= 0.85;
+        document.getElementById("font-increase").disabled = fontScale >= 1.25;
+        liveStatus.textContent = `正文字号 ${Math.round(fontScale * 100)}%`;
+      };
+      document.getElementById("font-decrease").addEventListener("click", () => setFontScale(fontScale - 0.1));
+      document.getElementById("font-reset").addEventListener("click", () => setFontScale(1));
+      document.getElementById("font-increase").addEventListener("click", () => setFontScale(fontScale + 0.1));
+
+      document.getElementById("print-document").addEventListener("click", () => window.print());
+
+      const copyText = async (value) => {
+        if (navigator.clipboard && window.isSecureContext) {
+          try {
+            await navigator.clipboard.writeText(value);
+            return;
+          } catch {
+            // Local file contexts may expose Clipboard API but deny permission.
+          }
+        }
+        const field = document.createElement("textarea");
+        field.value = value;
+        field.setAttribute("readonly", "");
+        field.style.position = "fixed";
+        field.style.opacity = "0";
+        document.body.appendChild(field);
+        field.select();
+        const copied = document.execCommand("copy");
+        field.remove();
+        if (!copied) throw new Error("clipboard unavailable");
+      };
+
+      document.querySelectorAll("[data-copy-code]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const code = button.closest(".code-block").querySelector("code").textContent || "";
+          const original = button.textContent;
+          try {
+            await copyText(code);
+            button.textContent = "已复制";
+            liveStatus.textContent = "代码已复制";
+          } catch {
+            button.textContent = "复制失败";
+            liveStatus.textContent = "代码复制失败";
+          }
+          window.setTimeout(() => { button.textContent = original; }, 1600);
+        });
+      });
+
+      const progress = document.getElementById("scroll-progress-value");
+      const updateProgress = () => {
+        const scrollable = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
+        const ratio = Math.min(1, Math.max(0, window.scrollY / scrollable));
+        progress.style.width = `${ratio * 100}%`;
+      };
+      updateProgress();
+      window.addEventListener("scroll", updateProgress, { passive: true });
+      window.addEventListener("resize", updateProgress, { passive: true });
+
+      const tocLinks = Array.from(document.querySelectorAll("[data-heading-id]"));
+      const setActiveHeading = (headingId) => {
+        tocLinks.forEach((link) => {
+          if (link.dataset.headingId === headingId) {
+            link.setAttribute("aria-current", "location");
+          } else {
+            link.removeAttribute("aria-current");
+          }
+        });
+      };
+      const headings = Array.from(article.querySelectorAll("h2[id], h3[id], h4[id]"));
+      if (headings.length && "IntersectionObserver" in window) {
+        const visible = new Map();
+        const observer = new IntersectionObserver((entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) visible.set(entry.target.id, entry.boundingClientRect.top);
+            else visible.delete(entry.target.id);
+          });
+          if (visible.size) {
+            const closest = Array.from(visible.entries()).sort((a, b) => Math.abs(a[1]) - Math.abs(b[1]))[0][0];
+            setActiveHeading(closest);
+          }
+        }, { rootMargin: "-18% 0px -70% 0px" });
+        headings.forEach((heading) => observer.observe(heading));
+      }
+
+      document.querySelectorAll(".mobile-toc a").forEach((link) => {
+        link.addEventListener("click", () => {
+          const details = link.closest("details");
+          if (details) details.open = false;
+        });
+      });
+
+      const searchInput = document.getElementById("reader-search");
+      const searchResult = document.getElementById("search-result");
+      const previousButton = document.getElementById("search-previous");
+      const nextButton = document.getElementById("search-next");
+      let searchMarks = [];
+      let currentMatch = -1;
+      let searchTimer = 0;
+
+      const clearHighlights = () => {
+        article.querySelectorAll("mark[data-reader-search]").forEach((mark) => {
+          mark.replaceWith(document.createTextNode(mark.textContent || ""));
+        });
+        article.normalize();
+        searchMarks = [];
+        currentMatch = -1;
+      };
+
+      const updateSearchState = () => {
+        const total = searchMarks.length;
+        searchResult.textContent = total ? `${currentMatch + 1}/${total}` : "0/0";
+        previousButton.disabled = total === 0;
+        nextButton.disabled = total === 0;
+        searchMarks.forEach((mark, index) => mark.classList.toggle("is-current", index === currentMatch));
+      };
+
+      const activateMatch = (index, scroll) => {
+        if (!searchMarks.length) return;
+        currentMatch = (index + searchMarks.length) % searchMarks.length;
+        updateSearchState();
+        if (scroll) {
+          searchMarks[currentMatch].scrollIntoView({
+            block: "center",
+            behavior: reducedMotion.matches ? "auto" : "smooth"
+          });
+        }
+      };
+
+      const highlightQuery = () => {
+        clearHighlights();
+        const query = searchInput.value.trim();
+        if (!query) {
+          updateSearchState();
+          return;
+        }
+        const needle = query.toLocaleLowerCase("zh-CN");
+        const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT, {
+          acceptNode(node) {
+            const parent = node.parentElement;
+            if (!parent || parent.closest("button, script, style, mark[data-reader-search]")) {
+              return NodeFilter.FILTER_REJECT;
+            }
+            return node.textContent.toLocaleLowerCase("zh-CN").includes(needle)
+              ? NodeFilter.FILTER_ACCEPT
+              : NodeFilter.FILTER_REJECT;
+          }
+        });
+        const nodes = [];
+        while (walker.nextNode()) nodes.push(walker.currentNode);
+        nodes.forEach((node) => {
+          const text = node.textContent;
+          const lowered = text.toLocaleLowerCase("zh-CN");
+          const fragment = document.createDocumentFragment();
+          let cursor = 0;
+          let matchIndex = lowered.indexOf(needle, cursor);
+          while (matchIndex !== -1) {
+            if (matchIndex > cursor) fragment.appendChild(document.createTextNode(text.slice(cursor, matchIndex)));
+            const mark = document.createElement("mark");
+            mark.dataset.readerSearch = "";
+            mark.textContent = text.slice(matchIndex, matchIndex + query.length);
+            fragment.appendChild(mark);
+            searchMarks.push(mark);
+            cursor = matchIndex + query.length;
+            matchIndex = lowered.indexOf(needle, cursor);
+          }
+          if (cursor < text.length) fragment.appendChild(document.createTextNode(text.slice(cursor)));
+          node.replaceWith(fragment);
+        });
+        currentMatch = searchMarks.length ? 0 : -1;
+        updateSearchState();
+        liveStatus.textContent = searchMarks.length ? `找到 ${searchMarks.length} 个匹配项` : "没有匹配项";
+      };
+
+      searchInput.addEventListener("input", () => {
+        window.clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(highlightQuery, 160);
+      });
+      searchInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          activateMatch(currentMatch + (event.shiftKey ? -1 : 1), true);
+        } else if (event.key === "Escape") {
+          searchInput.value = "";
+          highlightQuery();
+        }
+      });
+      previousButton.addEventListener("click", () => activateMatch(currentMatch - 1, true));
+      nextButton.addEventListener("click", () => activateMatch(currentMatch + 1, true));
+    })();
+  </script>
+</body>
+</html>

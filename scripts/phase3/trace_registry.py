@@ -474,13 +474,24 @@ def parse_bindings(payload: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
             }
         )
         work_packages = sorted({str(item).strip() for item in row.get("work_packages", []) if str(item).strip()})
+        runtime_test_refs = sorted(
+            {str(item).strip() for item in row.get("runtime_test_refs", []) if str(item).strip()}
+        )
         runtime_evidence_refs = sorted(
             {str(item).strip() for item in row.get("runtime_evidence_refs", []) if str(item).strip()}
         )
         mapping[source_id.upper()] = {
             "operation_id": str(row.get("operation_id", "")).strip(),
+            "operation_ids": [str(item).strip() for item in row.get("operation_ids", []) if str(item).strip()] if isinstance(row.get("operation_ids"), list) else [],
+            "contract_id": str(row.get("contract_id") or row.get("source_id") or "").strip(),
+            "authority_contract_ids": [str(item).strip() for item in row.get("authority_contract_ids", []) if str(item).strip()] if isinstance(row.get("authority_contract_ids"), list) else [],
+            "binding_authority": str(row.get("binding_authority") or "").strip(),
+            "implementation_decision_id": str(row.get("implementation_decision_id") or "").strip(),
+            "implementation_decision_digest": str(row.get("implementation_decision_digest") or "").strip(),
+            "exact_tuple_id": str(row.get("exact_tuple_id") or "").strip(),
             "implementation_targets": implementation_targets,
             "work_packages": work_packages,
+            "runtime_test_refs": runtime_test_refs,
             "runtime_evidence_refs": runtime_evidence_refs,
             "binding_status": str(row.get("binding_status", "")).strip() or (
                 "bound" if implementation_targets else "unbound"
@@ -626,9 +637,90 @@ def build_trace_link_evidence(
     binding: dict[str, Any],
     test_targets: list[str],
     implementation_targets: list[str],
+    runtime_test_refs: list[str],
     runtime_evidence_refs: list[str],
 ) -> dict[str, Any]:
     source_type = str(row.get("source_type", "")).strip().lower()
+    operation_ids = [str(item).strip() for item in binding.get("operation_ids", []) if str(item).strip()] if isinstance(binding.get("operation_ids"), list) else []
+    authority_contract_ids = [str(item).strip() for item in binding.get("authority_contract_ids", []) if str(item).strip()] if isinstance(binding.get("authority_contract_ids"), list) else []
+    if len(operation_ids) > 1 and source_type in {"scenario", "replay"}:
+        source_id = str(row.get("source_id", "")).strip()
+        source_identity_matches = [
+            target for target in test_targets if compact_token(source_id) and compact_token(source_id) in compact_token(target)
+        ]
+        primary_tests = [
+            target for target in test_targets if target.startswith(("tests/scenarios/", "tests/replays/"))
+        ]
+        source_runtime_matches = source_test_evidence_matches_runtime(test_targets, runtime_test_refs)
+        operation_target_coverage = {
+            operation_id: [target for target in implementation_targets if target_matches_operation(target, operation_id)]
+            for operation_id in operation_ids
+        }
+        missing_operation_targets = [
+            operation_id for operation_id, targets in operation_target_coverage.items() if not targets
+        ]
+        binding_authority_valid = (
+            str(binding.get("binding_authority") or "")
+            == "derived-multi-operation-evidence-only-from-explicit-operation-set"
+        )
+        authority_contract_set_complete = bool(
+            len(authority_contract_ids) == len(operation_ids) and all(authority_contract_ids)
+        )
+        confirmed_by: list[str] = []
+        review_reasons: list[str] = []
+        if source_identity_matches:
+            confirmed_by.append("source_test_target_matches_source_id")
+        else:
+            review_reasons.append("source_test_target_does_not_match_source_id")
+        if primary_tests:
+            confirmed_by.append("source_specific_test_target_present")
+        else:
+            review_reasons.append("source_specific_test_target_missing")
+        if source_runtime_matches:
+            confirmed_by.append("runtime_test_ref_matches_source_test")
+        else:
+            review_reasons.append("runtime_test_ref_does_not_match_source_test")
+        if runtime_evidence_refs:
+            confirmed_by.append("retained_runtime_evidence_present")
+        else:
+            review_reasons.append("retained_runtime_evidence_missing")
+        if not missing_operation_targets:
+            confirmed_by.append("implementation_targets_cover_operation_set")
+        else:
+            review_reasons.append("implementation_target_missing_for_operation_set")
+        if authority_contract_set_complete:
+            confirmed_by.append("authority_contract_set_complete")
+        else:
+            review_reasons.append("authority_contract_set_incomplete")
+        if binding_authority_valid:
+            confirmed_by.append("explicit_operation_set_binding_authority")
+        else:
+            review_reasons.append("multi_operation_binding_authority_invalid")
+        confirmed = bool(
+            primary_tests
+            and source_identity_matches
+            and source_runtime_matches
+            and runtime_evidence_refs
+            and not missing_operation_targets
+            and authority_contract_set_complete
+            and binding_authority_valid
+        )
+        return {
+            "operation_id": "",
+            "operation_ids": operation_ids,
+            "authority_contract_ids": authority_contract_ids,
+            "operation_target_coverage": operation_target_coverage,
+            "confirmed": confirmed,
+            "confirmed_by": confirmed_by,
+            "review_reasons": review_reasons,
+            "matched_contract_tests": [],
+            "matched_implementation_targets": sorted(
+                {target for targets in operation_target_coverage.values() for target in targets}
+            ),
+            "matched_runtime_test_refs": sorted(set(source_runtime_matches)),
+            "matched_runtime_evidence_refs": sorted(set(runtime_evidence_refs)) if source_runtime_matches else [],
+        }
+
     operation_id = infer_operation_id(row, binding, test_targets)
     source_operation_match = source_mentions_operation(row, operation_id)
     contract_target_matches = [
@@ -639,10 +731,10 @@ def build_trace_link_evidence(
     ]
     runtime_target_matches = [
         target
-        for target in runtime_evidence_refs
+        for target in runtime_test_refs
         if target.startswith("tests/contracts/") and target_matches_operation(target, operation_id)
     ]
-    source_runtime_matches = source_test_evidence_matches_runtime(test_targets, runtime_evidence_refs)
+    source_runtime_matches = source_test_evidence_matches_runtime(test_targets, runtime_test_refs)
     module_source_matches = module_target_matches_source(row, operation_id, test_targets, implementation_targets)
 
     confirmed_by: list[str] = []
@@ -690,9 +782,13 @@ def build_trace_link_evidence(
         else:
             review_reasons.append("implementation_target_missing")
         if source_runtime_matches:
-            confirmed_by.append("runtime_evidence_matches_source_test")
+            confirmed_by.append("runtime_test_ref_matches_source_test")
         else:
-            review_reasons.append("runtime_evidence_does_not_match_source_test")
+            review_reasons.append("runtime_test_ref_does_not_match_source_test")
+        if runtime_evidence_refs:
+            confirmed_by.append("retained_runtime_evidence_present")
+        else:
+            review_reasons.append("retained_runtime_evidence_missing")
         operation_required = source_type in {"scenario", "replay"} and bool(operation_id)
         if operation_required:
             if implementation_target_matches:
@@ -711,6 +807,7 @@ def build_trace_link_evidence(
             and source_identity_matches
             and has_work_or_impl
             and source_runtime_matches
+            and runtime_evidence_refs
             and (not operation_required or implementation_target_matches or module_source_matches)
             and "operation_identity_missing" not in review_reasons
         )
@@ -722,7 +819,8 @@ def build_trace_link_evidence(
         "review_reasons": review_reasons,
         "matched_contract_tests": contract_target_matches,
         "matched_implementation_targets": sorted(set([*implementation_target_matches, *module_source_matches])),
-        "matched_runtime_evidence_refs": sorted(set([*runtime_target_matches, *source_runtime_matches])),
+        "matched_runtime_test_refs": sorted(set([*runtime_target_matches, *source_runtime_matches])),
+        "matched_runtime_evidence_refs": sorted(set(runtime_evidence_refs)) if (runtime_target_matches or source_runtime_matches) else [],
     }
 
 
@@ -749,6 +847,7 @@ def finalize_trace_registry(
         binding = binding_by_source.get(source_id, {})
         implementation_targets = list(binding.get("implementation_targets", []))
         work_packages = list(binding.get("work_packages", []))
+        runtime_test_refs = list(binding.get("runtime_test_refs", []))
         runtime_evidence_refs = list(binding.get("runtime_evidence_refs", []))
         mechanically_bound = bool(test_targets and implementation_targets)
         trace_link_evidence = build_trace_link_evidence(
@@ -756,6 +855,7 @@ def finalize_trace_registry(
             binding=binding,
             test_targets=test_targets,
             implementation_targets=implementation_targets,
+            runtime_test_refs=runtime_test_refs,
             runtime_evidence_refs=runtime_evidence_refs,
         )
         confirmed = mechanically_bound and bool(trace_link_evidence.get("confirmed"))
@@ -770,6 +870,13 @@ def finalize_trace_registry(
         final_rows.append(
             {
                 "source_id": source_id,
+                "contract_id": str(binding.get("contract_id") or source_id).strip(),
+                "operation_id": str(binding.get("operation_id") or trace_link_evidence.get("operation_id") or "").strip(),
+                "operation_ids": [str(item).strip() for item in (binding.get("operation_ids") or trace_link_evidence.get("operation_ids") or []) if str(item).strip()],
+                "authority_contract_ids": [str(item).strip() for item in (binding.get("authority_contract_ids") or trace_link_evidence.get("authority_contract_ids") or []) if str(item).strip()],
+                "implementation_decision_id": str(binding.get("implementation_decision_id") or "").strip(),
+                "implementation_decision_digest": str(binding.get("implementation_decision_digest") or "").strip(),
+                "exact_tuple_id": str(binding.get("exact_tuple_id") or "").strip(),
                 "source_type": source_type,
                 "source_subject": str(row.get("source_subject", "")).strip(),
                 "upstream_trace_ids": row.get("upstream_trace_ids", []),
@@ -777,6 +884,7 @@ def finalize_trace_registry(
                 "test_targets": test_targets,
                 "implementation_targets": implementation_targets,
                 "work_packages": work_packages,
+                "runtime_test_refs": runtime_test_refs,
                 "runtime_evidence_refs": runtime_evidence_refs,
                 "binding_status": binding_status,
                 "final_resolution": final_resolution,

@@ -20,7 +20,7 @@ Use it when:
 - you need implementation cards before backend/frontend work starts
 - you want to review ACD depth, missing sources, and split-required components without running all of P3
 
-Do not use it to invent missing P1/P2 truth. Missing bridge artifacts or incomplete obligation rows must stay `review-bound`.
+Do not use it to invent missing P1/P2 truth. Missing bridge artifacts or incomplete obligation rows must stay `review-bound`. When accepted P2 architecture authority exists, source-material sufficiency is not semantic completeness: every defined implementation component must retain its full accepted contract/P1-trace denominator plus applicable aggregate/writer/topology, component NOR/state/failure/dependency context, project guardrails, and claim ceilings. Global project guardrails and upstream dependencies are context only and must not be converted into false component prerequisites.
 
 ## Reference Package
 
@@ -41,9 +41,11 @@ Primary outputs:
 - `action-cards/validation.json`
 - `.phase3-review/action-card-execution-map.json`
 - `.phase3-review/action-card-human-audit-packet.json`
+- `.phase3-review/action-card-semantic-convergence.json`
 - `action-card-report.json`
 
 ## Completion Standard
 
-This skill is complete when the report names the generated cards, validation status, execution-map path, and human-audit packet path.
-Passing generation does not mean implementation quality is accepted; it only means the action-card intake surface is ready for review and downstream implementation.
+This skill is complete only when the report names the generated cards, validation status, execution-map path, human-audit packet path, and semantic-convergence result. For an authority-bound P2 handoff, `action-card-semantic-convergence.json` must pass with zero unresolved conflicts; defined component omission, accepted contract/P1-trace shrink, aggregate/writer/topology loss, NOR/state/failure/dependency loss, or missing semantic claim ceilings block the next P3 step. Non-operation components may have no public operation contract and must preserve their accepted aggregate/writer/NOR/state authority instead of being mislabeled as unresolved operations.
+
+Passing Action Card generation still does not mean implementation quality is accepted; it means the P1/P2 semantic handoff is preserved and the cards are ready for human review and a separate P3 implementation-authority decision.

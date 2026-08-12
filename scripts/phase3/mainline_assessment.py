@@ -41,8 +41,15 @@ def phase3_formal_state_consistent(report: dict[str, Any]) -> bool:
     implementation_complete = bool(report.get("implementation_complete", False))
     phase_complete = bool(report.get("phase_complete", False))
     implementation_signal_present = bool(checks.get("implementation_signal_present"))
+    semantic_blocking_count = int(checks.get("semantic_realization_blocking_count", 0) or 0)
+    semantic_blocked = (
+        semantic_blocking_count > 0
+        or "semantic_commitment_realization_blocked" in report.get("failures", [])
+    )
     if not bootstrap_gate:
         return state == "blocked"
+    if semantic_blocked:
+        return state in {"blocked", "implementation-in-progress"}
     if phase_complete:
         return state == "delivery-ready"
     if implementation_complete:
@@ -59,6 +66,7 @@ def render_phase3_scorecard_markdown(assessment: dict[str, object]) -> str:
         f"- mainline_profile: `{assessment['mainline_profile']}`",
         f"- recommended_formal_state: `{assessment['recommended_formal_state']}`",
         f"- total_score: `{assessment['total_score']}` / 100",
+        "- score_scope: `backend/runtime artifact diagnostic; not the overall P3 claim`",
         f"- verdict: `{assessment['verdict']}`",
         "",
         "| Dimension | Weight | Score | Notes |",
@@ -174,6 +182,14 @@ def build_phase3_mainline_assessment(*, delivery_gate_report: dict[str, Any]) ->
     resolved_claim_state = str(claim_ceiling_report.get("resolved_formal_state") or "").strip()
     if resolved_claim_state and resolved_claim_state != effective_recommended_formal_state:
         effective_recommended_formal_state = resolved_claim_state
+    semantic_blocking_count = int(checks.get("semantic_realization_blocking_count", 0) or 0)
+    semantic_review_bound_count = int(checks.get("semantic_realization_review_bound_count", 0) or 0)
+    semantic_blocked = (
+        semantic_blocking_count > 0
+        or "semantic_commitment_realization_blocked" in failures
+    )
+    if semantic_blocked and effective_recommended_formal_state not in {"blocked", "foundation-ready"}:
+        effective_recommended_formal_state = "implementation-in-progress"
 
     verification_truth_green = (
         bool(checks.get("unit_test_gate"))
@@ -497,6 +513,18 @@ def build_phase3_mainline_assessment(*, delivery_gate_report: dict[str, Any]) ->
             "why": frontend_why,
         },
         {
+            "key": "semantic_realization_consistency",
+            "label": "accepted P1/P2 commitments have exact P3 realization or explicit return",
+            "status": "BLOCKED" if semantic_blocked else "REVIEW-BOUND" if semantic_review_bound_count > 0 else "PASS",
+            "why": (
+                f"semantic realization ledger retains {semantic_blocking_count} blocking items"
+                if semantic_blocked
+                else f"semantic realization ledger retains {semantic_review_bound_count} review-bound items"
+                if semantic_review_bound_count > 0
+                else "semantic realization ledger has no blocking/review-bound items"
+            ),
+        },
+        {
             "key": "claim_ceiling_authoritative",
             "label": "统一 claim ceiling 已裁决 formal state",
             "status": "PASS" if not claim_ceiling_report.get("reasons") else "REVIEW-BOUND",
@@ -531,6 +559,10 @@ def build_phase3_mainline_assessment(*, delivery_gate_report: dict[str, Any]) ->
         "dimension_scores": dimension_rows,
         "acceptance_rows": acceptance_rows,
         "total_score": total_score,
+        "backend_runtime_diagnostic_score": total_score,
+        "score_scope": "backend/runtime artifact diagnostic; not overall P3 claim",
+        "semantic_blocking_count": semantic_blocking_count,
+        "semantic_review_bound_count": semantic_review_bound_count,
         "verdict": verdict,
         "review_bound_items_count": review_bound_items_count,
         "blockers_count": blockers_count,

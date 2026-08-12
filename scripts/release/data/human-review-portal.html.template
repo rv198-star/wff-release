@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <meta name="wff-human-review-artifact" content="human-review-portal.v1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-src 'self' file:; img-src 'self' data:; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>@@WFF_PORTAL_TITLE@@</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --background: #edf0f2;
+      --surface: #ffffff;
+      --surface-subtle: #f6f7f8;
+      --foreground: #1e2429;
+      --muted: #667078;
+      --border: #d3d9de;
+      --border-strong: #aeb8c0;
+      --accent: #176b4d;
+      --accent-subtle: #e4f2eb;
+      --link: #145f9b;
+      --focus: #0878d1;
+      --header-height: 72px;
+      --sidebar-width: 304px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --background: #141719;
+        --surface: #1d2125;
+        --surface-subtle: #242a2f;
+        --foreground: #edf0f2;
+        --muted: #aab2b9;
+        --border: #343b41;
+        --border-strong: #59636b;
+        --accent: #72d1aa;
+        --accent-subtle: #183d30;
+        --link: #7fc2f0;
+        --focus: #8bcdf7;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      letter-spacing: 0;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--background);
+      color: var(--foreground);
+    }
+
+    a {
+      color: inherit;
+    }
+
+    a:focus-visible {
+      outline: 3px solid var(--focus);
+      outline-offset: -3px;
+    }
+
+    .skip-link {
+      position: fixed;
+      z-index: 100;
+      inset: 8px auto auto 8px;
+      transform: translateY(-160%);
+      padding: 10px 14px;
+      background: var(--foreground);
+      color: var(--surface);
+      text-decoration: none;
+    }
+
+    .skip-link:focus {
+      transform: translateY(0);
+    }
+
+    .portal-shell {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      width: 100%;
+      height: 100dvh;
+      min-height: 0;
+    }
+
+    .portal-header {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 20px;
+      min-height: var(--header-height);
+      padding: 10px 16px 10px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .identity {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      gap: 16px;
+    }
+
+    .brand-block {
+      min-width: 0;
+    }
+
+    .brand-line {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.25;
+      font-weight: 720;
+    }
+
+    .case-name {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .count {
+      flex: 0 0 auto;
+      padding: 3px 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .boundary {
+      margin: 3px 0 0;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .current-tools {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      min-width: 0;
+      gap: 8px;
+    }
+
+    .current-label {
+      max-width: min(34vw, 420px);
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .open-current {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      min-height: 44px;
+      padding: 0 13px;
+      border: 1px solid var(--border-strong);
+      border-radius: 5px;
+      background: var(--surface);
+      color: var(--link);
+      font-size: 13px;
+      font-weight: 650;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .open-current:hover {
+      background: var(--surface-subtle);
+    }
+
+    .open-current svg,
+    .artifact-direct svg {
+      width: 18px;
+      height: 18px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .artifact-nav {
+      min-width: 0;
+      min-height: 0;
+      overflow: auto;
+      border-right: 1px solid var(--border);
+      background: var(--surface-subtle);
+      overscroll-behavior: contain;
+    }
+
+    .nav-heading {
+      position: sticky;
+      z-index: 1;
+      top: 0;
+      display: flex;
+      align-items: center;
+      min-height: 42px;
+      margin: 0;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-subtle);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .artifact-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .artifact-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 44px;
+      min-height: 82px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .artifact-switch {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-width: 0;
+      padding: 11px 10px 11px 16px;
+      text-decoration: none;
+    }
+
+    .artifact-switch::before {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: transparent;
+      content: "";
+    }
+
+    .artifact-switch:hover,
+    .artifact-direct:hover {
+      background: var(--surface-subtle);
+    }
+
+    .artifact-switch[aria-current="page"] {
+      background: var(--accent-subtle);
+    }
+
+    .artifact-switch[aria-current="page"]::before {
+      background: var(--accent);
+    }
+
+    .artifact-type {
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 720;
+      line-height: 1.35;
+    }
+
+    .artifact-label {
+      display: -webkit-box;
+      margin-top: 3px;
+      overflow: hidden;
+      font-size: 14px;
+      font-weight: 650;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+
+    .artifact-path {
+      margin-top: 4px;
+      overflow: hidden;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10px;
+      line-height: 1.3;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .artifact-direct {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 44px;
+      min-height: 44px;
+      border-left: 1px solid var(--border);
+      color: var(--link);
+    }
+
+    .viewer {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background: var(--background);
+    }
+
+    .audit-frame {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+      min-height: 0;
+      border: 0;
+      background: var(--surface);
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .artifact-switch,
+      .artifact-direct,
+      .open-current {
+        transition: background-color 150ms ease, color 150ms ease;
+      }
+    }
+
+    @media (max-width: 760px) {
+      :root {
+        --header-height: auto;
+      }
+
+      .portal-header {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        padding: 8px 10px 8px 12px;
+      }
+
+      .identity {
+        gap: 7px;
+      }
+
+      .brand-line {
+        align-items: center;
+      }
+
+      h1 {
+        font-size: 16px;
+      }
+
+      .case-name,
+      .boundary,
+      .current-label {
+        display: none;
+      }
+
+      .count {
+        font-size: 11px;
+      }
+
+      .open-current {
+        width: 44px;
+        padding: 0;
+      }
+
+      .open-current span {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+
+      .workspace {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: 130px minmax(0, 1fr);
+      }
+
+      .artifact-nav {
+        overflow: hidden;
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .nav-heading {
+        min-height: 34px;
+        padding: 0 12px;
+      }
+
+      .artifact-list {
+        display: flex;
+        height: 96px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scroll-snap-type: x proximity;
+      }
+
+      .artifact-row {
+        flex: 0 0 min(82vw, 300px);
+        min-height: 96px;
+        border-right: 1px solid var(--border);
+        border-bottom: 0;
+        scroll-snap-align: start;
+      }
+
+      .artifact-switch {
+        padding-left: 13px;
+      }
+    }
+
+    @media print {
+      html,
+      body {
+        overflow: visible;
+      }
+
+      .portal-header,
+      .artifact-nav {
+        display: none;
+      }
+
+      .portal-shell,
+      .workspace,
+      .viewer {
+        display: block;
+        height: auto;
+      }
+
+      .audit-frame {
+        height: 100vh;
+      }
+    }
+  </style>
+</head>
+<body data-wff-human-review-portal data-role="navigation-only">
+  <a class="skip-link" href="#audit-viewer">跳到当前审计产物</a>
+  <div class="portal-shell">
+    <header class="portal-header">
+      <div class="identity">
+        <div class="brand-block">
+          <div class="brand-line">
+            <h1>WFF 人类审计</h1>
+            <span class="count">@@WFF_ARTIFACT_COUNT@@ 个视图</span>
+          </div>
+          <div class="case-name">@@WFF_CASE_NAME@@</div>
+          <p class="boundary">只读导航投影，不改变 canonical、验收、门禁或声明上限。</p>
+        </div>
+      </div>
+      <div class="current-tools">
+        <span class="current-label" id="current-label">当前：@@WFF_FIRST_LABEL@@</span>
+        <a class="open-current" id="open-current" href="@@WFF_FIRST_HREF@@" target="_blank" rel="noopener noreferrer" title="独立打开当前产物">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+          <span>独立打开</span>
+        </a>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <nav class="artifact-nav" aria-labelledby="artifact-nav-heading">
+        <h2 class="nav-heading" id="artifact-nav-heading">审计产物</h2>
+        <ol class="artifact-list" id="artifact-list">@@WFF_ARTIFACT_ROWS@@</ol>
+      </nav>
+
+      <main class="viewer" id="audit-viewer">
+        <iframe class="audit-frame" id="audit-frame" name="audit-frame" src="@@WFF_FIRST_HREF@@" title="@@WFF_FIRST_LABEL@@"></iframe>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    "use strict";
+    const switches = Array.from(document.querySelectorAll(".artifact-switch"));
+    const frame = document.getElementById("audit-frame");
+    const currentLabel = document.getElementById("current-label");
+    const openCurrent = document.getElementById("open-current");
+
+    function activate(link, updateHash) {
+      switches.forEach((candidate) => candidate.setAttribute("aria-current", candidate === link ? "page" : "false"));
+      const label = link.querySelector(".artifact-label").textContent.trim();
+      currentLabel.textContent = `当前：${label}`;
+      openCurrent.href = link.href;
+      frame.title = label;
+      if (updateHash) history.replaceState(null, "", `#artifact-${link.dataset.artifactIndex}`);
+    }
+
+    switches.forEach((link, index) => {
+      link.addEventListener("click", () => activate(link, true));
+      link.addEventListener("keydown", (event) => {
+        let nextIndex = null;
+        if (event.key === "ArrowDown" || event.key === "ArrowRight") nextIndex = (index + 1) % switches.length;
+        if (event.key === "ArrowUp" || event.key === "ArrowLeft") nextIndex = (index - 1 + switches.length) % switches.length;
+        if (event.key === "Home") nextIndex = 0;
+        if (event.key === "End") nextIndex = switches.length - 1;
+        if (nextIndex === null) return;
+        event.preventDefault();
+        switches[nextIndex].focus();
+      });
+    });
+
+    const hashMatch = window.location.hash.match(/^#artifact-(\d+)$/);
+    if (hashMatch) {
+      const selected = switches[Number(hashMatch[1])];
+      if (selected) {
+        selected.click();
+        selected.scrollIntoView({block: "nearest", inline: "nearest"});
+      }
+    }
+  </script>
+</body>
+</html>

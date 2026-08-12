@@ -14,10 +14,16 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
+import hashlib
 import json
 import os
 import re
+import signal
 import sys
+import threading
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -65,7 +71,7 @@ _SYSTEM_PROMPT = """You are a senior technical translator producing reader-facin
 ## Immutable Tokens (preserve exactly)
 These MUST remain unchanged in the output:
 - Trace IDs: P1-..., ARCH-..., WP-..., RBI-..., AC-..., WO-..., RQ-..., EP-..., BVS-..., DR-...
-- File names and paths (scripts/phase1/run_phase1_source_to_prd.py, engineering-spec-pack.md)
+- File names and repository paths shown in the source material (for example, engineering-spec-pack.md)
 - Code, API endpoints, schema field names, database column names
 - Object/class identifiers (TenantWorkspace, ActorRole, AuditRecord, TrackedScope)
 - Status enum values (pass, fail, warn, review-ready, downstream-start-safe, review-bound)
@@ -97,7 +103,8 @@ These MUST remain unchanged in the output:
 
 ### Terminology (zh-CN)
 - workflow-first → 工作流优先
-- review-bound → 受评审约束
+- review-bound → 待审阅确认（机器状态枚举仍保留 review-bound）
+- human reviewer → 审阅人（仅在明确区分人工与 AI/自动化时使用“人工审阅者”）
 - downstream-start-safe → 可安全启动下游
 - tracked scope → 跟踪范围
 - finding(s) → 发现项
@@ -145,9 +152,12 @@ These MUST remain unchanged in the output:
 - Do NOT wrap output in markdown code fences"""
 
 
-_PLAN_PROMPT = """Below is a heading outline of the source document. Create a segmentation plan.
+_PLAN_PROMPT = """Below is a structural map of the source document. Create a semantic segmentation plan.
 
-Split at natural H2 boundaries, targeting ~{target_lines} lines per segment.
+Use the listed semantic anchors to keep related tables, contracts, objects, and list groups together.
+Target no more than {target_chars} source characters per segment. Prefer smaller coherent
+segments over one oversized segment. Boundaries MUST use 0-based line positions shown in
+the map and MUST NOT split a markdown table or fenced block.
 
 Return JSON with this exact schema:
 {{"total_segments": <N>, "segments": [{{"index":<int>,"heading":"<EXACT source heading>","start_line":<int>,"end_line":<int>}}], "terminology_notes":"<key terms>"}}
@@ -155,7 +165,20 @@ Return JSON with this exact schema:
 Rules:
 - Copy headings EXACTLY from source. Do NOT translate or modify.
 - start_line/end_line are 0-based line numbers. First segment starts at 0. Last ends at EOF.
-- Cover ALL content — no gaps. Return ONLY JSON, no fences."""
+- Cover ALL content in order — no gaps or overlaps. Return ONLY JSON, no fences."""
+
+
+_REPLAN_PROMPT = """The segment from line {start_line} through {end_line} is too large.
+Split only that range into smaller semantically coherent segments using the structural map.
+Each segment must contain no more than {target_chars} source characters. Preserve related
+tables, contracts, objects, and list groups. Boundaries MUST use 0-based line positions
+shown in the map and MUST NOT split a markdown table or fenced block.
+
+Return JSON with this exact schema:
+{{"total_segments": <N>, "segments": [{{"index":<int>,"heading":"<EXACT source heading or semantic anchor>","start_line":<int>,"end_line":<int>}}], "terminology_notes":"<key terms>"}}
+
+Do not use aliases such as start/end/label. The first segment starts at {start_line} and
+the last ends at {end_line}. Cover the range exactly with no gaps or overlaps."""
 
 
 _SEGMENT_PROMPT = """You are translating segment {index}/{total} of a document.
@@ -195,7 +218,38 @@ def _get_client(api_base: str | None = None, api_key: str | None = None):
     base = api_base or cfg.get("api_base_url") or os.environ.get("OPENAI_BASE_URL", "")
     if base:
         kwargs["base_url"] = base
+    # Retry ownership stays in _call_llm so one configured deadline cannot be
+    # multiplied by hidden SDK retries.
+    kwargs["max_retries"] = 0
     return openai.OpenAI(**kwargs)
+
+
+class _LLMDeadlineExceeded(TimeoutError):
+    pass
+
+
+@contextmanager
+def _hard_deadline(seconds: float):
+    """Bound a synchronous provider call in the translation subprocess."""
+    if (
+        seconds <= 0
+        or not hasattr(signal, "setitimer")
+        or threading.current_thread() is not threading.main_thread()
+    ):
+        yield
+        return
+
+    def _raise_timeout(_signum, _frame):
+        raise _LLMDeadlineExceeded(f"LLM call exceeded {seconds:.1f}s deadline")
+
+    previous = signal.getsignal(signal.SIGALRM)
+    signal.signal(signal.SIGALRM, _raise_timeout)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 def _call_llm(
@@ -205,7 +259,7 @@ def _call_llm(
     user_prompt: str,
     model: str,
     max_tokens: int = 32768,
-    timeout: int = 1800,
+    timeout: float = 1800,
 ) -> _LLMResponse:
     cfg = _read_translation_config()
     max_retries = cfg.get("max_retries", 3)
@@ -214,21 +268,28 @@ def _call_llm(
     reasoning_effort = cfg.get("reasoning_effort", "")
 
     last_error = None
+    deadline = time.monotonic() + timeout
     for attempt in range(max_retries):
         try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise _LLMDeadlineExceeded(
+                    f"LLM call exceeded {timeout:.1f}s total deadline"
+                )
             extra_kwargs: dict = {}
             if reasoning_effort:
                 extra_kwargs["reasoning_effort"] = reasoning_effort
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                timeout=timeout,
-                max_tokens=max_tokens,
-                **extra_kwargs,
-            )
+            with _hard_deadline(remaining):
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    timeout=remaining,
+                    max_tokens=max_tokens,
+                    **extra_kwargs,
+                )
             content = response.choices[0].message.content
             if content is None or not content.strip():
                 raise RuntimeError(f"LLM returned empty response (finish_reason={response.choices[0].finish_reason})")
@@ -244,8 +305,9 @@ def _call_llm(
         except Exception as exc:
             last_error = exc
             if attempt < max_retries - 1:
-                import time
                 delay = backoff[min(attempt, len(backoff) - 1)]
+                if time.monotonic() + delay >= deadline:
+                    break
                 time.sleep(delay)
                 continue
     raise RuntimeError(f"LLM call failed after {max_retries} attempts: {last_error}")
@@ -296,83 +358,167 @@ def _build_context_block(translated_segments: list[dict], terminology_notes: str
     return "\n".join(lines)
 
 
-def _build_heading_summary(source_text: str) -> str:
-    """Build a compact heading outline for the segmentation planner."""
-    lines = source_text.splitlines()
-    headings = [(i + 1, l.strip()) for i, l in enumerate(lines) if l.strip().startswith("## ")]
-    if not headings:
-        return f"Document: {len(lines)} lines, no H2 headings found"
-    parts = [f"Total: {len(lines)} lines, {len(headings)} H2 sections"]
-    for ln, h in headings:
-        parts.append(f"  L{ln}: {h}")
+def _build_shared_context_block(terminology_notes: str) -> str:
+    """Build immutable document-level context shared by parallel workers."""
+    notes = terminology_notes.strip() or "Use the terminology rules in the system prompt."
+    return "\n".join(
+        [
+            "## Document Translation Context",
+            "",
+            f"Terminology decisions: {notes}",
+            "",
+            "Translate this segment independently while following the same document-level terminology.",
+        ]
+    )
+
+
+def _build_segment_structure_notes(segment_text: str) -> str:
+    h2_count = sum(1 for line in segment_text.splitlines() if line.strip().startswith("## "))
+    h3_count = sum(1 for line in segment_text.splitlines() if line.strip().startswith("### "))
+    table_rows = sum(1 for line in segment_text.splitlines() if line.strip().startswith("|"))
+    parts = ["## Structural Requirements (MUST follow)"]
+    if h2_count:
+        parts.append(
+            f"- This segment contains exactly {h2_count} H2 (`## `) headings in the source. "
+            f"Your output MUST contain exactly {h2_count} H2 headings — no more, no fewer."
+        )
+    if h3_count:
+        parts.append(
+            f"- This segment contains exactly {h3_count} H3 (`### `) headings. "
+            f"Preserve all {h3_count}."
+        )
+    if table_rows:
+        parts.append(
+            f"- This segment contains exactly {table_rows} table rows (`|`). "
+            f"Your output MUST contain exactly {table_rows} table rows."
+        )
+    parts.extend(
+        [
+            "- IMPORTANT: Only translate headings that exist in the source segment. "
+            "Do NOT invent, create, or add any new heading. Every heading in your output "
+            "must be a translation of a heading from the source.",
+            "- After translating, mentally count the required H2 headings, H3 headings, "
+            "and table rows. Fix any mismatch before returning.",
+        ]
+    )
+    return "\n".join(parts) + "\n\n"
+
+
+def _translate_segment(
+    *,
+    client,
+    segment: dict,
+    segment_text: str,
+    segment_hash: str,
+    total_segments: int,
+    context_block: str,
+    artifact_label: str,
+    target_locale: str,
+    canonical_name: str,
+    model: str,
+    max_tokens: int,
+    timeout: float,
+    is_esp: bool,
+) -> dict:
+    prompt = _SEGMENT_PROMPT.format(
+        index=segment["index"],
+        total=total_segments,
+        artifact_label=artifact_label,
+        target_locale=target_locale,
+        canonical_name=canonical_name,
+        heading=segment["heading"],
+        context_block=context_block,
+        structure_notes=_build_segment_structure_notes(segment_text),
+        segment_text=segment_text,
+    )
+    system_prompt = _SYSTEM_PROMPT
+    if is_esp:
+        system_prompt += (
+            "\n\nThis is an Engineering Spec Pack. ALL snake_case/kebab-case field "
+            "labels MUST be Chinese-first — no exceptions."
+        )
+    response = _call_llm(
+        client=client,
+        system_prompt=system_prompt,
+        user_prompt=prompt,
+        model=model,
+        max_tokens=max_tokens,
+        timeout=timeout,
+    )
+    term_map = _extract_term_map(response.content)
+    return {
+        "source_sha256": segment_hash,
+        "content": response.content,
+        "term_map": term_map,
+        "usage": response.usage,
+        "finish_reason": response.finish_reason,
+        "mode": "translated",
+    }
+
+
+def _build_structural_summary(
+    source_text: str, *, start_line: int = 0, end_line: int | None = None
+) -> str:
+    """Expose bounded semantic anchors without asking Workflow to choose boundaries."""
+    lines = source_text.splitlines(keepends=True)
+    end = len(lines) if end_line is None else min(len(lines), end_line)
+    start = max(0, min(start_line, end))
+    parts = [
+        f"Range: [{start}, {end}) of {len(lines)} lines",
+        f"Range characters: {sum(len(line) for line in lines[start:end])}",
+        "Candidate semantic anchors (0-based line positions):",
+    ]
+    in_fence: str | None = _fence_state_before_line(lines, start)
+    table_start: int | None = None
+    for index in range(start, end):
+        raw = lines[index]
+        stripped = raw.strip()
+        lstripped = raw.lstrip()
+        if in_fence is not None:
+            if lstripped.startswith(in_fence):
+                parts.append(f"  L{index + 1}: fence_end {in_fence}")
+                in_fence = None
+            continue
+        if lstripped.startswith("```") or lstripped.startswith("~~~"):
+            in_fence = lstripped[:3]
+            parts.append(f"  L{index}: fence_start {stripped[:100]}")
+            continue
+
+        is_table_row = lstripped.startswith("|")
+        if is_table_row and table_start is None:
+            table_start = index
+        elif not is_table_row and table_start is not None:
+            preview = lines[table_start].strip()[:140]
+            parts.append(f"  L{table_start}: table [{table_start}, {index}) {preview}")
+            table_start = None
+
+        if re.match(r"^#{1,6}\s+\S", lstripped):
+            parts.append(f"  L{index}: heading {stripped[:180]}")
+            continue
+        indent = len(raw) - len(lstripped)
+        if indent <= 2 and re.match(
+            r"^-\s+(?:`?[A-Za-z0-9_.-]+`?|contract_\d+|[\u4e00-\u9fff][^:：]{0,60})\s*[:：]",
+            lstripped,
+        ):
+            parts.append(f"  L{index}: list_group {stripped[:180]}")
+    if table_start is not None:
+        preview = lines[table_start].strip()[:140]
+        parts.append(f"  L{table_start}: table [{table_start}, {end}) {preview}")
+    parts.append(f"  L{end}: range_end")
     return "\n".join(parts)
 
 
-def _deterministic_segments(source_text: str, target_lines: int = 500) -> list[dict]:
-    """Fallback: deterministic H2 segmentation when LLM plan fails."""
-    lines = source_text.splitlines(keepends=True)
-    total = len(lines)
-    h2_positions = [(i, l.strip()) for i, l in enumerate(lines) if l.strip().startswith("## ")]
-    if not h2_positions:
-        return [{"index": 1, "heading": "(document)", "start_line": 0, "end_line": total}]
-    segments: list[dict] = []
-    current_start = 0
-    current_size = 0
-    for idx, (pos, _) in enumerate(h2_positions):
-        next_pos = h2_positions[idx + 1][0] if idx + 1 < len(h2_positions) else total
-        section_size = next_pos - pos
-        if current_size > 0 and current_size + section_size > target_lines * 1.3:
-            heading = next((h for p, h in h2_positions if p == current_start), "(preamble)")
-            if heading == "(preamble)" and current_start > 0:
-                heading = next((h for p, h in h2_positions if p >= current_start), "(document)")
-            segments.append({"index": len(segments) + 1, "heading": heading,
-                             "start_line": current_start, "end_line": pos})
-            current_start = pos
-            current_size = 0
-        current_size += section_size
-    if current_start < total:
-        heading = next((h for p, h in h2_positions if p == current_start), None)
-        if heading is None:
-            heading = "(preamble)" if current_start == 0 else next((h for p, h in h2_positions if p >= current_start), "(document)")
-        segments.append({"index": len(segments) + 1, "heading": heading, "start_line": current_start, "end_line": total})
-    return segments
+def _build_heading_summary(source_text: str) -> str:
+    """Compatibility alias for callers that need the planner's structural map."""
+    return _build_structural_summary(source_text)
 
 
 def _refine_segments(source_text: str, segments: list[dict], target_lines: int = 500) -> list[dict]:
-    """Fill gaps, merge heading-only stubs, and split oversized segments.
-
-    LLM plans can skip lines, duplicate heading boundaries, or produce overly
-    large segments for dense sections.  Gap/tail filling ensures complete coverage;
-    stub merging prevents duplicate H2s from segment-boundary overlap; sub-heading
-    splitting keeps per-segment size under the translation budget.
-    """
+    """Normalize only explicit H2 boundaries; never invent fixed line windows."""
     lines = source_text.splitlines(keepends=True)
-    total = len(lines)
-
-    # Step 1: fill gaps and tail
-    filled: list[dict] = []
-    cursor = 0
-    for raw in sorted(segments, key=lambda s: int(s.get("start_line", 0))):
-        start_line = max(0, min(total, int(raw.get("start_line", cursor))))
-        end_line = max(start_line, min(total, int(raw.get("end_line", total))))
-        if start_line > cursor:
-            heading = ""
-            for idx in range(cursor, start_line):
-                if lines[idx].strip().startswith("#"):
-                    heading = lines[idx].strip()
-                    break
-            filled.append({"heading": heading or "(gap)", "start_line": cursor, "end_line": start_line})
-        if end_line > cursor:
-            heading = str(raw.get("heading") or "")
-            if not heading:
-                for idx in range(max(start_line, cursor), end_line):
-                    if lines[idx].strip().startswith("#"):
-                        heading = lines[idx].strip()
-                        break
-            filled.append({"heading": heading or "(document)", "start_line": max(start_line, cursor), "end_line": end_line})
-            cursor = end_line
-    if cursor < total:
-        filled.append({"heading": "(tail)", "start_line": cursor, "end_line": total})
+    filled = [dict(segment) for segment in sorted(
+        segments, key=lambda item: int(item.get("start_line", 0))
+    )]
 
     # Step 2: merge heading-only stubs into the next segment when both share a heading.
     # The LLM planner sometimes emits a tiny segment (just the H2 + blank line) followed
@@ -385,48 +531,151 @@ def _refine_segments(source_text: str, segments: list[dict], target_lines: int =
             continue
         prev = deduped[-1]
         prev_size = prev["end_line"] - prev["start_line"]
-        if prev_size <= 15 and prev.get("heading") == seg.get("heading"):
+        if (
+            prev_size <= 15
+            and prev.get("heading") == seg.get("heading")
+            and int(prev["end_line"]) == int(seg["start_line"])
+        ):
             prev["end_line"] = seg["end_line"]
         else:
             deduped.append(dict(seg))
     filled = deduped
 
-    # Step 3: split oversized segments at the first available sub-heading level
+    # H2 headings are explicit document-semantic boundaries. Smaller semantic
+    # boundaries remain Agentic-owned and are handled by focused replanning.
     refined: list[dict] = []
-    budget = max(80, int(target_lines * 1.3))
     for seg in filled:
         start = int(seg["start_line"])
         end = int(seg["end_line"])
         heading = str(seg.get("heading") or "")
-        if end - start <= budget:
-            refined.append({"heading": heading, "start_line": start, "end_line": end})
+        h2_positions = [i for i in range(start, end) if lines[i].startswith("## ")]
+        if len(h2_positions) >= 2 or (h2_positions and h2_positions[0] > start):
+            previous = start
+            for position in h2_positions:
+                if previous < position:
+                    refined.append(
+                        {"heading": heading, "start_line": previous, "end_line": position}
+                    )
+                previous = position
+            if previous < end:
+                refined.append(
+                    {"heading": lines[previous].strip(), "start_line": previous, "end_line": end}
+                )
             continue
-        split = False
-        for level in range(3, 7):
-            marker = "#" * level + " "
-            positions = [i for i in range(start, end) if lines[i].startswith(marker)]
-            if len(positions) >= 2 or (positions and positions[0] > start):
-                prev = start
-                for pos in positions:
-                    if prev < pos:
-                        refined.append({"heading": heading, "start_line": prev, "end_line": pos})
-                    prev = pos
-                if prev < end:
-                    refined.append({"heading": heading, "start_line": prev, "end_line": end})
-                split = True
-                break
-        if not split:
-            # Last resort: fixed window
-            window = max(40, target_lines)
-            pos = start
-            while pos < end:
-                nxt = min(pos + window, end)
-                refined.append({"heading": heading, "start_line": pos, "end_line": nxt})
-                pos = nxt
+        refined.append({"heading": heading, "start_line": start, "end_line": end})
 
     for index, seg in enumerate(refined, 1):
         seg["index"] = index
     return refined
+
+
+def _segment_source(source_lines: list[str], segment: dict) -> str:
+    return "".join(source_lines[int(segment["start_line"]):int(segment["end_line"])])
+
+
+def _boundary_is_safe(source_lines: list[str], boundary: int) -> bool:
+    if boundary <= 0 or boundary >= len(source_lines):
+        return True
+    if _fence_state_before_line(source_lines, boundary) is not None:
+        return False
+    previous = source_lines[boundary - 1].lstrip().startswith("|")
+    following = source_lines[boundary].lstrip().startswith("|")
+    return not (previous and following)
+
+
+def _semantic_boundary_lines(source_text: str) -> set[int]:
+    lines = source_text.splitlines(keepends=True)
+    boundaries = {0, len(lines)}
+    in_fence: str | None = None
+    table_start: int | None = None
+    for index, raw in enumerate(lines):
+        stripped = raw.strip()
+        lstripped = raw.lstrip()
+        if in_fence is not None:
+            if lstripped.startswith(in_fence):
+                in_fence = None
+                boundaries.add(index + 1)
+            continue
+        if lstripped.startswith("```") or lstripped.startswith("~~~"):
+            in_fence = lstripped[:3]
+            boundaries.add(index)
+            continue
+        is_table_row = lstripped.startswith("|")
+        if is_table_row and table_start is None:
+            table_start = index
+            boundaries.add(index)
+        elif not is_table_row and table_start is not None:
+            boundaries.add(index)
+            table_start = None
+        if re.match(r"^#{1,6}\s+\S", lstripped):
+            boundaries.add(index)
+        indent = len(raw) - len(lstripped)
+        if indent <= 2 and re.match(
+            r"^-\s+(?:`?[A-Za-z0-9_.-]+`?|contract_\d+|[\u4e00-\u9fff][^:：]{0,60})\s*[:：]",
+            lstripped,
+        ):
+            boundaries.add(index)
+    return boundaries
+
+
+def _validate_segment_plan(
+    source_text: str,
+    segments: list[dict],
+    *,
+    expected_start: int = 0,
+    expected_end: int | None = None,
+) -> list[dict]:
+    source_lines = source_text.splitlines(keepends=True)
+    semantic_boundaries = _semantic_boundary_lines(source_text)
+    end = len(source_lines) if expected_end is None else expected_end
+    normalized: list[dict] = []
+    cursor = expected_start
+    for index, raw in enumerate(segments, 1):
+        start = int(raw.get("start_line", -1))
+        stop = int(raw.get("end_line", -1))
+        if start != cursor or stop <= start or stop > end:
+            raise ValueError(
+                f"invalid Agentic segment coverage at {index}: expected start {cursor}, "
+                f"received [{start}, {stop})"
+            )
+        if not _boundary_is_safe(source_lines, start) or not _boundary_is_safe(source_lines, stop):
+            raise ValueError(f"Agentic segment {index} splits a table or fenced block")
+        if start not in semantic_boundaries or stop not in semantic_boundaries:
+            raise ValueError(
+                f"Agentic segment {index} uses a boundary absent from the structural map"
+            )
+        normalized.append(
+            {
+                "index": index,
+                "heading": str(raw.get("heading") or "(document)"),
+                "start_line": start,
+                "end_line": stop,
+            }
+        )
+        cursor = stop
+    if cursor != end:
+        raise ValueError(f"Agentic segment plan ends at {cursor}; expected {end}")
+    return normalized
+
+
+def _plan_hash(segments: list[dict], terminology_notes: str) -> str:
+    payload = json.dumps(
+        {"segments": segments, "terminology_notes": terminology_notes},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _atomic_write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
 
 
 def _extract_term_map(translated_text: str) -> str:
@@ -445,6 +694,233 @@ def _extract_term_map(translated_text: str) -> str:
     return ", ".join(items)
 
 
+def _fence_state_before_line(source_lines: list[str], start_line: int) -> str | None:
+    """Return the open Markdown fence, if any, at a source line boundary."""
+    active_fence: str | None = None
+    for line in source_lines[:start_line]:
+        stripped = line.lstrip()
+        if active_fence is not None:
+            if stripped.startswith(active_fence):
+                active_fence = None
+        elif stripped.startswith("```"):
+            active_fence = "```"
+        elif stripped.startswith("~~~"):
+            active_fence = "~~~"
+    return active_fence
+
+
+def _has_translatable_content(
+    segment_text: str, *, active_fence: str | None = None
+) -> bool:
+    """Return whether a segment has non-empty content outside fenced code blocks."""
+    for line in segment_text.splitlines():
+        stripped = line.lstrip()
+        if active_fence is not None:
+            if stripped.startswith(active_fence):
+                active_fence = None
+            continue
+        if stripped.startswith("```"):
+            active_fence = "```"
+            continue
+        if stripped.startswith("~~~"):
+            active_fence = "~~~"
+            continue
+        if stripped.strip():
+            if re.match(r"^#{1,6}\s+\S", stripped):
+                continue
+            return True
+    return False
+
+
+def _request_segment_plan(
+    *,
+    client,
+    source_text: str,
+    model: str,
+    timeout: float,
+    target_chars: int,
+    start_line: int = 0,
+    end_line: int | None = None,
+) -> tuple[list[dict], str, dict[str, int]]:
+    source_lines = source_text.splitlines(keepends=True)
+    end = len(source_lines) if end_line is None else end_line
+    if start_line == 0 and end == len(source_lines):
+        instruction = _PLAN_PROMPT.format(target_chars=target_chars)
+    else:
+        instruction = _REPLAN_PROMPT.format(
+            start_line=start_line,
+            end_line=end,
+            target_chars=target_chars,
+        )
+    structural_map = _build_structural_summary(
+        source_text, start_line=start_line, end_line=end
+    )
+    base_prompt = f"{instruction}\n\n## Source Structural Map\n\n{structural_map}"
+    usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    validation_error = ""
+    for attempt in range(3):
+        correction = ""
+        if validation_error:
+            correction = (
+                "\n\n## Previous Plan Rejected\n\n"
+                f"Validation error: {validation_error}\n"
+                "Return a corrected full plan. Do not ask Workflow to fill, drop, or "
+                "move any source line."
+            )
+        response = _call_llm(
+            client=client,
+            system_prompt="You are a document structure analyst. Return only valid JSON.",
+            user_prompt=base_prompt + correction,
+            model=model,
+            max_tokens=16384,
+            timeout=timeout,
+        )
+        for key in usage:
+            usage[key] += response.usage.get(key, 0)
+        try:
+            plan = _parse_segment_plan(response.content)
+            raw_segments = plan.get("segments")
+            if not isinstance(raw_segments, list) or not raw_segments:
+                raise ValueError("Agentic segmentation plan contains no segments")
+            if start_line == 0 and end == len(source_lines):
+                raw_segments = _refine_segments(source_text, raw_segments)
+            segments = _validate_segment_plan(
+                source_text,
+                raw_segments,
+                expected_start=start_line,
+                expected_end=end,
+            )
+            return segments, str(plan.get("terminology_notes") or ""), usage
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            validation_error = str(exc)
+            if attempt == 2:
+                raise RuntimeError(
+                    f"Agentic segmentation plan remained invalid: {validation_error}"
+                ) from exc
+    raise AssertionError("unreachable")
+
+
+def _agentic_segments(
+    *,
+    client,
+    source_text: str,
+    model: str,
+    timeout: float,
+    target_chars: int,
+) -> tuple[list[dict], str, dict[str, int]]:
+    segments, terminology_notes, usage = _request_segment_plan(
+        client=client,
+        source_text=source_text,
+        model=model,
+        timeout=timeout,
+        target_chars=target_chars,
+    )
+    source_lines = source_text.splitlines(keepends=True)
+    for round_index in range(4):
+        oversized = [
+            segment
+            for segment in segments
+            if len(_segment_source(source_lines, segment)) > target_chars
+        ]
+        if not oversized:
+            for index, segment in enumerate(segments, 1):
+                segment["index"] = index
+            return segments, terminology_notes, usage
+        if round_index == 3:
+            break
+        replacements: dict[int, list[dict]] = {}
+        for segment in oversized:
+            replanned, focused_notes, focused_usage = _request_segment_plan(
+                client=client,
+                source_text=source_text,
+                model=model,
+                timeout=timeout,
+                target_chars=target_chars,
+                start_line=int(segment["start_line"]),
+                end_line=int(segment["end_line"]),
+            )
+            if len(replanned) < 2:
+                raise RuntimeError(
+                    "Agentic replanning did not split an oversized semantic segment"
+                )
+            replacements[id(segment)] = replanned
+            if focused_notes:
+                terminology_notes = "; ".join(
+                    part for part in (terminology_notes, focused_notes) if part
+                )
+            for key in usage:
+                usage[key] += focused_usage.get(key, 0)
+        segments = [
+            child
+            for segment in segments
+            for child in replacements.get(id(segment), [segment])
+        ]
+        segments = _validate_segment_plan(source_text, segments)
+    raise RuntimeError("Agentic segmentation remained oversized after three replans")
+
+
+def _checkpoint_path(progress_file: Path | None) -> Path | None:
+    if progress_file is None:
+        return None
+    return progress_file.with_name(f"{progress_file.name}.checkpoint.json")
+
+
+def _load_translation_checkpoint(
+    checkpoint_path: Path | None,
+    *,
+    source_hash: str,
+    target_locale: str,
+    model: str,
+    target_chars: int,
+) -> dict | None:
+    if checkpoint_path is None or not checkpoint_path.is_file():
+        return None
+    try:
+        payload = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if (
+        payload.get("schema_version") != "wff.reader-segment-checkpoint.v1"
+        or payload.get("source_sha256") != source_hash
+        or payload.get("target_locale") != target_locale
+        or payload.get("model") != model
+        or payload.get("target_chars") != target_chars
+        or not isinstance(payload.get("segments"), list)
+        or not isinstance(payload.get("completed"), dict)
+    ):
+        return None
+    expected_plan_hash = _plan_hash(
+        payload["segments"], str(payload.get("terminology_notes") or "")
+    )
+    if payload.get("plan_sha256") != expected_plan_hash:
+        return None
+    return payload
+
+
+def _new_translation_checkpoint(
+    *,
+    source_hash: str,
+    target_locale: str,
+    model: str,
+    target_chars: int,
+    segments: list[dict],
+    terminology_notes: str,
+    plan_usage: dict[str, int],
+) -> dict:
+    return {
+        "schema_version": "wff.reader-segment-checkpoint.v1",
+        "source_sha256": source_hash,
+        "target_locale": target_locale,
+        "model": model,
+        "target_chars": target_chars,
+        "plan_sha256": _plan_hash(segments, terminology_notes),
+        "segments": segments,
+        "terminology_notes": terminology_notes,
+        "plan_usage": plan_usage,
+        "completed": {},
+    }
+
+
 def run_llm_translation(
     *,
     source_text: str,
@@ -457,135 +933,247 @@ def run_llm_translation(
     timeout: int | None = None,
     progress_file: Path | None = None,
 ) -> _LLMResponse:
-    """LLM-controlled segmentation with deterministic fallback.
-
-    1. Try LLM plan from heading summary (primary path)
-    2. Fall back to deterministic H2 segmentation if LLM plan fails
-    3. Translate each segment with context from prior segments
-    """
+    """Translate an Agentic semantic plan with exact segment-level recovery."""
     client = _get_client(api_base=api_base, api_key=api_key)
-    total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
     cfg = _read_translation_config()
     resolved_timeout = timeout or cfg.get("timeout_seconds", 1800)
-    target_lines = cfg.get("segment_target_lines", 500)
+    target_chars = int(cfg.get("segment_target_chars", 40000))
     seg_max_tokens = cfg.get("max_tokens_per_segment", 32768)
     is_esp = _is_esp_document(source_text)
-
-    # Phase 1: Segmentation plan — LLM primary, deterministic fallback
-    plan_text = _PLAN_PROMPT.format(target_lines=target_lines)
-    heading_summary = _build_heading_summary(source_text)
-    plan_prompt = f"{plan_text}\n\n## Document Heading Summary\n\n{heading_summary}"
-
-    terminology_notes = ""
-    try:
-        plan_response = _call_llm(
-            client=client, system_prompt="You are a document structure analyst. Return only valid JSON.",
-            user_prompt=plan_prompt, model=model, max_tokens=16384, timeout=resolved_timeout,
+    source_hash = hashlib.sha256(source_text.encode("utf-8")).hexdigest()
+    checkpoint_path = _checkpoint_path(progress_file)
+    checkpoint = _load_translation_checkpoint(
+        checkpoint_path,
+        source_hash=source_hash,
+        target_locale=target_locale,
+        model=model,
+        target_chars=target_chars,
+    )
+    resumed = checkpoint is not None
+    if checkpoint is None:
+        segments, terminology_notes, plan_usage = _agentic_segments(
+            client=client,
+            source_text=source_text,
+            model=model,
+            timeout=resolved_timeout,
+            target_chars=target_chars,
         )
-        for k in total_usage:
-            total_usage[k] += plan_response.usage.get(k, 0)
-        plan = _parse_segment_plan(plan_response.content)
-        segments = plan["segments"]
-        terminology_notes = plan.get("terminology_notes", "")
-        # Normalize: fix 0-based index, ensure coverage
-        for i, seg in enumerate(segments):
-            if seg.get("index", 1) < 1:
-                seg["index"] = i + 1
-        if segments and segments[0]["start_line"] != 0:
-            segments[0]["start_line"] = 0
-    except Exception:
-        segments = _deterministic_segments(source_text, target_lines=target_lines)
-    segments = _refine_segments(source_text, segments, target_lines=target_lines)
+        checkpoint = _new_translation_checkpoint(
+            source_hash=source_hash,
+            target_locale=target_locale,
+            model=model,
+            target_chars=target_chars,
+            segments=segments,
+            terminology_notes=terminology_notes,
+            plan_usage=plan_usage,
+        )
+        if checkpoint_path is not None:
+            _atomic_write_json(checkpoint_path, checkpoint)
+    else:
+        segments = _validate_segment_plan(source_text, checkpoint["segments"])
+        terminology_notes = str(checkpoint.get("terminology_notes") or "")
 
-    # Phase 2: Translate each segment
-    translated_segments: list[dict] = []
+    total_usage = {
+        key: int(checkpoint.get("plan_usage", {}).get(key, 0))
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+    }
+
+    # Phase 2: Translate incomplete segments with bounded concurrency. Translation
+    # remains inside the detached reader lane; P1-P4 never waits for this work.
+    seg_started_at = time.time()
+    source_lines = source_text.splitlines(keepends=True)
+    max_parallel_segments = max(1, int(cfg.get("max_parallel_segments", 4)))
+
+    # Concurrent workers may finish out of order. Retain every independently
+    # valid checkpoint entry rather than truncating recovery to a prefix.
+    valid_completed: dict[str, dict] = {}
+    for seg in segments:
+        seg_text = _segment_source(source_lines, seg)
+        segment_hash = hashlib.sha256(seg_text.encode("utf-8")).hexdigest()
+        completed = checkpoint["completed"].get(str(seg["index"]))
+        if (
+            isinstance(completed, dict)
+            and completed.get("source_sha256") == segment_hash
+            and str(completed.get("content") or "")
+        ):
+            valid_completed[str(seg["index"])] = completed
+    if valid_completed != checkpoint["completed"]:
+        checkpoint["completed"] = valid_completed
+        if checkpoint_path is not None:
+            _atomic_write_json(checkpoint_path, checkpoint)
+
+    if progress_file and not resumed:
+        progress_file.parent.mkdir(parents=True, exist_ok=True)
+        progress_file.write_text("", encoding="utf-8")
+    elif progress_file:
+        with open(progress_file, "a", encoding="utf-8") as pf:
+            pf.write(
+                json.dumps(
+                    {
+                        "status": "resume",
+                        "completed_segments": len(checkpoint["completed"]),
+                        "plan_sha256": checkpoint["plan_sha256"],
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+
+    records: dict[str, dict] = dict(checkpoint["completed"])
+    pending: list[tuple[dict, str, str]] = []
+
+    def record_completion(segment: dict, record: dict) -> None:
+        key = str(segment["index"])
+        records[key] = record
+        checkpoint["completed"][key] = record
+        if checkpoint_path is not None:
+            _atomic_write_json(checkpoint_path, checkpoint)
+        if progress_file:
+            elapsed = int(time.time() - seg_started_at)
+            with open(progress_file, "a", encoding="utf-8") as pf:
+                pf.write(
+                    json.dumps(
+                        {
+                            "segment": segment["index"],
+                            "total_segments": len(segments),
+                            "heading": segment.get("heading", ""),
+                            "tokens": record.get("usage") or {},
+                            "elapsed_s": elapsed,
+                            "status": "segment-done",
+                            "mode": record.get("mode", "translated"),
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+
+    for seg in segments:
+        key = str(seg["index"])
+        if key in records:
+            continue
+        seg_text = _segment_source(source_lines, seg)
+        segment_hash = hashlib.sha256(seg_text.encode("utf-8")).hexdigest()
+        if not _has_translatable_content(
+            seg_text,
+            active_fence=_fence_state_before_line(source_lines, seg["start_line"]),
+        ):
+            record_completion(
+                seg,
+                {
+                    "source_sha256": segment_hash,
+                    "content": seg_text,
+                    "term_map": "",
+                    "usage": {
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                    "finish_reason": "stop",
+                    "mode": "verbatim-protected-content",
+                },
+            )
+            continue
+        pending.append((seg, seg_text, segment_hash))
+
+    shared_context = _build_shared_context_block(terminology_notes)
+    worker_count = min(max_parallel_segments, len(pending)) if pending else 0
+    first_error: Exception | None = None
+
+    if worker_count <= 1:
+        for seg, seg_text, segment_hash in pending:
+            previous_segments = [
+                {
+                    "heading": previous["heading"],
+                    "index": previous["index"],
+                    "term_map": str(records[str(previous["index"])].get("term_map") or ""),
+                }
+                for previous in segments
+                if previous["index"] < seg["index"] and str(previous["index"]) in records
+            ]
+            context_block = (
+                _build_context_block(previous_segments, terminology_notes)
+                or shared_context
+            )
+            record = _translate_segment(
+                client=client,
+                segment=seg,
+                segment_text=seg_text,
+                segment_hash=segment_hash,
+                total_segments=len(segments),
+                context_block=context_block,
+                artifact_label=artifact_label,
+                target_locale=target_locale,
+                canonical_name=canonical_name,
+                model=model,
+                max_tokens=seg_max_tokens,
+                timeout=resolved_timeout,
+                is_esp=is_esp,
+            )
+            record_completion(seg, record)
+    elif pending:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=worker_count,
+            thread_name_prefix="wff-reader-translation",
+        ) as executor:
+            future_segments = {
+                executor.submit(
+                    _translate_segment,
+                    client=client,
+                    segment=seg,
+                    segment_text=seg_text,
+                    segment_hash=segment_hash,
+                    total_segments=len(segments),
+                    context_block=shared_context,
+                    artifact_label=artifact_label,
+                    target_locale=target_locale,
+                    canonical_name=canonical_name,
+                    model=model,
+                    max_tokens=seg_max_tokens,
+                    timeout=resolved_timeout,
+                    is_esp=is_esp,
+                ): seg
+                for seg, seg_text, segment_hash in pending
+            }
+            for future in concurrent.futures.as_completed(future_segments):
+                seg = future_segments[future]
+                try:
+                    record = future.result()
+                except Exception as exc:  # retain successful peer checkpoints first
+                    if first_error is None:
+                        first_error = exc
+                    continue
+                record_completion(seg, record)
+
+    if first_error is not None:
+        raise first_error
+
     all_translations: list[str] = []
     last_finish_reason = "stop"
-    seg_started_at = __import__("time").time()
-
-    if progress_file:
-        progress_file.parent.mkdir(parents=True, exist_ok=True)
-        progress_file.write_text("", encoding="utf-8")  # truncate / create
-
-    source_lines = source_text.splitlines(keepends=True)
     for seg in segments:
-        seg_text = "".join(source_lines[seg["start_line"]:seg["end_line"]])
-        context_block = _build_context_block(translated_segments, terminology_notes)
-
-        seg_h2 = len([l for l in seg_text.splitlines() if l.strip().startswith("## ")])
-        seg_h3 = len([l for l in seg_text.splitlines() if l.strip().startswith("### ")])
-        seg_rows = len([l for l in seg_text.splitlines() if l.strip().startswith("|")])
-        structure_notes_parts = ["## Structural Requirements (MUST follow)"]
-        if seg_h2:
-            structure_notes_parts.append(
-                f"- This segment contains exactly {seg_h2} H2 (`## `) headings in the source. "
-                f"Your output MUST contain exactly {seg_h2} H2 headings — no more, no fewer."
-            )
-        if seg_h3:
-            structure_notes_parts.append(
-                f"- This segment contains exactly {seg_h3} H3 (`### `) headings. "
-                f"Preserve all {seg_h3}."
-            )
-        if seg_rows:
-            structure_notes_parts.append(
-                f"- This segment contains exactly {seg_rows} table rows (`|`). "
-                f"Your output MUST contain exactly {seg_rows} table rows."
-            )
-        structure_notes_parts.append(
-            "- IMPORTANT: Only translate headings that exist in the source segment. "
-            "Do NOT invent, create, or add any new heading. "
-            "Every heading in your output must be a translation of a heading from the source."
-        )
-        structure_notes_parts.append(
-            "- After translating, mentally count: did you produce exactly the required number "
-            "of H2 headings, H3 headings, and table rows? If not, fix before returning."
-        )
-        structure_notes = "\n".join(structure_notes_parts) + "\n\n"
-
-        seg_prompt = _SEGMENT_PROMPT.format(
-            index=seg["index"], total=len(segments),
-            artifact_label=artifact_label, target_locale=target_locale,
-            canonical_name=canonical_name, heading=seg["heading"],
-            context_block=context_block, structure_notes=structure_notes,
-            segment_text=seg_text,
-        )
-
-        system_prompt = _SYSTEM_PROMPT
-        if is_esp:
-            system_prompt += "\n\nThis is an Engineering Spec Pack. ALL snake_case/kebab-case field labels MUST be Chinese-first — no exceptions."
-
-        seg_response = _call_llm(
-            client=client, system_prompt=system_prompt, user_prompt=seg_prompt,
-            model=model, max_tokens=seg_max_tokens, timeout=resolved_timeout,
-        )
-        for k in total_usage:
-            total_usage[k] += seg_response.usage.get(k, 0)
-        last_finish_reason = seg_response.finish_reason
-
-        term_map = _extract_term_map(seg_response.content)
-        all_translations.append(seg_response.content)
-        translated_segments.append({"heading": seg["heading"], "index": seg["index"], "term_map": term_map})
-
-        if progress_file:
-            elapsed = int(__import__("time").time() - seg_started_at)
-            with open(progress_file, "a", encoding="utf-8") as pf:
-                pf.write(json.dumps({
-                    "segment": seg["index"],
-                    "total_segments": len(segments),
-                    "heading": seg.get("heading", ""),
-                    "tokens": seg_response.usage,
-                    "elapsed_s": elapsed,
-                    "status": "segment-done",
-                }, ensure_ascii=False) + "\n")
+        record = records.get(str(seg["index"]))
+        if not isinstance(record, dict) or not str(record.get("content") or ""):
+            raise RuntimeError(f"segment {seg['index']} completed without durable content")
+        all_translations.append(str(record["content"]))
+        usage = record.get("usage") or {}
+        for key in total_usage:
+            total_usage[key] += int(usage.get(key, 0))
+        last_finish_reason = str(record.get("finish_reason") or "stop")
 
     if progress_file:
-        elapsed = int(__import__("time").time() - seg_started_at)
+        elapsed = int(time.time() - seg_started_at)
         with open(progress_file, "a", encoding="utf-8") as pf:
-            pf.write(json.dumps({
-                "status": "all-segments-done",
-                "total_tokens": total_usage,
-                "total_elapsed_s": elapsed,
-            }, ensure_ascii=False) + "\n")
+            pf.write(
+                json.dumps(
+                    {
+                        "status": "all-segments-done",
+                        "parallel_workers": worker_count,
+                        "total_tokens": total_usage,
+                        "total_elapsed_s": elapsed,
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
 
     return _LLMResponse(
         content="\n\n".join(all_translations),

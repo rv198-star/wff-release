@@ -1730,6 +1730,7 @@ def compile_business_world_truth_spine(context: dict[str, Any]) -> dict[str, Any
         business_judgment_transformation = product_source_direct_driver.get("business_judgment_transformation", {})
         semantic_authoring_spine = product_source_direct_driver.get("semantic_authoring_spine", {})
         semantic_authoring_summary = product_source_direct_driver.get("semantic_authoring_summary", {})
+        canonical_context = product_source_direct_driver.get("canonical_context", {})
         forbidden_assumptions = product_source_direct_driver.get("forbidden_downstream_assumptions", [])
         value_targets = product_source_direct_driver.get("value_deepening_targets", [])
         product_source_direct_driver_summary = {
@@ -1746,6 +1747,7 @@ def compile_business_world_truth_spine(context: dict[str, Any]) -> dict[str, Any
             "business_judgment_transformation": business_judgment_transformation,
             "semantic_authoring_spine": semantic_authoring_spine,
             "semantic_authoring_summary": semantic_authoring_summary,
+            "canonical_context": canonical_context,
             "forbidden_downstream_assumptions": forbidden_assumptions,
             "value_deepening_targets": value_targets,
         }
@@ -1763,6 +1765,7 @@ def compile_business_world_truth_spine(context: dict[str, Any]) -> dict[str, Any
                 "business_judgment_transformation": business_judgment_transformation,
                 "semantic_authoring_spine": semantic_authoring_spine,
                 "semantic_authoring_summary": semantic_authoring_summary,
+                "canonical_context": canonical_context,
                 "forbidden_downstream_assumptions": forbidden_assumptions,
             }
         )
@@ -1771,6 +1774,7 @@ def compile_business_world_truth_spine(context: dict[str, Any]) -> dict[str, Any
                 "source_truth_admission": source_truth_admission,
                 "business_completeness_driver": business_completeness_driver,
                 "semantic_authoring_summary": semantic_authoring_summary,
+                "canonical_context": canonical_context,
                 "forbidden_downstream_assumptions": forbidden_assumptions,
                 "open_truth_gap_routing": open_truth_gap_routing,
             }

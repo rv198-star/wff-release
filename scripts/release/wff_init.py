@@ -8,7 +8,14 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
 from typing import Any
+
+SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+
+from common.wff_core_runtime import WFFCoreConsumerError, require_capability_binding  # noqa: E402
 
 
 BASE_SKILL_NAME = "wff-base-traceability-management"
@@ -461,8 +468,24 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     try:
+        require_capability_binding(
+            "project-context",
+            required_contracts=(
+                "artifact-identity-contract",
+                "evidence-contract",
+                "agentic-boundary-contract",
+            ),
+        )
+        require_capability_binding(
+            "traceability",
+            required_contracts=(
+                "artifact-identity-contract",
+                "handoff-contract",
+                "evidence-contract",
+            ),
+        )
         result = initialize_wff_project(project_root=args.project_root, skills_root=args.skills_root)
-    except WffInitError as exc:
+    except (WffInitError, WFFCoreConsumerError) as exc:
         print(f"[wff-init] ERROR: {exc}")
         return 2
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))

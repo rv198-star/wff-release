@@ -64,25 +64,58 @@ def _extract_security_field(text: str, field_name: str) -> str:
     return (match.group(1) or match.group(2) or "").strip(" -`")
 
 
-def build_security_decision_rows(esp_text: str) -> list[dict[str, object]]:
-    lowered = esp_text.lower()
-    has_token_lifecycle = "token" in lowered and any(token in lowered for token in ("refresh", "rotation", "lifetime"))
-    has_session_boundary = "session" in lowered or "revocation" in lowered
-    if not has_token_lifecycle:
-        return []
-
-    details = " ".join(
-        part
-        for part in [
-            _extract_security_field(esp_text, "token_strategy"),
-            _extract_security_field(esp_text, "token_lifetime"),
-            _extract_security_field(esp_text, "refresh_mechanism"),
-            _extract_security_field(esp_text, "revocation_approach"),
-        ]
-        if part
+def _security_value_is_review_bound(value: str) -> bool:
+    normalized = value.strip().lower()
+    return bool(
+        normalized
+        and (
+            "review-bound" in normalized
+            or "review bound" in normalized
+            or "not accepted" in normalized
+            or "no " in normalized and " accepted" in normalized
+            or "defer" in normalized
+            or "not selected" in normalized
+        )
     )
-    if not details and has_session_boundary:
-        details = "token lifecycle, refresh token rotation, and session revocation posture"
+
+
+def _explicit_token_lifecycle_requirement(esp_text: str) -> bool:
+    normalized = esp_text.lower()
+    for clause in re.split(r"[.\n]+", normalized):
+        if not ("token" in clause and any(token in clause for token in ("refresh", "rotation", "lifetime", "revocation"))):
+            continue
+        if _security_value_is_review_bound(clause):
+            continue
+        if re.search(r"\b(must|require|requires|required|selected|chosen)\b", clause):
+            return True
+    return False
+
+
+def build_security_decision_rows(esp_text: str) -> list[dict[str, object]]:
+    token_fields = [
+        _extract_security_field(esp_text, "token_strategy"),
+        _extract_security_field(esp_text, "token_lifetime"),
+        _extract_security_field(esp_text, "refresh_mechanism"),
+        _extract_security_field(esp_text, "revocation_approach"),
+    ]
+    accepted_token_fields = [value for value in token_fields if value and not _security_value_is_review_bound(value)]
+    explicit_review_bound_posture = any(
+        _security_value_is_review_bound(_extract_security_field(esp_text, field_name))
+        for field_name in (
+            "authn_authz_posture",
+            "identity_session_mechanics",
+            "key_management_posture",
+            "identity_and_access_posture",
+        )
+    )
+    if accepted_token_fields:
+        details = " ".join(accepted_token_fields)
+    elif explicit_review_bound_posture:
+        return []
+    elif _explicit_token_lifecycle_requirement(esp_text):
+        details = "explicit accepted token lifecycle requirement"
+    else:
+        return []
 
     return [
         {

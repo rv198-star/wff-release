@@ -26,7 +26,6 @@ _FULL_MODULE_NAMES = ("phase3.phase3_delivery_gate_full",)
 CLI_MODES = (
     "delivery-gate",
     "delivery-handoff",
-    "productness-gate",
     "api-docs",
     "code-review",
     "security-audit",
@@ -330,13 +329,6 @@ def generate_phase3_delivery_handoff(*args: Any, **kwargs: Any) -> dict[str, Any
     return module.generate_phase3_delivery_handoff(*args, **kwargs)
 
 
-def run_productness_gate(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    module = _full_module()
-    if module is None:
-        raise _support_sidecar_unavailable("productness-gate mode")
-    return module.run_productness_gate(*args, **kwargs)
-
-
 def run_phase3_code_review(*args: Any, **kwargs: Any) -> dict[str, Any]:
     module = _full_module()
     if module is None:
@@ -494,13 +486,6 @@ def emit_phase3_mode_result(
         payload = decorate_phase3_mode_payload(payload, mode)
     write_phase3_cli_output(payload, output_path)
     return emit_phase3_delivery_gate_summary(payload, success=success)
-
-
-def run_productness_gate_mode(context: Phase3DeliveryGateContext) -> int:
-    module = _full_module()
-    if module is None:
-        raise _support_sidecar_unavailable("productness-gate mode")
-    return module.run_productness_gate_mode(context)
 
 
 def run_api_docs_mode(context: Phase3DeliveryGateContext) -> int:
@@ -666,8 +651,6 @@ __all__ = [
     "run_phase3_delivery_gate_cli",
     "run_phase3_delivery_gate_mode",
     "run_phase3_security_audit",
-    "run_productness_gate",
-    "run_productness_gate_mode",
     "run_security_audit_mode",
     "ui_ia_contract_valid",
     "validate_phase3_delivery_gate_args",

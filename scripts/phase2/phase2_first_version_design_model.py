@@ -378,12 +378,174 @@ def table_owner_for_object(
     return table_owner_for_name(context, root_namespace, table_name)
 
 
+def _authority_constraint_text(value: object) -> str:
+    if isinstance(value, list):
+        specs: list[str] = []
+        for item in value:
+            if isinstance(item, list):
+                fields = [str(field).strip() for field in item if str(field).strip()]
+                if fields:
+                    specs.append(" + ".join(fields))
+            elif str(item).strip():
+                specs.append(str(item).strip())
+        return "; ".join(specs) or "none"
+    return str(value or "").strip() or "none"
+
+
+def authority_table_specs(context: dict[str, object]) -> list[dict[str, object]]:
+    model = context.get("agentic_architecture_model")
+    if not isinstance(model, dict):
+        return []
+    aggregates = [row for row in model.get("aggregates", []) if isinstance(row, dict)]
+    if not aggregates:
+        return []
+    specs: list[dict[str, object]] = []
+    for aggregate in aggregates:
+        aggregate_id = str(aggregate.get("aggregate_id") or "").strip()
+        if not aggregate_id:
+            continue
+        field_rows: list[list[object]] = []
+        seen_fields: set[str] = set()
+        data_decisions = [row for row in aggregate.get("data_decisions", []) if isinstance(row, dict)]
+        for decision in data_decisions:
+            fields = decision.get("fields", [])
+            if not isinstance(fields, list):
+                continue
+            for field in fields:
+                if not isinstance(field, dict):
+                    continue
+                name = str(field.get("name") or field.get("field_name") or "").strip()
+                if not name or name in seen_fields:
+                    continue
+                seen_fields.add(name)
+                field_rows.append(
+                    [
+                        name,
+                        str(field.get("type") or field.get("data_type") or "string").strip(),
+                        bool(field.get("nullable", False)),
+                        str(field.get("constraint") or field.get("constraints") or "authority-defined").strip(),
+                        str(field.get("index") or field.get("index_hint") or "authority-defined").strip(),
+                    ]
+                )
+        pk_fields = [str(row[0]) for row in field_rows if "pk" in str(row[3]).casefold()]
+        fk_fields = [str(row[0]) for row in field_rows if "fk" in str(row[3]).casefold()]
+        unique_fields = [str(row[0]) for row in field_rows if "unique" in str(row[3]).casefold()]
+        first_data = data_decisions[0] if data_decisions else {}
+        specs.append(
+            {
+                "object_name": aggregate_id,
+                "aggregate_name": str(aggregate.get("aggregate_name") or aggregate_id).strip(),
+                "technical_name": str(aggregate.get("technical_name") or "").strip(),
+                "technical_slug": str(aggregate.get("technical_slug") or "").strip(),
+                "table_name": str(aggregate.get("table_name") or "").strip(),
+                "owner": str(aggregate.get("writer_service_id") or aggregate.get("owner_service_id") or "").strip(),
+                "aggregate_owner": str(aggregate.get("owner_service_id") or "").strip(),
+                "writer_service_id": str(aggregate.get("writer_service_id") or "").strip(),
+                "pk": ", ".join(pk_fields) or str(first_data.get("pk") or "none").strip(),
+                "fk": ", ".join(fk_fields) or str(first_data.get("fk") or "none").strip(),
+                "unique_constraints": ", ".join(unique_fields) or _authority_constraint_text(first_data.get("unique_constraints")),
+                "composite_indexes": _authority_constraint_text(first_data.get("composite_indexes")),
+                "pii_level": str(first_data.get("pii_level") or aggregate.get("pii_level") or "authority-bound").strip(),
+                "sensitive_fields": str(first_data.get("sensitive_fields") or aggregate.get("sensitive_fields") or "authority-bound").strip(),
+                "masking_or_encryption": str(first_data.get("masking_or_encryption") or aggregate.get("masking_or_encryption") or "authority-bound").strip(),
+                "retention_rule": str(first_data.get("retention_rule") or aggregate.get("retention_rule") or "authority-bound").strip(),
+                "audit_access_rule": str(first_data.get("audit_access_rule") or aggregate.get("audit_access_rule") or "authority-bound").strip(),
+                "compliance_note": str(first_data.get("compliance_note") or aggregate.get("claim_ceiling") or "bounded by accepted P2 authority").strip(),
+                "field_rows": field_rows,
+                "authority_bound": True,
+            }
+        )
+
+    used_data_ids = {
+        str(decision.get("decision_id") or "").strip()
+        for aggregate in aggregates
+        for decision in aggregate.get("data_decisions", [])
+        if isinstance(decision, dict) and str(decision.get("decision_id") or "").strip()
+    }
+    durable_rows = [row for row in model.get("durable_persistence_identity", []) if isinstance(row, dict)]
+    dedicated_writer_by_id: dict[str, str] = {}
+    for row in durable_rows:
+        carrier = row.get("durable_carrier") if isinstance(row.get("durable_carrier"), dict) else {}
+        if str(carrier.get("kind") or "").strip() != "dedicated-record":
+            continue
+        carrier_id = str(carrier.get("carrier_id") or "").strip()
+        if carrier_id:
+            dedicated_writer_by_id[carrier_id] = str(row.get("writer_service_id") or "").strip()
+    operation_service_by_id = {
+        str(row.get("operation_id") or "").strip(): str(row.get("service_id") or "").strip()
+        for row in model.get("operations", [])
+        if isinstance(row, dict) and str(row.get("operation_id") or "").strip()
+    }
+    for decision in [row for row in model.get("data_decisions", []) if isinstance(row, dict)]:
+        decision_id = str(decision.get("decision_id") or "").strip()
+        if not decision_id or decision_id in used_data_ids:
+            continue
+        table_name = str(decision.get("table_name") or "").strip()
+        if not table_name or table_name in {str(spec.get("table_name") or "") for spec in specs}:
+            continue
+        dedicated_writer = dedicated_writer_by_id.get(decision_id, "")
+        operation_id = str(decision.get("operation_id") or "").strip()
+        read_model_owner = operation_service_by_id.get(operation_id, "")
+        if not dedicated_writer and not read_model_owner:
+            continue
+        field_rows: list[list[object]] = []
+        for field in decision.get("fields", []) if isinstance(decision.get("fields"), list) else []:
+            if not isinstance(field, dict):
+                continue
+            name = str(field.get("name") or field.get("field_name") or "").strip()
+            if not name:
+                continue
+            field_rows.append(
+                [
+                    name,
+                    str(field.get("type") or field.get("data_type") or "string").strip(),
+                    bool(field.get("nullable", False)),
+                    str(field.get("constraint") or field.get("constraints") or "authority-defined").strip(),
+                    str(field.get("index") or field.get("index_hint") or "authority-defined").strip(),
+                ]
+            )
+        pk_fields = [str(row[0]) for row in field_rows if "pk" in str(row[3]).casefold()]
+        fk_fields = [str(row[0]) for row in field_rows if "fk" in str(row[3]).casefold()]
+        unique_fields = [str(row[0]) for row in field_rows if "unique" in str(row[3]).casefold()]
+        if not field_rows:
+            continue
+        schema_owner = dedicated_writer or read_model_owner
+        specs.append(
+            {
+                "object_name": decision_id,
+                "aggregate_name": str(decision.get("record_name") or decision_id).strip(),
+                "technical_name": str(decision.get("technical_name") or "").strip(),
+                "technical_slug": str(decision.get("technical_slug") or "").strip(),
+                "table_name": table_name,
+                "owner": schema_owner,
+                "aggregate_owner": dedicated_writer,
+                "writer_service_id": dedicated_writer,
+                "pk": ", ".join(pk_fields) or str(decision.get("pk") or "none").strip(),
+                "fk": ", ".join(fk_fields) or str(decision.get("fk") or "none").strip(),
+                "unique_constraints": ", ".join(unique_fields) or _authority_constraint_text(decision.get("unique_constraints")),
+                "composite_indexes": _authority_constraint_text(decision.get("composite_indexes")),
+                "pii_level": str(decision.get("pii_level") or "authority-bound").strip(),
+                "sensitive_fields": str(decision.get("sensitive_fields") or "none declared").strip(),
+                "masking_or_encryption": str(decision.get("masking_or_encryption") or "authority-bound").strip(),
+                "retention_rule": str(decision.get("retention_rule") or "authority-bound").strip(),
+                "audit_access_rule": str(decision.get("audit_access_rule") or "authority-bound").strip(),
+                "compliance_note": str(decision.get("compliance_note") or "bounded by accepted P2 authority").strip(),
+                "field_rows": field_rows,
+                "authority_bound": True,
+            }
+        )
+    return specs
+
+
 def build_table_specs(
     context: dict[str, object],
     root_namespace: str,
     complexity_profile: str,
     services: list[ServiceSpec],
 ) -> list[dict[str, object]]:
+    accepted_specs = authority_table_specs(context)
+    if accepted_specs:
+        return accepted_specs
     require_context_modules(context)
     core_objects = phase3_executable_business_objects(
         context,
@@ -501,6 +663,10 @@ def build_stage_03_endpoint_specs(
     root_namespace: str,
     table_specs: list[dict[str, object]] | None = None,
 ) -> list[ServiceSpec]:
+    if services and all(service.service_type == "authority-operation" for service in services):
+        # Accepted P2 operation identity is the denominator. Do not synthesize
+        # query/status/cross-module operation families in authority mode.
+        return list(services)
     endpoint_specs: list[ServiceSpec] = []
     existing_objects = {
         token

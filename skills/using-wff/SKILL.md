@@ -143,6 +143,13 @@ Boundary: <what this route cannot prove or should not claim>
 
 If the recommended route is `wff-arch`, `wff-impl`, or `wff-validation`, explicitly name the WFF-native upstream artifact that makes that continuation valid.
 
+## WFF Core Contract Binding
+
+- Machine descriptor: `lifecycle-routing` under `wff-core-contract` `1.0.0`.
+- Consumes `lifecycle-route-contract`, `extension-registration-contract`, and `reentry-return-contract`.
+- Core owns route identity, fail-closed resolution, and return/re-entry envelopes; this Skill owns reader-facing route explanation only.
+- Missing, ambiguous, or incompatible Core registration must block instead of guessing a capability.
+
 ## Boundary
 
 `using-wff` may explain admission, routes, and trade-offs, but it does not own lifecycle artifacts or upgrade evidence.

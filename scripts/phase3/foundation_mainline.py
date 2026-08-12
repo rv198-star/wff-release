@@ -6,7 +6,21 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable
 
+from common.cross_phase_surface_policy import find_cross_phase_surface_path
+from common.semantic_consistency import (
+    build_semantic_realization_ledger,
+    canonical_digest,
+    load_json_object,
+    p1_claim_control_from_authority,
+    phase2_claim_control_verification_is_valid,
+    verify_phase2_claim_control_report,
+    verify_semantic_commitment_union,
+)
 from phase3.agentic_implementation_loop import write_agentic_implementation_loop_artifacts
+from phase3.agentic_implementation_authority import (
+    finalize_p3_agentic_implementation_application,
+    p3_agentic_implementation_authority_is_valid,
+)
 from phase3.action_card_execution_map import build_action_card_execution_context
 from phase3.contract_test_scaffolder import contract_test_filename
 from phase3.contract_tools import slugify
@@ -23,6 +37,147 @@ from phase3.validation_levels import build_validation_profile, normalize_validat
 def write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def load_phase2_semantic_commitment_authority(phase2_root: Path) -> dict[str, Any]:
+    persisted_union = load_json_object(
+        find_cross_phase_surface_path(
+            phase2_root,
+            "phase2",
+            "semantic-commitment-union.json",
+        )
+    )
+    operation_source_obligations = load_json_object(
+        find_cross_phase_surface_path(
+            phase2_root,
+            "phase2",
+            "operation-source-obligation-matrix.json",
+        )
+    )
+    p1_operation_resolutions = load_json_object(
+        find_cross_phase_surface_path(
+            phase2_root,
+            "phase2",
+            "p1-value-to-p2-operation-resolution-matrix.json",
+        )
+    )
+    operation_semantics = load_json_object(
+        find_cross_phase_surface_path(
+            phase2_root,
+            "phase2",
+            "operation-behavior-semantics.json",
+        )
+    )
+    p1_commitment_authority_path = find_cross_phase_surface_path(
+        phase2_root,
+        "phase2",
+        "p1-commitment-authority.json",
+    )
+    p1_commitment_authority = load_json_object(p1_commitment_authority_path)
+    p1_claim_control = p1_claim_control_from_authority(p1_commitment_authority)
+    raw_p2_claim_control_report = load_json_object(
+        phase2_root / "phase2-claim-control-report.json"
+    )
+    rebuilt_p2_claim_control = verify_phase2_claim_control_report(
+        phase2_root=phase2_root,
+        report=raw_p2_claim_control_report,
+        p1_commitment_authority=p1_commitment_authority,
+    )
+    p2_claim_control_report = rebuilt_p2_claim_control["report"]
+    p2_claim_control_verification = rebuilt_p2_claim_control["verification"]
+    persisted_p2_verification = load_json_object(
+        find_cross_phase_surface_path(
+            phase2_root,
+            "phase2",
+            "phase2-claim-control-verification.json",
+        )
+    )
+    persisted_p2_verification_matches = bool(
+        phase2_claim_control_verification_is_valid(persisted_p2_verification)
+        and str(persisted_p2_verification.get("content_digest") or "")
+        == str(p2_claim_control_verification.get("content_digest") or "")
+    )
+    if not persisted_p2_verification_matches:
+        p2_claim_control_verification = {
+            **p2_claim_control_verification,
+            "status": "blocked",
+            "verified": False,
+            "failures": sorted(
+                set(
+                    [
+                        *(
+                            p2_claim_control_verification.get("failures", [])
+                            if isinstance(p2_claim_control_verification.get("failures"), list)
+                            else []
+                        ),
+                        "persisted_phase2_claim_control_verification_mismatch",
+                    ]
+                )
+            ),
+        }
+        p2_claim_control_verification["content_digest"] = canonical_digest(
+            {
+                key: p2_claim_control_verification[key]
+                for key in p2_claim_control_verification
+                if key != "content_digest"
+            }
+        )
+    p2_commitment_disposition_ledger = load_json_object(
+        phase2_root / "p2-commitment-disposition-ledger.json"
+    )
+    verification_result = verify_semantic_commitment_union(
+        persisted_union=persisted_union,
+        p1_claim_control=p1_claim_control,
+        operation_source_obligations=operation_source_obligations,
+        p1_operation_resolutions=p1_operation_resolutions,
+        operation_semantics=operation_semantics,
+        p2_claim_control_report=p2_claim_control_report,
+        p1_commitment_authority=p1_commitment_authority,
+        p2_claim_control_verification=p2_claim_control_verification,
+        p2_commitment_disposition_ledger=p2_commitment_disposition_ledger,
+    )
+    return {
+        "persisted_union": persisted_union,
+        "rebuilt_union": verification_result["rebuilt_union"],
+        "verification": verification_result["verification"],
+        "p1_commitment_authority": p1_commitment_authority,
+        "phase2_claim_control_verification": p2_claim_control_verification,
+        "source_paths": {
+            "p1_commitment_authority": str(p1_commitment_authority_path),
+            "phase2_claim_control_report": str(
+                phase2_root / "phase2-claim-control-report.json"
+            ),
+            "phase2_claim_control_verification": str(
+                find_cross_phase_surface_path(
+                    phase2_root,
+                    "phase2",
+                    "phase2-claim-control-verification.json",
+                )
+            ),
+        },
+    }
+
+
+def write_semantic_realization_ledger(
+    *,
+    phase2_root: Path,
+    output_dir: Path,
+    implementation_bindings: dict[str, Any],
+    trace_registry_final: dict[str, Any],
+) -> dict[str, Any]:
+    authority = load_phase2_semantic_commitment_authority(phase2_root)
+    persisted_union = authority["persisted_union"]
+    if not persisted_union:
+        return {}
+    ledger = build_semantic_realization_ledger(
+        commitment_union=authority["rebuilt_union"],
+        implementation_bindings=implementation_bindings,
+        trace_registry_final=trace_registry_final,
+        commitment_union_verification=authority["verification"],
+        authority_source_paths=authority["source_paths"],
+    )
+    write_json(output_dir / "semantic-realization-ledger.json", ledger)
+    return ledger
 
 
 def carry_phase2_trace_identity_source(*, phase2_root: Path, output_dir: Path) -> dict[str, Any]:
@@ -46,10 +201,6 @@ def carry_phase2_trace_identity_source(*, phase2_root: Path, output_dir: Path) -
         "trace_db_present": target.exists(),
         "size_bytes": target.stat().st_size if target.exists() else 0,
     }
-
-
-def agentic_authoring_enrichment_module(module_name: str):
-    return importlib.import_module(f"phase3.{module_name}")
 
 
 def optional_phase3_diagnostic_module(module_name: str):
@@ -437,10 +588,9 @@ def prepare_phase3_foundation_workspace(
         )
         phase3_synthesis_brief = phase3_synthesis_brief_summary["brief"]
     service_authoring_packet, service_authoring_packet_summary = load_service_authoring_packet(args)
-    module_synthesis_bundle_path = resolve_optional_path(getattr(args, "module_synthesis_bundle_path", ""))
     module_synthesis_bundle_summary = {
-        "mode": "enabled" if module_synthesis_bundle_path is not None else "disabled",
-        "path": str(module_synthesis_bundle_path) if module_synthesis_bundle_path is not None else "",
+        "mode": "retired-from-active-foundation-runtime",
+        "path": "",
     }
     action_card_obligations = load_action_card_obligations(phase2_root)
     p2_project_language_handoff = build_project_language_handoff(
@@ -487,112 +637,54 @@ def prepare_phase3_foundation_workspace(
             else {}
         ),
     }
-    agentic_authoring_enrichment_enabled = bool(getattr(args, "enable_agentic_authoring_enrichment", False))
-    business_behavior_authoring_plan: dict[str, Any] | None = None
-    agentic_semantic_decisions: dict[str, Any] | None = None
-    agentic_module_implementation_briefs: dict[str, Any] | None = None
-    action_card_direct_implementation_driver: dict[str, Any] | None = None
+    implementation_authority = load_json_object(
+        output_dir / "p3-agentic-implementation-authority.json"
+    )
+    accepted_implementation_authority = p3_agentic_implementation_authority_is_valid(
+        implementation_authority
+    )
+    agentic_semantic_decisions: dict[str, Any] | None = (
+        dict(implementation_authority.get("agentic_semantic_decisions", {}))
+        if accepted_implementation_authority
+        and isinstance(implementation_authority.get("agentic_semantic_decisions"), dict)
+        else None
+    )
     business_behavior_authoring_plan_summary: dict[str, Any] = {
-        "mode": "disabled",
+        "mode": "retired-from-active-foundation-runtime",
         "path": "",
         "persisted": False,
         "operation_count": 0,
         "fallback_operation_count": 0,
     }
     agentic_semantic_authoring_summary: dict[str, Any] = {
-        "mode": "disabled",
+        "mode": (
+            str(agentic_semantic_decisions.get("mode") or "")
+            if isinstance(agentic_semantic_decisions, dict)
+            else "disabled"
+        ),
         "persisted": False,
-        "agentic_semantic_decision_count": 0,
-        "default_heavy_artifact_count": 0,
+        **(
+            agentic_semantic_decisions.get("summary", {})
+            if isinstance(agentic_semantic_decisions, dict)
+            and isinstance(agentic_semantic_decisions.get("summary"), dict)
+            else {
+                "agentic_semantic_decision_count": 0,
+                "default_heavy_artifact_count": 0,
+            }
+        ),
     }
     agentic_module_implementation_brief_summary: dict[str, Any] = {
-        "mode": "disabled",
+        "mode": "retired-from-active-foundation-runtime",
         "persisted": False,
         "module_count": 0,
         "persisted_default_heavy_artifact_count": 0,
     }
     action_card_direct_implementation_driver_summary: dict[str, Any] = {
-        "mode": "disabled",
+        "mode": "retired-from-active-foundation-runtime",
         "persisted": False,
         "operation_count": 0,
         "persisted_default_heavy_artifact_count": 0,
     }
-    if agentic_authoring_enrichment_enabled:
-        business_behavior_authoring = agentic_authoring_enrichment_module("business_behavior_authoring")
-        agentic_semantic_authoring = agentic_authoring_enrichment_module("agentic_semantic_authoring")
-        agentic_module_implementation = agentic_authoring_enrichment_module("agentic_module_implementation")
-        action_card_direct_implementation = agentic_authoring_enrichment_module("action_card_direct_implementation")
-        business_behavior_authoring_plan = business_behavior_authoring.build_business_behavior_authoring_plan(
-            operations=parse_openapi_operations(spec),
-            operation_specs=runtime_operation_specs_from_openapi(spec),
-            behavior_card_models=bootstrap.get("behavior_card_models", {}),
-            implementation_bindings={
-                "artifact_kind": "phase3-business-behavior-authoring-source-bindings",
-                "rows": trace_registry.get("rows", []) if isinstance(trace_registry.get("rows", []), list) else [],
-            },
-            action_card_execution_map=action_card_rich_context,
-        )
-        business_behavior_authoring_plan_summary = {
-            "mode": "in-memory-action-card-compatibility-projection",
-            "path": "",
-            "persisted": False,
-            "operation_count": business_behavior_authoring_plan.get("summary", {}).get("operation_count", 0),
-            "fallback_operation_count": business_behavior_authoring_plan.get("summary", {}).get(
-                "fallback_operation_count",
-                0,
-            ),
-        }
-        agentic_semantic_decisions = agentic_semantic_authoring.build_agentic_semantic_decisions(
-            operations=parse_openapi_operations(spec),
-            rich_context=action_card_rich_context,
-            operation_specs=runtime_operation_specs_from_openapi(spec),
-            behavior_card_models=bootstrap.get("behavior_card_models", {}),
-            project_implementation_conventions=project_implementation_conventions,
-        )
-        agentic_semantic_authoring_summary = {
-            "mode": agentic_semantic_decisions.get("mode", ""),
-            "persisted": False,
-            **(
-                agentic_semantic_decisions.get("summary", {})
-                if isinstance(agentic_semantic_decisions.get("summary"), dict)
-                else {}
-            ),
-        }
-        agentic_module_implementation_briefs = agentic_module_implementation.build_module_implementation_briefs(
-            operations=parse_openapi_operations(spec),
-            rich_context=action_card_rich_context,
-            operation_specs=runtime_operation_specs_from_openapi(spec),
-            agentic_semantic_decisions=agentic_semantic_decisions,
-            project_implementation_conventions=project_implementation_conventions,
-        )
-        agentic_module_implementation_brief_summary = {
-            "mode": agentic_module_implementation_briefs.get("mode", ""),
-            "persisted": False,
-            **(
-                agentic_module_implementation_briefs.get("summary", {})
-                if isinstance(agentic_module_implementation_briefs.get("summary"), dict)
-                else {}
-            ),
-        }
-        action_card_direct_implementation_driver = (
-            action_card_direct_implementation.build_action_card_direct_implementation_driver(
-                operations=parse_openapi_operations(spec),
-                rich_context=action_card_rich_context,
-                runtime_operation_specs=runtime_operation_specs_from_openapi(spec),
-                agentic_semantic_decisions=agentic_semantic_decisions,
-                project_implementation_conventions=project_implementation_conventions,
-                module_implementation_briefs=agentic_module_implementation_briefs,
-            )
-        )
-        action_card_direct_implementation_driver_summary = {
-            "mode": action_card_direct_implementation_driver.get("mode", ""),
-            "persisted": False,
-            **(
-                action_card_direct_implementation_driver.get("summary", {})
-                if isinstance(action_card_direct_implementation_driver.get("summary"), dict)
-                else {}
-            ),
-        }
     implementation_summary = scaffold_phase3_implementation_fn(
         esp_text=esp_text,
         openapi_spec=spec,
@@ -602,15 +694,15 @@ def prepare_phase3_foundation_workspace(
         behavior_card_models=bootstrap.get("behavior_card_models", {}),
         synthesis_brief=phase3_synthesis_brief,
         service_authoring_packet=service_authoring_packet,
-        module_synthesis_bundle_path=module_synthesis_bundle_path,
+        module_synthesis_bundle_path=None,
         action_card_execution_map=action_card_rich_context,
         action_card_execution_map_path=paths["action_card_execution_map_path"],
-        business_behavior_authoring_plan=business_behavior_authoring_plan,
+        business_behavior_authoring_plan=None,
         business_behavior_authoring_plan_path=None,
         agentic_semantic_decisions=agentic_semantic_decisions,
         project_implementation_conventions=project_implementation_conventions,
-        module_implementation_briefs=agentic_module_implementation_briefs,
-        action_card_direct_implementation_driver=action_card_direct_implementation_driver,
+        module_implementation_briefs=None,
+        action_card_direct_implementation_driver=None,
         include_frontend=bool(
             getattr(args, "enable_ui_fallback", False)
             or getattr(args, "require_frontend_contract", False)
@@ -816,7 +908,7 @@ def prepare_phase3_foundation_workspace(
             "phase3_synthesis_brief_summary": phase3_synthesis_brief.get("summary", {}) if phase3_synthesis_brief else {"mode": "experimental-disabled"},
             "has_service_authoring_packet": service_authoring_packet is not None,
             "service_authoring_packet_summary": service_authoring_packet_summary,
-            "has_module_synthesis_bundle": module_synthesis_bundle_path is not None,
+            "has_module_synthesis_bundle": False,
             "module_synthesis_bundle_summary": module_synthesis_bundle_summary,
             "has_business_behavior_authoring_plan": False,
             "business_behavior_authoring_plan": "",
@@ -826,14 +918,26 @@ def prepare_phase3_foundation_workspace(
             "has_action_card_execution_map": True,
             "action_card_execution_map": str(paths["action_card_execution_map_path"]),
             "action_card_execution_map_summary": action_card_execution_map_summary,
-            "has_agentic_semantic_authoring": agentic_authoring_enrichment_enabled,
+            "has_agentic_semantic_authoring": accepted_implementation_authority,
+            "agentic_semantic_authoring_candidate_present": False,
+            "agentic_semantic_authoring_candidate_authority": (
+                "accepted-host-agent-implementation-authority"
+                if accepted_implementation_authority
+                else "none"
+            ),
+            "agentic_implementation_decision_id": str(
+                implementation_authority.get("decision_id") or ""
+            ),
+            "agentic_implementation_decision_digest": str(
+                implementation_authority.get("decision_digest") or ""
+            ),
             "agentic_semantic_authoring_summary": agentic_semantic_authoring_summary,
             "has_project_implementation_conventions": True,
             "project_implementation_convention_summary": project_implementation_convention_summary,
-            "has_agentic_module_implementation_brief": agentic_authoring_enrichment_enabled,
+            "has_agentic_module_implementation_brief": False,
             "agentic_module_implementation_brief_summary": agentic_module_implementation_brief_summary,
-            "has_action_card_direct_implementation_driver": agentic_authoring_enrichment_enabled,
-            "action_card_direct_implementation_driver_default": agentic_authoring_enrichment_enabled,
+            "has_action_card_direct_implementation_driver": False,
+            "action_card_direct_implementation_driver_default": False,
             "action_card_direct_implementation_driver": "",
             "action_card_direct_implementation_driver_persisted": False,
             "action_card_direct_implementation_driver_summary": action_card_direct_implementation_driver_summary,
@@ -869,6 +973,12 @@ def prepare_phase3_foundation_workspace(
         source_path=trace_registry_final_path,
     )
     write_json(trace_registry_final_path, trace_registry_final)
+    semantic_realization_ledger = write_semantic_realization_ledger(
+        phase2_root=phase2_root,
+        output_dir=output_dir,
+        implementation_bindings=implementation_bindings,
+        trace_registry_final=trace_registry_final,
+    )
 
     return {
         "ui_fallback_summary": ui_fallback_summary,
@@ -889,16 +999,16 @@ def prepare_phase3_foundation_workspace(
         "action_card_execution_map": action_card_execution_map,
         "action_card_rich_context": action_card_rich_context,
         "action_card_execution_map_summary": action_card_execution_map_summary,
-        "business_behavior_authoring_plan": business_behavior_authoring_plan,
+        "business_behavior_authoring_plan": None,
         "business_behavior_authoring_plan_summary": business_behavior_authoring_plan_summary,
         "p2_project_language_handoff": p2_project_language_handoff,
         "project_implementation_conventions": project_implementation_conventions,
         "project_implementation_convention_summary": project_implementation_convention_summary,
         "agentic_semantic_decisions": agentic_semantic_decisions,
         "agentic_semantic_authoring_summary": agentic_semantic_authoring_summary,
-        "agentic_module_implementation_briefs": agentic_module_implementation_briefs,
+        "agentic_module_implementation_briefs": None,
         "agentic_module_implementation_brief_summary": agentic_module_implementation_brief_summary,
-        "action_card_direct_implementation_driver": action_card_direct_implementation_driver,
+        "action_card_direct_implementation_driver": None,
         "action_card_direct_implementation_driver_summary": action_card_direct_implementation_driver_summary,
         "agentic_implementation_loop_summary": agentic_implementation_loop_summary,
         "agentic_generation_quality_loop_summary": agentic_generation_quality_loop_summary,
@@ -907,6 +1017,7 @@ def prepare_phase3_foundation_workspace(
         "quality": quality,
         "toolchain_bootstrap_report": toolchain_bootstrap_report,
         "trace_registry_final": trace_registry_final,
+        "semantic_realization_ledger": semantic_realization_ledger,
         "trace_identity_source_summary": trace_identity_source_summary,
         "bootstrap_worker_run_report_path": bootstrap_worker_run_report_path,
     }
@@ -1217,6 +1328,17 @@ def run_phase3_foundation_mainline_impl(
         execute_phase3_mainline_backend_verification_fn=execute_phase3_mainline_backend_verification_fn,
         timing_segments=timing_segments,
     )
+    implementation_authority = load_json_object(
+        output_dir / "p3-agentic-implementation-authority.json"
+    )
+    implementation_application = (
+        finalize_p3_agentic_implementation_application(
+            output_dir=output_dir,
+            authority=implementation_authority,
+        )
+        if p3_agentic_implementation_authority_is_valid(implementation_authority)
+        else {}
+    )
     summary = build_phase3_foundation_summary(
         args=args,
         output_dir=output_dir,
@@ -1228,4 +1350,8 @@ def run_phase3_foundation_mainline_impl(
     )
     timing_report_path = write_phase3_timing_report(output_dir=output_dir, segments=timing_segments)
     summary["timing_report"] = str(timing_report_path)
+    summary["agentic_implementation_authority"] = str(
+        output_dir / "p3-agentic-implementation-authority.json"
+    )
+    summary["agentic_implementation_application"] = implementation_application
     return summary

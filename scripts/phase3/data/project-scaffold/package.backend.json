@@ -1,0 +1,35 @@
+{
+  "name": "phase3-app",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev": "tsx apps/api/src/main.ts",
+    "start": "node apps/api/dist/main.js",
+    "migrate": "tsx apps/api/src/runtime/migrate.ts",
+    "lint": "eslint --max-warnings=0 \"apps/api/src/**/*.ts\" \"packages/**/*.ts\" \"tests/**/*.ts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --config vitest.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage.enabled --coverage.provider=v8 --coverage.reporter=json-summary --coverage.reporter=json --coverage.reporter=text-summary",
+    "test:coverage:unit": "vitest run --config vitest.config.ts tests/unit --coverage.enabled --coverage.provider=v8 --coverage.reporter=json-summary --coverage.reporter=json --coverage.reporter=text-summary --coverage.include='apps/api/src/modules/**/*.ts' --coverage.include='apps/api/src/common/**/*.ts'",
+    "build": "tsc -p apps/api/tsconfig.build.json"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@eslint/js": "^9.20.0",
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/node": "^22.13.0",
+    "@types/pg": "^8.11.11",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@typescript-eslint/eslint-plugin": "^8.24.1",
+    "@typescript-eslint/parser": "^8.24.1",
+    "@vitest/coverage-v8": "^1.6.0",
+    "eslint": "^9.20.0",
+    "globals": "^15.14.0",
+    "pg": "^8.13.1",
+    "typescript": "^5.7.3",
+    "vite": "^5.4.14",
+    "vitest": "^1.6.0",
+    "tsx": "^4.19.2"
+  }
+}

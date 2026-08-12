@@ -536,7 +536,7 @@
     "wff-meta-source-unit-coverage-ledger",
     "wff-meta-stage-skill-construction-lifecycle"
   ],
-  "generated_at": "2026-08-12T12:33:02+00:00",
+  "generated_at": "2026-08-12T19:43:05+00:00",
   "included_base_skills": [
     "wff-base-traceability-management"
   ],
@@ -1166,5 +1166,19 @@
     "wff-validation-closure-judgment",
     "wff-validation-evidence-execution"
   ],
-  "source_revision": "fab0cee6f9ef7346469a858dbc75724adf06069b"
+  "runtime_dependency_projection": {
+    "excluded_presentation_assets": [
+      "runtime-deps/mindthus/release/docs/assets/mindthus-overview.png",
+      "runtime-deps/mindthus/release/docs/methodologies/assets/3l5s-nested-loop.png",
+      "runtime-deps/mindthus/release/docs/methodologies/assets/tplan-okr-runtime.png",
+      "runtime-deps/mindthus/release/docs/methodologies/assets/tvg-architecture.png"
+    ],
+    "rewritten_presentation_docs": [
+      "runtime-deps/mindthus/release/README.md",
+      "runtime-deps/mindthus/release/docs/methodologies/3l5s.md",
+      "runtime-deps/mindthus/release/docs/methodologies/tplan.md",
+      "runtime-deps/mindthus/release/docs/methodologies/tvg.md"
+    ]
+  },
+  "source_revision": "b4f4c383a76fc21df36ef25515325c4b089dcc86"
 }

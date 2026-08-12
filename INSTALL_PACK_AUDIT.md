@@ -6,7 +6,7 @@
 - profile_id: `full-pack`
 - profile_status: `default`
 - profile_claim: `default-full-pack`
-- 源修订版本: `fab0cee6f9ef7346469a858dbc75724adf06069b`
+- 源修订版本: `b4f4c383a76fc21df36ef25515325c4b089dcc86`
 - 总体结论: `pass`
 
 ## 硬失败项
@@ -26,8 +26,8 @@
 - test_dirs: `0`
 
 ## Content Inventory
-- total_files: `708`
-- total_bytes: `12650499`
+- total_files: `704`
+- total_bytes: `9034116`
 - policy_findings: `0`
 - 无
 - top_level:
@@ -35,12 +35,12 @@
   - `INSTALL-PACK-README.en.md`: files=`1`, bytes=`7566`
   - `INSTALL-PACK-README.md`: files=`1`, bytes=`7426`
   - `INSTALL-PACK-README.zh-CN.md`: files=`1`, bytes=`7426`
-  - `INSTALL_PACK_AUDIT.md`: files=`1`, bytes=`5630`
+  - `INSTALL_PACK_AUDIT.md`: files=`1`, bytes=`5628`
   - `README.en.md`: files=`1`, bytes=`7566`
-  - `README.md`: files=`1`, bytes=`7274`
-  - `README.zh-CN.md`: files=`1`, bytes=`7274`
-  - `SKILL_INSTALL_PACK_AUDIT.json`: files=`1`, bytes=`14653`
-  - `SKILL_INSTALL_PACK_MANIFEST.json`: files=`1`, bytes=`51500`
+  - `README.md`: files=`1`, bytes=`7513`
+  - `README.zh-CN.md`: files=`1`, bytes=`7513`
+  - `SKILL_INSTALL_PACK_AUDIT.json`: files=`1`, bytes=`14650`
+  - `SKILL_INSTALL_PACK_MANIFEST.json`: files=`1`, bytes=`52207`
   - `WFF-START-HERE.md`: files=`1`, bytes=`2884`
   - `WFF-START-HERE.zh-CN.md`: files=`1`, bytes=`2770`
   - `config`: files=`4`, bytes=`89961`
@@ -48,7 +48,7 @@
   - `reference-packages`: files=`180`, bytes=`632151`
   - `requirements.lock.txt`: files=`1`, bytes=`544`
   - `requirements.txt`: files=`1`, bytes=`70`
-  - `runtime-deps`: files=`110`, bytes=`4415224`
+  - `runtime-deps`: files=`106`, bytes=`797661`
   - `scripts`: files=`318`, bytes=`6812991`
   - `skills`: files=`59`, bytes=`344753`
   - `templates`: files=`1`, bytes=`2936`

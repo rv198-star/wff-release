@@ -14,7 +14,6 @@ AI agent 真正让人累的地方，往往不是它不会写代码、不会总�
 
 > Mindthus 不只是让 agent 选对工具。它先让 agent 不要拿着正确工具，解决一个被问歪的问题。
 
-![Mindthus 项目总览：TPlan、判断镜头、TVG 与认知原语](docs/assets/mindthus-overview.png)
 
 项目地址：<https://github.com/rv198-star/Mindthus>
 

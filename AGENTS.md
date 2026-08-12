@@ -46,4 +46,4 @@ Use it as the concise agent-facing guide for the WFF Skills shipped in this pack
 ## Pack Identity
 - pack_name: `wff-v1.9.2-skills-install-pack`
 - install_set_id: `full-pack`
-- source_revision: `fab0cee6f9ef7346469a858dbc75724adf06069b`
+- source_revision: `b4f4c383a76fc21df36ef25515325c4b089dcc86`

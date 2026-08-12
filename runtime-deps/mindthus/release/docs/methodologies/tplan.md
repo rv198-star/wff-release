@@ -4,7 +4,6 @@
 
 `tplan` 是给 AI agent 用的 OKR-Runtime：把稳定 Mission 转成任务状态、验收证据、决策钩子和可恢复执行。
 
-![TPlan 架构示意图：OKR-Runtime 在执行中持续对齐目标、共享风险、纠偏收束](assets/tplan-okr-runtime.png)
 
 项目地址：<https://github.com/rv198-star/Mindthus>
 

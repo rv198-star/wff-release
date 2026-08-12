@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "version": "v1.9.2",
-  "generated_at": "2026-08-12T12:33:36+00:00",
+  "generated_at": "2026-08-12T19:45:20+00:00",
   "public_repository_shape": "unpacked-runtime-install-pack",
   "source_repo": "rv198-star/software-lifecycle-skills",
-  "source_revision": "fab0cee6f9ef7346469a858dbc75724adf06069b",
-  "workflow_run_id": "manual-final-20260812",
+  "source_revision": "b4f4c383a76fc21df36ef25515325c4b089dcc86",
+  "workflow_run_id": "manual-refresh-20260813",
   "install_pack_name": "wff-v1.9.2-skills-install-pack",
   "install_pack_audit": {
     "overall_verdict": "pass",
@@ -19,11 +19,11 @@
     "profile_id": "full-pack",
     "profile_status": "default",
     "profile_claim": "default-full-pack",
-    "source_revision": "fab0cee6f9ef7346469a858dbc75724adf06069b"
+    "source_revision": "b4f4c383a76fc21df36ef25515325c4b089dcc86"
   },
   "content_inventory": {
-    "file_count": 710,
-    "total_bytes": 12652481
+    "file_count": 706,
+    "total_bytes": 9036099
   },
   "leak_audit": {
     "forbidden_path_matches": [],

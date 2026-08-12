@@ -1,9 +1,9 @@
 {
   "content_inventory": {
     "category_bytes": {
-      "install-pack-root-guidance": 26205,
-      "optional-runtime-dependency": 4415224,
-      "other": 100779,
+      "install-pack-root-guidance": 26683,
+      "optional-runtime-dependency": 797661,
+      "other": 101481,
       "runtime-config": 89961,
       "user-facing-guidance": 225499,
       "user-facing-reference-package": 632151,
@@ -13,7 +13,7 @@
     },
     "category_counts": {
       "install-pack-root-guidance": 4,
-      "optional-runtime-dependency": 110,
+      "optional-runtime-dependency": 106,
       "other": 12,
       "runtime-config": 4,
       "user-facing-guidance": 20,
@@ -45,7 +45,7 @@
         "path": "INSTALL-PACK-README.zh-CN.md"
       },
       {
-        "bytes": 5630,
+        "bytes": 5628,
         "files": 1,
         "path": "INSTALL_PACK_AUDIT.md"
       },
@@ -55,22 +55,22 @@
         "path": "README.en.md"
       },
       {
-        "bytes": 7274,
+        "bytes": 7513,
         "files": 1,
         "path": "README.md"
       },
       {
-        "bytes": 7274,
+        "bytes": 7513,
         "files": 1,
         "path": "README.zh-CN.md"
       },
       {
-        "bytes": 14653,
+        "bytes": 14650,
         "files": 1,
         "path": "SKILL_INSTALL_PACK_AUDIT.json"
       },
       {
-        "bytes": 51500,
+        "bytes": 52207,
         "files": 1,
         "path": "SKILL_INSTALL_PACK_MANIFEST.json"
       },
@@ -110,8 +110,8 @@
         "path": "requirements.txt"
       },
       {
-        "bytes": 4415224,
-        "files": 110,
+        "bytes": 797661,
+        "files": 106,
         "path": "runtime-deps"
       },
       {
@@ -140,8 +140,8 @@
         "path": "wff-init"
       }
     ],
-    "total_bytes": 12650499,
-    "total_files": 708
+    "total_bytes": 9034116,
+    "total_files": 704
   },
   "excluded_path_leaks": {
     "pyc_files": [],
@@ -404,7 +404,7 @@
     }
   },
   "skill_name_mismatches": [],
-  "source_revision": "fab0cee6f9ef7346469a858dbc75724adf06069b",
+  "source_revision": "b4f4c383a76fc21df36ef25515325c4b089dcc86",
   "wff_core_runtime": {
     "actual_files": [
       "scripts/wff_core/__init__.py",

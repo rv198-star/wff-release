@@ -91,7 +91,7 @@ WFF 的安装单位是完整 skill 目录和配套资源，不是单个 `SKILL.m
 
 `v1.9.2` 是责任/分发减肥后的正式全链路发布：GEO / PetClinic / BrainyPal 三个新建项目场景完成 P1 -> P4，Invoice / Legacy Customer ID / Oracle DB change / Order scale 四个存量项目完成 PX -> P1 -> P2 -> P3 -> P4；Final AI Review 与两轮独立收尾审计均 PASS。正式 release notes 见 [source tag 上的 v1.9.2 release notes](https://github.com/rv198-star/software-lifecycle-skills/blob/v1.9.2/docs/v1.9.2-release-notes.zh-CN.md)。
 
-同一 release commit 还发布独立产品 **EKRI v0.9.0**（tag `ekri/v0.9.0`）。EKRI 拥有自己的版本、CHANGELOG 与 GitHub Release 身份，但继续保持在 WFF 用户侧 Skills、install profiles、公开 install pack 和 P1-P4/PX runtime 之外。WFF 的公开运行包不会携带 EKRI。
+v1.9.2 最初与独立产品 **EKRI v0.9.0**（tag `ekri/v0.9.0`）从同一 release commit 联合冻结；2026-08-13 的 WFF packaging-only refresh 仅收紧公网安装包中的 Mindthus 展示资产，因此 WFF `v1.9.2` source tag 随新的 packaging commit 更新，而 `ekri/v0.9.0` 保持原已验证 commit 不变。EKRI 继续拥有自己的版本、CHANGELOG 与 GitHub Release 身份，并保持在 WFF 用户侧 Skills、install profiles、公开 install pack 和 P1-P4/PX runtime 之外。WFF 的公开运行包不会携带 EKRI。
 
 完整全链路生成物继续保持为本地/独立 proof evidence，不把大体量生成快照重新并回 `main`。发布口径、验证摘要与 claim ceiling 统一收敛在公开 release notes 与 GitHub Release 正文中。
 

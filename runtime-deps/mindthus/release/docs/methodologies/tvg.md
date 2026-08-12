@@ -8,7 +8,6 @@ TVG 是 `Thinking Value-Gain`，一套定向文本强化方法。它处理的是
 
 > TVG 让文本更接近某个“好”的标准。
 
-![TVG 架构示意图：Profile 定义标准，Loop 负责改进，Gate 判断达标](assets/tvg-architecture.png)
 
 项目地址：<https://github.com/rv198-star/Mindthus>
 

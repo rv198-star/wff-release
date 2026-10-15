@@ -40,6 +40,7 @@
   - confidence that the prototype page map preserves the upstream workflow backbone
   - confidence that key states are explicit enough for prototype execution
   - confidence that deferred / non-goal boundaries remain visible
+  - confidence that every accepted terminal role is preserved as a distinct least-privilege product consumer with source-backed entry, surfaces, actions, and visible business objects
 - Provisional inference entry condition:
   - only when the team accepts a prototype-oriented recompilation that still preserves explicit inference notes
 - User review checkpoint:
@@ -57,6 +58,9 @@
    - `route` is the authority field; `route_pattern` is retained as a compatibility mirror only.
    - Missing values must be explicit `TBD`; top-level pages use `—` for `parent_page`.
    - if `bound_use_case_ids` cannot be explicitly recovered from upstream evidence, the page must be marked `review-bound` or `blocked` with a concrete `blocked_reason`
+   - Emit `terminal_role_contracts` from accepted `p1-agentic-product-authority.json` ownership assignments when that machine authority exists. The Surface Matrix may contribute route/entry/action realization hints only when they align with the accepted role; a conflicting page actor must remain review-bound rather than overriding machine authority.
+   - Each accepted terminal role must remain independently addressable. A super-role or admin account may exist later, but it cannot replace independent terminal-role qualification or merge several accepted roles into one downstream consumer truth.
+   - Preserve each role's exact commitment ids, authority basis, claim ceiling, and responsibility-linked business objects so Phase-2 can bind role authority to operations without re-inferring role truth from page labels. P1 object linkage is not a complete data-visibility ACL; exact role-visible business objects and denied behavior remain a P2 terminal-access decision.
 4. Define page briefs with goals, information blocks, actions, and exit paths.
    - Every page row must have a matching heading `### Page Brief: {page_name} ({page_id})`.
    - Each page brief must include `why_it_exists`, `dominant_interaction_pattern`, `key_data_objects`, and `business_state_transitions`.
@@ -88,6 +92,7 @@
 - Required fields:
   - prototype_goal
   - target_consumer
+  - terminal_role_contracts
   - prototype_scope
   - page_map
   - main_flow
@@ -120,6 +125,8 @@
 ## 6. Acceptance Criteria
 - DoD:
   - a coherent page-level Surface Matrix exists
+  - `terminal_role_contracts` preserves the complete accepted machine-authority role set when available, including exact commitment ids, authority basis/ceiling, and responsibility-linked business objects; route/entry/action projection is either aligned or explicitly review-bound, while exact role-visible data remains a P2 decision
+  - no super-role account or convenience persona substitutes for independent terminal-role authority
   - the page map is emitted as a Markdown table with all required columns
   - the first-wave workflow can be followed across page transitions
   - each page has an explicit goal and core actions
@@ -138,6 +145,8 @@
   - page map emitted as prose or nested bullets instead of a Markdown table
   - required page-map columns missing
   - page-map cells left blank instead of `TBD`
+  - accepted terminal roles are merged, dropped, or widened in `terminal_role_contracts`
+  - terminal-role qualification is represented only by a multi-role/super-role consumer when P1 contains distinct accepted terminal roles
   - no end-to-end main flow
   - no usable page briefs
   - no state coverage

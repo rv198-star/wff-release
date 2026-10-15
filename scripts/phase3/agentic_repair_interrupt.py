@@ -13,29 +13,18 @@ def _as_list(value: Any) -> list[Any]:
 
 
 def _string(value: Any) -> str:
-    return str(value).strip()
+    return "" if value is None else str(value).strip()
 
 
 def _owner_phase(defect_key: str) -> str:
-    normalized = defect_key.lower()
-    if "api_contract" in normalized or "contract_frozen" in normalized:
-        return "P2"
-    if "source" in normalized or "business_truth" in normalized:
-        return "P1"
-    if normalized.startswith("frontend"):
-        return "P3"
     return "P3"
 
 
 def _repair_route(owner_phase: str) -> str:
-    return "repair-in-phase" if owner_phase == "P3" else "return-upstream"
+    return "repair-in-phase"
 
 
 def _minimum_rerun_boundary(owner_phase: str) -> str:
-    if owner_phase == "P1":
-        return "phase1-to-phase3"
-    if owner_phase == "P2":
-        return "phase2-to-phase3"
     return "phase3-targeted-gate"
 
 
@@ -53,13 +42,14 @@ def _change_unit_types(defect_key: str, owner_phase: str) -> list[str]:
 
 
 def _required_agentic_actions(defect_key: str, owner_phase: str) -> list[str]:
-    if owner_phase != "P3":
-        return [
-            f"route defect to {owner_phase} with evidence and minimum rerun boundary",
-            "do not repair upstream truth inside P3",
-            "cap P3 claims until upstream truth is regenerated and rerun",
-        ]
     normalized = defect_key.lower()
+    if any(key in normalized for key in ("api_contract", "contract_frozen", "source", "business_truth")):
+        return [
+            "resolve the frozen-source gap through the P3 gap-decision protocol",
+            "reuse or register the exact decision in the existing Authority Delta ledger",
+            "retain confirmation posture and next-version backport without rewriting P1/P2",
+            "rerun the targeted P3 evidence before raising claims",
+        ]
     if "backend_service_boundary" in normalized:
         return [
             "inspect generated service/API boundary for scaffold-only behavior",
@@ -88,18 +78,8 @@ def _material_human_review_action(human_review: dict[str, Any] | None) -> str:
 
 
 def _owner_phase_from_defect(defect: dict[str, Any], defect_key: str) -> str:
-    explicit = _string(defect.get("owner_phase")).upper()
-    if explicit in {"P1", "P2", "P3"}:
-        return explicit
-    combined_signal = " ".join(
-        [
-            defect_key,
-            _string(defect.get("module_key")),
-            _string(defect.get("finding")),
-            _string(defect.get("rewrite_objective")),
-        ]
-    )
-    return _owner_phase(combined_signal)
+    # An older defect may name the source owner; current-cycle remediation stays P3.
+    return "P3"
 
 
 def _human_review_status(defect: dict[str, Any]) -> str:
@@ -183,15 +163,15 @@ def _semantic_drift_status(drift: dict[str, Any]) -> str:
 
 
 def _semantic_drift_owner_phase(status: str) -> str:
-    return "P3" if status == "BLOCKED" else "P2"
+    return "P3"
 
 
 def _semantic_invariant_required_actions(status: str) -> list[str]:
     if status != "BLOCKED":
         return [
-            "route semantic source-truth gap upstream with evidence",
+            "register or reuse the P3 semantic gap decision with exact frozen source evidence",
             "do not invent owner, aggregate, lifecycle, or mutation truth inside P3",
-            "cap P3 claims until source-supported invariant is regenerated and rerun",
+            "retain the unresolved claim ceiling; queue next-version backport and rerun P3 evidence",
         ]
     return [
         "write or preserve RED semantic invariant tests before bounded rewrite",
@@ -308,12 +288,12 @@ def build_agentic_repair_interrupt(
         "repair_loop": {
             "owner": "agentic",
             "workflow_role": "preserve checkpoint order, packet contract, rerun boundary, and evidence capture",
-            "agentic_role": "localize whether to repair code, tests, runtime evidence, handoff, or return upstream",
+            "agentic_role": "localize code, test, runtime evidence or handoff repair; resolve frozen gaps in P3",
             "evidence_role": "cap claims until targeted rerun evidence supports a stronger state",
             "max_rounds": max(1, int(max_rounds)),
             "stop_conditions": [
                 "targeted rerun proves the blocking defect is closed",
-                "the defect is routed to P1/P2/P4 with evidence and minimum rerun boundary",
+                "the defect has a recorded P3 decision, explicit claim ceiling and next-version backport",
                 "max rounds are exhausted and the claim remains capped",
             ],
         },
@@ -322,7 +302,7 @@ def build_agentic_repair_interrupt(
             "enabled": True,
             "actions": ["批准", "带保留项批准", "要求修改", "要求返回", "提供干预输入", "明确跳过审核"],
             "material_defect_actions": sorted(MATERIAL_HUMAN_REVIEW_ACTIONS),
-            "rule": "material human-review defects must enter repair packets or upstream return, not final-report-only failure",
+            "rule": "material human-review defects enter P3 repair packets or recorded P3 gap decisions; upstream absorption is next-version backport",
         },
         "summary": {
             "repair_packet_count": len(packets),

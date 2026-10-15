@@ -343,7 +343,9 @@
         "reader-translation-lane"
       ],
       "excluded_scripts": [
-        "scripts/release/run_release_dual_case_eval.py"
+        "scripts/release/run_release_dual_case_eval.py",
+        "scripts/phase2/__init__.py",
+        "scripts/phase2/p2_final_review.py"
       ],
       "explicit_docs": [
         "docs/public/wff-orientation-map.zh-CN.md"
@@ -1435,11 +1437,16 @@
     {
       "id": "phase2-runtime-scripts",
       "paths": [
+        "scripts/common/bounded_response_stream.py",
         "scripts/phase2/agentic_architecture_authority.py",
         "scripts/phase2/bounded_challenge_binding.py",
         "scripts/phase2/run_phase2_fresh_generation.py",
         "scripts/phase2/run_phase2_existing_system_intake.py",
-        "scripts/phase2/phase2_closure_runtime.py"
+        "scripts/phase2/phase2_closure_runtime.py",
+        "scripts/phase2/interaction_generation.py",
+        "scripts/phase2/architecture_templates.py",
+        "scripts/phase2/data/architecture-design-v1.json",
+        "scripts/phase2/data/interaction-design-v1.json"
       ],
       "type": "phase-runtime"
     },
@@ -1461,6 +1468,8 @@
     {
       "id": "phase3-runtime-scripts",
       "paths": [
+        "scripts/common/bounded_model_call.py",
+        "scripts/common/bounded_response_stream.py",
         "scripts/common/semantic_consistency.py",
         "scripts/phase2/agentic_architecture_authority.py",
         "scripts/phase2/bounded_challenge_binding.py",
@@ -1615,7 +1624,8 @@
         "scripts/phase3/data/project-scaffold/apps/api/src/runtime/postgres-storage.ts",
         "scripts/phase3/data/project-scaffold/apps/api/src/common/envelope.ts",
         "scripts/phase3/data/project-scaffold/apps/api/src/common/errors.ts",
-        "scripts/phase3/data/project-scaffold/apps/api/src/common/pagination.ts"
+        "scripts/phase3/data/project-scaffold/apps/api/src/common/pagination.ts",
+        "scripts/phase3/data/project-scaffold/tests/unit/api/auth-session.test.ts"
       ],
       "type": "phase-runtime"
     },
@@ -1655,7 +1665,21 @@
       "id": "p3-impl-frontend-runtime",
       "paths": [
         "scripts/phase3/frontend_implementation_scaffolder.py",
-        "scripts/phase3/run_impl_frontend.py"
+        "scripts/phase3/frontend_continuation_evidence.py",
+        "scripts/phase3/run_impl_frontend.py",
+        "scripts/phase3/ui_ia_contract_compiler.py"
+      ],
+      "script_data_assets": [
+        "scripts/phase3/data/project-scaffold/package.web-overlay.json",
+        "scripts/phase3/data/project-scaffold/apps/web/package.json",
+        "scripts/phase3/data/project-scaffold/apps/web/tsconfig.json",
+        "scripts/phase3/data/project-scaffold/apps/web/tsconfig.build.json",
+        "scripts/phase3/data/project-scaffold/apps/web/vite.config.ts",
+        "scripts/phase3/data/project-scaffold/apps/web/app/theme.css",
+        "scripts/phase3/data/project-scaffold/apps/web/app/main.tsx",
+        "scripts/phase3/data/project-scaffold/apps/web/app/api.ts",
+        "scripts/phase3/data/project-scaffold/apps/web/app/vite-env.d.ts",
+        "scripts/phase3/data/project-scaffold/apps/web/app/server.ts"
       ],
       "type": "phase-runtime"
     },

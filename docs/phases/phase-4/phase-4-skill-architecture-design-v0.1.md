@@ -80,9 +80,15 @@ This is the mandatory acceptance layer.
 
 This is the interface-state review layer.
 
-- source: frontend worker packets + implemented routes + linked automated evidence
-- evidence shape: route files, packet verification, optional manual review note
-- closure rule: may remain `review-bound`, but must stay explicit
+- source: frontend worker packets + implemented routes + linked automated/browser evidence
+- evidence shape: current-bound browser/screenshots/traces plus two independent Agentic review records
+- review sequence: **OMR -> SQR -> RSG**
+  - OMR (`Open-ended Maturity Review`) runs first with no predefined scoring dimensions and no SQR score/findings; it records evidence-backed findings first and assigns one holistic maturity score last
+  - SQR (`Structured Qualification Review`) runs second against fixed qualification dimensions, including Interaction Affordance & Task Efficiency, without receiving OMR findings/results
+  - RSG (`Review Synthesis Gate`) combines verdicts only; it never averages OMR/SQR scores and requires both independent reviews to pass
+- OMR pass floor: score >= 80 and no `critical` / `high` finding
+- learning rule: each valid OMR may emit non-authoritative `open-ended-maturity-learning-candidates.json` containing the reviewer-provided finding facts only; the current verdict and SQR remain unchanged. Repeated cross-scenario/version OMR patterns may be generalized into later SQR dimensions/checks only when they become stable, business-independent regression knowledge and an explicit later Agentic/governance decision accepts promotion; OMR remains mandatory even as SQR grows
+- closure rule: may remain `review-bound`, but must stay explicit; a valid OMR or SQR fail is a real return signal
 
 ### 4.3 `visual-evidence`
 
@@ -117,7 +123,9 @@ Execute against the Stage-01 model:
 - consume real Phase-3 test reports
 - mark `functional` items pass/fail/blocked from actual evidence
 - accept external screenshot/video/manual review manifests when they are explicitly supplied
-- mark `ui-review` / `visual-evidence` pass only when real review artifacts exist
+- for requested frontend browser evidence, emit `open-ended-maturity-review-request.json` first and `ui-product-review-request.json` second, validate both independently, retain validated OMR findings in the non-authoritative learning-candidate record, then resolve `ui-review` through RSG
+- mark `ui-review` pass only when OMR and SQR both pass; do not average scores or let one compensate for the other
+- mark `visual-evidence` pass only when real review artifacts exist
 - otherwise keep them `review-bound` or `blocked`
 
 Key rule:

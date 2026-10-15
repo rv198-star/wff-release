@@ -115,22 +115,19 @@ except ModuleNotFoundError:  # profile pack may intentionally omit the full revi
 
 
 WFF_SCRIPT_DATA_ASSETS = (
+    "scripts/phase2/data/architecture-design-v1.json",
+    "scripts/phase2/data/stage-03-design-defaults.json",
     "scripts/phase2/data/stage-01-architecture-definition.md.template",
     "scripts/phase2/data/stage-02-domain-decomposition.md.template",
     "scripts/phase2/data/stage-02-5-third-party-integration.md.template",
     "scripts/phase2/data/stage-03-data-interface-design.md.template",
     "scripts/phase2/data/stage-04-design-convergence.md.template",
-    "scripts/phase2/data/stage-03-design-defaults.json",
     "scripts/phase2/data/phase2-first-version-runtime-rules.json",
 )
 
 
 def load_phase2_data_asset(asset_name: str) -> Any:
     return load_script_json_asset(__file__, asset_name)
-
-
-def load_stage_03_design_defaults() -> dict[str, Any]:
-    return load_phase2_data_asset("stage-03-design-defaults.json")
 
 
 def load_phase2_text_asset(asset_name: str) -> str:
@@ -556,26 +553,6 @@ def default_adr_titles_for_context(context: dict[str, object]) -> list[str]:
         extension_seam_title,
         "Separate contract-facing namespaces from internal storage layout",
         "Carry work-package and RBI chain into implementation intake unchanged",
-    ]
-
-
-def forbidden_templates_for_context(context: dict[str, object]) -> list[tuple[str, str]]:
-    auto_execute_text = (
-        "Do not assume recommendations may silently auto-execute once a score looks high enough."
-        if context_supports_recommendation_semantics(context)
-        else DEFAULT_GENERIC_AUTO_EXECUTE_FORBIDDEN
-    )
-    deferred_seam_text = (
-        "Do not assume future attribution seams can be dropped without Phase-2 consequences."
-        if context_supports_deferred_extension_seam(context)
-        else DEFAULT_GENERIC_DEFERRED_SEAM_FORBIDDEN
-    )
-    return [
-        ("FA-01", "Do not assume cross-tenant reads are safe because the product is B2B internal-only."),
-        ("FA-02", auto_execute_text),
-        ("FA-03", "Do not assume review conclusions can omit uncertainty when deltas stay ambiguous."),
-        ("FA-04", deferred_seam_text),
-        ("FA-05", "Do not assume raw workflow evidence volume can grow without explicit index and storage posture."),
     ]
 
 

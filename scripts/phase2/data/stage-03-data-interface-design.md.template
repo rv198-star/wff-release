@@ -6,7 +6,7 @@
 - complexity_profile: `$complexity_profile`
 
 ## 2. 数据与接口设计备忘
-- 为什么这样设计：本阶段选择关系型主存储、显式公共契约和可回放接口，是为了让 Stage-02 的 owner / aggregate / event 判断落到可实现、可测试、可追踪的边界上。
+- 为什么这样设计：本阶段展示作者提供的存储、契约和验证决议；缺失选择保留未决，不从模板推导技术选型。
 - 先读什么：先读 data_ownership_map 和 contract_api_surface，再读 storage、scenario、tradeoff 表；不要先从字段清单倒推出业务责任。
 - 表格怎么读：data_model_summary 说明持久化对象，contract_api_surface 说明服务入口，scenario_coverage_matrix 说明验证路径；三者要共同证明同一条交接链。
 - 给 P3 的交接：P3 应消费契约名、请求响应形状、幂等/失败语义、事件消费规则和 scenario measurement hook，而不是只复制 endpoint 或 table 名。
@@ -58,6 +58,8 @@ $contract_trace_registry_table
 $interaction_matrix_p2_enrichment_block
 - data_service_binding_matrix:
 $data_service_binding_matrix_block
+- terminal_role_access_matrix:
+$terminal_role_access_matrix_block
 - traceability_matrix:
 $traceability_matrix_block
 - interaction_flow:
@@ -78,6 +80,7 @@ $alternative_candidates_block
 $optimum_posture_block
 - capacity_and_performance_assumptions:
 $stage03_capacity_posture_block
+- performance_acceptance_rule: numeric performance acceptance follows the accepted P2 architecture posture; absent thresholds remain undecided
 - scenario_coverage_matrix:
 $scenario_coverage_matrix_table
 - key_tradeoff_decisions:

@@ -46,10 +46,16 @@
 2. Execute bounded validation work for the declared in-scope scenarios.
 3. Produce execution evidence and capture pass/fail/blocked outcomes.
 4. Record defect, blocked, and unresolved-risk information explicitly.
-5. Assemble the Stage-02 execution evidence package for Stage-03 closure judgment.
+5. For current requested-frontend P3 browser evidence, run a two-round independent AI Review before subjective `ui-review` may pass. **Round 1 OMR** emits `open-ended-maturity-review-request.json` first, exposes no fixed scoring dimensions and no SQR score/findings, requires concrete evidence-backed findings before one holistic maturity score, and passes only at score >= 80 with no `critical`/`high` finding. **Round 2 SQR** emits `ui-product-review-request.json` with fixed qualification dimensions including Interaction Affordance & Task Efficiency; the structured reviewer must not receive OMR findings/results. **RSG** synthesizes only the two independent verdicts and never averages scores: OMR PASS AND SQR PASS are both required. Browser/screenshot evidence proves observation only, and a bound first-entry-to-meaningful-outcome consumer journey is a prerequisite rather than something an AI score may substitute for. Factual admission requires independent terminal-persona evidence when roles exist, forbids super-role substitution and manual internal-ID qualification, and requires clean-first-use evidence when the current UI contract says it is required. Workflow validates current evidence binding and response completeness only; factual accessibility/browser evidence must include document-level desktop/mobile viewport-fit proof with no horizontal overflow, because screenshot presence alone does not prove viewport fit. When that or other factual evidence is insufficient, the relevant review remains review-bound instead of inferring a pass. After validating OMR, Workflow retains the reviewer-provided findings verbatim enough for later comparison in `open-ended-maturity-learning-candidates.json`; the learning record is non-authoritative, does not affect the current OMR/SQR/RSG result, does not generalize categories, and cannot add an SQR dimension automatically. Repeated OMR finding patterns may be generalized into later SQR dimensions/checks only when they are stable, cross-case/version, business-independent regression knowledge and an explicit later Agentic/governance decision accepts the promotion; OMR remains mandatory after such promotion.
+6. Assemble the Stage-02 execution evidence package for Stage-03 closure judgment.
 
 ## 4. Outputs
 - `TEST-STG02-OUTPUT-*` execution evidence package
+- current `open-ended-maturity-review-request.json` plus Open-ended Maturity Review findings/holistic score when requested frontend browser evidence exists
+- `open-ended-maturity-learning-candidates.json`, retaining validated OMR findings as non-authoritative later-learning candidates without changing the current review
+- current `ui-product-review-request.json` plus Structured Qualification Review assessments/findings
+- `review-synthesis-gate.json` recording the non-averaged OMR + SQR synthesis verdict
+- Review Synthesis Gate status; no combined/averaged AI score
 - execution result summary
 - execution log / UAT run record linkage
 - defect record linkage

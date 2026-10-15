@@ -29,12 +29,22 @@ def write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def pnpm_command() -> list[str]:
+    resolved = shutil.which("pnpm")
+    if resolved:
+        return [resolved]
+    corepack = shutil.which("corepack")
+    if corepack:
+        return [corepack, "pnpm"]
+    return []
+
+
 def command_version(binary: str, args: list[str]) -> str:
-    resolved = shutil.which(binary)
-    if not resolved:
+    command = pnpm_command() if binary == "pnpm" else ([resolved] if (resolved := shutil.which(binary)) else [])
+    if not command:
         return ""
     completed = subprocess.run(
-        [resolved, *args],
+        [*command, *args],
         text=True,
         capture_output=True,
         check=False,
@@ -163,11 +173,14 @@ def bootstrap_phase3_toolchain(
     }
 
     install_requested = bool(install or strict)
-    if install_requested and node_version and pnpm_version and pnpm_version_ok and not before_node_modules:
+    if install_requested and node_version and pnpm_version and pnpm_version_ok:
         try:
+            install_command = pnpm_command()
+            if not install_command:
+                raise OSError("pnpm/corepack unavailable")
             completed = subprocess.run(
                 [
-                    "pnpm",
+                    *install_command,
                     "install",
                     "--dir",
                     str(workspace_root),

@@ -3,12 +3,23 @@
 
 from __future__ import annotations
 
+from phase2.architecture_slots import author_value, author_rows, author_block, UNDECIDED
+
 from phase2.phase2_first_version_design_model import *  # noqa: F401,F403
-
-
-def architecture_authority_model(context: dict[str, object]) -> dict[str, object]:
-    model = context.get("agentic_architecture_model")
-    return model if isinstance(model, dict) else {}
+from phase2.phase2_authority_projection_helpers import (
+    architecture_authority_model,
+    authority_constraint_example as _authority_constraint_example,
+    authority_example_value as _authority_example_value,
+    authority_interaction_binding_decision,
+    authority_operation_data_decision,
+    authority_operation_persistence_decision,
+    authority_operation_supports_concurrent_conflict,
+    interaction_request_mapping_text as _interaction_request_mapping_text,
+    interaction_response_mapping_text as _interaction_response_mapping_text,
+    interaction_response_ui_field_text as _interaction_response_ui_field_text,
+    interaction_value_source_text as _interaction_value_source_text,
+    render_authority_idempotency_rule,
+)
 
 
 def contract_trace_identity(context: dict[str, object], service: ServiceSpec, index: int) -> str:
@@ -145,120 +156,6 @@ def authority_service_read_only(context: dict[str, object], service: ServiceSpec
     return service.method.upper() in {"GET", "HEAD"} or bool(writer_id and writer_id != service.domain)
 
 
-def authority_operation_data_decision(context: dict[str, object], operation_id: str) -> dict[str, object]:
-    for row in architecture_authority_model(context).get("data_decisions", []):
-        if isinstance(row, dict) and str(row.get("operation_id") or "").strip() == operation_id:
-            return row
-    return {}
-
-
-def authority_operation_persistence_decision(context: dict[str, object], operation_id: str) -> dict[str, object]:
-    for row in architecture_authority_model(context).get("durable_persistence_identity", []):
-        if isinstance(row, dict) and str(row.get("operation_id") or "").strip() == operation_id:
-            return row
-    return {}
-
-
-def authority_operation_supports_concurrent_conflict(context: dict[str, object], operation_id: str) -> bool:
-    """Return true only when accepted persistence semantics actually reject a competing write."""
-    decision = authority_operation_persistence_decision(context, operation_id)
-    if not decision:
-        return False
-    persistence_mode = str(decision.get("persistence_mode") or "").strip()
-    command_kind = str(decision.get("command_kind") or "").strip()
-    replay_behavior = str(decision.get("replay_behavior") or "").strip()
-    if persistence_mode != "durable-write":
-        return False
-    if replay_behavior == "reject-conflict":
-        return True
-    return command_kind == "update" and replay_behavior not in {"return-existing", "read-only", "no-durable-state"}
-
-
-def render_authority_idempotency_rule(decision: dict[str, object]) -> str:
-    if not decision:
-        return "authority-bound"
-    mode = str(decision.get("idempotency_mode") or "").strip()
-    persistence_mode = str(decision.get("persistence_mode") or "").strip()
-    replay_behavior = str(decision.get("replay_behavior") or "").strip()
-    if mode != "replay-safe":
-        return f"{persistence_mode}; idempotency not applicable; replay={replay_behavior}"
-    components = [str(item).strip() for item in decision.get("identity_components", []) if str(item).strip()] if isinstance(decision.get("identity_components"), list) else []
-    carrier = decision.get("durable_carrier") if isinstance(decision.get("durable_carrier"), dict) else {}
-    carrier_kind = str(carrier.get("kind") or "").strip()
-    carrier_id = str(carrier.get("carrier_id") or "").strip()
-    return f"{' + '.join(components)} is replay-safe via {carrier_kind}:{carrier_id}; replay={replay_behavior}"
-
-
-def _authority_constraint_example(field_name: str, field_type: str, constraint: str) -> tuple[bool, object]:
-    """Project only explicit machine-readable positive-example constraints.
-
-    Unknown prose constraints remain descriptive authority and fall back to the
-    existing type-aware example. Recognized constraint syntax is intentionally
-    small so the renderer never guesses business truth from free text.
-    """
-    normalized_constraint = str(constraint or "").strip()
-    if not normalized_constraint:
-        return False, None
-
-    lowered_type = str(field_type or "").strip().casefold()
-
-    def coerce_scalar(raw_value: str) -> object:
-        value = raw_value.strip()
-        if "bool" in lowered_type:
-            lowered_value = value.casefold()
-            if lowered_value == "true":
-                return True
-            if lowered_value == "false":
-                return False
-            raise ValueError(f"invalid boolean authority constraint value for {field_name}: {value}")
-        if "int" in lowered_type:
-            try:
-                return int(value)
-            except ValueError as exc:
-                raise ValueError(f"invalid integer authority constraint value for {field_name}: {value}") from exc
-        if any(token in lowered_type for token in ("number", "decimal", "float")):
-            try:
-                return float(value)
-            except ValueError as exc:
-                raise ValueError(f"invalid numeric authority constraint value for {field_name}: {value}") from exc
-        if any(token in lowered_type for token in ("array", "object", "map", "list")):
-            raise ValueError(
-                f"scalar authority constraint is not supported for structured field {field_name}: {field_type}"
-            )
-        return value
-
-    lowered_constraint = normalized_constraint.casefold()
-    if lowered_constraint.startswith("const="):
-        raw_value = normalized_constraint.split("=", 1)[1].strip()
-        if not raw_value:
-            raise ValueError(f"empty const authority constraint for {field_name}")
-        return True, coerce_scalar(raw_value)
-
-    if lowered_constraint.startswith("allowed-values="):
-        raw_values = normalized_constraint.split("=", 1)[1]
-        values = [item.strip() for item in raw_values.split("|") if item.strip()]
-        if not values:
-            raise ValueError(f"empty allowed-values authority constraint for {field_name}")
-        return True, coerce_scalar(values[0])
-
-    return False, None
-
-
-def _authority_example_value(field_name: str, field_type: str, constraint: str = "") -> object:
-    constrained, value = _authority_constraint_example(field_name, field_type, constraint)
-    if constrained:
-        return value
-    lowered_type = field_type.casefold()
-    lowered_name = field_name.casefold()
-    if "bool" in lowered_type:
-        return False
-    if any(token in lowered_type for token in ("int", "number", "decimal", "float")):
-        return 1
-    if "uuid" in lowered_type or lowered_name.endswith("_id"):
-        return f"{field_name}-001"
-    return f"example-{field_name}"
-
-
 def authority_contract_material(
     context: dict[str, object],
     service: ServiceSpec,
@@ -275,6 +172,7 @@ def authority_contract_material(
             str(row.get("name") or "").strip(),
             str(row.get("type") or "string").strip(),
             str(row.get("constraint") or "").strip(),
+            row,
         )
         for row in request_fields
         if str(row.get("name") or "").strip()
@@ -284,6 +182,7 @@ def authority_contract_material(
             str(row.get("name") or "").strip(),
             str(row.get("type") or "string").strip(),
             str(row.get("constraint") or "").strip(),
+            row,
         )
         for row in result_fields
         if str(row.get("name") or "").strip()
@@ -316,10 +215,52 @@ def reconcile_authority_binding_rows(
     if not rows or not endpoint_specs or not all(service.service_type == "authority-operation" for service in endpoint_specs):
         return rows
     by_service_name = {service.service_name: service for service in endpoint_specs}
+    by_operation_id = {service.endpoint_name: service for service in endpoint_specs}
     reconciled: list[list[str]] = []
     for raw in rows:
         row = list(raw)
         if len(row) < 19:
+            reconciled.append(row)
+            continue
+        interaction_id = str(row[1]).strip()
+        explicit_data, explicit_binding = authority_interaction_binding_decision(context, interaction_id)
+        if explicit_binding:
+            operation_id = str(explicit_data.get("operation_id") or "").strip()
+            service = by_operation_id.get(operation_id)
+            expected_mode = str(explicit_binding.get("binding_mode") or "").strip().casefold()
+            current_mode = str(row[4]).strip().casefold()
+            if service is None:
+                row[5] = "UNRESOLVED_SERVICE_BINDING"
+                row[6] = "—"
+                row[7] = "—"
+                row[17] = "review-bound"
+                row[18] = f"explicit P2 interaction binding references unavailable operation: {operation_id or 'missing-operation'}"
+                reconciled.append(row)
+                continue
+            if current_mode != expected_mode:
+                row[5] = "UNRESOLVED_SERVICE_BINDING"
+                row[6] = "—"
+                row[7] = "—"
+                row[17] = "review-bound"
+                row[18] = (
+                    "explicit P2 interaction binding mode conflicts with P1 interaction semantics: "
+                    f"{current_mode or 'missing'} != {expected_mode or 'missing'}"
+                )
+                reconciled.append(row)
+                continue
+            row[0] = f"{interaction_id}.{operation_id}"
+            row[5] = service.service_name
+            row[6] = service.path
+            row[7] = service.method
+            row[8] = _interaction_request_mapping_text(explicit_binding) or "—"
+            row[9] = _interaction_response_mapping_text(explicit_binding)
+            row[10] = service.owns_or_coordinates or "—"
+            row[13] = str(explicit_data.get("failure_codes") or row[13]).strip() or "—"
+            row[17] = "ready"
+            row[18] = (
+                "explicit P2 Agentic interaction binding: "
+                + str(explicit_binding.get("reason") or "accepted exact interaction-to-contract mapping").strip()
+            )
             reconciled.append(row)
             continue
         service = by_service_name.get(str(row[5]).strip())
@@ -392,6 +333,16 @@ def reconcile_authority_enrichment_rows(
             reconciled.append(row)
             continue
         unresolved = str(binding[5]).strip() == "UNRESOLVED_SERVICE_BINDING"
+        _, explicit_binding = authority_interaction_binding_decision(context, interaction_id)
+        if explicit_binding and not unresolved and str(binding[17]).strip() == "ready":
+            explicit_display_fields = _interaction_response_ui_field_text(explicit_binding)
+            if explicit_display_fields:
+                row[3] = explicit_display_fields
+            row[6] = _interaction_value_source_text(explicit_binding) or "—"
+            row[9] = "ready"
+            row[10] = "—"
+            reconciled.append(row)
+            continue
         row[6] = (
             "review-bound / no accepted P2 operation is bound to this interaction"
             if unresolved
@@ -586,154 +537,39 @@ def render_stage_01(
     services: list[ServiceSpec],
 ) -> str:
     root_namespace = str(context["root_namespace"])
-    boundary_scope = str(context.get("boundary_scope", "tenant"))
+    boundary_scope = str(context.get("boundary_scope") or "undecided")
     boundary_term = boundary_phrase(boundary_scope)
     boundary_subject_name = boundary_subject(boundary_scope)
     workflow_scope = workflow_scope_summary(context)
     async_completion_pack = async_completion_runtime_pack_for_context(context)
-    primary_owner_label = "Workspace Owner"
-    operator_label = "Execution Operator"
-    reviewer_label = "Decision Reviewer"
-    quality_attributes = [str(item) for item in context["quality_attributes"]][: max(profile_minimum(complexity_profile, "stage_01_quality_attributes"), 4)]
-    trace_rows = list(context["all_trace_rows"])
-    req_ac_ids = [
-        row["trace_id"]
-        for row in trace_rows
-        if row.get("unit_type") in {"requirement", "acceptance-criteria"}
-    ] or [row["trace_id"] for row in trace_rows]
-    adr_count = max(profile_minimum(complexity_profile, "stage_01_architecture_decisions"), 4)
-    decision_trace_groups = distribute_phase1_ids(req_ac_ids, adr_count)
-    capability_target = max(profile_minimum(complexity_profile, "stage_01_capability_groups"), 4)
-    capability_domain_names = unique_preserve(
-        [str(item) for item in list(context.get("domains", []))]
-        + [service.domain for service in services]
-    )[:4]
-    while len(capability_domain_names) < 4:
-        capability_domain_names.append(f"domain-{len(capability_domain_names) + 1}")
-    capability_groups = [
-        {
-            "name": f"{capability_domain_names[0]} Scope and Governance",
-            "priority": "P0",
-            "maturity": "core",
-            "rationale": "Minimum valid boundary, access, and workflow guardrails must remain stable before downstream design deepening and review.",
-            "covers": f"{capability_domain_names[0]} ownership, {boundary_subject_name} access, workflow boundary validation, version freeze",
-        },
-        {
-            "name": f"{capability_domain_names[1]} Workflow Context and Signals",
-            "priority": "P0",
-            "maturity": "core",
-            "rationale": "Current-state evidence, handoff context, and operator-visible signals must remain reproducible and explainable.",
-            "covers": f"{capability_domain_names[1]} current-state snapshot, signal versioning, handoff context",
-        },
-        {
-            "name": f"{capability_domain_names[2]} Action Handoff and Execution",
-            "priority": "P0",
-            "maturity": "core",
-            "rationale": "The product loses business value if upstream business context cannot become bounded execution work.",
-            "covers": f"{capability_domain_names[2]} typed handoff payload, work-item bridge, target object linkage",
-        },
-        {
-            "name": f"{capability_domain_names[3]} Review and Closure",
-            "priority": "P0",
-            "maturity": "guided",
-            "rationale": "Downstream delivery must preserve review-bound truths instead of narrative certainty.",
-            "covers": f"{capability_domain_names[3]} review summaries, uncertainty notes, continue-or-revise posture",
-        },
-    ][:capability_target]
+    primary_owner_label = author_value(context, "stage01", "primary_owner")
+    operator_label = author_value(context, "stage01", "operator")
+    reviewer_label = author_value(context, "stage01", "reviewer")
+    quality_attributes = [str(item) for item in context["quality_attributes"]]
+    capability_groups = author_rows(context, "stage01", "capabilities")
+    adr_count = len(authority_architecture_decision_rows(context))
     supports_deferred_extension_seam = context_supports_deferred_extension_seam(context)
     business_proof_constraints = business_proof_constraint_block(context, indent=4)
     business_architecture_pressure = business_architecture_pressure_block(context, indent=4)
-    deferred_constraint_lines = (
-        [
-            "advanced attribution seams remain reserved but not promised as MVP-complete",
-            "external connector hardening remains PhaseX / later-wave work",
-        ]
-        if supports_deferred_extension_seam
-        else [
-            "deferred extension seams stay explicit only when Phase-1 truth actually declares them",
-            "provider-specific hardening remains later-wave work until a real dependency commitment exists",
-        ]
-    )
+    deferred_constraint_lines = [str(x) for x in author_rows(context, "stage01", "deferred_constraints")]
 
     adr_entries: list[str] = []
     decision_trace_table_rows: list[list[str]] = []
     if architecture_authority_model(context):
         adr_entries, decision_trace_table_rows = authority_adr_surfaces(context, limit=adr_count)
     else:
-        adr_titles = [str(item) for item in context.get("adr_titles", [])][:adr_count]
-        for idx, title in enumerate(adr_titles, start=1):
-            ad_id = f"AD-{idx:02d}"
-            ids = decision_trace_groups[idx - 1]
-            service = select_adr_anchor_service(title, services)
-            adr_content = adr_content_for(
-                title=title,
-                service=service,
-                case_name=case_name,
-                upstream_ids=ids,
-                root_namespace=root_namespace,
-            )
-            hook = (
-                f"{title} stays visible in `{service.public_contract}` / `{service.endpoint_name}` handoff evidence "
-                f"for {summarize_list(ids, max_items=3)}."
-            )
-            alternative_lines: list[str] = []
-            for alternative_name, rejected_because in adr_content["alternatives"]:
-                alternative_lines.extend(
-                    [
-                        f"      - alternative_name: {alternative_name}",
-                        f"      - rejected_because: {rejected_because}",
-                    ]
-                )
-            adr_entries.append(
-                "\n".join(
-                    [
-                        f"  - adr_{idx:02d}:",
-                        f"    - ad_id: `{ad_id}`",
-                        f"    - title: {title}",
-                        "    - status:",
-                        "      - `Accepted`",
-                        f"    - context: {adr_content['context']}",
-                        f"    - decision: {adr_content['decision']}",
-                        "    - alternatives_considered:",
-                        *alternative_lines,
-                        "    - consequences:",
-                        f"      - positive: {adr_content['consequences']['positive']}",
-                        f"      - negative: {adr_content['consequences']['negative']}",
-                        f"      - risks: {adr_content['consequences']['risks']}",
-                        f"    - evidence: {adr_content['evidence']}",
-                    ]
-                )
-            )
-            decision_trace_table_rows.append(
-                [
-                    f"P2-DTR-{idx:02d}",
-                    ad_id,
-                    title,
-                    f"upstream_trace_ids={', '.join(ids)}",
-                    "ARCH-STG03-OUTPUT-0001",
-                    hook,
-                    ", ".join(ids),
-                ]
-            )
+        for row in author_rows(context, "stage01", "decisions"):
+            adr_entries.append(str(row["text"]))
+            decision_trace_table_rows.append(list(row["trace"]))
 
-    forbidden_count = max(profile_minimum(complexity_profile, "stage_01_forbidden_assumptions"), 5)
     forbidden_entries = []
-    forbidden_templates = forbidden_templates_for_context(context)
-    for idx in range(forbidden_count):
-        code, text = forbidden_templates[idx % len(forbidden_templates)]
-        forbidden_entries.append(
-            "\n".join(
-                [
-                    f"  - fa_{idx + 1:02d}:",
-                    f"    - original_text: {text}",
-                    "    - source: Phase-1 `Must Not Assume` and trust-bound workflow posture",
-                    "    - architecture_constraint_mapping: enforce explicit contracts, RBI carry-forward, or boundary checks",
-                    "    - compliance_status: `must-preserve`",
-                    "    - evidence_reference: PRD requirement / acceptance registry remains explicit",
-                    "    - evidence_strength: `strong`",
-                ]
-            )
-        )
+    for idx, row in enumerate(author_rows(context, "stage01", "forbidden_assumptions"), start=1):
+        forbidden_entries.append("\n".join([
+            f"  - fa_{idx:02d}:",
+            *[f"    - {key}: {row.get(key, UNDECIDED)}" for key in (
+                "original_text", "source", "architecture_constraint_mapping", "compliance_status",
+                "evidence_reference", "evidence_strength")],
+        ]))
 
     quality_entries = []
     for attr in quality_attributes:
@@ -742,9 +578,9 @@ def render_stage_01(
                 [
                     f"    - {to_snake(attr)}:",
                     f"      - quantified_target: keep `{attr}` visible in every Stage-03 or Stage-04 acceptance surface",
-                    "      - metric_name: first-pass traceable design surfaces",
-                    "      - target_value: >= 1 direct structured binding per critical flow",
-                    "      - measurement_window: per design revision",
+                    f"      - metric_name: {author_value(context, 'stage01', 'quality_metric:' + attr)}",
+                    f"      - target_value: {author_value(context, 'stage01', 'quality_target:' + attr)}",
+                    f"      - measurement_window: {author_value(context, 'stage01', 'quality_window:' + attr)}",
                     "      - design_implication: 把该属性前置到 contract、replay 或 verification note",
                     "      - evidence_or_source: Phase-1 NFR and quality scenario matrix",
                 ]
@@ -813,35 +649,9 @@ def render_stage_01(
             ]
         )
     else:
-        architecture_direction_block = "\n".join(
-            [
-                "  - selected_shape: `modular monolith`",
-                "  - why_selected: preserve strong object-chain traceability and keep public contracts explicit before any later physical split",
-                "  - boundary_rule: module contracts stay stable even if Phase-3 implementation reorganizes internals",
-            ]
-        )
-        security_architecture_block = "\n".join(
-            [
-                "  - trust_boundaries:",
-                f"    - {boundary_subject_name} boundary around every authoritative business object and review surface",
-                "    - internal service boundary around typed handoff payload and closure evidence",
-                "  - identity_and_access_posture: enforce role-scoped access checks with break-glass audit logging for privileged reads",
-                "  - auth_sequence_direction: user -> API gateway -> policy enforcement -> domain module -> audit trail",
-                "  - authentication_sequence: short-lived access token + role/boundary claims; access token 15m, refresh token 8h rolling",
-                "  - key_management_posture: KMS-backed secret storage with 90-day scheduled rotation or incident-driven rotation",
-                "  - audit_sensitive_edges: boundary policy change; work-item export/cross-module handoff; review decision issuance",
-            ]
-        )
-        capacity_estimation_block = "\n".join(
-            [
-                "  - throughput: 120 run-related requests / min at first-wave steady state",
-                f"  - latency: p95 <= 600 ms for synchronous API reads and p95 <= 5 min for {async_completion_pack['latency_target_label']}",
-                f"  - growth: {async_completion_pack['growth_target_label']}",
-                "  - retention: 365d hot evidence + 730d cold archive for audit-critical data",
-                f"  - volume: {async_completion_pack['volume_target_label']}",
-                "  - storage: start with PostgreSQL + object-store export seam, not multi-engine sprawl",
-            ]
-        )
+        architecture_direction_block = author_block(context, "stage01", "architecture_direction")
+        security_architecture_block = author_block(context, "stage01", "security_architecture")
+        capacity_estimation_block = author_block(context, "stage01", "capacity_estimation")
 
     stage = render_phase2_template(
         "stage-01-architecture-definition.md.template",
@@ -859,6 +669,9 @@ def render_stage_01(
             "business_architecture_pressure": business_architecture_pressure,
             "quality_entries_block": quality_entries_block,
             "capability_map_block": capability_map_block,
+            "context_diagram": author_value(context, "stage01", "context_diagram"),
+            "capability_diagram": author_value(context, "stage01", "capability_diagram"),
+            "security_sequence": author_value(context, "stage01", "security_sequence"),
             "architecture_direction_block": architecture_direction_block,
             "security_architecture_block": security_architecture_block,
             "capacity_estimation_block": capacity_estimation_block,
@@ -982,7 +795,7 @@ def render_stage_02(
             ])
             continue
         domain_objects = unique_preserve([service.owns_or_coordinates for service in related_services]) or aggregate_objects[:2]
-        primary_states = build_object_profile(related_services[0], domain_objects[0])["primary_states"] if related_services and domain_objects else "draft / active / archived"
+        primary_states = author_value(context, "stage02", "states:" + domain)
         source_contract_only_domain = bool(related_services) and all(not service_exposes_persistent_object(service) for service in related_services)
         domain_rows.append([
             domain,
@@ -1018,6 +831,8 @@ def render_stage_02(
         else:
             source_contract_read_only = not service_exposes_persistent_object(service)
             consistency_boundary = release_consistency_boundary(service.home_module, service.owns_or_coordinates, source_contract_read_only)
+            if source_contract_read_only:
+                consistency_boundary = "read-only: " + consistency_boundary
         service_rows.append([
             service.service_name,
             service.domain,
@@ -1132,8 +947,14 @@ def render_stage_02(
             continue
 
         owner = owning_service_for_object(obj, services)
-        object_profile = build_object_profile(owner, obj)
-        ownership_profile = build_ownership_profile(obj, services, owner)
+        object_profile = {key: author_value(context, "stage02", obj + ":" + key) for key in (
+            "aggregate_kind", "authoritative_mutations", "primary_states", "emitted_events", "failure_guardrail",
+            "public_boundary_status", "collaborators", "read_only_refs", "must_not_write", "conflict_rule", "mutation_guard")}
+        if not service_exposes_persistent_object(owner):
+            object_profile["public_boundary_status"] = "read-only source-contract surface"
+            object_profile["authoritative_mutations"] = "none; read-only"
+        ownership_profile = {key: author_value(context, "stage02", obj + ":" + key)
+                             for key in ("closure_note", "change_propagation_path")}
         backing_schema = table_binding_map.get(obj, to_snake(obj))
         aggregate_rows.append([
             obj,
@@ -1162,8 +983,8 @@ def render_stage_02(
             obj,
             obj,
             owner.service_name,
-            f"{to_snake(obj)}_id + tenant_id",
-            "status + version + updated_at",
+            author_value(context, "stage02", obj + ":identity"),
+            author_value(context, "stage02", obj + ":state_anchor"),
             backing_schema,
             f"{owner.public_contract}, {owner.endpoint_name}",
             f"{obj} 持续锚定在 {owner.service_name} 及其契约表面上，不再由下游自行发明。",
@@ -1234,34 +1055,14 @@ def render_stage_02(
         dependency_rows.append([
             "independent outcome evidence producers",
             "shared trace / visibility boundaries",
-            "child-loop 或 parent-loop 完成后的 accepted evidence 可被 shared trace/visibility 读取；这不是 source loop 之间的执行交接",
-            "accepted source_event_ref / privacy_marker / child_action_ref where applicable",
+            "各独立 outcome 的 accepted evidence 可被 shared trace/visibility 读取；这不是 source loop 之间的执行交接",
+            "only source-declared evidence references and visibility restrictions",
             "shared services consume bounded evidence only and do not write the source-loop aggregate",
             "任一 source outcome 未运行不得阻止另一 source outcome 独立完成",
             "evidence connection preserves P1 independent-outcomes topology",
         ])
     else:
-        for upstream, downstream in grouped_service_pairs(services):
-            dependency_rows.append([
-                upstream.home_module,
-                downstream.home_module,
-                f"{upstream.endpoint_name} 以只读上下文交接给 {downstream.endpoint_name}",
-                f"{to_snake(service_technical_name(upstream))}_id + trace_id",
-                f"{downstream.service_name} 可以消费，但不得原地改写 {upstream.owns_or_coordinates}",
-                "若所有权漂移，冻结该契约并把问题抬升为 review-bound 证据",
-                f"{service_event_name(upstream)} 的新版本只能向前传播，不能回写下游已冻结事实",
-            ])
-        if not dependency_rows and services:
-            service = services[0]
-            dependency_rows.append([
-                service.home_module,
-                service.home_module,
-                f"{service.endpoint_name} 在本模块内闭合自身状态边界",
-                f"{to_snake(service_technical_name(service))}_id",
-                "不得走表耦合回写捷径",
-                "一旦所有权模糊，立即抬升为 review-bound 证据",
-                "只允许追加式修订向前传播",
-            ])
+        dependency_rows = author_rows(context, "stage02", "dependencies")
 
     event_target = max(profile_minimum(complexity_profile, "stage_02_domain_events"), min(len(aggregate_objects), max(len(services), 6)))
     if accepted_aggregates:
@@ -1270,33 +1071,18 @@ def render_stage_02(
             aggregate_objects,
         )
     else:
-        events, event_vocabulary_rows, event_model_rows, event_rows = event_driver_rows(
-            services=services,
-            aggregate_objects=aggregate_objects,
-            event_target=event_target,
-        )
+        events = author_rows(context, "stage02", "events")
+        event_vocabulary_rows = author_rows(context, "stage02", "event_vocabulary")
+        event_model_rows = author_rows(context, "stage02", "event_models")
+        event_rows = author_rows(context, "stage02", "event_handoff")
 
     er_entities = unique_preserve([to_upper_entity(spec["object_name"]) for spec in table_specs] + [to_upper_entity(obj) for obj in aggregate_objects])
     er_entities = er_entities[: max(profile_minimum(complexity_profile, "stage_02_er_entities"), min(len(er_entities), 10))]
     if len(er_entities) < 2:
         er_entities = unique_preserve(er_entities + [to_upper_entity(service.owns_or_coordinates) for service in services[:2]])
-    er_relationship_lines = [
-        f"    {er_entities[idx]} ||--o{{ {er_entities[idx + 1]} : propagates_to"
-        for idx in range(len(er_entities) - 1)
-    ] or ["    ENTITY_A ||--o{ ENTITY_B : supports"]
-
+    er_relationship_lines = [str(x) for x in author_rows(context, "stage02", "entity_relationships")]
     flow_modules = unique_preserve([service.home_module for service in services])
-    flow_lines = []
-    if flow_modules:
-        for idx, module in enumerate(flow_modules):
-            current = f'M{idx + 1}["{module}"]'
-            if idx == 0:
-                flow_lines.append(f"    {current}")
-            if idx + 1 < len(flow_modules):
-                nxt = f'M{idx + 2}["{flow_modules[idx + 1]}"]'
-                flow_lines.append(f"    {current} --> {nxt}")
-    else:
-        flow_lines.append('    M1["core-module"] --> M2["delivery-module"]')
+    flow_lines = [str(x) for x in author_rows(context, "stage02", "collaboration_diagram")]
 
     narrative_objects = summarize_list(aggregate_objects, max_items=4)
     narrative_modules = summarize_list(flow_modules, max_items=4)
@@ -1321,30 +1107,13 @@ def render_stage_02(
                     )
                 )
                 continue
-            diagram_lines = ["```mermaid", "stateDiagram-v2", f"    [*] --> {to_pascal(states[0])}"]
-            for left, right in zip(states, states[1:]):
-                diagram_lines.append(f"    {to_pascal(left)} --> {to_pascal(right)}: accepted transition")
+            diagram_lines = ["```mermaid", "stateDiagram-v2"]
+            diagram_lines.extend(f"    state {to_pascal(state)}" for state in states)
             diagram_lines.append("```")
             state_diagram_entries.append("\n".join(diagram_lines))
         state_diagrams_block = "\n".join(state_diagram_entries)
     else:
-        state_diagrams_block = "\n".join(
-            [
-                "\n".join(
-                    [
-                        "```mermaid",
-                        "stateDiagram-v2",
-                        "    [*] --> Draft",
-                        f"    Draft --> Active: validate {obj}",
-                        f"    Active --> Revised: publish {to_snake(obj)} update",
-                        "    Revised --> Active: accept additive change",
-                        f"    Active --> Archived: retire {obj}",
-                        "```",
-                    ]
-                )
-                for obj in aggregate_objects
-            ]
-        )
+        state_diagrams_block = author_value(context, "stage02", "state_diagrams")
     er_relationship_block = "\n".join(er_relationship_lines)
     flow_lines_block = "\n".join(flow_lines)
 
@@ -1356,6 +1125,7 @@ def render_stage_02(
             "narrative_objects": narrative_objects,
             "narrative_modules": narrative_modules,
             "narrative_event_names": narrative_event_names,
+            "event_gaps": author_value(context, "stage02", "event_gaps"),
             "business_proof_track_carryover_block": business_proof_constraint_block(context, indent=2),
             "domain_map_table": make_markdown_table(
                 ["domain_name", "domain_role", "mission", "primary_objects", "primary_states", "must_not_own", "handoff_rule"],
@@ -1433,7 +1203,7 @@ def render_stage_03(
     table_specs: list[dict[str, object]],
 ) -> str:
     root_namespace = str(context["root_namespace"])
-    boundary_scope = str(context.get("boundary_scope", "tenant"))
+    boundary_scope = str(context.get("boundary_scope") or "undecided")
     boundary_term = boundary_phrase(boundary_scope)
     async_completion_pack = async_completion_runtime_pack_for_context(context)
     schema_min = max(profile_minimum(complexity_profile, "stage_03_schema_tables"), 5)
@@ -1444,7 +1214,6 @@ def render_stage_03(
     phase1_page_map = _extract_page_map_from_prototype_spec(phase1_prototype_spec)
     phase1_interactions = _extract_interaction_rows_from_phase1_contract(phase1_interaction_flow_contract)
     phase1_flow_rows = _extract_flow_rows_from_phase1_contract(phase1_interaction_flow_contract)
-    stage_03_design_defaults = load_stage_03_design_defaults()
 
     objects = unique_preserve(
         [str(spec["object_name"]) for spec in table_specs]
@@ -1543,7 +1312,8 @@ def render_stage_03(
             )
             continue
         owner = owning_service_for_object(obj, services)
-        profile = build_ownership_profile(obj, services, owner)
+        profile = {key: author_value(context, "stage03", obj + ":" + key) for key in (
+            "read_consumers", "change_propagation_path", "forbidden_shortcut", "closure_note")}
         data_ownership_rows.append(
             [
                 obj,
@@ -1648,68 +1418,14 @@ def render_stage_03(
             ]
         )
     else:
-        storage_layer_rows = list(stage_03_design_defaults["storage_layer_rows"])
-        data_model_posture_block = "\n".join(
-            [
-                "  - primary_storage_shape: relational core with explicit payload JSON seams where contracts need flexibility",
-                "  - storage_focus: workflow evidence, linkage, review closure, and audit-sensitive events",
-                "  - schema_freeze_rule: public contracts evolve additively while identifiers and envelopes stay stable",
-            ]
-        )
-        storage_strategy_posture_block = "\n".join(
-            [
-                "  - initial: PostgreSQL primary + Redis cache for bounded read acceleration",
-                "  - one_year: retain hot-path indexes under 3x growth",
-                "  - three_year: export immutable bundles and cold evidence without renaming contracts",
-                "  - partition_strategy: tenant + time window on high-growth tables",
-                "  - archival_rule: keep replay integrity while moving immutable bundles cold",
-                "  - throughput: 120 request/min steady state and 4x burst during review windows",
-                "  - latency: p95 <= 600 ms reads, p95 <= 5 min async workflows",
-                "  - growth: 3x one-year, 5x three-year",
-                "  - retention: 365d hot + 730d cold for audit-critical surfaces",
-                "  - consistency_rule: authoritative command writes commit before cache refresh or async fan-out",
-            ]
-        )
-        stage03_security_posture_block = "\n".join(
-            [
-                "  - trust_boundaries: API edge / policy check / domain module / audit evidence",
-                f"  - authn_authz_posture: {boundary_term}-scoped RBAC with explicit mutation checks, privileged read review, and trace-linked operator accountability",
-                "  - auth_sequence_direction: request enters API policy gate, resolves role/boundary claims, executes domain write, then records audit evidence before response",
-                "  - token_posture: short-lived access tokens carry boundary, role, and traceable session claims",
-                "  - audit_logging_hooks: mutating endpoints, privileged reads, review closure",
-                "  - sensitive_data_handling: mask logs, encrypt at rest where required, preserve boundary-private evidence separation",
-                "  - key_management_posture: scheduled rotation and secret-store isolation",
-                "  - isolation_controls: enforce boundary_id on authoritative writes and cache namespaces when deployment requires it",
-            ]
-        )
-        technology_stack_posture_block = "\n".join(
-            [
-                "  - api_runtime: TypeScript / service-layer runtime kept contract-first",
-                "  - application_shape: modular monolith",
-                "  - primary_storage: PostgreSQL",
-                "  - cache: Redis only where bounded read amplification helps",
-                f"  - queue_posture: {async_completion_pack['queue_posture_label']}",
-                "  - deployment_posture: start simple and preserve module boundaries before physical decomposition",
-            ]
-        )
-        bottleneck_posture_block = "\n".join(
-            [
-                "  - bottleneck: contract-heavy write paths plus replay-safe read refresh under burst",
-                "  - measurement_plan: benchmark persistence, read-model refresh, and review query latency separately",
-                "  - threshold: trigger design reconsideration if p95 review generation exceeds 2s or async completion exceeds 5 min at 4x burst",
-                "  - spike_scope: benchmark high-growth tables with index plans and replay-friendly writes",
-            ]
-        )
-        optimum_posture_block = "  - optimum_under_current_constraints: modular-monolith with explicit public contracts, indexed relational storage, and serialized conflict handling on shared surfaces"
-        stage03_capacity_posture_block = "\n".join(
-            [
-                "  - throughput: 120 request/min steady state, 4x burst during review windows",
-                "  - latency: p95 <= 600 ms synchronous reads",
-                "  - growth: 3x one-year, 5x three-year evidence volume",
-                "  - retention: 365d hot, 730d cold",
-                "  - storage: workflow evidence dominates size and index pressure",
-            ]
-        )
+        storage_layer_rows = author_rows(context, "stage03", "storage_layers")
+        data_model_posture_block = author_block(context, "stage03", "data_model_posture")
+        storage_strategy_posture_block = author_block(context, "stage03", "storage_strategy")
+        stage03_security_posture_block = author_block(context, "stage03", "security_posture")
+        technology_stack_posture_block = author_block(context, "stage03", "technology_stack")
+        bottleneck_posture_block = author_block(context, "stage03", "bottleneck")
+        optimum_posture_block = author_block(context, "stage03", "optimum")
+        stage03_capacity_posture_block = author_block(context, "stage03", "capacity")
 
     access_pattern_rows: list[list[str]] = []
     for spec in rendered_table_specs[: max(4, min(len(rendered_table_specs), 6))]:
@@ -1731,17 +1447,7 @@ def render_stage_03(
                 ]
             )
             continue
-        access_pattern_rows.append(
-            [
-                f"lookup `{spec['table_name']}` by ownership and recency",
-                str(spec["table_name"]),
-                f"tenant_id + {spec['pk']} + updated_at",
-                "medium to high",
-                str(spec["composite_indexes"]),
-                "pay additive write cost to preserve stable read latency",
-                f"benchmark `{spec['table_name']}` list and detail queries before widening rollout",
-            ]
-        )
+
 
     schema_entries: list[str] = []
     for idx, spec in enumerate(rendered_table_specs, start=1):
@@ -1783,18 +1489,10 @@ def render_stage_03(
                 ]
             )
             continue
-        pii_level = "restricted" if any(token in table_name for token in ("tenant", "identity", "audit")) else "internal"
-        sensitivity_rows.append(
-            [
-                table_name,
-                pii_level,
-                "tenant keys, actor ids, trace anchors",
-                "mask in logs and encrypt at rest where required",
-                "retain per review/audit posture",
-                "privileged reads require explicit reason and traceability",
-                "sensitivity posture follows object ownership and replay needs",
-            ]
-        )
+        sensitivity_rows.append([table_name, *[
+            str(spec.get(key) or UNDECIDED) for key in (
+                "pii_level", "sensitive_fields", "masking_or_encryption", "retention_rule",
+                "audit_access_rule", "compliance_note")]])
 
     binding_preview_rows = build_binding_and_trace_rows(
         phase1_page_map=phase1_page_map,
@@ -1905,11 +1603,8 @@ def render_stage_03(
     if authority_aggregate_by_id(context):
         _, _, event_model_rows, event_rows = authority_event_driver_rows(context, objects)
     else:
-        _, _, event_model_rows, event_rows = event_driver_rows(
-            services=services,
-            aggregate_objects=objects,
-            event_target=max(profile_minimum(complexity_profile, "stage_02_domain_events"), min(len(objects), max(len(services), 6))),
-        )
+        event_model_rows = author_rows(context, "stage02", "event_models")
+        event_rows = author_rows(context, "stage02", "event_handoff")
     event_consumption_rows = [
         [
             row[1],
@@ -1951,256 +1646,22 @@ def render_stage_03(
     ) if phase1_interactions else ([], [], [])
     binding_rows = reconcile_authority_binding_rows(context, endpoint_specs, binding_rows)
     enrichment_rows = reconcile_authority_enrichment_rows(context, binding_rows, enrichment_rows)
+    terminal_role_access_rows = build_terminal_role_access_rows(
+        phase1_page_map=phase1_page_map,
+        phase1_interactions=phase1_interactions,
+        binding_rows=binding_rows,
+        endpoint_specs=endpoint_specs,
+    )
 
-    interaction_flow_rows: list[list[str]] = []
-    if p1_product_topology_mode(context) == "independent-outcomes":
-        grouped_specs: dict[str, list[ServiceSpec]] = {}
-        for spec in endpoint_specs:
-            group = authority_operation_topology_group(context, spec.endpoint_name) or "review-bound-group"
-            grouped_specs.setdefault(group, []).append(spec)
-        flow_index = 1
-        for group, group_specs in grouped_specs.items():
-            if len(group_specs) == 1:
-                current = group_specs[0]
-                interaction_flow_rows.append(
-                    [
-                        f"flow_{flow_index:02d}",
-                        f"{current.endpoint_name} -> local closure",
-                        f"`{current.home_module}` remains inside topology group `{group}`",
-                        current.owns_or_coordinates,
-                        "local failure blocks only this topology group; it does not gate another independent outcome",
-                        "retry/review within the same accepted topology group",
-                        "preserves independent closure; shared evidence does not become a prerequisite",
-                    ]
-                )
-                flow_index += 1
-                continue
-            for current, nxt in zip(group_specs, group_specs[1:]):
-                interaction_flow_rows.append(
-                    [
-                        f"flow_{flow_index:02d}",
-                        f"{current.endpoint_name} -> {nxt.endpoint_name}",
-                        f"`{current.home_module}` and `{nxt.home_module}` stay inside topology group `{group}`",
-                        f"{current.owns_or_coordinates} + {nxt.owns_or_coordinates}",
-                        "failure remains local to this topology group and cannot activate/block a different independent outcome",
-                        "refresh/replay inside the same accepted group",
-                        "group-local composition only; no cross-group prerequisite is created",
-                    ]
-                )
-                flow_index += 1
-    else:
-        endpoint_chain = endpoint_specs[: max(4, min(len(endpoint_specs), 6))]
-        if endpoint_chain:
-            for idx in range(max(1, len(endpoint_chain) - 1)):
-                current = endpoint_chain[idx]
-                nxt = endpoint_chain[idx + 1] if idx + 1 < len(endpoint_chain) else endpoint_chain[idx]
-                interaction_flow_rows.append(
-                    [
-                        f"flow_{idx + 1:02d}",
-                        f"{current.endpoint_name} -> {nxt.endpoint_name}",
-                        f"`{current.home_module}` writes, `{nxt.home_module}` consumes read-only context",
-                        f"{current.owns_or_coordinates} + {nxt.owns_or_coordinates}",
-                        f"version mismatch or missing `{to_snake(service_technical_name(current))}_id` blocks the handoff",
-                        "refresh state and replay with the same contract boundary",
-                        "keeps ownership explicit while still allowing downstream composition",
-                    ]
-                )
+    interaction_flow_rows = author_rows(context, "stage03", "interaction_flows")
 
-    scenario_groups = distribute_phase1_ids(all_trace_ids or req_ac_ids, scenario_min)
-    scenario_rows: list[list[str]] = []
-    scenario_services = services[: max(scenario_min, min(len(services), 6))] or services[:1]
-    independent_topology = p1_product_topology_mode(context) == "independent-outcomes"
-    scenario_acceptance_suffix = (
-        "the contract preserves ids, version anchors, and replay context; numeric performance acceptance follows the accepted P2 architecture posture and remains review-bound when no threshold is accepted"
-        if authority_mode
-        else "the contract must preserve ids, version anchors, and replay context within <= 600 ms for the synchronous path"
-    )
-    scenario_response_expectation = (
-        "the response remains stable and additive; numeric performance acceptance follows the accepted P2 architecture posture"
-        if authority_mode
-        else "the response remains stable, additive, and <= 600 ms on the synchronous path"
-    )
-    scenario_category = "positive_path / authority-bounded" if authority_mode else "positive_path / quantified"
-    for idx, service in enumerate(scenario_services, start=1):
-        if independent_topology:
-            group = authority_operation_topology_group(context, service.endpoint_name)
-            same_group = [
-                candidate
-                for candidate in services
-                if authority_operation_topology_group(context, candidate.endpoint_name) == group
-            ]
-            position = same_group.index(service) if service in same_group else 0
-            peer = same_group[position + 1] if position + 1 < len(same_group) else service
-        else:
-            peer = services[idx] if idx < len(services) else service
-        source_contract_read_only = authority_service_read_only(context, service)
-        scenario_rows.append(
-            [
-                f"scenario_{idx:02d}",
-                "domain operator",
-                service.owns_or_coordinates,
-                f"`{service.home_module}`, `{peer.home_module}`",
-                f"{service.endpoint_name}, {peer.endpoint_name}",
-                (
-                    f"`{service.service_name}` exposes read-only source contract context for `{service.owns_or_coordinates}`"
-                    if source_contract_read_only
-                    else f"`{service.service_name}` remains the only writer for `{service.owns_or_coordinates}`"
-                ),
-                f"Given `{service.owns_or_coordinates}` exists, When `{service.endpoint_name}` runs, Then {scenario_acceptance_suffix}.",
-                f"contract response diff for `{service.endpoint_name}`",
-                scenario_category,
-                f"`{service.owns_or_coordinates}` is available",
-                f"`{service.endpoint_name}` is invoked",
-                "the output remains contract-valid, replay-safe, and latency-bounded",
-                "versioned ownership handoff",
-                service.owns_or_coordinates,
-                ", ".join(scenario_groups[idx - 1]) if idx - 1 < len(scenario_groups) else ", ".join(scenario_groups[-1]),
-            ]
-        )
-    while len(scenario_rows) < scenario_min and services:
-        service = services[len(scenario_rows) % len(services)]
-        scenario_group_index = min(len(scenario_rows), len(scenario_groups) - 1)
-        scenario_rows.append(
-            [
-                f"scenario_{len(scenario_rows) + 1:02d}",
-                "domain operator",
-                service.owns_or_coordinates,
-                f"`{service.home_module}`",
-                service.endpoint_name,
-                "ownership remains explicit under replay",
-                f"Given a valid request, When `{service.endpoint_name}` runs, Then the response must preserve the contract envelope and trace id.",
-                f"response envelope check for `{service.endpoint_name}`",
-                scenario_category,
-                "a valid request exists",
-                f"`{service.endpoint_name}` is invoked",
-                scenario_response_expectation,
-                "single-writer discipline",
-                service.owns_or_coordinates,
-                ", ".join(scenario_groups[scenario_group_index]),
-            ]
-        )
-    authority_operation_mode = bool(services) and all(service.service_type == "authority-operation" for service in services)
-    conflict_services = (
-        [service for service in services if authority_operation_supports_concurrent_conflict(context, service.endpoint_name)][:2]
-        if authority_operation_mode
-        else services[:2]
-    )
-    for idx, service in enumerate(conflict_services, start=1):
-        scenario_rows.append(
-            [
-                f"scenario_{len(scenario_rows) + 1:02d}",
-                "parallel operators",
-                service.owns_or_coordinates,
-                f"`{service.home_module}`",
-                service.endpoint_name if authority_operation_mode else f"{service.endpoint_name}, Update{service_technical_name(service)}Status",
-                "concurrent writes must surface version conflict explicitly",
-                f"Given two actors invoke `{service.endpoint_name}` for `{service.owns_or_coordinates}` concurrently, When stale version input is submitted, Then the system returns `409 version_conflict` and preserves the last committed record.",
-                f"conflict replay and 409 assertion for `{service.endpoint_name}`",
-                "concurrent_conflict / quantified",
-                "two competing updates exist",
-                "the stale update is submitted second",
-                "the stale write is rejected with explicit conflict semantics",
-                "retry on version conflict with versioned write guard",
-                service.owns_or_coordinates,
-                ", ".join(scenario_groups[min(idx - 1, len(scenario_groups) - 1)]),
-            ]
-        )
+    scenario_rows = author_rows(context, "stage03", "scenarios")
 
     if authority_mode:
         posture_id = str(posture.get("decision_id") or "P2-ARCH-POSTURE-REVIEW-BOUND").strip()
         selected_candidate = f"{selected_shape} / {primary_storage}"
-        tech_rows = [
-            [
-                selected_candidate,
-                "bounded by accepted writer/state decisions",
-                performance_posture,
-                "review-bound until runtime evidence",
-                "high: explicit accepted boundaries",
-                "bounded first-wave complexity",
-                "bounded first-wave operations",
-                "review-bound; ecosystem claims not required for current authority",
-                security_posture,
-                deployment_posture,
-                "provider/internal seams only where accepted",
-                "fits accepted operation/aggregate/dependency truth",
-                "observability thresholds review-bound; accepted error/dependency signals remain visible",
-                "reversible through stable accepted contracts",
-                "no vendor selected unless explicitly named",
-                "implementation learning remains review-bound",
-                "stronger scaling/provider/runtime assumptions remain unproven",
-                f"accepted P2 architecture posture `{posture_id}`",
-                "selected-by-authority",
-                str(posture.get("why_selected") or "accepted by P2 architecture authority").strip(),
-            ],
-            [
-                "review-bound physical decomposition alternative",
-                "not evaluated as accepted truth",
-                "review-bound",
-                "review-bound",
-                "review-bound",
-                "higher complexity than current accepted posture",
-                "higher operational burden",
-                "not evaluated",
-                "must preserve accepted security boundaries",
-                "not selected",
-                "not selected",
-                "not needed to realize current accepted architecture",
-                "not evaluated",
-                "contracts preserve future option",
-                "review-bound",
-                "review-bound",
-                "would add unproven distributed-runtime assumptions",
-                "no accepted P2 evidence",
-                "not-selected-by-authority",
-                "renderer does not invent a distributed alternative design",
-            ],
-            [
-                "review-bound cache/queue expansion alternative",
-                "not evaluated as accepted truth",
-                "review-bound",
-                "review-bound",
-                "review-bound",
-                "adds infrastructure before evidence",
-                "adds operational dependencies",
-                "not evaluated",
-                "must preserve accepted privacy/permission boundaries",
-                "not selected",
-                "not selected",
-                "current first-wave authority does not require it unless explicitly stated",
-                "not evaluated",
-                "ports/contracts preserve future option",
-                "review-bound",
-                "review-bound",
-                "could turn optional infrastructure into hidden architecture truth",
-                "no accepted P2 evidence",
-                "not-selected-by-authority",
-                "cache/queue choice stays bounded to the explicit architecture posture",
-            ],
-        ][:tech_min]
-        alternative_candidates = [
-            "\n".join(
-                [
-                    "  - candidate_01:",
-                    f"    - candidate_name: {selected_candidate}",
-                    "    - pros: explicitly accepted first-wave posture",
-                    f"    - cons: {str(posture.get('claim_ceiling') or 'stronger runtime claims remain review-bound').strip()}",
-                    "    - cost_burden: bounded first-wave complexity",
-                    "    - fit_scenario: exact accepted operation/aggregate/dependency contract",
-                    "    - reversibility: stable contracts preserve later physical/technology change",
-                ]
-            ),
-            "\n".join(
-                [
-                    "  - candidate_02:",
-                    "    - candidate_name: alternatives not accepted by current P2 authority",
-                    "    - pros: keeps future option space explicit without pretending evaluation occurred",
-                    "    - cons: cannot be implemented as canonical truth in P3",
-                    "    - cost_burden: review-bound",
-                    "    - fit_scenario: not selected",
-                    "    - reversibility: revisit through a new P2 architecture decision",
-                ]
-            ),
-        ]
+        tech_rows = author_rows(context, "stage03", "technology_selection")
+        alternative_candidates = [str(row) for row in author_rows(context, "stage03", "alternatives")]
         tradeoff_rows = [
             [
                 str(row.get("decision_id") or row.get("realization_id") or f"P2-AUTH-{idx:02d}").strip(),
@@ -2214,27 +1675,9 @@ def render_stage_03(
             for idx, row in enumerate(authority_architecture_decision_rows(context)[: max(3, min(8, len(authority_architecture_decision_rows(context))))], start=1)
         ]
     else:
-        tech_rows = list(stage_03_design_defaults["technology_selection_rows"])[:tech_min]
-        alternative_candidates = [
-            "\n".join(
-                [
-                    f"  - candidate_{idx:02d}:",
-                    f"    - candidate_name: {candidate['candidate_name']}",
-                    f"    - pros: {candidate['pros']}",
-                    f"    - cons: {candidate['cons']}",
-                    f"    - cost_burden: {candidate['cost_burden']}",
-                    f"    - fit_scenario: {candidate['fit_scenario']}",
-                    f"    - reversibility: {candidate['reversibility']}",
-                ]
-            )
-            for idx, candidate in enumerate(
-                stage_03_design_defaults["alternative_candidates"][
-                    : max(profile_minimum(complexity_profile, "stage_03_alt_candidate_structure"), 4)
-                ],
-                start=1,
-            )
-        ]
-        tradeoff_rows = list(stage_03_design_defaults["tradeoff_rows"])
+        tech_rows = author_rows(context, "stage03", "technology_selection")
+        alternative_candidates = [str(row) for row in author_rows(context, "stage03", "alternatives")]
+        tradeoff_rows = author_rows(context, "stage03", "tradeoffs")
 
     public_boundary_rows: list[list[str]] = []
     seen_contracts: set[str] = set()
@@ -2259,16 +1702,10 @@ def render_stage_03(
 
     mermaid_entities = unique_preserve([str(spec["table_name"]) for spec in rendered_table_specs[:14]])
     mermaid_nodes = [f'    T{idx + 1}["{name}"]' for idx, name in enumerate(mermaid_entities)]
-    mermaid_edges = [
-        f"    T{idx + 1} --> T{idx + 2}"
-        for idx in range(len(mermaid_entities) - 1)
-    ] or ["    T1 --> T2"]
-    service_chain = unique_preserve([service.service_name for service in services[:6]])
+    mermaid_edges = [str(x) for x in author_rows(context, "stage03", "data_edges")]
+    service_chain = unique_preserve([service.service_name for service in services])
     service_nodes = [f'    S{idx + 1}["{service_name}"]' for idx, service_name in enumerate(service_chain)]
-    service_edges = [
-        f"    S{idx + 1} --> S{idx + 2}"
-        for idx in range(len(service_chain) - 1)
-    ] or ["    S1 --> S2"]
+    service_edges = [str(x) for x in author_rows(context, "stage03", "service_edges")]
 
     stage = render_phase2_template(
         "stage-03-data-interface-design.md.template",
@@ -2327,6 +1764,10 @@ def render_stage_03(
                 ["service_binding_id", "interaction_id", "use_case_id", "transaction_group_id", "binding_mode", "domain_service", "api_endpoint", "http_method", "request_field_mapping", "response_field_mapping", "db_entities", "rbac_policy", "audit_event", "failure_codes", "server_generated_fields", "ui_refresh_targets", "handoff_materialization", "readiness_status", "blocked_reason"],
                 binding_rows,
             ) if binding_rows else "- no Phase-1 interaction-flow contract was available, so binding matrix generation remained blocked",
+            "terminal_role_access_matrix_block": make_markdown_table(
+                ["terminal_role", "page_id", "route", "default_product_entry", "interaction_id", "operation_id", "api_endpoint", "http_method", "binding_mode", "visible_business_objects", "denied_behavior", "authority_source", "enforcement_posture", "readiness_status", "blocked_reason"],
+                terminal_role_access_rows,
+            ) if terminal_role_access_rows else "- no accepted P1 terminal-role interaction binding was available; role/API authority remains review-bound",
             "traceability_matrix_block": make_markdown_table(
                 ["trace_row_id", "req_id", "use_case_id", "page_id", "interaction_id", "service_binding_id", "api_endpoint", "test_ids", "closure_gate", "canonical_page_id", "audience_mode", "exposure_scope", "staleness_marker", "upstream_trace_ids"],
                 traceability_rows,
@@ -2363,6 +1804,10 @@ def render_stage_03(
             "data_mermaid_flowchart_block": "\n".join(mermaid_nodes + mermaid_edges),
             "service_mermaid_flowchart_block": "\n".join(service_nodes + service_edges),
         },
+    )
+    stage += "\n\n### Upstream source index (references, not coverage claims)\n" + make_markdown_table(
+        ["source_id", "unit_type"],
+        [[str(row["trace_id"]), str(row.get("unit_type", ""))] for row in all_trace_rows],
     )
     p1_handoff_block = render_p1_product_world_handoff_block(context)
     if p1_handoff_block:
@@ -2506,58 +1951,8 @@ def render_stage_04(
     req_ac_ids = [row["trace_id"] for row in all_trace_rows if row.get("unit_type") in {"requirement", "acceptance-criteria"}] or all_trace_ids
     rbi_id_groups = distribute_phase1_ids(req_ac_ids, rbi_trace_target)
 
-    work_package_rows: list[list[str]] = []
     independent_topology = p1_product_topology_mode(context) == "independent-outcomes"
-    if independent_topology and services:
-        wp_ids = [f"WP-A{idx}" for idx in range(1, max(len(services), wp_target) + 1)]
-        previous_wp_by_group: dict[str, str] = {}
-        for idx, service in enumerate(services):
-            wp_id = wp_ids[idx]
-            group = authority_operation_topology_group(context, service.endpoint_name) or "review-bound-group"
-            depends_on = previous_wp_by_group.get(group, "none")
-            previous_wp_by_group[group] = wp_id
-            service_scope = f"`{service.service_name}` / topology_group=`{group}`"
-            linked_rbi = f"RBI-{min(idx + 1, rbi_target):02d}"
-            work_package_rows.append(
-                [
-                    wp_id,
-                    f"stabilize {service_scope} contract, group-local replay, and implementation handoff",
-                    f"the slice preserves `{group}` closure without creating a dependency on another independent topology group",
-                    f"{4 + (idx % 3)}d",
-                    depends_on,
-                    linked_rbi,
-                ]
-            )
-        while len(work_package_rows) < wp_target:
-            idx = len(work_package_rows)
-            work_package_rows.append(
-                [
-                    wp_ids[idx],
-                    "cross-cutting authority verification without product-flow sequencing",
-                    "verify accepted privacy, trace, dependency, and claim ceilings without adding execution prerequisites",
-                    "4d",
-                    "none",
-                    f"RBI-{min(idx + 1, rbi_target):02d}",
-                ]
-            )
-    else:
-        service_chunks = round_robin_chunks([service.service_name for service in services], wp_target)
-        wp_ids = [f"WP-A{idx}" for idx in range(1, wp_target + 1)]
-        for idx, wp_id in enumerate(wp_ids):
-            owned_services = service_chunks[idx] if idx < len(service_chunks) else []
-            service_scope = ", ".join(f"`{name}`" for name in owned_services[:3]) or "`cross-cutting`"
-            depends_on = "none" if idx == 0 else wp_ids[idx - 1]
-            linked_rbi = f"RBI-{min(idx + 1, rbi_target):02d}"
-            work_package_rows.append(
-                [
-                    wp_id,
-                    f"stabilize {service_scope} contracts, replay paths, and implementation handoff",
-                    f"the slice preserves ownership, contract naming, and replay evidence for {service_scope}",
-                    f"{4 + (idx % 3)}d",
-                    depends_on,
-                    linked_rbi,
-                ]
-            )
+    work_package_rows = author_rows(context, "stage04", "work_packages")
 
     nested_wp_entries = [
         "\n".join(
@@ -2570,25 +1965,7 @@ def render_stage_04(
         for row in work_package_rows[: max(profile_minimum(complexity_profile, "stage_04_slice_acceptance"), 2)]
     ]
 
-    deadlines = ["2026-04-15", "2026-04-18", "2026-04-20", "2026-04-22", "2026-04-25", "2026-04-28"]
-    rbi_rows: list[list[str]] = []
-    for idx in range(rbi_target):
-        owner_service = services[idx % len(services)] if services else None
-        wp = work_package_rows[min(idx, len(work_package_rows) - 1)][0]
-        blocks = work_package_rows[min(idx + 1, len(work_package_rows) - 1)][0]
-        label = owner_service.service_name if owner_service else "cross-cutting slice"
-        rbi_rows.append(
-            [
-                f"RBI-{idx + 1:02d}",
-                f"runtime proof is still required for `{label}` contract and replay posture",
-                "H" if idx < 2 else "M" if idx < 4 else "L",
-                wp,
-                "platform owner" if idx % 2 == 0 else "workflow owner",
-                blocks,
-                deadlines[idx % len(deadlines)],
-                f"RBI-{idx + 1:02d} -> {wp}",
-            ]
-        )
+    rbi_rows = author_rows(context, "stage04", "risks")
     for item in unresolved_technical_names:
         rbi_id = f"RBI-{len(rbi_rows) + 1:02d}"
         source_label = str(item.get("source_label", "")).strip()
@@ -2612,69 +1989,8 @@ def render_stage_04(
             ]
         )
 
-    design_verification_rows: list[list[str]] = []
-    for idx, service in enumerate(services[:verification_target], start=1):
-        source_contract_read_only = authority_service_read_only(context, service)
-        design_verification_rows.append(
-            [
-                f"`{service.service_name}` boundary preserved",
-                "pass",
-                "contract review + replay walkthrough",
-                f"{service.endpoint_name} contract and ownership table",
-                (
-                    f"`{service.service_name}` remains read-only/source-contract-bound for `{service.owns_or_coordinates}`"
-                    if source_contract_read_only
-                    else f"`{service.service_name}` remains the only writer for `{service.owns_or_coordinates}`"
-                ),
-                "runtime proof pending",
-                f"RBI-{min(idx, len(rbi_rows)):02d} / {work_package_rows[min(idx - 1, len(work_package_rows) - 1)][0]}",
-            ]
-        )
-    while len(design_verification_rows) < verification_target:
-        design_verification_rows.append(
-            [
-                f"cross-module handoff {len(design_verification_rows) + 1:02d}",
-                "pass",
-                "replay walkthrough",
-                "handoff package",
-                "ownership, ids, and trace anchors survive the handoff",
-                "runtime proof pending",
-                f"RBI-{min(len(design_verification_rows) + 1, len(rbi_rows)):02d}",
-            ]
-        )
-
-    replay_rows: list[list[str]] = []
-    replay_count = max(replay_target, 2)
-    replay_id_groups = distribute_phase1_ids(all_trace_ids or req_ac_ids, replay_count)
-    for idx in range(replay_count):
-        current = services[idx % len(services)] if services else None
-        if current is not None and independent_topology:
-            group = authority_operation_topology_group(context, current.endpoint_name)
-            same_group = [
-                candidate
-                for candidate in services
-                if authority_operation_topology_group(context, candidate.endpoint_name) == group
-            ]
-            position = same_group.index(current) if current in same_group else 0
-            nxt = same_group[position + 1] if position + 1 < len(same_group) else current
-        else:
-            nxt = services[(idx + 1) % len(services)] if services else None
-        artifact = f"{current.owns_or_coordinates if current else 'core_object'} + {nxt.owns_or_coordinates if nxt else 'downstream_object'}"
-        replay_rows.append(
-            [
-                f"P2-RP-{idx + 1:02d}",
-                f"{current.endpoint_name if current else 'contract'} handoff replay",
-                "scenario-replay" if idx % 2 else "contract-walkthrough",
-                artifact,
-                "ownership, contract ids, and replay anchors stay explicit",
-                "implementation intake keeps the same closure rules visible",
-                "pass",
-                design_verification_rows[min(idx, len(design_verification_rows) - 1)][0],
-                "IMPL-STG00-INPUT-0001",
-                f"{work_package_rows[min(idx, len(work_package_rows) - 1)][0]}, {rbi_rows[min(idx, len(rbi_rows) - 1)][0]}",
-                ", ".join(replay_id_groups[min(idx, len(replay_id_groups) - 1)]),
-            ]
-        )
+    design_verification_rows = author_rows(context, "stage04", "verification")
+    replay_rows = author_rows(context, "stage04", "replay_evidence")
 
     rbi_trace_rows: list[list[str]] = []
     for idx, rbi in enumerate(rbi_rows[:rbi_trace_target], start=1):
@@ -2691,39 +2007,8 @@ def render_stage_04(
             ]
         )
 
-    metric_map = {
-        "transactional": "write_latency, version_conflict_rate",
-        "orchestration": "handoff_latency, replay_dedupe_rate",
-        "read-assembly": "cache_hit_rate, refresh_latency",
-        "policy": "deny_rate, policy_check_latency",
-        "domain": "contract_validation_failures, publish_latency",
-        "support": "append_latency, evidence_gap_rate",
-    }
-    observability_rows: list[list[str]] = []
     authority_mode = bool(architecture_authority_model(context))
-    for idx, service in enumerate(services[:observability_target], start=1):
-        if authority_mode:
-            structured_logs = f"operation_id={service.endpoint_name} + aggregate_id={service.owns_or_coordinates} + accepted trace/error context when declared"
-            threshold = "review-bound; no numeric SLO is promoted without accepted P2 evidence"
-            alert_rule = f"alert on accepted failure codes/dependency-unavailable signals for `{service.endpoint_name}`; numeric thresholds remain review-bound"
-            owner = service.domain
-        else:
-            structured_logs = f"tenant_id + {to_snake(service_technical_name(service))}_id + trace_id"
-            threshold = "p95 <= 600ms for sync paths; async queues remain bounded"
-            alert_rule = f"alert when `{service.endpoint_name}` error rate or latency exceeds threshold"
-            owner = "platform owner" if idx % 2 else "workflow owner"
-        observability_rows.append(
-            [
-                f"surface-{idx:02d}",
-                service.service_name,
-                metric_map.get(service.service_type, "request_latency, error_rate"),
-                structured_logs,
-                alert_rule,
-                threshold,
-                owner,
-                f"do not widen rollout until `{service.service_name}` evidence matches its accepted claim ceiling",
-            ]
-        )
+    observability_rows = author_rows(context, "stage04", "observability")
 
     environment_prerequisites = format_nested_bullets(derive_environment_dependency_prerequisites(stage_03_text, stage_02_5_text), indent=4)
     if authority_mode:
@@ -2786,130 +2071,14 @@ def render_stage_04(
             else "accepted operation/contract progression -> replay verification -> implementation intake"
         )
     else:
-        convergence_direction = "modular monolith with explicit public boundary and replay-ready handoff"
-        optimality_review_block = "\n".join(
-            [
-                "  - acceptable_baseline:",
-                "    - modular monolith + relational core + typed public contracts",
-                "  - optimal_candidate:",
-                "    - keep the current baseline and delay physical decomposition until runtime proof demands it",
-                "  - acceptable_vs_optimal_verdict:",
-                "    - acceptable now and optimal under first-wave certainty / staffing / runtime constraints",
-                "  - why_optimal_not_just_acceptable:",
-                "    - preserves traceability, replay, and design honesty without overcommitting operations complexity",
-                "  - reversibility_posture:",
-                "    - later queue/storage/provider changes remain reversible because contract names and ownership stay stable",
-                "  - strongest_supported_readiness_label:",
-                "    - `implementation-planning-ready`",
-                "  - realizability_judgment:",
-                "    - realizable as designed for implementation planning, with explicit RBI chain preserved for unresolved runtime proofs",
-            ]
-        )
-        implementation_must_preserve_block = "\n".join(
-            [
-                "    - public-boundary names",
-                "    - tenant policy and audit edges",
-                "    - typed contract identifiers and replay evidence references",
-                "    - RBI ownership and blockers",
-            ]
-        )
-        identity_key_posture_block = "\n".join(
-            [
-                "  - auth_vendor_slot: keep policy provider replaceable behind the contract boundary",
-                "  - key_posture: scheduled rotation, break-glass audit, no hard-coded runtime secrets",
-            ]
-        )
-        workflow_spine_posture = "ownership handoff -> replay verification -> implementation intake"
+        convergence_direction = author_value(context, "stage04", "convergence_direction")
+        optimality_review_block = author_block(context, "stage04", "optimality_review")
+        implementation_must_preserve_block = author_block(context, "stage04", "must_preserve")
+        identity_key_posture_block = author_block(context, "stage04", "identity_and_keys")
+        workflow_spine_posture = author_value(context, "stage04", "workflow_spine")
 
-    gantt_lines = [
-        "```mermaid",
-        "gantt",
-        "    title First-Wave Implementation Handoff",
-        "    dateFormat  YYYY-MM-DD",
-        "    section Work Packages",
-    ]
-    wp_task_ids = {row[0]: f"a{idx + 1}" for idx, row in enumerate(work_package_rows)}
-    for idx, row in enumerate(work_package_rows[:8]):
-        wp_id = row[0]
-        task_id = wp_task_ids[wp_id]
-        duration_match = re.search(r"\d+d", str(row[3]))
-        duration = duration_match.group(0) if duration_match else "4d"
-        dependency = str(row[4]).strip()
-        if dependency != "none" and dependency in wp_task_ids:
-            schedule = f"after {wp_task_ids[dependency]}"
-        else:
-            schedule = "2026-04-08"
-        gantt_lines.append(f"    {wp_id} :{task_id}, {schedule}, {duration}")
-    gantt_lines.append("```")
-    gantt_block = "\n".join(gantt_lines)
-
-    mermaid_sequences: list[str] = []
-    if services:
-        if independent_topology:
-            grouped_sequence_services: list[list[ServiceSpec]] = []
-            seen_groups: set[str] = set()
-            for service in services:
-                group = authority_operation_topology_group(context, service.endpoint_name) or "review-bound-group"
-                if group in seen_groups:
-                    continue
-                seen_groups.add(group)
-                grouped_sequence_services.append(
-                    [candidate for candidate in services if authority_operation_topology_group(context, candidate.endpoint_name) == group]
-                )
-            sequence_sources = [group[0] for group in grouped_sequence_services if group]
-            sequence_count = min(max(sequence_target, len(sequence_sources)), len(sequence_sources))
-        else:
-            sequence_sources = services
-            sequence_count = min(sequence_target, max(1, len(services) - 1))
-        for idx in range(sequence_count):
-            current = sequence_sources[idx]
-            if independent_topology:
-                group = authority_operation_topology_group(context, current.endpoint_name)
-                same_group = [
-                    candidate
-                    for candidate in services
-                    if authority_operation_topology_group(context, candidate.endpoint_name) == group
-                ]
-                nxt = same_group[1] if len(same_group) > 1 else current
-            else:
-                nxt = services[idx + 1] if idx + 1 < len(services) else services[idx]
-            mermaid_sequences.append(
-                "\n".join(
-                    [
-                        "```mermaid",
-                        "sequenceDiagram",
-                        "    participant U as Operator",
-                        f"    participant S{idx + 1} as {current.service_name}",
-                        f"    participant S{idx + 2} as {nxt.service_name}",
-                        "    participant A as AuditTrail",
-                        f"    U->>S{idx + 1}: invoke {current.endpoint_name}",
-                        f"    S{idx + 1}->>S{idx + 2}: hand off {current.owns_or_coordinates} context",
-                        f"    S{idx + 2}->>A: record replay-safe audit evidence",
-                        f"    A-->>S{idx + 2}: audit persistence confirmed",
-                        f"    S{idx + 2}-->>U: return versioned acknowledgement for {nxt.owns_or_coordinates}",
-                        "```",
-                    ]
-                )
-            )
-    if not mermaid_sequences:
-        mermaid_sequences.append(
-            "\n".join(
-                [
-                    "```mermaid",
-                    "sequenceDiagram",
-                    "    participant U as Operator",
-                    "    participant A as CoreService",
-                    "    participant B as ReviewService",
-                    "    participant T as AuditTrail",
-                    "    U->>A: submit workflow request",
-                    "    A->>B: contract-bound handoff",
-                    "    B->>T: record audit event",
-                    "    T-->>B: persistence confirmed",
-                    "    B-->>U: replay-safe acknowledgement",
-                    "```",
-                ]
-            )
-        )
+    gantt_block = author_value(context, "stage04", "schedule_diagram")
+    mermaid_sequences = [str(row) for row in author_rows(context, "stage04", "sequence_diagrams")]
 
     stage = render_phase2_template(
         "stage-04-design-convergence.md.template",
@@ -2962,6 +2131,10 @@ def render_stage_04(
             "environment_prerequisites": environment_prerequisites,
             "mermaid_sequences_block": "\n".join(mermaid_sequences),
         },
+    )
+    stage += "\n\n### Upstream source index (references, not coverage claims)\n" + make_markdown_table(
+        ["source_id", "unit_type"],
+        [[str(row["trace_id"]), str(row.get("unit_type", ""))] for row in all_trace_rows],
     )
     return stage.rstrip() + "\n"
 

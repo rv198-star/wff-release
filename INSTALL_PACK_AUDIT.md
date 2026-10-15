@@ -1,12 +1,12 @@
 # Skills 安装包审计
 
 ## 标识
-- 安装包名称: `wff-v1.9.2-skills-install-pack`
+- 安装包名称: `wff-v1.10.0-skills-install-pack`
 - pack_type: `skills-install-pack`
 - profile_id: `full-pack`
 - profile_status: `default`
 - profile_claim: `default-full-pack`
-- 源修订版本: `b4f4c383a76fc21df36ef25515325c4b089dcc86`
+- 源修订版本: `1ad24accaf96dcb5422dccd94140c32934d41c73`
 - 总体结论: `pass`
 
 ## 硬失败项
@@ -26,31 +26,31 @@
 - test_dirs: `0`
 
 ## Content Inventory
-- total_files: `704`
-- total_bytes: `9034116`
+- total_files: `766`
+- total_bytes: `10746446`
 - policy_findings: `0`
 - 无
 - top_level:
-  - `AGENTS.md`: files=`1`, bytes=`4091`
-  - `INSTALL-PACK-README.en.md`: files=`1`, bytes=`7566`
-  - `INSTALL-PACK-README.md`: files=`1`, bytes=`7426`
-  - `INSTALL-PACK-README.zh-CN.md`: files=`1`, bytes=`7426`
-  - `INSTALL_PACK_AUDIT.md`: files=`1`, bytes=`5628`
-  - `README.en.md`: files=`1`, bytes=`7566`
-  - `README.md`: files=`1`, bytes=`7513`
-  - `README.zh-CN.md`: files=`1`, bytes=`7513`
-  - `SKILL_INSTALL_PACK_AUDIT.json`: files=`1`, bytes=`14650`
-  - `SKILL_INSTALL_PACK_MANIFEST.json`: files=`1`, bytes=`52207`
-  - `WFF-START-HERE.md`: files=`1`, bytes=`2884`
-  - `WFF-START-HERE.zh-CN.md`: files=`1`, bytes=`2770`
-  - `config`: files=`4`, bytes=`89961`
-  - `docs`: files=`20`, bytes=`225499`
-  - `reference-packages`: files=`180`, bytes=`632151`
-  - `requirements.lock.txt`: files=`1`, bytes=`544`
-  - `requirements.txt`: files=`1`, bytes=`70`
-  - `runtime-deps`: files=`106`, bytes=`797661`
-  - `scripts`: files=`318`, bytes=`6812991`
-  - `skills`: files=`59`, bytes=`344753`
+  - `AGENTS.md`: files=`1`, bytes=`7630`
+  - `INSTALL-PACK-README.en.md`: files=`1`, bytes=`7574`
+  - `INSTALL-PACK-README.md`: files=`1`, bytes=`7434`
+  - `INSTALL-PACK-README.zh-CN.md`: files=`1`, bytes=`7434`
+  - `INSTALL_PACK_AUDIT.md`: files=`1`, bytes=`5631`
+  - `README.en.md`: files=`1`, bytes=`7574`
+  - `README.md`: files=`1`, bytes=`7177`
+  - `README.zh-CN.md`: files=`1`, bytes=`7177`
+  - `SKILL_INSTALL_PACK_AUDIT.json`: files=`1`, bytes=`14655`
+  - `SKILL_INSTALL_PACK_MANIFEST.json`: files=`1`, bytes=`55156`
+  - `WFF-START-HERE.md`: files=`1`, bytes=`2885`
+  - `WFF-START-HERE.zh-CN.md`: files=`1`, bytes=`2771`
+  - `config`: files=`4`, bytes=`92520`
+  - `docs`: files=`24`, bytes=`262004`
+  - `reference-packages`: files=`184`, bytes=`770012`
+  - `requirements.lock.txt`: files=`1`, bytes=`558`
+  - `requirements.txt`: files=`1`, bytes=`84`
+  - `runtime-deps`: files=`112`, bytes=`1057601`
+  - `scripts`: files=`366`, bytes=`8003406`
+  - `skills`: files=`59`, bytes=`423917`
   - `templates`: files=`1`, bytes=`2936`
   - `wff-agent`: files=`1`, bytes=`168`
   - `wff-init`: files=`1`, bytes=`142`
@@ -58,7 +58,7 @@
 ## Install-Pack AGENTS.md
 - path: `AGENTS.md`
 - exists: `True`
-- line_count: `49`
+- line_count: `56`
 - max_allowed_lines: `120`
 - missing_required_phrases: `(none)`
 - repo_level_markers: `(none)`
@@ -69,13 +69,13 @@
 - unexpected_root_guidance_files: `(none)`
 - oversized_root_guidance_files: `0`
 - repo_level_marker_hits: `0`
-- checked `AGENTS.md`: `49` lines, markers=`(none)`
+- checked `AGENTS.md`: `56` lines, markers=`(none)`
 - checked `INSTALL-PACK-README.en.md`: `154` lines, markers=`(none)`
 - checked `INSTALL-PACK-README.md`: `154` lines, markers=`(none)`
 - checked `INSTALL-PACK-README.zh-CN.md`: `154` lines, markers=`(none)`
 - checked `README.en.md`: `154` lines, markers=`(none)`
-- checked `README.md`: `107` lines, markers=`(none)`
-- checked `README.zh-CN.md`: `107` lines, markers=`(none)`
+- checked `README.md`: `105` lines, markers=`(none)`
+- checked `README.zh-CN.md`: `105` lines, markers=`(none)`
 - checked `WFF-START-HERE.md`: `32` lines, markers=`(none)`
 - checked `WFF-START-HERE.zh-CN.md`: `32` lines, markers=`(none)`
 

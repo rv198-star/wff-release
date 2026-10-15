@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { ACCESS_TOKEN_TTL_SECONDS, authenticateLocalUser, issueAuthToken, localAuthEnabled, normalizeAuthSession, parseAuthorizationHeader } from "./common/auth-session.js";
+import { ApiError } from "./common/errors.js";
 import { checkS3OperationRuntimeReadiness, extractEvidence, invokeS3Operation } from "./runtime/operation-runtime.js";
 
 type RouteDef = {
@@ -111,7 +113,7 @@ async function readBody(request: IncomingMessage): Promise<Record<string, unknow
   return isRecord(value) ? value : {};
 }
 
-function authContext(request: IncomingMessage): Record<string, unknown> {
+function phase3AuthContext(request: IncomingMessage): Record<string, unknown> {
   if (process.env.PHASE3_ALLOW_AUTH_CONTEXT_HEADER !== "true") return {};
   const raw = request.headers["x-phase3-auth-context"];
   const value = Array.isArray(raw) ? raw[0] : raw;
@@ -122,6 +124,17 @@ function authContext(request: IncomingMessage): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function authContext(request: IncomingMessage): Record<string, unknown> {
+  const raw = request.headers.authorization;
+  const authorization = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof authorization === "string" && authorization.trim()) {
+    return parseAuthorizationHeader(authorization);
+  }
+  const fallback = phase3AuthContext(request);
+  if (Object.keys(fallback).length > 0) return fallback;
+  return parseAuthorizationHeader(undefined);
 }
 
 function buildSuccessMeta(example: unknown): Record<string, unknown> {
@@ -166,7 +179,7 @@ function buildSuccessEnvelope(route: RouteDef, result: Record<string, unknown>):
 
 function fallbackErrorStatus(message: string): number {
   if (/dependency_unavailable|integration_not_configured|provider_unavailable|model_dependency|vision_or_model/i.test(message)) return 503;
-  if (/forbidden|permission|tenant_boundary|auth_context/i.test(message)) return 403;
+  if (/forbidden|permission|tenant_boundary|auth_context|system_continuation/i.test(message)) return 403;
   if (/not_found|missing/i.test(message)) return 404;
   if (/conflict|stale|version/i.test(message)) return 409;
   return 400;
@@ -174,6 +187,14 @@ function fallbackErrorStatus(message: string): number {
 
 function errorStatus(route: RouteDef, errorCode: string): number {
   return route.failureStatusByCode[errorCode] ?? fallbackErrorStatus(errorCode);
+}
+
+function publicRoleErrorCode(route: RouteDef): string {
+  for (const code of ["forbidden", "permission_denied", "tenant_forbidden", "rbac_forbidden"]) {
+    if (route.failureStatusByCode[code] === 403) return code;
+  }
+  const contractCode = Object.entries(route.failureStatusByCode).find(([, status]) => status === 403)?.[0];
+  return contractCode || "role_permission_denied";
 }
 
 export async function checkGeneratedRouteReadiness(): Promise<{ ready: boolean; routeCount: number; readyOperationCount: number; missingOperationIds?: string[]; reason?: string }> {
@@ -194,6 +215,75 @@ export async function handleGeneratedApiRequest(
 ): Promise<boolean> {
   const method = request.method || "GET";
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
+  if (method === "GET" && url.pathname === "/auth/session") {
+    try {
+      const rawAuthorization = request.headers.authorization;
+      const authorization = Array.isArray(rawAuthorization) ? rawAuthorization[0] : rawAuthorization;
+      const claims = parseAuthorizationHeader(authorization);
+      const session = normalizeAuthSession(claims, "");
+      const expiresAt = typeof claims.exp === "number" ? claims.exp : 0;
+      const expiresIn = expiresAt > 0 ? Math.max(0, expiresAt - Math.floor(Date.now() / 1000)) : undefined;
+      helpers.sendJson(response, 200, {
+        data: {
+          subject_id: session.subject_id,
+          tenant_id: session.tenant_id,
+          roles: session.roles,
+          session_id: session.session_id,
+          ...(expiresIn !== undefined ? { expires_in: expiresIn } : {}),
+        },
+      });
+    } catch (error) {
+      if (error instanceof ApiError) {
+        helpers.sendJson(response, error.status, error.envelope as unknown as Record<string, unknown>);
+      } else {
+        helpers.sendJson(response, 500, {
+          error_kind: "system_error",
+          error_code: "auth_session_status_failed",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return true;
+  }
+  if (method === "POST" && url.pathname === "/auth/session" && localAuthEnabled()) {
+    try {
+      const body = await readBody(request);
+      const username = String(body.username ?? "").trim();
+      const password = String(body.password ?? "");
+      const session = authenticateLocalUser(username, password);
+      const accessToken = issueAuthToken({
+        sub: session.subject_id,
+        subject_id: session.subject_id,
+        tenant_id: session.tenant_id,
+        roles: session.roles,
+        sid: session.session_id,
+        session_id: session.session_id,
+        oidc_claims: session.oidc_claims,
+      });
+      helpers.sendJson(response, 200, {
+        data: {
+          access_token: accessToken,
+          token_type: "Bearer",
+          expires_in: ACCESS_TOKEN_TTL_SECONDS,
+          subject_id: session.subject_id,
+          tenant_id: session.tenant_id,
+          roles: session.roles,
+          session_id: session.session_id,
+        },
+      });
+    } catch (error) {
+      if (error instanceof ApiError) {
+        helpers.sendJson(response, error.status, error.envelope as unknown as Record<string, unknown>);
+      } else {
+        helpers.sendJson(response, 500, {
+          error_kind: "system_error",
+          error_code: "auth_session_failed",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return true;
+  }
   for (const route of await loadRoutes()) {
     if (route.method !== method) continue;
     const pathParams = matchPath(route.pathTemplate, url.pathname);
@@ -201,13 +291,23 @@ export async function handleGeneratedApiRequest(
     try {
       const body = await readBody(request);
       const query = Object.fromEntries(url.searchParams.entries());
-      const input = { ...query, ...body, ...pathParams };
-      const result = await invokeS3Operation(route.operationId, input, authContext(request), extractEvidence(body));
+      const actor = authContext(request);
+      const input: Record<string, unknown> = { ...query, ...body, ...pathParams };
+      const actorTenantId = String(actor.tenant_id ?? actor.tenantId ?? "").trim();
+      if (actorTenantId && input.tenant_id === undefined && input.tenantId === undefined) {
+        input.tenant_id = actorTenantId;
+      }
+      const result = await invokeS3Operation(route.operationId, input, actor, extractEvidence(body));
       helpers.sendJson(response, route.successStatus, buildSuccessEnvelope(route, result));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const errorCode = message.replace(/[^A-Za-z0-9_.:-]+/g, "_");
-      helpers.sendJson(response, errorStatus(route, errorCode), { error_kind: "business_error", error_code: errorCode });
+      if (error instanceof ApiError) {
+        helpers.sendJson(response, error.status, error.envelope as unknown as Record<string, unknown>);
+      } else {
+        const message = error instanceof Error ? error.message : String(error);
+        const rawErrorCode = message.replace(/[^A-Za-z0-9_.:-]+/g, "_");
+        const errorCode = rawErrorCode === "role_permission_denied" ? publicRoleErrorCode(route) : rawErrorCode;
+        helpers.sendJson(response, errorStatus(route, errorCode), { error_kind: "business_error", error_code: errorCode });
+      }
     }
     return true;
   }

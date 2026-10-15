@@ -8,8 +8,10 @@ Tracked files:
 - `mindthus.lock.json`: the pinned upstream repo, tag, commit, local source
   cache directory name, and release payload directory name.
 - `release/`: the committed Mindthus release payload shipped inside WFF install
-  packs and release bundles. It is a curated `v1.4.1` release payload, not the
-  upstream git checkout.
+  packs and release bundles. It is a curated `v1.8.0` runtime payload, not the
+  upstream git checkout. The curated boundary keeps Mindthus runtime/method
+  surfaces consumed by WFF and their required resources while excluding upstream
+  tests, internal planning material, caches, and presentation-only artifacts.
 - `README.md`: this operating note.
 
 Generated local files:

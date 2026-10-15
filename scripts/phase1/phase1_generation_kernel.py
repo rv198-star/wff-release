@@ -521,7 +521,7 @@ def _row_has_deferred_priority(row: dict[str, str]) -> bool:
     if not priority:
         return False
     normalized = _normalized_header_key(priority)
-    return normalized in {"later", "deferred", "future", "后置", "以后"}
+    return normalized in {"later", "deferred", "future", "后置", "以后", "p2", "p2后续阶段"}
 
 
 def _strip_deferred_priority_table_rows(markdown: str) -> str:
@@ -1334,6 +1334,7 @@ def extract_module_rows(source_text: str) -> list[dict[str, str]]:
     capability_rows: list[dict[str, str]] = []
     engine_rows: list[dict[str, str]] = []
     roles = extract_target_user_rows(fact_text)
+    first_wave_priority_fact_text = _strip_deferred_priority_table_rows(fact_text)
     for headers, table_rows in iter_markdown_tables(fact_text):
         if _table_has_header(headers, "闭环") and _table_has_header(headers, "内容"):
             for row in table_rows:
@@ -1344,7 +1345,7 @@ def extract_module_rows(source_text: str) -> list[dict[str, str]]:
                     continue
                 description = _row_value(row, "内容", "Description", "description", "职责") or module_name
                 steps = _source_steps_from_text(description)
-                contract = infer_fallback_module_contract(fact_text, module_name, roles)
+                contract = infer_fallback_module_contract(first_wave_priority_fact_text, module_name, roles)
                 priority_rows.append(
                     contract
                     | {
@@ -1406,7 +1407,15 @@ def extract_module_rows(source_text: str) -> list[dict[str, str]]:
                         "output": steps[-1] if steps else first_loop,
                     }
                 )
-    semantic_rows = priority_rows + capability_rows + engine_rows
+    if priority_rows:
+        primary_priority_rows: list[dict[str, str]] = []
+        for row in priority_rows:
+            module_name = str(row.get("module", "")).strip()
+            if module_name and module_name not in {item.get("module") for item in primary_priority_rows}:
+                primary_priority_rows.append(row)
+        return primary_priority_rows[:6]
+
+    semantic_rows = capability_rows + engine_rows
     if semantic_rows:
         primary: list[dict[str, str]] = []
         supporting: list[dict[str, str]] = []

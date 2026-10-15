@@ -75,3 +75,27 @@
 ## 8. Handoff Rules
 - include consumption rule for review-bound items and unresolved constraints
 - include implementation task sketch only at coarse-grained work-package level
+
+
+## Stage-05 interaction handoff runtime
+
+After the selected architecture/API inputs are frozen, use `scripts/phase2/interaction_generation.py` and the versioned neutral library, following `reference-packages/phase2-design-architecture/interaction-generation.md`. Generate the ten interaction sections independently from selected original IDs; keep explicit gaps, use at most two local diagnostic repairs, and preserve accepted sections. Code assembles patterns and provenance; the existing OMR then isolated SQR review the original subject. Retain the interaction-only freeze manifest SHA-256, call records, gaps and delegation rules for P3. This handoff neither certifies complete P2 nor permits current-cycle P1/P2 regeneration.
+
+
+### Caller output limit and section repair
+
+Use the shared D/P3 streaming call runtime (`common.bounded_model_call` and
+`common.bounded_response_stream`). D prompts target about4,000 output tokens or less per section and brief reasoning; keep
+60K request / 8K output / local schema depth at most three. Close at 8K estimated
+output including reasoning; active cutoff is charged request upper bound + 8K,
+with usage kind and estimator retained. Simplify a truncated section within at
+most two repairs; still unsuccessful becomes T2 and other sections continue.
+HTTP/stream errors consume the full request upper bound + 8K reservation, recorded
+as `transport-error-upper-bound`; remote execution remains uncertain. Resend the
+same section at most once, counting every dispatch; two transport failures in a
+section leave T2 and other sections continue. The third transport error in the
+run stops dispatch and requires an Owner report. Declared call/token/wall caps
+still apply to resends; other unknown usage stops the run. This is finite network
+recovery, not an extra semantic review or a reset of the section repair limit. Do not repeat reviewers or claim complete review after a rejected review; authorized bounded v2 closeout preserves explicit T2 review gaps.
+
+When the complete interaction review would exceed 60K, `prepare_review_packets` keeps every accepted choice and explicit gap visible and batches the unchanged original facts by focus section. Execute all OMR packets, then the identical packets for isolated SQR. These are the existing two logical reviews; each packet is an actual call within the declared call/token/wall limits. Bind packet input and prompt digests plus every settled Journal call into the two receipts; code retains all findings and projects the review-bound verdict without another model judgment. The complete-review v1 freeze requires both original receipts. For an explicitly authorized bounded closeout, stop calls at the declared cap and use `freeze_bounded_interaction`: retain unchanged author sections and actual receipts, mark affected sections T2 for material findings or missing/rejected review coverage, and freeze v2 with explicit review gaps. No extra review, budget reset or accepted-section regeneration; this freeze does not claim completed review. P3 validates the same manifest and resolves retained gaps locally. Calibrated endpoint/model counting uses text delta events×1.02 plus1024 reasoning reserve and item framing; requests use ceil(UTF-8 bytes/2)+4000. Each completed call compares provider visible tokens; deviation>3% switches to bytes and reports. Changed endpoint/model requires recalibration. Completed usage is provider-measured; cutoff/transport error charges request estimate+8000.

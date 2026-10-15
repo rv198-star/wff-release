@@ -1,0 +1,223 @@
+{
+  "version": "architecture-design@1",
+  "default_state": "undecided",
+  "sections": [
+    {
+      "id": "stage01",
+      "title": "Architecture boundaries",
+      "patterns": [
+        "services",
+        "objects",
+        "policies"
+      ],
+      "concerns": [
+        "boundary",
+        "responsibility",
+        "constraints",
+        "architecture alternatives"
+      ]
+    },
+    {
+      "id": "stage02",
+      "title": "Ownership and relationships",
+      "patterns": [
+        "objects",
+        "states",
+        "policies"
+      ],
+      "concerns": [
+        "ownership",
+        "relationships",
+        "lifecycle decisions",
+        "collaboration boundaries"
+      ]
+    },
+    {
+      "id": "stage03",
+      "title": "Data and interface contracts",
+      "patterns": [
+        "operations",
+        "fields",
+        "states",
+        "policies"
+      ],
+      "concerns": [
+        "inputs and outputs",
+        "errors",
+        "authority limits",
+        "persistence and state decisions"
+      ]
+    },
+    {
+      "id": "stage04",
+      "title": "Delivery and convergence",
+      "patterns": [
+        "policies"
+      ],
+      "concerns": [
+        "delivery scope",
+        "dependencies",
+        "verification evidence",
+        "downstream freedoms"
+      ]
+    },
+    {
+      "id": "engineering",
+      "title": "Engineering specification",
+      "patterns": [
+        "policies"
+      ],
+      "concerns": [
+        "implementation order",
+        "schema migration",
+        "contract dependencies",
+        "unresolved decisions"
+      ]
+    }
+  ],
+  "patterns": [
+    {
+      "id": "services",
+      "title": "Services",
+      "record_fields": {
+        "service_id": "str",
+        "name": "str",
+        "responsibility": "str",
+        "p1_refs": "refs"
+      },
+      "applicability": "Use when the named record expresses an author decision supported by selected facts; otherwise leave empty.",
+      "defaults": {}
+    },
+    {
+      "id": "objects",
+      "title": "Objects",
+      "record_fields": {
+        "object_id": "str",
+        "service_id": "str",
+        "responsibility": "str",
+        "relations": "strings",
+        "p1_refs": "refs"
+      },
+      "applicability": "Use when the named record expresses an author decision supported by selected facts; otherwise leave empty.",
+      "defaults": {}
+    },
+    {
+      "id": "operations",
+      "title": "Operations",
+      "record_fields": {
+        "operation_id": "str",
+        "service_id": "str",
+        "name": "str",
+        "method": "str",
+        "path": "str",
+        "allowed_roles": "strings",
+        "request_fields": "strings",
+        "response_fields": "strings",
+        "errors": "strings",
+        "effects": "str",
+        "p1_refs": "refs"
+      },
+      "applicability": "Use when the named record expresses an author decision supported by selected facts; otherwise leave empty.",
+      "defaults": {}
+    },
+    {
+      "id": "fields",
+      "title": "Fields",
+      "record_fields": {
+        "field_id": "str",
+        "operation_id": "str",
+        "direction": "str",
+        "name": "str",
+        "data_type": "str",
+        "semantics": "str",
+        "p1_refs": "refs"
+      },
+      "applicability": "Use when the named record expresses an author decision supported by selected facts; otherwise leave empty.",
+      "defaults": {}
+    },
+    {
+      "id": "states",
+      "title": "States",
+      "record_fields": {
+        "state_id": "str",
+        "object_id": "str",
+        "name": "str",
+        "meaning": "str",
+        "p1_refs": "refs"
+      },
+      "applicability": "Use when the named record expresses an author decision supported by selected facts; otherwise leave empty.",
+      "defaults": {}
+    },
+    {
+      "id": "policies",
+      "title": "Policies",
+      "record_fields": {
+        "decision_id": "str",
+        "scope": "strings",
+        "statement": "str",
+        "p1_refs": "refs"
+      },
+      "applicability": "Use when the named record expresses an author decision supported by selected facts; otherwise leave empty.",
+      "defaults": {}
+    }
+  ],
+  "record_fields": {
+    "services": {
+      "service_id": "str",
+      "name": "str",
+      "responsibility": "str",
+      "p1_refs": "refs"
+    },
+    "objects": {
+      "object_id": "str",
+      "service_id": "str",
+      "responsibility": "str",
+      "relations": "strings",
+      "p1_refs": "refs"
+    },
+    "operations": {
+      "operation_id": "str",
+      "service_id": "str",
+      "name": "str",
+      "method": "str",
+      "path": "str",
+      "allowed_roles": "strings",
+      "request_fields": "strings",
+      "response_fields": "strings",
+      "errors": "strings",
+      "effects": "str",
+      "p1_refs": "refs"
+    },
+    "fields": {
+      "field_id": "str",
+      "operation_id": "str",
+      "direction": "str",
+      "name": "str",
+      "data_type": "str",
+      "semantics": "str",
+      "p1_refs": "refs"
+    },
+    "states": {
+      "state_id": "str",
+      "object_id": "str",
+      "name": "str",
+      "meaning": "str",
+      "p1_refs": "refs"
+    },
+    "policies": {
+      "decision_id": "str",
+      "scope": "strings",
+      "statement": "str",
+      "p1_refs": "refs"
+    },
+    "gaps": {
+      "question": "str",
+      "p1_refs": "refs"
+    }
+  },
+  "phrasing": {
+    "unresolved": "Undecided; retained as a gap.",
+    "claim_ceiling": "Author proposal; review evidence determines delivery.",
+    "source_rule": "Keep original source IDs; rendering does not create facts or acceptance."
+  }
+}

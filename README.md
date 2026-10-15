@@ -87,13 +87,11 @@ WFF 的安装单位是完整 skill 目录和配套资源，不是单个 `SKILL.m
 
 ## 当前状态与证据
 
-当前公开安装包请以 [GitHub Releases](https://github.com/rv198-star/wff-release/releases) 为准。当前公开 Release 为 **`v1.9.2`**，主资产是 `wff-v1.9.2-skills-install-pack.zip`。
+当前发布线为 **v1.10.0**，资产名 `wff-v1.10.0-skills-install-pack.zip`；下载以 [GitHub Releases](https://github.com/rv198-star/wff-release/releases) 的实际发布为准，审计与发版 PR 合入前仍为候选。完整说明见 [v1.10.0 release notes](https://github.com/rv198-star/software-lifecycle-skills/blob/main/docs/v1.10.0-release-notes.zh-CN.md)。
 
-`v1.9.2` 是责任/分发减肥后的正式全链路发布：GEO / PetClinic / BrainyPal 三个新建项目场景完成 P1 -> P4，Invoice / Legacy Customer ID / Oracle DB change / Order scale 四个存量项目完成 PX -> P1 -> P2 -> P3 -> P4；Final AI Review 与两轮独立收尾审计均 PASS。正式 release notes 见 [source tag 上的 v1.9.2 release notes](https://github.com/rv198-star/software-lifecycle-skills/blob/v1.9.2/docs/v1.9.2-release-notes.zh-CN.md)。
+本版按方案 B 收口：M3 两次验收和 A′ 后端均未通过，执行合规；G8 保持开放，不声称三场景通过或前端完成。已知后端缺陷、schema 误报/漏查、二级 P1 原文遗漏和 Journal 跟踪项均列在发布说明。两项零调用机制修复尚未经过实际运行验证。声明限于开发 / 预生产工作流，下一周期先验证固定 P1 单段。
 
-v1.9.2 最初与独立产品 **EKRI v0.9.0**（tag `ekri/v0.9.0`）从同一 release commit 联合冻结；2026-08-13 的 WFF packaging-only refresh 仅收紧公网安装包中的 Mindthus 展示资产，因此 WFF `v1.9.2` source tag 随新的 packaging commit 更新，而 `ekri/v0.9.0` 保持原已验证 commit 不变。EKRI 继续拥有自己的版本、CHANGELOG 与 GitHub Release 身份，并保持在 WFF 用户侧 Skills、install profiles、公开 install pack 和 P1-P4/PX runtime 之外。WFF 的公开运行包不会携带 EKRI。
-
-完整全链路生成物继续保持为本地/独立 proof evidence，不把大体量生成快照重新并回 `main`。发布口径、验证摘要与 claim ceiling 统一收敛在公开 release notes 与 GitHub Release 正文中。
+v1.9.2 的七场景验证与 EKRI v0.9.0 联合发布属于历史版本；详见 [历史 release notes](https://github.com/rv198-star/software-lifecycle-skills/blob/v1.9.2/docs/v1.9.2-release-notes.zh-CN.md)。EKRI 独立治理，不进入 WFF 公开运行包。完整生成物保留在制品库，仓库只留索引、摘要与 SHA256。
 
 ## 继续阅读
 

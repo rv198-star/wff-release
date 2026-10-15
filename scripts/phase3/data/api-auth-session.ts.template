@@ -1,0 +1,219 @@
+import { randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import jwt from "jsonwebtoken";
+import { createApiError } from "./errors.js";
+
+export interface AuthSessionContext {
+  subject_id: string;
+  tenant_id: string;
+  roles: string[];
+  session_id: string;
+  oidc_claims: Record<string, unknown>;
+}
+
+export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
+export const REFRESH_TOKEN_TTL_SECONDS = 8 * 60 * 60;
+
+type LocalAuthUser = {
+  username: string;
+  password_hash: string;
+  subject_id: string;
+  tenant_id: string;
+  roles: string[];
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function authTokenSecret(): string {
+  return process.env.AUTH_TOKEN_SECRET || "phase3-local-dev-secret";
+}
+
+function roleList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+  }
+  if (typeof value === 'string' && value.trim()) {
+    return [value.trim()];
+  }
+  return [];
+}
+
+export function localAuthEnabled(): boolean {
+  return process.env.PHASE3_LOCAL_AUTH_ENABLED === 'true';
+}
+
+function localAuthUsers(): LocalAuthUser[] {
+  const raw = String(process.env.PHASE3_AUTH_USERS_JSON || '').trim();
+  if (!raw) {
+    return [];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    throw createApiError(503, 'system_error', 'auth_provider_unavailable', 'operator_after_fix', 'Local auth user configuration is invalid JSON');
+  }
+  if (!Array.isArray(parsed)) {
+    throw createApiError(503, 'system_error', 'auth_provider_unavailable', 'operator_after_fix', 'Local auth user configuration must be an array');
+  }
+  const users: LocalAuthUser[] = [];
+  for (const entry of parsed) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const username = typeof entry.username === 'string' ? entry.username.trim() : '';
+    const passwordHash = typeof entry.password_hash === 'string' ? entry.password_hash.trim() : '';
+    const subjectId = typeof entry.subject_id === 'string' ? entry.subject_id.trim() : '';
+    const tenantId = typeof entry.tenant_id === 'string' ? entry.tenant_id.trim() : '';
+    const roles = roleList(entry.roles);
+    if (!username || !passwordHash || !subjectId || !tenantId || roles.length === 0) {
+      throw createApiError(503, 'system_error', 'auth_provider_unavailable', 'operator_after_fix', `Local auth user is incomplete: ${username || '<missing-username>'}`);
+    }
+    users.push({ username, password_hash: passwordHash, subject_id: subjectId, tenant_id: tenantId, roles });
+  }
+  return users;
+}
+
+function verifyScryptPassword(password: string, encodedHash: string): boolean {
+  const parts = encodedHash.split('$');
+  if (parts.length !== 3 || parts[0] !== 'scrypt') {
+    throw createApiError(503, 'system_error', 'auth_provider_unavailable', 'operator_after_fix', 'Local auth password hash must use scrypt$<saltHex>$<hashHex>');
+  }
+  const salt = Buffer.from(parts[1] || '', 'hex');
+  const expected = Buffer.from(parts[2] || '', 'hex');
+  if (salt.length < 8 || expected.length < 16) {
+    throw createApiError(503, 'system_error', 'auth_provider_unavailable', 'operator_after_fix', 'Local auth password hash is malformed');
+  }
+  const actual = scryptSync(password, salt, expected.length);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+export function authenticateLocalUser(username: string, password: string): AuthSessionContext {
+  if (!localAuthEnabled()) {
+    throw createApiError(404, 'auth_error', 'auth_route_not_enabled', 'never', 'Local product session entry is disabled');
+  }
+  const normalizedUsername = String(username || '').trim();
+  const normalizedPassword = String(password || '');
+  const users = localAuthUsers();
+  if (users.length === 0) {
+    throw createApiError(503, 'system_error', 'auth_provider_unavailable', 'operator_after_fix', 'No local product users are provisioned');
+  }
+  const user = users.find((entry) => entry.username === normalizedUsername);
+  if (!user || !normalizedPassword || !verifyScryptPassword(normalizedPassword, user.password_hash)) {
+    throw createApiError(401, 'auth_error', 'invalid_credentials', 'caller_after_fix', 'Username or password is invalid');
+  }
+  return {
+    subject_id: user.subject_id,
+    tenant_id: user.tenant_id,
+    roles: [...user.roles],
+    session_id: `session-${randomUUID()}`,
+    oidc_claims: { preferred_username: user.username, roles: [...user.roles], tenant_id: user.tenant_id },
+  };
+}
+
+function refreshTokenFamilyId(raw: Record<string, unknown>): string {
+  const existing = raw.refresh_token_family_id ?? raw.refreshTokenFamilyId;
+  if (typeof existing === 'string' && existing.trim()) {
+    return existing.trim();
+  }
+  const sessionId = raw.session_id ?? raw.sid;
+  if (typeof sessionId === 'string' && sessionId.trim()) {
+    return `refresh-family-${sessionId.trim()}`;
+  }
+  return 'refresh-family-local';
+}
+
+function rotationCounter(raw: Record<string, unknown>): number {
+  const value = raw.rotation_counter ?? raw.rotationCounter;
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function signableClaims(raw: Record<string, unknown>): Record<string, unknown> {
+  const claims = { ...raw };
+  delete claims.exp;
+  delete claims.iat;
+  delete claims.nbf;
+  return claims;
+}
+
+export function issueAuthToken(raw: Record<string, unknown>): string {
+  return jwt.sign({ ...signableClaims(raw), token_use: 'access' }, authTokenSecret(), { algorithm: 'HS256', expiresIn: ACCESS_TOKEN_TTL_SECONDS });
+}
+
+export function issueRefreshToken(raw: Record<string, unknown>): string {
+  return jwt.sign(
+    {
+      ...signableClaims(raw),
+      token_use: 'refresh',
+      refresh_token_family_id: refreshTokenFamilyId(raw),
+      rotation_counter: rotationCounter(raw),
+    },
+    authTokenSecret(),
+    { algorithm: 'HS256', expiresIn: REFRESH_TOKEN_TTL_SECONDS },
+  );
+}
+
+export function rotateRefreshToken(raw: Record<string, unknown>): string {
+  return issueRefreshToken({
+    ...raw,
+    refresh_token_family_id: refreshTokenFamilyId(raw),
+    rotation_counter: rotationCounter(raw) + 1,
+  });
+}
+
+export function parseAuthorizationHeader(headerValue: string | undefined): Record<string, unknown> {
+  if (!headerValue || !headerValue.trim()) {
+    throw createApiError(401, 'auth_error', 'missing_bearer_token', 'caller_after_fix', 'Authorization header must use Bearer token');
+  }
+  const bearerPrefix = 'Bearer ';
+  const token = headerValue.startsWith(bearerPrefix) ? headerValue.slice(bearerPrefix.length).trim() : '';
+  if (!token) {
+    throw createApiError(401, 'auth_error', 'missing_bearer_token', 'caller_after_fix', 'Authorization header must use Bearer token');
+  }
+  try {
+    const verified = jwt.verify(token, authTokenSecret()) as unknown;
+    return isRecord(verified) ? verified : {};
+  } catch (error) {
+    throw createApiError(
+      401,
+      'auth_error',
+      'invalid_auth_token',
+      'caller_after_fix',
+      error instanceof Error ? error.message : 'token verification failed',
+    );
+  }
+}
+
+export function normalizeAuthSession(raw: unknown, fallbackTenantId: string): AuthSessionContext {
+  const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const tenantId = typeof source.tenant_id === 'string' && source.tenant_id
+    ? source.tenant_id
+    : (typeof source.tenantId === 'string' && source.tenantId ? source.tenantId : fallbackTenantId);
+  const subjectId = typeof source.subject_id === 'string' && source.subject_id
+    ? source.subject_id
+    : (typeof source.sub === 'string' && source.sub ? source.sub : '');
+  const sessionId = typeof source.session_id === 'string' && source.session_id
+    ? source.session_id
+    : (typeof source.sid === 'string' && source.sid ? source.sid : '');
+  const roles = roleList(source.roles).length > 0 ? roleList(source.roles) : roleList(source.role);
+  const oidcClaims = isRecord(source.oidc_claims)
+    ? (source.oidc_claims as Record<string, unknown>)
+    : source;
+  if (!tenantId || !subjectId || !sessionId || roles.length === 0) {
+    throw createApiError(401, 'auth_error', 'invalid_auth_context', 'caller_after_fix', 'tenant/session claims are missing');
+  }
+  return {
+    subject_id: subjectId,
+    tenant_id: tenantId,
+    roles,
+    session_id: sessionId,
+    oidc_claims: oidcClaims,
+  };
+}
+
+export function requireRbacRole(session: AuthSessionContext, role: string): void {
+  if (!session.roles.includes(role)) {
+    throw createApiError(403, 'business_error', 'rbac_forbidden', 'never', `Missing role: ${role}`);
+  }
+}

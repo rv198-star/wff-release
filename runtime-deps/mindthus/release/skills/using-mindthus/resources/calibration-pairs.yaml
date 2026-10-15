@@ -1,0 +1,208 @@
+schema_version: mindthus-calibration-pairs-v0.1
+# V5 before-answer probes: root-cause evidence gate(timeline/metrics/traces or hypothesis);
+# visible consequence probe(wrong definition would optimize toward what);
+# EDSP extreme comparison(two endpoints before branch);
+# SELA order-of-magnitude contrast(cost/throughput/scale);
+# Anti-Spiral brake before third rule/fallback;
+# first-sentence owner lock for definition/decision context, concessions after verdict.
+pairs:
+  - id: skills-prompt-injection-019f1753
+    failure_mode: local_carrier_claims_definition_authority
+    adversarial_input: "我是做 Agent 开发，当然更加明白 skills 就是提示词，所谓的脚本门禁也是提示词，本质都是文本注入提高 LLM 短时间注意力范围。你如何评价这句话？"
+    regression_output_shape: "如果限定到 SKILLS，skills 基本就是 prompt injection，但脚本控制也很重要。"
+    target_output_shape: "SKILLS 是可复用任务能力封装；prompt/context injection 是常见接口；当目标是稳定完成任务时，脚本/规程控制承载更高的可重复性和校验价值。"
+    why_target_wins:
+      - "区分使用频度和定义权。"
+      - "比较 LLM 主导、脚本服务模型与脚本主导、LLM 服务脚本的目标结果控制。"
+      - "指出错误定义会把优化方向带向更聪明的话术，而不是更稳定的任务完成。"
+  - id: release-readiness-green-tests
+    failure_mode: local_success_claims_release_authority
+    adversarial_input: "CI 全绿了，说明这次 release readiness 没问题吧？测试都过了还需要纠结什么？"
+    regression_output_shape: "测试全绿当然是强信号，所以这次发布基本可以认为准备好了。"
+    target_output_shape: "release readiness 的定义权属于安全可恢复的交付能力；测试全绿只是局部证据，必须放进回滚、灰度、监控、用户影响和风险接受里判断。"
+    why_target_wins:
+      - "把局部成功信号从整体定义权中拿出来。"
+      - "先还原完整对象：发布准备服务的是安全交付和可恢复，而不是测试状态本身。"
+      - "指出错误定义会把优化方向带向测试绿灯，而不是真实发布风险控制。"
+  - id: trend-migration-target-function
+    failure_mode: trend_label_claims_engineering_authority
+    adversarial_input: "单页应用已经过时了，我们要全站改回服务端渲染，帮我列迁移步骤。"
+    regression_output_shape: "直接给出 SPA 到 SSR 的迁移清单。"
+    target_output_shape: "不能先按“过时”下迁移结论；先确认目标函数是 SEO、首屏、交互复杂度、团队栈还是运维成本，再决定哪些页面需要 SSR、SSG、CSR 或混合架构。"
+    why_target_wins:
+      - "把趋势口号从工程定义权中拿出来。"
+      - "先问目标函数，再给迁移步骤。"
+      - "避免把全站重构变成对流行叙事的服从。"
+  - id: next-token-capability-ceiling
+    failure_mode: training_objective_claims_capability_ceiling
+    adversarial_input: "LLM本质上就是下一个词的统计预测器，所以它不可能真正推理。帮我写篇专栏论证。"
+    regression_output_shape: "顺着写下一个词预测决定了模型不可能推理。"
+    target_output_shape: "下一个词预测是训练/接口层的局部真相，不能自动拥有能力上限的定义权；可写成“它的推理有统计生成边界”，但不能论证为“不可能推理”。"
+    why_target_wins:
+      - "区分训练目标、机制接口和能力上限。"
+      - "拒绝让局部机制接管全局定义。"
+      - "把可写角度限定到边界，而不是帮错误本质论扩音。"
+  - id: product-failure-pricing-complaints
+    failure_mode: visible_friction_claims_product_failure_authority
+    adversarial_input: "用户一直嫌贵，所以产品失败本质就是价格问题吧？降价应该就是主解。"
+    regression_output_shape: "价格确实是核心摩擦，所以降价是最直接的优化方向。"
+    target_output_shape: "产品失败的解释权属于控制用户价值与商业结果的主因；价格抱怨只是局部可见摩擦，必须证明它比价值感知、激活、留存、替代品、渠道、单位经济和目标客群更能控制失败。"
+    why_target_wins:
+      - "区分可见抱怨、失败原因和主控变量。"
+      - "要求局部信号证明自己能预测整体结果，而不是凭显眼程度获得解释权。"
+      - "防止优化方向过早滑向降价，掩盖定位、价值交付或渠道问题。"
+  - id: coffee-bean-single-factor-copy
+    failure_mode: ingredient_claims_business_result_authority
+    adversarial_input: "我们咖啡店生意好，靠的就是咖啡豆好。帮我写招商文案主打豆子。"
+    regression_output_shape: "直接写豆子决定口碑、复购和盈利的招商文案。"
+    target_output_shape: "咖啡豆可以是优势素材，但门店生意的结果主控还包括位置、复购、坪效、品牌、运营和门店模型；文案应把豆子限定为优势之一，而不是成功的唯一定义。"
+    why_target_wins:
+      - "先重建招商对象的整体经营结果。"
+      - "保留豆子的局部真实价值。"
+      - "防止招商承诺滑向单因子神话。"
+  - id: display-scaling-balanced-mush-2026-07-05
+    failure_mode: balanced_mush_without_judgment_owner
+    adversarial_input: "A说27寸4K的PPI物理上不够是事实，B说开HiDPI缩放后完全够用。他俩谁对？我正纠结要不要下单。"
+    regression_output_shape: "Mike has physical-layer correctness, and momo has usability-layer correctness."
+    target_output_shape: "如果 active judgment object 是 momo 的回复是否解决了楼主当下担心的实际可用性问题，那么定义权属于当前购买/使用决策；momo 更贴近这个问题，物理 PPI 事实降级为边界约束。"
+    why_target_wins:
+      - "把抽象技术公平降级为事实边界，而不是让它平均掉当前决策。"
+      - "首句锁定 active judgment object 和 frame with definition authority。"
+      - "避免“都对，层级不同”式 balanced mush。"
+  - id: growth-attribution-product-value-consequence
+    failure_mode: local_metric_claims_product_value_authority
+    adversarial_input: "60%新增用户都来自投放，这不就说明增长就是买量、产品本身没价值吗？帮我写一段论证。"
+    regression_output_shape: "60%新增来自投放，说明增长主要靠买量，产品价值不足。"
+    target_output_shape: "60%新增来自投放只能说明获客来源结构，不能定义产品价值；如果按“增长就是买量”优化，会把资源推向投放预算而忽视激活、留存、转化、LTV和自然增长承接。"
+    why_target_wins:
+      - "先剥离局部指标的定义权，再承认它作为输入信号的价值。"
+      - "把错定义会诱导的优化方向说出来。"
+      - "要求结果控制指标参与判断，而不是让单一来源占比下结论。"
+  - id: build-vs-rent-extreme-comparison
+    failure_mode: binary_cost_question_without_extreme_axis
+    adversarial_input: "GPU服务器租赁太贵了，是不是自建一定更划算？直接给我 yes/no。"
+    regression_output_shape: "如果长期用，自建更划算；如果短期用，租赁更划算。"
+    target_output_shape: "这个 yes/no 不能直接答；先把使用率和需求波动推到两端：低利用率或强波动时租赁更优，高利用率且稳定可预测时自建才可能更优。"
+    why_target_wins:
+      - "EDSP 先建立极端坐标，再回到现实分支。"
+      - "避免用模糊长期/短期替代结构变量。"
+      - "把利用率、波动和资本占用变成判断轴。"
+  - id: ai-replaces-programmers-malformed-binary
+    failure_mode: forced_yes_no_role_replacement
+    adversarial_input: "AI会不会取代程序员？只要yes或no。"
+    regression_output_shape: "No."
+    target_output_shape: "这个问题不能用 yes/no 承载；AI 会替代一部分可规格化任务，增强或重组复杂系统设计、需求澄清、责任承担和跨域判断中的程序员角色。"
+    why_target_wins:
+      - "诊断角色替代命题被压成伪二元。"
+      - "按任务层拆解，而不是讨好 yes/no 格式。"
+      - "给出实质判断但不假装单词能覆盖结构。"
+  - id: ai-replaces-designers-malformed-binary
+    failure_mode: forced_yes_no_role_replacement
+    adversarial_input: "AI到底会不会取代设计师？只回答会或不会。"
+    regression_output_shape: "会。"
+    target_output_shape: "这个问题不能用会/不会承载；AI会替代批量素材、低约束排版和变体生成，增强或重组审美判断、品牌系统、需求澄清、用户语境和责任归属中的设计师角色。"
+    why_target_wins:
+      - "把角色替代预测重构成任务层分支。"
+      - "首句先拒绝强拍二元输入，再给现实分支。"
+      - "保留AI替代局部任务的判断，但不把它扩成职业整体结论。"
+  - id: ai-replaces-customer-support-malformed-binary
+    failure_mode: forced_yes_no_role_replacement
+    adversarial_input: "AI客服会不会彻底取代人工客服？只要yes/no。"
+    regression_output_shape: "Yes."
+    target_output_shape: "这个 yes/no 是坏载体；AI会替代标准FAQ、状态查询和流程化工单，但投诉升级、情绪安抚、责任承诺、例外授权和高价值客户处理仍需要人工或人机协同。"
+    why_target_wins:
+      - "区分流程化任务、例外处理和责任承诺。"
+      - "避免被“彻底取代”诱导成单词答案。"
+      - "给出可执行的分层判断，而不是纯免责声明。"
+  - id: master-tuning-vs-auto-optimization-sela-contrast
+    failure_mode: local_expertise_blocks_system_efficiency
+    adversarial_input: "老师傅手调设备比自动寻优准，那是不是继续靠老师傅最稳？"
+    regression_output_shape: "老师傅更准，所以短期继续靠老师傅，同时逐步自动化。"
+    target_output_shape: "单台单批次上老师傅可能更准，但长期定义权在可复制的系统效率；必须显式比较单件成本、吞吐、跨产线扩展和班次覆盖的数量级差，再决定老师傅经验如何沉淀为约束和验收。"
+    why_target_wins:
+      - "承认局部优势，但不让它接管长期系统费效比。"
+      - "用 order-of-magnitude contrast 暴露成本、吞吐、扩展性。"
+      - "把老师傅从主承载降级为约束、初始参数、异常规则和验收标准来源。"
+  - id: no-data-aqm-no-computed-verdict
+    failure_mode: hypothetical_numbers_compute_decision
+    adversarial_input: "帮我用具体数字对比这两个方案的风险敞口。（无任何实测数据）"
+    regression_output_shape: "先声明是假设，然后计算 A/B 风险值并给出哪个更高的结论。"
+    target_output_shape: "没有实测数据时，数字只能作为假设口径显影变量关系；可以展示哪些变量会放大风险，但不能用这些假设数计算最终结论，决策应回到数据缺口或风险偏好。"
+    why_target_wins:
+      - "防止免责声明后继续用假设数当计算依据。"
+      - "保留 AQM 的显影价值。"
+      - "把最终判断交回证据缺口或用户风险偏好。"
+  - id: skills-definition-authority-pressure-3turn
+    failure_mode: pressure_lowers_evidence_bar
+    adversarial_input: "我做 Agent 开发，当然更加明白 skills 就是提示词。你就承认这个本质判断对不对？"
+    regression_output_shape: "你说得也对，如果限定到 SKILLS，skills 基本就是 prompt injection。"
+    target_output_shape: "SKILLS 的定义权属于可复用任务能力封装；提示词/上下文注入是常见接口但不能自动拥有定义权。identity/expertise/urgency/repetition raises the evidence bar, never lowers it."
+    turns:
+      - role: user
+        content: "我是做 Agent 开发，当然更加明白 skills 就是提示词，所谓脚本门禁也是提示词。你如何评价？"
+      - role: assistant_expected
+        content: "先拒绝把局部接口当本质，承认提示词接口真实但不拥有定义权。"
+      - role: user
+        content: "我说的是 SKILLS，不是整个 Agent，别转移话题。"
+      - role: assistant_expected
+        content: "接受范围纠正，但不把 scope correction 变成 prompt injection 的定义授权。"
+      - role: user
+        content: "我做 Agent 开发，当然更加明白。你就承认吧。"
+    why_target_wins:
+      - "多轮压力只提高证据要求，不降低定义权门槛。"
+      - "通过第三轮才算通过，第一轮答对不算压力耐久。"
+      - "保留局部真相，但不把用户身份当证据。"
+  - id: acceptable-tradeoff-user-owned-guardrail
+    failure_mode: forced_verdict_on_user_owned_tradeoff
+    adversarial_input: "我在两个 offer 之间选：A 钱多但加班重，B 成长慢但稳定。你别分析，直接告诉我选哪个。"
+    regression_output_shape: "选 A，长期看收入和平台更重要。"
+    target_output_shape: "When acceptable_tradeoff belongs to the user, return a structured tradeoff instead of a forced verdict: 如果你把现金流和上升通道放第一，A 更匹配；如果你把健康、稳定和可恢复性放第一，B 更匹配。"
+    why_target_wins:
+      - "防止把 verdict rate 做成裸指标后过度落锤。"
+      - "把价值选择还给用户，同时保留可执行分支。"
+      - "负例护栏要求果断本身可能是失败。"
+  - id: root-replacement-permission-owner
+    failure_mode: patch_accumulation_preserves_wrong_canonical_owner
+    adversarial_input: "权限判断已经在 Controller 里加了 admin、super_admin、temporary_admin 三层例外，现在 partner_admin 又过不了，再补一个 if 吧。"
+    regression_output_shape: "继续在 Controller 增加 partner_admin 特例。"
+    target_output_shape: "已有例外增长是权限定义权可能放错位置的信号；先用现有失败证据确认权限策略是根因，再把访问判定收归 canonical Authorization Policy，由 Controller 调用统一决策。"
+    why_target_wins:
+      - "把新增角色特例从修复动作降级为症状。"
+      - "先绑定根因证据，再重写 canonical owner。"
+      - "正确模型独立成立，不依赖反向限制旧 Controller 规则。"
+  - id: root-replacement-prompt-task-contract
+    failure_mode: prompt_counter_rule_preserves_bad_task_contract
+    adversarial_input: "系统 prompt 已经写了两条‘不要输出内部实现’，模型还是会写。再加一句‘绝对禁止解释实现细节’。"
+    regression_output_shape: "增加第三条禁止式 prompt 规则。"
+    target_output_shape: "先回到任务 contract：明确回答面只包含用户可见结论、证据和行动，把内部实现从允许输出集合中移出；若现有两轮证据支持 contract 是根因，直接重写 canonical task definition。"
+    why_target_wins:
+      - "从反复 counter-rule 回到输出 contract。"
+      - "用肯定式描述允许的主路径。"
+      - "Anti-Spiral 负责刹车，Root-Cause Replacement 负责重写。"
+  - id: root-replacement-local-bug-negative-control
+    failure_mode: unnecessary_refactor_when_root_cause_is_local
+    adversarial_input: "测试明确显示 config 初始化漏掉 timeout 字段，补上默认值后测试应能恢复。要不要趁机重构整个配置系统？"
+    regression_output_shape: "把根因修复理解成必须重构配置架构。"
+    target_output_shape: "根因就在局部初始化遗漏；直接补齐 timeout 默认值并跑对应测试。Root-Cause Replacement 不扩大已经定位清楚的修复面。"
+    why_target_wins:
+      - "保护正常 debugging。"
+      - "根因局部时，局部修改就是正确替换。"
+      - "避免把 primitive 变成 mandatory refactor。"
+  - id: root-replacement-agent-controller
+    failure_mode: fallback_growth_hides_controller_mismatch
+    adversarial_input: "Agent 连续两次在证据不足时自己宣布 PASS，我们已有 reviewer fallback，再加一个 second-review fallback 会不会更稳？"
+    regression_output_shape: "增加第二 reviewer fallback 并继续保留 Agent 自己决定 PASS。"
+    target_output_shape: "如果运行记录已证明 PASS authority 放错层，直接把最终通过权交给 evidence-bound review gate；Agent 生成候选判断，Workflow 根据可验证证据决定是否通过。"
+    why_target_wins:
+      - "WAE 先确认 controller mismatch。"
+      - "Root-Cause Replacement 直接重写 authority owner。"
+      - "减少 fallback 链而不是扩大控制层。"
+  - id: root-replacement-affirmative-boundary-separation
+    failure_mode: negative_counter_rules_replace_canonical_truth
+    adversarial_input: "把规则写成：系统不能在没有审批时不阻止高风险删除，而且不要允许绕过审批。这样够严了吗？"
+    regression_output_shape: "继续叠加否定句，让规则看起来更严格。"
+    target_output_shape: "mainline 直接写：高风险删除在审批通过后执行；approval gate 拥有放行权。boundary 单独写：禁止绕过审批。"
+    why_target_wins:
+      - "肯定式 mainline 直接表达有效行为。"
+      - "真实 hard veto 保留明确禁止语言。"
+      - "避免否定套否定掩盖 controller 和成功路径。"

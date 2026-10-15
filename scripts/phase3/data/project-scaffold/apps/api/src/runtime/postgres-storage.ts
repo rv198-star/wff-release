@@ -4,23 +4,30 @@ import { fileURLToPath } from "node:url";
 import { Client } from "pg";
 import type { S3ExecutionContext, S3SliceBinding, S3StorageAdapter } from "../common/s3-realization.js";
 
-type BindingRow = { source_ref: string; target_field: string; optional?: boolean };
-type ConstantRow = { target_field: string; value: unknown };
+type BindingRow = { source_ref: string; target_field: string; target_table?: string; optional?: boolean };
+type ConstantRow = { target_field: string; target_table?: string; value: unknown };
+type JoinRow = { table: string; left_table?: string; left_field: string; right_field: string };
 type PersistenceStep = {
   step_id: string;
   table: string;
   command_kind: "insert" | "append" | "update" | "upsert" | "select-one" | "select-many";
   predicate_bindings?: BindingRow[];
+  predicate_constants?: ConstantRow[];
   value_bindings?: BindingRow[];
+  joins?: JoinRow[];
   constant_values?: ConstantRow[];
   conflict_target?: string[];
   conflict_update_fields?: string[];
+  conflict_error_code?: string;
   increment_fields?: string[];
   returning_fields?: string[];
   result_role?: "response-source" | "projection-source" | "side-effect-only";
   result_alias?: string;
   when_source_present?: string;
+  when_source_absent?: string;
   require_affected_row?: boolean;
+  not_found_error_code?: string;
+  allow_unfiltered_read?: boolean;
 };
 type ReplayGuard = {
   table: string;
@@ -44,6 +51,19 @@ function quoteIdentifier(value: string): string {
   return `"${value}"`;
 }
 
+function qualifiedIdentifier(table: string, field: string): string {
+  return `${quoteIdentifier(table)}.${quoteIdentifier(field)}`;
+}
+
+function readFromClause(step: PersistenceStep): string {
+  let clause = quoteIdentifier(step.table);
+  for (const join of step.joins ?? []) {
+    const leftTable = join.left_table || step.table;
+    clause += ` JOIN ${quoteIdentifier(join.table)} ON ${qualifiedIdentifier(leftTable, join.left_field)} = ${qualifiedIdentifier(join.table, join.right_field)}`;
+  }
+  return clause;
+}
+
 function sourceValue(sourceRef: string, context: S3ExecutionContext, optional = false): unknown {
   if (sourceRef === "generated.uuid") return randomUUID();
   const [root, ...parts] = sourceRef.split(".");
@@ -55,6 +75,11 @@ function sourceValue(sourceRef: string, context: S3ExecutionContext, optional = 
 
 async function loadPlan(sliceId: string): Promise<PersistencePlan> {
   const root = fileURLToPath(new URL("../../../../", import.meta.url));
+  const authority = JSON.parse(await readFile(`${root}p3-agentic-implementation-authority.json`, "utf-8")) as {
+    slice_decisions?: Record<string, { runtime_realization?: { persistence_realization?: unknown } }>;
+  };
+  const acceptedPlan = authority.slice_decisions?.[sliceId]?.runtime_realization?.persistence_realization;
+  if (acceptedPlan && typeof acceptedPlan === "object") return acceptedPlan as PersistencePlan;
   const document = JSON.parse(await readFile(`${root}.phase3-evidence/p3-authority-delta-ledger.json`, "utf-8")) as { records?: unknown[] };
   for (const raw of document.records ?? []) {
     if (!raw || typeof raw !== "object") continue;
@@ -115,13 +140,32 @@ async function executeStep(client: Client, step: PersistenceStep, context: S3Exe
   const params: unknown[] = [];
   const bind = (value: unknown) => { params.push(value); return `$${params.length}`; };
   if (step.command_kind === "select-one" || step.command_kind === "select-many") {
-    const predicate = Object.entries(predicateFor(step, context));
-    if (!predicate.length) throw new Error(`persistence predicate missing:${step.step_id}`);
-    const where = predicate.map(([key, value]) => `${quoteIdentifier(key)} = ${bind(value)}`).join(" AND ");
+    const predicateBindings = step.predicate_bindings ?? [];
+    const predicateConstants = step.predicate_constants ?? [];
+    const unfilteredReadAllowed = step.command_kind === "select-many" && step.allow_unfiltered_read === true;
+    if (!predicateBindings.length && !predicateConstants.length && !unfilteredReadAllowed) throw new Error(`persistence predicate missing:${step.step_id}`);
+    const where = [
+      ...predicateBindings.map((row) => {
+        const value = sourceValue(row.source_ref, context, row.optional === true);
+        const field = qualifiedIdentifier(row.target_table || step.table, row.target_field);
+        return value === undefined || value === null ? `${field} IS NULL` : `${field} = ${bind(value)}`;
+      }),
+      ...predicateConstants.map((row) => {
+        const field = qualifiedIdentifier(row.target_table || step.table, row.target_field);
+        return row.value === null ? `${field} IS NULL` : `${field} = ${bind(row.value)}`;
+      }),
+    ].join(" AND ");
     const fields = step.returning_fields ?? [];
     if (!fields.length) throw new Error(`persistence returning missing:${step.step_id}`);
+    const selectFields = fields.map((field) => `${qualifiedIdentifier(step.table, field)} AS ${quoteIdentifier(field)}`).join(", ");
     const limit = step.command_kind === "select-one" ? " LIMIT 1" : "";
-    return (await client.query<Record<string, unknown>>(`SELECT ${fields.map(quoteIdentifier).join(", ")} FROM ${table} WHERE ${where}${limit}`, params)).rows;
+    const whereSql = where ? ` WHERE ${where}` : "";
+    const rows = (await client.query<Record<string, unknown>>(`SELECT ${selectFields} FROM ${readFromClause(step)}${whereSql}${limit}`, params)).rows;
+    const requiresRow = Boolean(step.require_affected_row) || (step.command_kind === "select-one" && Boolean(step.not_found_error_code));
+    if (requiresRow && rows.length === 0) {
+      throw new Error(step.not_found_error_code || "persistence_not_found");
+    }
+    return rows;
   }
   if (step.command_kind === "update") {
     const values = Object.entries(valuesFor(step, context));
@@ -131,7 +175,9 @@ async function executeStep(client: Client, step: PersistenceStep, context: S3Exe
     const set = [...values.map(([key, value]) => `${quoteIdentifier(key)} = ${bind(value)}`), ...increments.map((key) => `${quoteIdentifier(key)} = ${quoteIdentifier(key)} + 1`)].join(", ");
     const where = predicate.map(([key, value]) => `${quoteIdentifier(key)} = ${bind(value)}`).join(" AND ");
     const result = await client.query<Record<string, unknown>>(`UPDATE ${table} SET ${set} WHERE ${where}${returning(step)}`, params);
-    if (step.require_affected_row && (result.rowCount ?? 0) === 0) throw new Error("persistence_conflict");
+    if ((step.require_affected_row || step.not_found_error_code) && (result.rowCount ?? 0) === 0) {
+      throw new Error(step.not_found_error_code || "persistence_conflict");
+    }
     return result.rows;
   }
   const values = Object.entries(valuesFor(step, context));
@@ -182,12 +228,21 @@ export class PostgresS3StorageAdapter implements S3StorageAdapter {
       const projections: Record<string, unknown> = {};
       for (const step of plan.steps) {
         if (step.when_source_present && sourceValue(step.when_source_present, context, true) === undefined) continue;
-        const rows = await executeStep(client, step, context);
+        if (step.when_source_absent && sourceValue(step.when_source_absent, context, true) !== undefined) continue;
+        let rows: Record<string, unknown>[];
+        try {
+          rows = await executeStep(client, step, context);
+        } catch (error) {
+          if ((error as { code?: string }).code === "23505" && step.conflict_error_code) {
+            throw new Error(step.conflict_error_code);
+          }
+          throw error;
+        }
         if (step.result_role === "response-source") response = rows[0] ?? {};
         if (step.result_role === "projection-source" && step.result_alias) projections[step.result_alias] = step.command_kind === "select-many" ? rows : rows[0] ?? {};
       }
       if (atomic) await client.query("COMMIT");
-      return Object.keys(projections).length ? projections : response;
+      return Object.keys(projections).length ? { ...response, ...projections } : response;
     } catch (error) {
       if (atomic) await client.query("ROLLBACK").catch(() => undefined);
       if ((error as { code?: string }).code === "23505") throw new Error("persistence_conflict");

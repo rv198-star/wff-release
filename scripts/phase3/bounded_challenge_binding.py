@@ -92,7 +92,11 @@ def p3_review_subject(
             "sha256": canonical_digest(dict(decision_subject)),
         },
         "contract": {"identity": CONTRACT_ID, "sha256": CONTRACT_DIGEST},
-        "admitted_context": _context_rows(candidate),
+        "admitted_context": _context_rows(candidate) + [
+            {"identity": "p3-t2:" + row["id"], "sha256": canonical_digest(row)}
+            for row in decision_subject.get("semantic_payload", {}).get("authority_delta_records", [])
+            if row.get("gap_decision_contract") == "p3-gap-decisions-v1" and row.get("level") == "T2"
+        ],
     }
 
 
@@ -128,3 +132,102 @@ def validate_p3_decision_challenge_binding(
         expected_review_subject=p3_review_subject(candidate=candidate, decision_subject=subject),
         required_trigger_ids=required_trigger_ids,
     )
+
+
+def p3_gap_review_scope(*, implementation_subject, frozen_facts, records):
+    """Extend the original OMR/SQR subject; both reviewers get identical source data.
+
+    No review output is an input here, and no additional review call is scheduled.
+    """
+    from copy import deepcopy
+    from common.agentic_decision_authority import canonical_digest
+    from common.p3_gap_records import CONTRACT, validate_gap_record
+    rows = [validate_gap_record(row, frozen_facts=frozen_facts) for row in records
+            if row.get("gap_decision_contract") == CONTRACT and row.get("level") == "T2"]
+    if len({row["id"] for row in rows}) != len(rows):
+        raise ValueError("Duplicate T2 review identity")
+    scope = {"implementation_subject": deepcopy(implementation_subject), "t2_decisions": rows,
+             "frozen_basis": {key: deepcopy(frozen_facts[key]) for row in rows for key in
+                              (source["id"] for source in row["basis"])},
+             "review_rule": "Review T2 reasoning, exact provenance, rule use, new facts and claim ceilings within the existing implementation review. SQR receives the original subject, never OMR findings/results."}
+    scope["content_digest"] = canonical_digest(scope)
+    return scope
+
+
+def p3_t2_sqr_metrics(*, scope, receipt):
+    """Report observed rejection and missing coverage without treating absence as acceptance."""
+    from common.agentic_decision_authority import canonical_digest
+    if scope.get("content_digest") != canonical_digest({k:v for k,v in scope.items() if k != "content_digest"}):
+        raise ValueError("Review scope digest mismatch")
+    expected = {row["id"]: canonical_digest(row) for row in scope["t2_decisions"]}
+    reviewed = {}; call_ids = []
+    if receipt is not None:
+        if (receipt.get("role") != "sqr" or receipt.get("scope_digest") != scope["content_digest"]
+                or not receipt.get("call_ids") or not all(isinstance(c,str) and c for c in receipt["call_ids"])):
+            raise ValueError("SQR receipt must bind the original scope and actual call identities")
+        call_ids = list(receipt["call_ids"])
+        for result in receipt.get("decisions", []):
+            key = result.get("id")
+            if (key not in expected or key in reviewed or result.get("digest") != expected[key]
+                    or result.get("verdict") not in {"accepted", "rejected", "review-bound"}
+                    or not isinstance(result.get("findings"),list)):
+                raise ValueError("SQR decision result identity/digest/verdict is invalid")
+            reviewed[key] = result
+    rejected = sorted(k for k,v in reviewed.items() if v["verdict"] == "rejected")
+    model_new = {row["id"] for row in scope["t2_decisions"]
+                 if row.get("rule") == "none" or row.get("new_facts")}
+    model_reviewed = sorted(model_new & set(reviewed))
+    model_rejected = sorted(model_new & set(rejected))
+    model_metrics = {"ids": sorted(model_new), "count": len(model_new),
+        "reviewed_count": len(model_reviewed), "rejected_count": len(model_rejected),
+        "rejection_rate": len(model_rejected) / len(model_reviewed) if model_reviewed else None,
+        "rejected_ids": model_rejected,
+        "review_bound_ids": sorted(k for k in model_reviewed if reviewed[k]["verdict"] == "review-bound"),
+        "missing_ids": sorted(model_new - set(reviewed))}
+    return {"scope_digest": scope["content_digest"], "model_new_t2": model_metrics, "t2_count": len(expected),
+            "reviewed_count": len(reviewed), "rejected_count": len(rejected),
+            "rejection_rate": len(rejected)/len(reviewed) if reviewed else None,
+            "rejected_ids": rejected, "missing_ids": sorted(set(expected)-set(reviewed)),
+            "review_bound_ids": sorted(k for k,v in reviewed.items() if v["verdict"] == "review-bound"),
+            "decision_results": list(reviewed.values()), "call_ids": call_ids,
+            "claim_ceiling": "Observed isolated SQR results only; missing coverage is not accepted, and no automatic role meeting or extra review is authorized."}
+
+
+def apply_p3_t2_sqr_results(*, records, scope, receipt, applied_surfaces):
+    """Bind the existing isolated SQR receipt in the existing decision records.
+
+    The host reports actual already-applied surfaces; no code is applied/reverted
+    here, no new decision is issued, and no additional review is scheduled.
+    """
+    from copy import deepcopy
+    from common.agentic_decision_authority import canonical_digest
+    from common.p3_gap_records import validate_gap_record
+    metrics = p3_t2_sqr_metrics(scope=scope, receipt=receipt)
+    originals = {row["id"]: row for row in scope["t2_decisions"]}
+    results = {row["id"]: row for row in metrics["decision_results"]}
+    if (not isinstance(applied_surfaces, dict) or set(applied_surfaces) != set(originals)
+            or any(not isinstance(v, list) or any(not isinstance(s, str) or not s for s in v)
+                   for v in applied_surfaces.values())):
+        raise ValueError("Report applied surfaces explicitly for every reviewed T2 identity")
+    annotated = []; seen = set()
+    for row in records:
+        value = deepcopy(row); key = row.get("id")
+        if key in originals:
+            original = {k: v for k, v in row.items() if k != "sqr_review"}
+            if key in seen or canonical_digest(original) != canonical_digest(originals[key]):
+                raise ValueError("SQR annotation cannot replace or rebind its original decision")
+            result = results.get(key)
+            review = {"status": result["verdict"] if result else "not-reviewed",
+                "scope_digest": scope["content_digest"], "record_digest": canonical_digest(original),
+                "call_ids": deepcopy(metrics["call_ids"]),
+                "findings": deepcopy(result["findings"]) if result else [],
+                "already_applied_surfaces": deepcopy(applied_surfaces[key])}
+            if row.get("sqr_review") is not None and row["sqr_review"] != review:
+                raise ValueError("A retained SQR annotation is immutable")
+            value["sqr_review"] = review
+            validate_gap_record(value)
+            seen.add(key)
+        annotated.append(value)
+    if seen != set(originals):
+        raise ValueError("SQR scope includes decisions absent from the canonical records")
+    return annotated

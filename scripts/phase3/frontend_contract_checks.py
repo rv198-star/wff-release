@@ -35,6 +35,37 @@ def ui_ia_contract_valid(path: Path | None) -> tuple[bool, dict[str, Any]]:
     pages = payload.get("pages")
     if not isinstance(pages, list) or not pages:
         return False, {"reason": "pages-missing"}
+    access_requirements = payload.get("product_access_requirements") if isinstance(payload.get("product_access_requirements"), dict) else {}
+    terminal_qualification = (
+        access_requirements.get("terminal_role_qualification")
+        if isinstance(access_requirements.get("terminal_role_qualification"), dict)
+        else {}
+    )
+    if terminal_qualification and str(terminal_qualification.get("status") or "").strip() not in {"", "sufficient"}:
+        return False, {
+            "reason": "terminal-role-authority-insufficient",
+            "missing_role_authority_page_ids": terminal_qualification.get("missing_role_authority_page_ids", []),
+            "return_owner": "P3 gap decision",
+        }
+    if bool(terminal_qualification.get("super_role_qualifies_terminal_roles")):
+        return False, {"reason": "super-role-terminal-qualification-forbidden"}
+    business_data = payload.get("business_data_requirements") if isinstance(payload.get("business_data_requirements"), dict) else {}
+    if str(business_data.get("read_model_status") or "").strip() in {"authority-gap", "registered-p3-read-model"}:
+        from phase3.p3_fact_registration import realized_read_model_resolution
+        if not realized_read_model_resolution(root=path.parent, requirements=business_data):
+            return False, {
+                "reason": "business-read-model-authority-gap",
+                "missing_authority": business_data.get("missing_authority", []),
+                "return_owner": "P3 gap decision",
+            }
+    if business_data.get("consumer_manual_internal_ids_allowed") is False and business_data.get("manual_identifier_inputs"):
+        return False, {
+            "reason": "manual-internal-identifier-inputs-present",
+            "rows": business_data.get("manual_identifier_inputs", []),
+        }
+    project_language = payload.get("project_language_requirements") if isinstance(payload.get("project_language_requirements"), dict) else {}
+    if bool(project_language.get("consumer_copy_must_match_project_locale")) and not str(project_language.get("consumer_locale") or "").strip():
+        return False, {"reason": "project-consumer-locale-missing"}
     required_page_keys = {
         "data_required",
         "data_presentation",
@@ -43,12 +74,15 @@ def ui_ia_contract_valid(path: Path | None) -> tuple[bool, dict[str, Any]]:
         "actions_and_transitions",
         "state_conditions",
         "field_source_mapping",
+    }
+    realization_hint_keys = {
         "page_blueprint_type",
         "primary_work_region",
         "secondary_support_regions",
         "dominant_component_pattern",
         "action_model",
     }
+    realization_open_pages: list[str] = []
     has_operable_flow = False
     checked_pages = 0
     generic_shell_page_ids: list[str] = []
@@ -67,17 +101,16 @@ def ui_ia_contract_valid(path: Path | None) -> tuple[bool, dict[str, Any]]:
         checked_pages += 1
         if not required_page_keys.issubset(page.keys()):
             return False, {"reason": "required-keys-missing", "page_id": page.get("page_id")}
-        if not str(page.get("page_blueprint_type", "")).strip():
-            return False, {"reason": "page-blueprint-missing", "page_id": page.get("page_id")}
-        if not str(page.get("primary_work_region", "")).strip():
-            return False, {"reason": "primary-work-region-missing", "page_id": page.get("page_id")}
-        secondary_support_regions = page.get("secondary_support_regions")
-        if not isinstance(secondary_support_regions, list) or not [item for item in secondary_support_regions if str(item).strip()]:
-            return False, {"reason": "secondary-support-regions-missing", "page_id": page.get("page_id")}
-        if not str(page.get("dominant_component_pattern", "")).strip():
-            return False, {"reason": "dominant-component-pattern-missing", "page_id": page.get("page_id")}
-        if not str(page.get("action_model", "")).strip():
-            return False, {"reason": "action-model-missing", "page_id": page.get("page_id")}
+        missing_realization_hints = [
+            key
+            for key in realization_hint_keys
+            if (
+                not page.get(key)
+                or (isinstance(page.get(key), list) and not [item for item in page.get(key, []) if str(item).strip()])
+            )
+        ]
+        if missing_realization_hints:
+            realization_open_pages.append(str(page.get("page_id") or ""))
         display_fields = page.get("display_fields")
         if not isinstance(display_fields, list):
             return False, {"reason": "display-fields-invalid", "page_id": page.get("page_id")}
@@ -161,6 +194,7 @@ def ui_ia_contract_valid(path: Path | None) -> tuple[bool, dict[str, Any]]:
                 "navigate to" in on_success
                 or "go to" in on_success
                 or "refresh current page state" in on_success
+                or "advance-workflow-or-refresh-page-state" in on_success
                 or "进入" in on_success
                 or "跳转" in on_success
                 or "下一步" in on_success
@@ -183,7 +217,12 @@ def ui_ia_contract_valid(path: Path | None) -> tuple[bool, dict[str, Any]]:
             "has_operable_flow": has_operable_flow,
             "generic_shell_page_ids": generic_shell_page_ids,
         }
-    return has_operable_flow, {"reason": "ok", "page_count": checked_pages, "has_operable_flow": has_operable_flow}
+    return has_operable_flow, {
+        "reason": "ok",
+        "page_count": checked_pages,
+        "has_operable_flow": has_operable_flow,
+        "p3_realization_open_page_ids": [page_id for page_id in realization_open_pages if page_id],
+    }
 
 
 def productness_report_contract_reference(productness_gate_report: dict[str, Any] | None) -> dict[str, str]:

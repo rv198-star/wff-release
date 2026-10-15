@@ -9,6 +9,7 @@ from __future__ import annotations
 from hashlib import sha256
 import json
 import os
+import re
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, Iterable, Mapping
@@ -102,7 +103,8 @@ def build_input_snapshot(
 
 
 def validate_input_snapshot(snapshot: Mapping[str, Any], *, expected_phase_id: str) -> None:
-    if snapshot.get("schema_version") != INPUT_SNAPSHOT_SCHEMA:
+    portable = snapshot.get("schema_version") == "wff.agentic-decision-input-snapshot.v2"
+    if snapshot.get("schema_version") != INPUT_SNAPSHOT_SCHEMA and not portable:
         raise AgenticDecisionAuthorityError("Agentic input snapshot schema is invalid")
     if str(snapshot.get("phase_id") or "") != expected_phase_id:
         raise AgenticDecisionAuthorityError("Agentic input snapshot phase is invalid")
@@ -112,11 +114,30 @@ def validate_input_snapshot(snapshot: Mapping[str, Any], *, expected_phase_id: s
     for row in rows:
         if not isinstance(row, dict):
             raise AgenticDecisionAuthorityError("Agentic input snapshot row is invalid")
-        if not str(row.get("role") or "") or Path(str(row.get("name") or "")).name != str(row.get("name") or ""):
+        if not str(row.get("role") or "") or (not portable and Path(str(row.get("name") or "")).name != str(row.get("name") or "")):
             raise AgenticDecisionAuthorityError("Agentic input snapshot identity is invalid")
         digest = str(row.get("sha256") or "")
         if not digest.startswith("sha256:") or len(digest) != 71:
             raise AgenticDecisionAuthorityError("Agentic input snapshot digest is invalid")
+    if portable:
+        from common.portable_phase_inputs import LOGICAL_ID, ORIGIN_STATES
+        fields = {"logical_id", "role", "sha256", "fact_surface_locator_digest", "origin_state", "origin_receipt_digest"}
+        if (set(snapshot) != {"schema_version", "phase_id", "inputs", "context", "snapshot_digest"}
+                or set(snapshot.get("context", {})) != {"input_annex_digest"}
+                or not re.fullmatch(r"sha256:[0-9a-f]{64}", str(snapshot["context"]["input_annex_digest"]))
+                or expected_phase_id not in {"P1", "P2"}):
+            raise AgenticDecisionAuthorityError("Portable input snapshot contract is invalid")
+        for row in rows:
+            if (set(row) != fields or not LOGICAL_ID.fullmatch(str(row["logical_id"]))
+                    or row["origin_state"] not in ORIGIN_STATES
+                    or not re.fullmatch(r"sha256:[0-9a-f]{64}", str(row["sha256"]))
+                    or not re.fullmatch(r"sha256:[0-9a-f]{64}", str(row["fact_surface_locator_digest"]))
+                    or (row["origin_receipt_digest"] != "" and not re.fullmatch(r"sha256:[0-9a-f]{64}", str(row["origin_receipt_digest"])))
+                    or (row["origin_state"] != "unverified" and not row["origin_receipt_digest"])):
+                raise AgenticDecisionAuthorityError("Portable input snapshot row is invalid")
+        ids = [row["logical_id"] for row in rows]
+        if ids != sorted(set(ids)) or sum(row["role"] == "phase-input" for row in rows) != 1:
+            raise AgenticDecisionAuthorityError("Portable input snapshot denominator is invalid")
     body = {key: value for key, value in snapshot.items() if key != "snapshot_digest"}
     if snapshot.get("snapshot_digest") != canonical_digest(body):
         raise AgenticDecisionAuthorityError("Agentic input snapshot is stale")
@@ -136,6 +157,7 @@ def build_decision_envelope(
     bounded_challenge: Mapping[str, Any] | None = None,
     challenge_binding: Mapping[str, Any] | None = None,
     decision_integrity_contract: str | None = None,
+    final_review: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     validate_input_snapshot(input_snapshot, expected_phase_id=phase_id)
     status = str(decision_status).strip()
@@ -164,6 +186,7 @@ def build_decision_envelope(
     if integrity_contract not in {
         CURRENT_DECISION_INTEGRITY_CONTRACT,
         LEGACY_DECISION_INTEGRITY_CONTRACT,
+        "p2-omr-sqr-integrity-v1",
     }:
         raise AgenticDecisionAuthorityError(
             f"unsupported decision integrity contract: {integrity_contract}"
@@ -180,6 +203,17 @@ def build_decision_envelope(
         raise AgenticDecisionAuthorityError(
             "bounded-challenge-integrity-v1 requires challenge evidence and exact binding"
         )
+    if integrity_contract == 'p2-omr-sqr-integrity-v1':
+        if phase_id != 'P2' or bounded_challenge is not None or challenge_binding is not None:
+            raise AgenticDecisionAuthorityError('Lean integrity is P2 final review only, without duplicate challenge')
+        from phase2.p2_final_review import validate_acceptance_record
+        try:
+            validate_acceptance_record(final_review, payload=semantic_payload)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise AgenticDecisionAuthorityError(str(exc)) from exc
+        payload['final_review'] = dict(final_review)
+    elif final_review is not None:
+        raise AgenticDecisionAuthorityError('Final review requires the explicit P2 integrity contract')
     payload["decision_integrity_contract"] = integrity_contract
     if bounded_challenge is not None:
         challenge = dict(bounded_challenge)
@@ -242,8 +276,19 @@ def validate_decision_envelope(
     if integrity_contract not in {
         CURRENT_DECISION_INTEGRITY_CONTRACT,
         LEGACY_DECISION_INTEGRITY_CONTRACT,
+        "p2-omr-sqr-integrity-v1",
     }:
         raise AgenticDecisionAuthorityError("Agentic decision integrity contract is invalid")
+    if integrity_contract == 'p2-omr-sqr-integrity-v1':
+        if expected_phase_id != 'P2' or decision.get('bounded_challenge') is not None or decision.get('challenge_binding') is not None:
+            raise AgenticDecisionAuthorityError('Lean integrity is P2 only, without duplicate challenge')
+        from phase2.p2_final_review import validate_acceptance_record
+        try:
+            validate_acceptance_record(decision.get('final_review'), payload=decision['semantic_payload'])
+        except (ValueError, KeyError, TypeError) as exc:
+            raise AgenticDecisionAuthorityError(str(exc)) from exc
+    elif decision.get('final_review') is not None:
+        raise AgenticDecisionAuthorityError('Unexpected final review contract')
     challenge = decision.get("bounded_challenge")
     binding = decision.get("challenge_binding")
     if integrity_contract == CURRENT_DECISION_INTEGRITY_CONTRACT and (

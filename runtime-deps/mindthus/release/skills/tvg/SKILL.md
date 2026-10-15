@@ -54,6 +54,9 @@ audits by object first: code correctness, release readiness, workflow health, fa
 verification, method correctness, strategic direction, or requirement boundaries need
 their own evidence, review, or Mindthus owner before TVG is considered.
 
+If artifact thinness comes from a broken canonical model, exit the value-gain loop and
+use Root-Cause Replacement before further strengthening.
+
 ### Operating Flow
 
 1. Name the smallest module that can be frozen, returned, or blocked.
@@ -106,6 +109,13 @@ Add `--debug-log` only when the iteration process itself needs inspection. Debug
 Value-Gain Scoring Reference is enabled by default as an always-on reference for comparing rounds. It uses 0-5 ordinal anchors as reference, not measurement; scores help compare rounds, not compute decisions or exit.
 
 Fidelity support: use `resources/fidelity-contract.md`, `templates/fidelity-output.json`, and `scripts/validate_tvg_output.py`; this is a fidelity contract shape check, not semantic approval.
+
+Visual atlas support: use `resources/atlas-search-contract.json` and
+`scripts/atlas/` for Profile-preserving `9 -> 3 -> 9` exploration, stable
+`Rnn-Eyy` IDs, visible lineage, evidence hashes, delivery audit state, and
+finalization evidence. `search-freeze` ends exploration; it does not certify a newly
+generated delivery board. Atlas scripts only label, compose, and validate deterministic
+facts; aesthetic selection and exit remain agentic, with final taste owned by the user.
 
 Resources: `resources/methodology.md`, `resources/exit-audit-template.md`, `resources/trace-record-schema.json`, `resources/value-profiles/profile-construction.md`.
 

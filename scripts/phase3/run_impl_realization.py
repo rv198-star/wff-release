@@ -14,7 +14,12 @@ if str(SCRIPTS_ROOT) not in sys.path:
 
 from common.output_language import resolve_output_locale
 from common.agentic_decision_authority import load_json_object, write_json_atomic
-from phase3.agentic_implementation_authority import P3AgenticImplementationAuthorityError, prepare_and_accept_p3_implementation_authority, validate_authority_delta_ledger
+from phase3.agentic_implementation_authority import P3AgenticImplementationAuthorityError, prepare_and_accept_p3_implementation_authority
+from phase3.p3_realization_decisions import (
+    prepare_authority_delta_ledger,
+    resolve_project_artifact_root,
+    write_p3_realization_decisions,
+)
 from phase3.backend_implementation_scaffolder import scaffold_backend_implementation
 from phase3.s3_code_realization import S3CodeRealizationError, generate_s3_db_support, realize_s3_code_and_tests
 
@@ -26,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--authority-delta-ledger", default="")
     parser.add_argument("--agentic-source-root", default="")
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--project-artifact-root", default="")
     parser.add_argument("--title", default="Phase-3 S3 Backend Realization")
     parser.add_argument("--version", default="0.1.0")
     parser.add_argument("--output-locale", default=resolve_output_locale())
@@ -39,6 +45,13 @@ def main(argv: list[str] | None = None) -> int:
     action_card_root = Path(args.action_card_root).resolve()
     decision_path = Path(args.agentic_implementation_decision).resolve()
     output_dir = Path(args.output_dir).resolve()
+    project_artifact_root = resolve_project_artifact_root(
+        phase2_root=phase2_root,
+        output_dir=output_dir,
+        explicit_root=Path(args.project_artifact_root).resolve()
+        if str(args.project_artifact_root or "").strip()
+        else None,
+    )
     try:
         authority = prepare_and_accept_p3_implementation_authority(
             phase2_root=phase2_root,
@@ -46,9 +59,25 @@ def main(argv: list[str] | None = None) -> int:
             output_dir=output_dir,
             decision_path=decision_path,
         )
-        delta_records = validate_authority_delta_ledger(load_json_object(Path(args.authority_delta_ledger).resolve()), authority=authority) if str(args.authority_delta_ledger).strip() else None
-        if delta_records is not None:
-            write_json_atomic(output_dir / ".phase3-evidence" / "p3-authority-delta-ledger.json", load_json_object(Path(args.authority_delta_ledger).resolve()))
+        ledger, delta_records = prepare_authority_delta_ledger(
+            authority=authority,
+            supplied_ledger=(
+                load_json_object(Path(args.authority_delta_ledger).resolve())
+                if str(args.authority_delta_ledger).strip()
+                else None
+            ),
+        )
+        ledger_path = output_dir / ".phase3-evidence" / "p3-authority-delta-ledger.json"
+        write_json_atomic(ledger_path, ledger)
+        realization_decisions = write_p3_realization_decisions(
+            phase2_root=phase2_root,
+            phase3_root=output_dir,
+            project_artifact_root=project_artifact_root,
+            authority=authority,
+            ledger=ledger,
+            ledger_path=ledger_path,
+            records=delta_records,
+        )
         backend = scaffold_backend_implementation(
             phase2_root=phase2_root,
             output_dir=output_dir,
@@ -68,6 +97,7 @@ def main(argv: list[str] | None = None) -> int:
         "decision_digest": authority.get("decision_digest"),
         "backend_scaffold": backend,
         "db_schema": db_schema,
+        "realization_decisions": realization_decisions,
         "realization_receipt": realization["receipt"],
         "execution": {
             "tests_executed": False,

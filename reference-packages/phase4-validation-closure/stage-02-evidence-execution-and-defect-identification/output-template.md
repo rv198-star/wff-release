@@ -38,6 +38,9 @@
   - execution_log_reference:
   - evidence_pointer_list:
   - operator_run_reference_if_used:
+  - current_ui_product_review_request_reference_if_required:
+  - current_ui_product_review_manifest_reference_if_supplied:
+  - ui_product_review_findings_reference_if_any:
 - defect_and_risk_log:
   - defect_record_reference:
   - unresolved_risks:
@@ -50,6 +53,7 @@
 - minimum_acceptance:
   - execution scope completion summary exists
   - evidence summary exists
+  - when current requested-frontend P3 browser evidence exists, subjective `ui-review` is current-bound to an independent Agentic UI/Product Review or remains explicit `review-bound` / `fail`; screenshot existence alone is not product-quality approval
   - defect / blocked / risk log exists
   - Stage-03 handoff summary exists
 - handoff_to:

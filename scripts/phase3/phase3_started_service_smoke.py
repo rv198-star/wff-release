@@ -31,6 +31,34 @@ from phase3.review_support import emit_gate_cli_result, write_json_report
 
 HTTP_METHODS = ("post", "put", "patch", "delete", "get")
 WRITE_METHODS = {"post", "put", "patch", "delete"}
+ROLE_DENIAL_ERROR_CODES = {"forbidden", "permission_denied", "tenant_forbidden", "rbac_forbidden", "role_permission_denied"}
+
+
+def documented_error_codes_for_status(operation: dict[str, Any], status_code: int) -> set[str]:
+    """Return error codes explicitly documented for one OpenAPI response status."""
+    responses = operation.get("responses", {}) if isinstance(operation, dict) else {}
+    response = responses.get(str(status_code), {}) if isinstance(responses, dict) else {}
+    if not isinstance(response, dict):
+        return set()
+    content = response.get("content", {})
+    media = content.get("application/json", {}) if isinstance(content, dict) else {}
+    if not isinstance(media, dict):
+        return set()
+    codes: set[str] = set()
+    example = media.get("example")
+    if isinstance(example, dict):
+        code = str(example.get("error_code") or "").strip()
+        if code:
+            codes.add(code)
+    schema = media.get("schema", {})
+    if isinstance(schema, dict):
+        properties = schema.get("properties", {})
+        error_schema = properties.get("error_code", {}) if isinstance(properties, dict) else {}
+        if isinstance(error_schema, dict):
+            enum = error_schema.get("enum", [])
+            if isinstance(enum, list):
+                codes.update(str(item).strip() for item in enum if str(item).strip())
+    return codes
 
 
 def b64url(payload: bytes) -> str:
@@ -210,17 +238,69 @@ def extract_rbac_policies_from_operation_support(workspace_root: Path, operation
     return normalized_role_list(re.findall(r'"([^"]+)"', match.group(1)))
 
 
+def terminal_roles_from_p3_authority(workspace_root: Path, operation_id: str) -> list[str]:
+    if not operation_id:
+        return []
+    authority_path = workspace_root / "p3-agentic-implementation-authority.json"
+    if not authority_path.exists():
+        return []
+    try:
+        authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(authority, dict):
+        return []
+    plan = authority.get("exact_realization_plan", [])
+    slice_id = ""
+    if isinstance(plan, list):
+        for row in plan:
+            if not isinstance(row, dict) or str(row.get("operation_id") or "").strip() != operation_id:
+                continue
+            slice_id = str(row.get("slice_id") or "").strip()
+            break
+    decisions = authority.get("slice_decisions", {})
+    decision = decisions.get(slice_id, {}) if slice_id and isinstance(decisions, dict) else {}
+    if not isinstance(decision, dict):
+        return []
+    if str(decision.get("terminal_role_authority_status") or "").strip().lower() != "sufficient":
+        return []
+    return normalized_role_list(decision.get("terminal_roles"))
+
+
+def has_sufficient_terminal_role_authority(workspace_root: Path) -> bool:
+    authority_path = workspace_root / "p3-agentic-implementation-authority.json"
+    if not authority_path.exists():
+        return False
+    try:
+        authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    decisions = authority.get("slice_decisions", {}) if isinstance(authority, dict) else {}
+    if not isinstance(decisions, dict):
+        return False
+    return any(
+        isinstance(decision, dict)
+        and str(decision.get("terminal_role_authority_status") or "").strip().lower() == "sufficient"
+        and bool(normalized_role_list(decision.get("terminal_roles")))
+        for decision in decisions.values()
+    )
+
+
 def operation_rbac_policies_from_workspace(workspace_root: Path, selected: dict[str, Any]) -> list[str]:
+    operation_id = str(selected.get("operation_id") or "")
+    terminal_roles = terminal_roles_from_p3_authority(workspace_root, operation_id)
+    if terminal_roles:
+        return terminal_roles
     operation = selected.get("operation", {})
     roles = []
     if isinstance(operation, dict):
         roles = normalized_role_list(operation.get("x-rbac-policies"))
     if roles:
         return roles
-    return extract_rbac_policies_from_operation_support(workspace_root, str(selected.get("operation_id") or ""))
+    return extract_rbac_policies_from_operation_support(workspace_root, operation_id)
 
 
-def select_smoke_operation(openapi_spec: dict[str, Any]) -> dict[str, Any]:
+def select_smoke_operation(openapi_spec: dict[str, Any], *, prefer_safe_read: bool = False) -> dict[str, Any]:
     paths = openapi_spec.get("paths", {})
     if not isinstance(paths, dict):
         return {}
@@ -247,6 +327,19 @@ def select_smoke_operation(openapi_spec: dict[str, Any]) -> dict[str, Any]:
             )
     if not candidates:
         return {}
+    if prefer_safe_read:
+        def safe_read_rank(item: dict[str, Any]) -> tuple[int, str]:
+            is_read = not bool(item["is_write"])
+            path = str(item.get("path") or "")
+            query = item.get("query", {})
+            no_runtime_identity = "{" not in path and not (isinstance(query, dict) and query)
+            if is_read and no_runtime_identity:
+                return (0, str(item["operation_id"]))
+            if is_read:
+                return (1, str(item["operation_id"]))
+            return (2, str(item["operation_id"]))
+
+        return sorted(candidates, key=safe_read_rank)[0]
     return sorted(candidates, key=lambda item: (not bool(item["is_write"]), str(item["operation_id"])))[0]
 
 
@@ -385,7 +478,10 @@ def run_phase3_started_service_smoke(
     failures: list[str] = []
     warnings: list[str] = []
     spec = load_openapi_spec(workspace_root)
-    selected = select_smoke_operation(spec)
+    selected = select_smoke_operation(
+        spec,
+        prefer_safe_read=has_sufficient_terminal_role_authority(workspace_root),
+    )
     requests: dict[str, Any] = {}
 
     if not selected:
@@ -450,7 +546,14 @@ def run_phase3_started_service_smoke(
 
     missing_bearer_passed = int(missing_response.get("status_code", 0) or 0) == 401 and response_error_code(missing_response) == "missing_bearer_token"
     invalid_bearer_passed = int(invalid_response.get("status_code", 0) or 0) == 401 and response_error_code(invalid_response) == "invalid_auth_token"
-    forbidden_role_passed = int(forbidden_response.get("status_code", 0) or 0) == 403 and response_error_code(forbidden_response) == "rbac_forbidden"
+    documented_403_codes = documented_error_codes_for_status(
+        selected.get("operation", {}) if isinstance(selected.get("operation"), dict) else {},
+        403,
+    )
+    forbidden_role_passed = (
+        int(forbidden_response.get("status_code", 0) or 0) == 403
+        and response_error_code(forbidden_response) in (ROLE_DENIAL_ERROR_CODES | documented_403_codes)
+    )
     valid_bearer_passed = 200 <= int(valid_response.get("status_code", 0) or 0) < 300
 
     if not missing_bearer_passed:

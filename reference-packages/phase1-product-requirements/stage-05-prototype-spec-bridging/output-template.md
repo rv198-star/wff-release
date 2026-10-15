@@ -38,6 +38,41 @@
 - assumptions:
 - open_questions:
 
+## 2.1 Terminal Consumer Intent and Acceptance Boundary
+- terminal_consumers:
+  - primary_consumer:
+  - primary_business_goal:
+- first_wave_consumer_truth:
+  - current_entry_surface:
+  - meaningful_outcome_surface:
+  - meaningful_outcome_condition:
+  - product_identity_direction:
+  - value_promise:
+  - continuity_requirement:
+  - trust_boundary:
+    - normal product use must not expose WFF/contract/Agent/debug metadata or require test-runner identity, engineering-only route knowledge, or injected browser storage
+- consumer_acceptance_boundary:
+  - a terminal consumer must be able to understand and complete the intended first-wave business task to a meaningful outcome without engineering intervention
+- terminal_role_contracts:
+  - accepted_terminal_roles: `<accepted p1-agentic-product-authority ownership roles; Surface Matrix fallback only when machine authority is absent>`
+  - qualification_rule: each accepted terminal role requires an independent least-privilege consumer path; a super-role account must not substitute for independent terminal-role qualification
+  - authority_rule: accepted P1 machine ownership is canonical; Surface Matrix page-role projection may add realization hints only when aligned and cannot widen or merge role truth
+  - role_1:
+    - role: `<accepted terminal role>`
+    - authority_commitment_ids: `<exact P1 commitment ids>`
+    - authority_basis: `<source-established | agentic-world-knowledge | mixed>`
+    - responsibility_claim_ceiling: `<accepted P1 role responsibility ceiling>`
+    - default_product_entry: `/<aligned role entry route> | review-bound-p3-realization`
+    - allowed_surfaces: `/<aligned role route 1>, /<aligned role route 2> | review-bound`
+    - allowed_actions: `<aligned source-backed primary actions or exact role commitment ids>`
+    - authority_business_objects: `<P1 responsibility-linked business objects>`
+    - visible_business_objects: `P2-terminal-access-decision-required`
+    - surface_projection_status: `<aligned | review-bound>`
+- p3_realization_delegation:
+  - unless explicitly frozen by source/P1/P2 authority, P3 owns concrete shell/navigation/auth-session UX/component/state/responsive/accessibility/not-found/copy/visual-interaction realization decisions
+  - implementation-level refinements that do not contradict frozen P1/P2 truth stay in the P3 implementation decision / Authority Delta instead of forcing an upstream rewrite
+  - return upstream only when the missing fact would change product meaning, architecture ownership, public contract semantics, security/permission truth, persistence authority, or another frozen boundary
+
 ## 3. Prototype Scope and Boundary
 - prototype_scope:
   - first_wave_in_scope:

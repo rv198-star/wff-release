@@ -36,6 +36,12 @@ tplan recommendation vocabulary before applying Mission mutations.
 Hook output must include recommendation, rationale, confidence, evidence links,
 proposed mutations, and requires_human.
 
+Role-separated review uses existing hooks instead of adding new gates.
+Direction-checking maps to Pulse, decision hooks, path/risk assessment, and Mission
+Review. Acceptance grading maps to rubric, acceptance criteria, evidence links, and
+`mission_review.acceptance_gap`. The reviewer surface can advise or grade, but final
+authority remains with acceptance evidence, Mission Review, or an authorized human.
+
 ## Snapshot / Pulse / Gate Control Surface
 
 TPLAN review control has three layers:
@@ -171,6 +177,12 @@ Implemented read-only routes:
 - routine `checkpoint_batch` with no trigger candidate -> `continue`
 - checkpoint batch without fresh acceptance evidence movement -> `continuation_authorization`
 
+When an automatic user-update delivery sees this ordinary no-candidate `continue`
+result and its delivery cursor is unchanged, it may use the Quiet no-op pacing rule:
+two silent successful checks, then one factual heartbeat. This does not write Pulse
+state, create evidence, or upgrade the next Gate; user-initiated status questions
+remain answerable immediately.
+
 ## Anti-Spiral Runtime Gate
 
 `anti_spiral_audit` is a runtime gate, not a standalone Mindthus skill. It exists so a
@@ -283,10 +295,20 @@ evidence events, with live state in `mission.shared_context.risk_signals`.
 
 Mission Shared Context Memory is loaded before hooks through Mission identity preflight.
 The project-level file is `.tplan/shared_contexts/tplan_mission_shared_context-<mission_id>.md`.
-Use `preflight_mission.py` to distinguish `continue_existing`, `create_new`, and
-`needs_agentic_selection` before runtime initialization. `source_contexts` may inform a
-new Mission, but they do not create a derived Mission status or transfer acceptance
-authority.
+Use `preflight_mission.py` to discover residual candidates before runtime
+initialization, including runtime-only candidates whose shared Markdown is absent.
+Discovery never authorizes continuation. For a selected candidate,
+provide the current objective and acceptance evidence; an exact match appears as
+`identity_action=continue_existing` plus `candidate_disposition=resume_existing`, while
+the public action remains `needs_agentic_selection`. Only a second explicit
+`--disposition` with `--rationale` selects `resume_existing`,
+`create_new_from_context`, `requires_human`, or `ignore_candidate`.
+The explicit CLI path durably records a decision receipt before any Mission write.
+`resume_existing` is then applied only if the locked Mission, narrative, evidence, and
+trace digests still match the assessed freshness boundary.
+`source_contexts` may inform a new Mission, but they do not create a derived Mission
+status or transfer acceptance authority. This re-entry boundary precedes hooks and is
+not the same as same-path continuation inside an active Mission.
 
 When a high-impact hook output is produced while active shared risks exist, include:
 

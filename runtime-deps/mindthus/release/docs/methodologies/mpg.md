@@ -6,9 +6,27 @@ MPG 是 `Mainline-Path Game / 主线-路径博弈`，用来处理一个很容易
 
 > 看对主线，不等于穿过路径。
 
-SELA 可以帮我们看清长期主线，比如系统效率正在压过局部优势，某个大趋势正在形成，或者一个组织必须转型。但真实行动里，主线不会直线兑现。它会经过政策摇摆、地方激励、市场回撤、现金流压力、组织阻力、技术迁移成本和叙事波动。
+SELA 和 MPG 是姐妹战略镜头，不是上下级。常见顺序是 SELA 先校准整体方向压力，MPG 再测试载体和路径能不能承载这个方向；这是顺序，不是层级。但真实行动里，主线不会直线兑现。它会经过政策摇摆、地方激励、市场回撤、现金流压力、组织阻力、技术迁移成本和叙事波动。
 
 MPG 关心的是：这个行动者用什么载体、什么节奏、什么暴露度和什么触发条件，才能把主线穿过路径波动，而不是死在主线兑现之前。
+
+### SELA ↔ MPG Twin-Lens Handshake
+
+当输入里的主线来自系统效率、长期趋势、新旧范式替代或外部生态变化时，MPG 不能把这个
+主线直接当成事实前提。SELA 先校准方向压力，MPG 再判断当前载体、暴露和路径动作；两者是
+姐妹镜头，MPG 仍然拥有最终行动姿态。
+
+一个清楚的 MPG 解释会先区分两件事：长期方向是 supported、failed 还是
+evidence-limited；当前载体或路径应继续、调整、等待还是退出。例如：
+`长期保留内部模型能力是对的，但当前全栈自建平台这条路不该继续。` 内部审计字段只是
+支撑，不应取代这个可复述的判断。Agent 的 direct-load、companion skill 加载和默认输出
+形状要求属于 [`MPG runtime surface`](../../skills/mpg/SKILL.md)。
+
+如果方向压力成立，但当前载体、预算、暴露、节奏或承诺仍决定行动，用 `SELA support + MPG dominate`。MPG still owns the action posture：最终动作仍由 MPG 决定。
+
+If the direction check fails, return to SELA or EDSP before path strategy. If variables
+visibly pull in different directions, include a short AQM visibility map or say why it
+is skipped。
 
 它的核心交付不是“风险很高 / 机会很大”这样的判断，而是：
 
@@ -17,6 +35,15 @@ MPG 关心的是：这个行动者用什么载体、什么节奏、什么暴露�
 ## 解决什么问题
 
 MPG 解决的是“主线正确但路径会杀死承载者”的问题。
+
+通用触发结构是：
+
+> mainline + proxy/carrier + concentrated exposure + now/continue/commit decision
+
+也就是：用户已经接受一个长期主线，并准备把某种 scarce resource / 稀缺资源押到
+purest carrier / 最纯载体、最直接 proxy 或最能代表主线的 vehicle 上。这个结构
+not domain-specific：稀缺资源可以是钱、时间、团队预算、职业机会、产品路线、组织信任、算力、
+注意力或政治资本。
 
 典型场景包括：
 
@@ -42,7 +69,7 @@ MPG 的核心判断是：主趋势决定初始方向，对抗力量塑造并可�
 - 什么条件下算主线兑现？
 - 什么条件下要下调、换载体或退出？
 
-所以 MPG 的输出必须包含这些字段：
+所以 MPG 的内部审计可以包含这些字段，但默认不要展示给用户：
 
 - `qualified_mainline`
 - `carrier_vehicle`
@@ -74,7 +101,8 @@ Do not expose MPG internal field names before the plain-language conclusion.
 1. 一句话判断：先把结论说成人话。
 2. 为什么：用具体力量讲路径，不堆方法名。
 3. 怎么办：说清行动姿态、暴露度、载体或触发条件怎么变。
-4. 结构校准：必要时再列 `qualified_mainline` 等字段。
+4. 结构校准：默认内隐；只有用户明确要求审计、验证或交接时，才列
+   `qualified_mainline` 等字段。
 
 ### Reasoning Durability / 推演耐久性
 
@@ -110,6 +138,12 @@ MPG owns the judgment. AQM only makes variables visible.
 - 载体脆弱度
 - 信息缺口
 - 触发器强度
+
+当用户明确说 variables are many、不要泛泛平衡（not generic balance）、或要求找
+dominant factor 时，答案在一句话判断之后（after the one-sentence thesis）给一个很短的 visible AQM snapshot / 显影快照。
+快照只显影 `mainline strength / path resistance / carrier fragility /
+information gap / trigger strength`，并把动作压回 `stage/probe, not commit` 这类
+MPG 姿态；不要把它展开成审计表，除非用户要求 handoff 或 validation。
 
 数字是假设，关系才是重点。它只能帮助看清哪个变量在主导判断，不能替 MPG 打分，也不能 do not calculate the decision。
 
@@ -193,7 +227,7 @@ MPG 不替代事实研究。市场数据、医疗判断、法律风险、政策�
 
 ## 与其他方法的关系
 
-- `SELA`：看清主线和整体/局部关系。MPG 接住 SELA 的方向，并检查路径是否能穿过。
+- `SELA`：看整体趋势与局部优势的关系，校准方向压力。MPG 和 SELA 是姐妹镜头；常见顺序是先 SELA 后 MPG，但这是顺序，不是层级。
 - `EDSP`：当主线还不成形，或者命题本身有结构问题时，先用 EDSP。
 - `WAE`：当路径问题其实是控制权问题时，WAE 主导，MPG 只处理承载策略。
 - `3L5S`：当问题还没定义清楚时，先用 3L5S。

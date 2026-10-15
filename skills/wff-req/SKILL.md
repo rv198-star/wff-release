@@ -17,6 +17,8 @@ Follow `config/generated-output-policy.json` and `WFF_OUTPUT_LOCALE`.
 
 For human-reviewed Phase-1 outputs, default to Simplified Chinese (`zh-CN`). Preserve code, paths, commands, API/schema fields, trace ids, artifact ids, env vars, and protocol keywords in their canonical form.
 
+Generation governance: `docs/governance/bounded-generation-run-governance-v1.md` (中文：`docs/governance/bounded-generation-run-governance-v1.zh-CN.md`). It bounds section generation and review without weakening factual runtime evidence.
+
 ## Installed Resource Resolution
 
 If a required companion resource appears missing, inspect `.wff/wff-project.json` first. When it records `resource_root`, treat that path as the WFF install-pack root before declaring the resource absent. Resource roots may also live under user-global `~/.wff/<install-pack>/`.
@@ -41,6 +43,34 @@ Do not use when:
 4. Acceptance criteria must be actionable and should use Given / When / Then where it improves implementation clarity.
 5. Existing-system change packets supply current-state context and demand pressure; they do not give P1 authority to decide architecture, database, code, or implementation plan.
 6. Product outputs are evidence-capped. Missing owner sign-off, UAT, market validation, or production approval must remain explicit when absent.
+7. Preserve **Interaction-relevant product context** when source evidence or accepted P1 Agentic judgment can establish it: user role/job, meaningful task and outcome, recurring/occasional or task-frequency posture, operator proficiency/context, user-visible business vocabulary, material friction/error consequences, and what the user expects the system to remember, carry forward, or default. Fresh P1 Agentic decisions publish this as `interaction_relevant_product_context`, with exact task-context identity, linked P1 commitments, truth/source/backfill provenance, unresolved items, and claim ceiling; the resulting accepted authority carries `interaction_semantics_contract=product-interaction-semantics-v1` into P2. P1 must not choose widgets, concrete controls/components, page composition, or interaction patterns merely to make P2/P3 deterministic. Unknown interaction-relevant product truth remains review-bound rather than being replaced by UI assumptions. See `docs/governance/v1.10-product-interaction-semantics-authority-boundary-v0.1.md`.
+
+## Coverage and one-directional delivery / 覆盖与单向原则
+
+P1 specifies the facts downstream must not invent silently and the decisions with high decision value. Cover as much as practical; content completeness and total coverage are not admission gates. Keep source truth, accepted decisions, and missing facts distinguishable.
+
+Within a delivery cycle, P1 → P2 → P3 (→ P4) is one-directional. Accepted P1/P2 are frozen inputs. Downstream T0 implementation detail and T1 reasoned inference stay downstream; T2 new facts, explicit conflicts, and infeasible upstream facts follow the P3 gap-decision protocol in `reference-packages/phase3-implementation-delivery/p3-realization-decisions-contract.md`. Record next-version `backport_target`; do not rewrite or regenerate frozen inputs, including for WFF format upgrades. Only a human may end the cycle because its direction is fundamentally wrong.
+
+## P1 → P2 projection interface — six minimum input categories
+
+During P1 stage A, deterministically select these six categories by P1 ID from frozen artifacts, preserving each item's source ID and digest. Projection does not call a model, rewrite P1, or silently fill gaps. Repeating the same input must yield the same digest; report byte/token volume and queue P1 gaps for next-version backport.
+
+| Category | Projected content |
+|---|---|
+| 1. Roles and responsibilities / 角色与职责 | Accepted roles, responsibilities, and provenance. |
+| 2. Core tasks/journeys and successful outcomes / 核心任务或旅程及成功结果 | User tasks, relevant steps, and intended meaningful results. |
+| 3. Business objects and key attributes / 业务对象及关键属性 | Canonical object identities and decision-relevant attributes. |
+| 4. High-decision-value business rules / 有决策价值的业务规则 | Accepted constraints and rules that downstream must preserve. |
+| 5. Language and terminology / 语言与术语 | Locale and accepted business vocabulary. |
+| 6. Non-goals / 非目标 | Explicit exclusions and scope boundaries. |
+
+A category may contain a declared gap. Frozen v1 inputs use compatible reading and explicit claim ceilings; they are not regenerated to resemble v2.
+
+## Delegation and default policies / 委托与默认策略
+
+The P1 delegation section is generated in M4, not retrofitted into frozen P1 during M1–M3. Before then, P3 consults existing decisions and the seven conservative-default rules; record observed rule use as input to the future delegation section.
+
+Neutral templates define each row's rule ID, question category P3 may decide, applicability and source IDs/digests, default behavior, preserved boundaries, confirmation posture, and backport destination. Agentic fills policies from accepted product truth; templates carry neither business answers nor business defaults. The section delegates decisions without inventing product facts or requiring a standing reviewer/approval role. Architecture/interaction delegation comes from P2 Stage-05.
 
 ## Required Inputs
 
@@ -58,7 +88,7 @@ When the input packet has `packet_subtype: existing-system-change`, also read:
 - demand clarification addendum when present
 
 When the input is a `P1 source input packet`, consume its `Admission Decision`,
-`Open Truth Gaps`, and `Reviewer Concerns` before generation. P1 must preserve review-bound gaps. It may use ordinary-world knowledge to fill source-silent product-world gaps only through the explicit world-knowledge backfill decision; backfill must not masquerade as source truth or contradict an explicit source-defined product choice.
+`Open Truth Gaps`, and `Reviewer Concerns` before generation. P1 must preserve review-bound gaps and must not invent missing product truth. It may use ordinary-world knowledge to fill source-silent product-world gaps only through the explicit world-knowledge backfill decision; backfill must not masquerade as source truth or contradict an explicit source-defined product choice.
 
 If the packet includes `Canonical Product Language Candidates`, P1 must treat terminology candidates as advisory labels for source-backed naming continuity. They may help avoid accidental relabeling, but they must not replace source materials, the P1 source brief, or the truth-state ledger. P1 must not promote review-bound terminology into confirmed product truth.
 
@@ -96,6 +126,10 @@ Run the canonical writer only with an accepted decision bound to the exact curre
 
 The accepted authority is `p1-agentic-product-authority.json` and current publication carries `world_knowledge_contract: p1-world-knowledge-backfill-v1`. The compiled claim surface is `.phase1-evidence/<prd-stem>.claim-surface.json`. PRD and Stage Markdown are lossless human-review projections. Claim-control and the P2 handoff must consume the accepted product-world decision, world-knowledge provenance, and portable commitments first; rendered prose and the historical generic claim spine cannot become parallel authority.
 
+### P1 PRD Claim Authority Surface
+
+The canonical compiled surface is `.phase1-evidence/<prd-stem>.claim-surface.json`; PRD Markdown is a rendered human-review view. A claim-control sidecar must prefer the compiled claim surface and may use a rendered PRD compatibility fallback only for historical inputs. That compatibility fallback must not become source authority.
+
 The mechanical source parser produces candidate context only. Before Stage and PRD rendering, `build_decision_bound_direct_driver()` must replace its product judgment, business argument, semantic-authoring spine, scope, product-world topology/ownership posture, review-bound routing, and downstream assumptions with the accepted authority. Accepted world-knowledge backfill may enrich the canonical product world, but a conflicting or uncertain backfill cannot be promoted. The existing Stage/PRD renderer remains the only canonical writer; no second authority-specific PRD generator is allowed. After draft convergence, the lightweight canonical authority verifier must confirm exact commitment and backfill application, truth-state visibility, structured topology projection, review-bound preservation, and absence of unconfirmed ownership promotion. The final P1 Gate then runs without mechanical auto-rewrite, and `p1-agentic-product-application-receipt.json` retains the digest-bound `p1-canonical-authority-convergence.json` verification report. Merely appending an authority section or finding its IDs in the PRD is not application evidence.
 
 ## Bounded Doubt-Driven Challenge
@@ -104,7 +138,7 @@ Before an accepted P1 product/world decision stands, run one bounded challenge o
 
 The P1 host Agent must reconcile each material finding. Source/context insufficiency returns to intake/context completion; actionable findings change the decision artifact and require a fresh pass over the changed unit; valid unresolved findings remain review-bound; non-applicable findings require a bounded rationale. Default depth is one pass and the maximum is three. The challenge record stays inside the accepted decision envelope and the authority carries only its digest-bound summary. Cross-model review is optional and per-invocation authorized.
 
-Current P1 authority publication requires `decision_integrity_contract: bounded-challenge-integrity-v1` plus an exact challenge binding to the current source snapshot, P1 candidate, authority contract and final decision subject. Historical pre-#888 v1 decisions remain readable as `legacy-pre-bounded-challenge-v1` proof, but they cannot be used to publish a new P1 authority or start a new P2 run without a current re-decision.
+Compatibility reading preserves frozen P1 authority carrying `decision_integrity_contract: bounded-challenge-integrity-v1` and historical pre-#888 v1 decisions marked `legacy-pre-bounded-challenge-v1`. Preserve the original snapshot and review bindings, expose absent evidence and the resulting claim ceiling, and allow downstream consumption without a new P1 decision or regeneration. This does not publish new P1 authority or fabricate stronger review proof.
 
 ## Phase Review And Value-Bearing Closure
 

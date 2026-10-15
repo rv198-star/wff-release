@@ -33,6 +33,719 @@ VISUAL_EVIDENCE_SUFFIXES = {
     ".webp",
 }
 
+UI_PRODUCT_REVIEW_SCHEMA = "wff.phase4-ui-product-review-request.v4"
+UI_PRODUCT_REVIEW_EVIDENCE_TYPE = "agentic-ui-product-review"
+UI_PRODUCT_REVIEW_DIMENSIONS = (
+    "productness",
+    "first-entry-navigation-and-task-continuity",
+    "role-fidelity-and-least-privilege",
+    "business-data-sufficiency",
+    "interaction-affordance-and-task-efficiency",
+    "project-language-alignment",
+    "clean-first-use-and-context-recovery",
+    "trust-history-and-provenance",
+    "metadata-leakage",
+    "composition-and-information-hierarchy",
+    "business-language",
+    "state-and-action-clarity",
+    "desktop-mobile-usability",
+    "accessibility-baseline",
+)
+UI_PRODUCT_REVIEW_RETURN_PATHS = {"p3-frontend-authoring", "p2-authority", "p3-authority-delta"}
+OPEN_ENDED_MATURITY_REVIEW_SCHEMA = "wff.phase4-open-ended-maturity-review-request.v1"
+OPEN_ENDED_MATURITY_REVIEW_EVIDENCE_TYPE = "agentic-open-ended-maturity-review"
+OPEN_ENDED_MATURITY_PASS_SCORE = 80.0
+OPEN_ENDED_MATURITY_BLOCKING_SEVERITIES = {"critical", "high"}
+P3_REALIZATION_DECISIONS_FILENAME = "p3-realization-decisions.md"
+P3_REALIZATION_DECISIONS_MARKER = "<!-- wff:p3-realization-decisions:v1 -->"
+P3_REALIZATION_NO_MATERIAL_DECISIONS = (
+    "No material realization decisions beyond frozen P1/P2 authority were recorded for this P3 decision."
+)
+
+
+def _ui_review_sha256(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _ui_review_digest(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _ui_review_evidence_ref(phase3_root: Path, raw_path: str) -> tuple[str, Path | None]:
+    value = str(raw_path or "").strip()
+    if not value:
+        return "", None
+    path = Path(value)
+    resolved = path.resolve() if path.is_absolute() else (phase3_root / path).resolve()
+    try:
+        relative = resolved.relative_to(phase3_root.resolve()).as_posix()
+    except ValueError:
+        return value, None
+    return relative, resolved if resolved.is_file() else None
+
+
+def _ui_review_find_ia_contract(phase3_root: Path, expected_sha256: str) -> tuple[str, dict[str, Any]]:
+    candidates = [
+        phase3_root / "prototype-fallback" / "ui-ia-contract.json",
+        phase3_root / "ui-ia-contract.json",
+    ]
+    authoring_report_path = phase3_root / "impl-frontend-report.json"
+    authoring_report = load_json(authoring_report_path) if authoring_report_path.is_file() else {}
+    authoring = authoring_report.get("authoring") if isinstance(authoring_report.get("authoring"), dict) else {}
+    for raw in (authoring_report.get("ui_ia_contract"), authoring.get("ui_ia_contract_path")):
+        if str(raw or "").strip():
+            candidates.append(Path(str(raw)).expanduser())
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen or not resolved.is_file() or resolved.is_symlink():
+            continue
+        seen.add(resolved)
+        if expected_sha256 and _ui_review_sha256(resolved) != expected_sha256:
+            continue
+        payload = load_json(resolved)
+        if not payload:
+            continue
+        try:
+            path_ref = resolved.relative_to(phase3_root.resolve()).as_posix()
+        except ValueError:
+            path_ref = str(resolved)
+        return path_ref, payload
+    return "", {}
+
+
+def build_ui_product_review_request(*, phase3_root: Path) -> dict[str, Any]:
+    phase3_root = phase3_root.resolve()
+    runtime_path = phase3_root / "runtime-smoke-report.json"
+    runtime = load_json(runtime_path) if runtime_path.is_file() else {}
+    browser = runtime.get("frontend_browser_evidence") if isinstance(runtime.get("frontend_browser_evidence"), dict) else {}
+    checks = runtime.get("checks") if isinstance(runtime.get("checks"), dict) else {}
+    requested = bool(browser.get("requested")) or bool(checks.get("frontend_requested"))
+    if not requested:
+        return {
+            "schema_version": UI_PRODUCT_REVIEW_SCHEMA,
+            "status": "not-required",
+            "review_required": False,
+            "reason": "current Phase-3 root has no requested frontend browser evidence",
+            "required_dimensions": list(UI_PRODUCT_REVIEW_DIMENSIONS),
+            "creates_product_judgment": False,
+        }
+
+    identity = browser.get("authoring_identity") if isinstance(browser.get("authoring_identity"), dict) else {}
+    failures: list[str] = []
+    if str(runtime.get("verdict") or "") != "pass":
+        failures.append("runtime-smoke-not-pass")
+    if str(browser.get("status") or "") != "pass" or not bool(checks.get("frontend_browser_evidence_green")):
+        failures.append("frontend-browser-evidence-not-pass")
+    binding_identity = {
+        "authoring_content_digest": str(identity.get("content_digest") or "").strip(),
+        "implementation_decision_id": str(identity.get("decision_id") or "").strip(),
+        "implementation_decision_digest": str(identity.get("decision_digest") or "").strip(),
+        "ui_ia_contract_sha256": str(identity.get("ui_ia_contract_sha256") or "").strip(),
+    }
+    if not all(binding_identity.values()):
+        failures.append("frontend-review-identity-incomplete")
+
+    application = identity.get("application") if isinstance(identity.get("application"), dict) else {}
+    application_binding = {
+        "path": str(application.get("path") or "").strip(),
+        "content_sha256": str(application.get("content_sha256") or "").strip(),
+    }
+    application_path = (phase3_root / application_binding["path"]).resolve() if application_binding["path"] else phase3_root
+    try:
+        application_path.relative_to(phase3_root)
+    except ValueError:
+        failures.append("frontend-review-application-source-foreign")
+    else:
+        if (
+            not application_binding["path"]
+            or not application_binding["content_sha256"]
+            or not application_path.is_file()
+            or application_path.is_symlink()
+            or _ui_review_sha256(application_path) != application_binding["content_sha256"]
+        ):
+            failures.append("frontend-review-application-source-drift")
+
+    pages = [
+        {
+            "page_id": str(row.get("page_id") or "").strip(),
+            "route": str(row.get("route") or "").strip(),
+            "source_path": str(row.get("path") or "").strip(),
+            "content_sha256": str(row.get("content_sha256") or "").strip(),
+            "slice_ids": [str(value) for value in ensure_list(row.get("slice_ids")) if str(value).strip()],
+        }
+        for row in ensure_list(identity.get("pages"))
+        if isinstance(row, dict) and str(row.get("page_id") or "").strip() and str(row.get("route") or "").strip()
+    ]
+    if not pages:
+        failures.append("frontend-review-pages-missing")
+    for page in pages:
+        source_path = str(page.get("source_path") or "").strip()
+        expected_source_sha = str(page.get("content_sha256") or "").strip()
+        resolved_source = (phase3_root / source_path).resolve() if source_path else phase3_root
+        try:
+            resolved_source.relative_to(phase3_root)
+        except ValueError:
+            failures.append(f"frontend-review-page-source-foreign:{source_path or '<missing>'}")
+            continue
+        if (
+            not source_path
+            or not expected_source_sha
+            or not resolved_source.is_file()
+            or resolved_source.is_symlink()
+            or _ui_review_sha256(resolved_source) != expected_source_sha
+        ):
+            failures.append(f"frontend-review-page-source-drift:{page.get('page_id') or source_path or '<missing>'}")
+
+    def verified_evidence(rows: Any, kind: str) -> list[dict[str, str]]:
+        verified: list[dict[str, str]] = []
+        for raw in ensure_list(rows):
+            if not isinstance(raw, dict):
+                continue
+            path_ref, resolved = _ui_review_evidence_ref(phase3_root, str(raw.get("path") or ""))
+            expected = str(raw.get("sha256") or "").strip()
+            if resolved is None or not expected or _ui_review_sha256(resolved) != expected:
+                failures.append(f"frontend-review-{kind}-invalid:{path_ref or '<missing>'}")
+                continue
+            verified.append({"path": path_ref, "sha256": expected})
+        return verified
+
+    review_screenshot_rows = browser.get("review_screenshots") if isinstance(browser.get("review_screenshots"), list) else []
+    screenshots = verified_evidence(review_screenshot_rows or browser.get("screenshots"), "screenshot")
+    traces = verified_evidence(browser.get("browser_traces"), "trace")
+    if len(screenshots) < len(pages) * 2:
+        failures.append("frontend-review-desktop-mobile-screenshots-incomplete")
+    if not traces:
+        failures.append("frontend-review-traces-missing")
+    project_names = {
+        str(value)
+        for value in ensure_list((browser.get("playwright") if isinstance(browser.get("playwright"), dict) else {}).get("project_names"))
+        if str(value).strip()
+    }
+    if not {"desktop-chromium", "mobile-chromium"}.issubset(project_names):
+        failures.append("frontend-review-desktop-mobile-projects-incomplete")
+
+    accessibility = browser.get("accessibility_evidence") if isinstance(browser.get("accessibility_evidence"), dict) else {}
+    accessibility_checks = {
+        str(value).strip()
+        for value in ensure_list(accessibility.get("checks"))
+        if str(value).strip()
+    }
+    required_accessibility_checks = {
+        "semantic-main-and-heading",
+        "interactive-accessible-name",
+        "keyboard-focus-target",
+        "measured-text-contrast",
+        "viewport-horizontal-overflow",
+        "desktop-mobile-execution",
+    }
+    accessibility_route_spec = str(accessibility.get("route_spec_path") or "").strip()
+    accessibility_route_sha = str(accessibility.get("route_spec_sha256") or "").strip()
+    browser_route_spec = str(browser.get("route_spec_path") or "").strip()
+    browser_route_sha = str(browser.get("route_spec_sha256") or "").strip()
+    accessibility_path = (phase3_root / accessibility_route_spec).resolve() if accessibility_route_spec else phase3_root
+    accessibility_valid = bool(
+        str(accessibility.get("status") or "").strip() == "pass"
+        and required_accessibility_checks.issubset(accessibility_checks)
+        and accessibility_route_spec
+        and accessibility_route_spec == browser_route_spec
+        and accessibility_route_sha
+        and accessibility_route_sha == browser_route_sha
+    )
+    if accessibility_valid:
+        try:
+            accessibility_path.relative_to(phase3_root)
+        except ValueError:
+            accessibility_valid = False
+        else:
+            accessibility_valid = bool(
+                accessibility_path.is_file()
+                and not accessibility_path.is_symlink()
+                and _ui_review_sha256(accessibility_path) == accessibility_route_sha
+            )
+    if not accessibility_valid:
+        failures.append("frontend-review-accessibility-evidence-missing-or-stale")
+
+    product_access_requirements = (
+        browser.get("product_access_requirements")
+        if isinstance(browser.get("product_access_requirements"), dict)
+        else identity.get("product_access_requirements")
+        if isinstance(identity.get("product_access_requirements"), dict)
+        else {}
+    )
+    business_data_requirements = (
+        browser.get("business_data_requirements")
+        if isinstance(browser.get("business_data_requirements"), dict)
+        else identity.get("business_data_requirements")
+        if isinstance(identity.get("business_data_requirements"), dict)
+        else {}
+    )
+    project_language_requirements = (
+        browser.get("project_language_requirements")
+        if isinstance(browser.get("project_language_requirements"), dict)
+        else identity.get("project_language_requirements")
+        if isinstance(identity.get("project_language_requirements"), dict)
+        else {}
+    )
+    auth_runtime_proof = browser.get("auth_runtime_proof") if isinstance(browser.get("auth_runtime_proof"), dict) else {}
+    if bool(product_access_requirements.get("requires_authenticated_session")):
+        consumer_page_coverage = (
+            browser.get("consumer_page_screenshot_coverage")
+            if isinstance(browser.get("consumer_page_screenshot_coverage"), dict)
+            else {}
+        )
+        if not review_screenshot_rows or str(consumer_page_coverage.get("status") or "") != "pass":
+            failures.append("frontend-review-post-sign-in-page-screenshots-incomplete")
+        if str(auth_runtime_proof.get("status") or "") != "pass":
+            failures.append("frontend-review-authenticated-session-evidence-missing")
+        compatibility_mode = str(auth_runtime_proof.get("backend_auth_compatibility_mode") or "").strip()
+        if compatibility_mode == "frozen-phase3-header":
+            if str(auth_runtime_proof.get("normal_api_auth_transport") or "") != "bff-session-to-frozen-phase3-header":
+                failures.append("frontend-review-frozen-backend-auth-transport-mismatch")
+            if int(auth_runtime_proof.get("frozen_backend_auth_context_request_count", 0) or 0) <= 0:
+                failures.append("frontend-review-frozen-backend-auth-evidence-missing")
+        else:
+            if str(auth_runtime_proof.get("normal_api_auth_transport") or "") != "authorization-bearer":
+                failures.append("frontend-review-normal-auth-transport-not-bearer")
+            if int(auth_runtime_proof.get("authorized_api_request_count", 0) or 0) <= 0:
+                failures.append("frontend-review-authorized-business-api-evidence-missing")
+    if int(auth_runtime_proof.get("browser_authorization_header_request_count", 0) or 0) > 0:
+        failures.append("frontend-review-browser-authorization-shortcut-observed")
+    if int(auth_runtime_proof.get("phase3_auth_context_request_count", 0) or 0) > 0:
+        failures.append("frontend-review-phase3-auth-shortcut-observed")
+
+    interaction_coverage = browser.get("interaction_coverage") if isinstance(browser.get("interaction_coverage"), dict) else {}
+    terminal_qualification = (
+        product_access_requirements.get("terminal_role_qualification")
+        if isinstance(product_access_requirements.get("terminal_role_qualification"), dict)
+        else {}
+    )
+    if bool(terminal_qualification.get("independent_persona_required")):
+        expected_personas = [
+            row
+            for row in ensure_list(product_access_requirements.get("test_personas"))
+            if isinstance(row, dict) and str(row.get("persona_id") or "").strip()
+        ]
+        if str(terminal_qualification.get("status") or "") != "sufficient":
+            failures.append("frontend-review-terminal-role-authority-insufficient")
+        if bool(terminal_qualification.get("super_role_qualifies_terminal_roles")):
+            failures.append("frontend-review-super-role-terminal-qualification-forbidden")
+        if int(interaction_coverage.get("covered_terminal_role_persona_count", 0) or 0) != len(expected_personas):
+            failures.append("frontend-review-terminal-role-persona-evidence-incomplete")
+    if bool(business_data_requirements.get("requires_business_data_discovery")):
+        if str(business_data_requirements.get("read_model_status") or "") != "sufficient":
+            failures.append("frontend-review-business-read-model-authority-insufficient")
+    if bool(business_data_requirements.get("clean_first_use_required")):
+        clean_database_evidence = (
+            browser.get("clean_first_use_database_evidence")
+            if isinstance(browser.get("clean_first_use_database_evidence"), dict)
+            else {}
+        )
+        if str(clean_database_evidence.get("status") or "") != "pass" or int(
+            clean_database_evidence.get("business_row_count", -1) or 0
+        ) != 0:
+            failures.append("frontend-review-clean-first-use-database-not-empty")
+        if int(interaction_coverage.get("clean_first_use_count", 0) or 0) <= 0:
+            failures.append("frontend-review-clean-first-use-evidence-missing")
+    if ensure_list(business_data_requirements.get("manual_identifier_inputs")):
+        failures.append("frontend-review-manual-internal-identifier-contract-present")
+    if bool(project_language_requirements.get("consumer_copy_must_match_project_locale")) and not str(
+        project_language_requirements.get("consumer_locale") or ""
+    ).strip():
+        failures.append("frontend-review-project-language-contract-missing")
+    spec_sha_by_path = {
+        str(row.get("path") or "").strip(): str(row.get("sha256") or "").strip()
+        for row in ensure_list(interaction_coverage.get("specs"))
+        if isinstance(row, dict) and str(row.get("path") or "").strip()
+    }
+    consumer_journeys: list[dict[str, str]] = []
+    for raw in ensure_list(interaction_coverage.get("consumer_journeys")):
+        if not isinstance(raw, dict):
+            continue
+        row = {
+            "journey_id": str(raw.get("journey_id") or "").strip(),
+            "entry_route": str(raw.get("entry_route") or "").strip(),
+            "outcome": str(raw.get("outcome") or "").strip(),
+            "path": str(raw.get("path") or "").strip(),
+        }
+        expected_sha = spec_sha_by_path.get(row["path"], "")
+        journey_path = (phase3_root / row["path"]).resolve() if row["path"] else phase3_root
+        try:
+            journey_path.relative_to(phase3_root)
+        except ValueError:
+            failures.append(f"frontend-review-consumer-journey-foreign:{row['journey_id'] or '<missing>'}")
+            continue
+        if (
+            not all((row["journey_id"], row["entry_route"], row["outcome"], row["path"], expected_sha))
+            or not journey_path.is_file()
+            or journey_path.is_symlink()
+            or _ui_review_sha256(journey_path) != expected_sha
+        ):
+            failures.append(f"frontend-review-consumer-journey-invalid:{row['journey_id'] or '<missing>'}")
+            continue
+        consumer_journeys.append({**row, "sha256": expected_sha})
+    if not consumer_journeys:
+        failures.append("frontend-review-consumer-journey-missing")
+
+    ui_path, ui_contract = _ui_review_find_ia_contract(phase3_root, binding_identity["ui_ia_contract_sha256"])
+    if not ui_contract:
+        failures.append("frontend-review-ui-ia-contract-unavailable")
+    ui_pages = {
+        str(row.get("page_id") or "").strip(): row
+        for row in ensure_list(ui_contract.get("pages"))
+        if isinstance(row, dict) and str(row.get("page_id") or "").strip()
+    }
+    review_surfaces: list[dict[str, Any]] = []
+    for page in pages:
+        ui_page = ui_pages.get(page["page_id"], {})
+        review_surfaces.append(
+            {
+                **page,
+                "page_title": str(ui_page.get("page_title") or ui_page.get("page_name") or page["page_id"]).strip(),
+                "page_blueprint_type": str(ui_page.get("page_blueprint_type") or "").strip(),
+                "primary_work_region": str(ui_page.get("primary_work_region") or "").strip(),
+                "dominant_component_pattern": str(ui_page.get("dominant_component_pattern") or "").strip(),
+                "action_model": str(ui_page.get("action_model") or "").strip(),
+                "required_regions": [str(value) for value in ensure_list(ui_page.get("required_regions")) if str(value).strip()],
+                "compiled_interaction_ids": [
+                    str(row.get("interaction_id"))
+                    for row in ensure_list(ui_page.get("compiled_interactions"))
+                    if isinstance(row, dict) and str(row.get("interaction_id") or "").strip()
+                ],
+            }
+        )
+
+    binding = {
+        **binding_identity,
+        "runtime_smoke_report_sha256": _ui_review_sha256(runtime_path) if runtime_path.is_file() else "",
+        "application": application_binding,
+        "screenshots": screenshots,
+        "browser_traces": traces,
+        "accessibility_evidence": accessibility if accessibility_valid else {},
+        "product_access_requirements": product_access_requirements,
+        "business_data_requirements": business_data_requirements,
+        "project_language_requirements": project_language_requirements,
+        "auth_runtime_proof": auth_runtime_proof,
+        "interaction_coverage": interaction_coverage,
+        "consumer_journeys": consumer_journeys,
+        "pages": pages,
+    }
+    request_id = _ui_review_digest({
+        "schema_version": UI_PRODUCT_REVIEW_SCHEMA,
+        "binding": binding,
+        "required_dimensions": list(UI_PRODUCT_REVIEW_DIMENSIONS),
+    }) if not failures else ""
+    questions = {
+        "productness": "Does the rendered surface behave and read like a real product interface rather than a design demo, debug shell, contract viewer, API explorer, or generic CRUD renderer?",
+        "first-entry-navigation-and-task-continuity": "From the bound normal entry route, can the intended consumer understand the product and current task, enter the required role/session through a product-facing path when applicable, navigate the core journey, preserve business context, recover from navigation mistakes, and reach the bound meaningful outcome without engineering-only route knowledge or storage injection?",
+        "role-fidelity-and-least-privilege": "Do independently qualified terminal personas see only the pages, actions, and business data supported by their accepted role authority, with cross-role denial/recovery behavior clear and no super-role account standing in for terminal-role qualification?",
+        "business-data-sufficiency": "Can users discover, select, inspect, and continue work from real business records through accepted read models, with enough role-appropriate business context to make the next decision rather than merely recognize a record, instead of relying on empty shells, fixtures, manually typed internal identifiers, or hidden engineering references?",
+        "interaction-affordance-and-task-efficiency": "Do concrete controls and task flows match accepted business/data semantics, realistic usage frequency, and plausible working-set size: bounded choices are constrained, multi-value inputs are structured, existing context/defaults/recent values are reused where authorized, user-supplied evidence remains real user input, and repeated/high-frequency work uses search/filter/sort/grouping/recency/prioritization/bulk behavior when the task actually justifies it without imposing a fixed widget quota?",
+        "project-language-alignment": "Does consumer-facing copy follow the project/default consumer locale while preserving canonical technical identifiers only where users do not consume them as product language? Full i18n is not required unless separately authorized.",
+        "clean-first-use-and-context-recovery": "Starting from an empty business-data state, can a real role enter through the product, create the first valid business object, discover/read it through the product, reload or re-enter, recover context, and continue without seeded business fixtures or manually supplied internal identifiers?",
+        "trust-history-and-provenance": "Where the task depends on prior work, review, audit, privacy, evidence, or provisional truth, does the product expose enough current-state plus history/change/provenance/trust context for a returning user to understand what happened and what may safely or usefully happen next?",
+        "metadata-leakage": "Are internal goals, constraints, design rationale, blueprint/region/operation/binding/Agent/authority metadata kept out of product copy unless a real user task explicitly needs the explanation?",
+        "composition-and-information-hierarchy": "Does each page use page-specific business composition and a useful information hierarchy rather than a generic shell with renamed labels?",
+        "business-language": "Does user-facing language use business/task terms instead of implementation, API, contract, architecture, or methodology vocabulary?",
+        "state-and-action-clarity": "Are current state, primary actions, validation, success/loading/empty/error/retry/denied feedback, and next steps clear for the user task?",
+        "desktop-mobile-usability": "Do the retained desktop and mobile views preserve usable hierarchy, actions, content density, and feedback without obvious viewport-specific breakage?",
+        "accessibility-baseline": "Does the current factual evidence support keyboard/focus operation, semantic structure, accessible names/labels, and usable contrast/mobile interaction? Mark this dimension review-bound rather than pass when those facts are not evidenced.",
+    }
+    return {
+        "schema_version": UI_PRODUCT_REVIEW_SCHEMA,
+        "review_layer": "structured-qualification-review",
+        "review_round": 2,
+        "status": "review-required" if not failures else "blocked",
+        "review_required": True,
+        "review_request_id": request_id,
+        "current_binding": binding,
+        "runtime_smoke_report": "runtime-smoke-report.json" if runtime_path.is_file() else "",
+        "ui_ia_contract_path": ui_path,
+        "review_surfaces": review_surfaces,
+        "required_dimensions": [{"dimension": dimension, "question": questions[dimension]} for dimension in UI_PRODUCT_REVIEW_DIMENSIONS],
+        "review_instruction": (
+            "Run only after the first-round Open-ended Maturity Review has been completed, but do not provide that review's "
+            "score, findings, summary, or verdict to this reviewer. Evaluate only the current bound product evidence against "
+            "the fixed qualification dimensions so the structured result remains independently comparable."
+        ),
+        "review_response_contract": {
+            "evidence_type": UI_PRODUCT_REVIEW_EVIDENCE_TYPE,
+            "required_fields": ["review_request_id", "reviewer", "status", "reviewed_page_ids", "assessments", "evidence_paths"],
+            "finding_required_on_fail": True,
+            "allowed_return_paths": sorted(UI_PRODUCT_REVIEW_RETURN_PATHS),
+            "fixed_dimensions": True,
+            "must_not_receive_open_ended_review_output": True,
+            "human_signoff_created": False,
+        },
+        "blocking_reasons": failures,
+        "creates_product_judgment": False,
+        "claim_ceiling": "This request packages current P3 application/page/browser and consumer-journey evidence for independent Agentic UI/Product Review; AI review remains supporting qualification evidence and cannot replace the bound consumer journey itself.",
+    }
+
+
+def build_open_ended_maturity_review_request(*, phase3_root: Path) -> dict[str, Any]:
+    """Build the first-round open-ended product maturity review request.
+
+    This request intentionally contains no fixed scoring dimensions and no structured-review
+    score/findings. It is identity-bound to the same current rendered evidence as the later
+    structured qualification review, but asks the reviewer to discover problems freely first.
+    """
+    structured = build_ui_product_review_request(phase3_root=phase3_root)
+    if not bool(structured.get("review_required")):
+        return {
+            "schema_version": OPEN_ENDED_MATURITY_REVIEW_SCHEMA,
+            "status": str(structured.get("status") or "not-required"),
+            "review_required": False,
+            "reason": str(structured.get("reason") or "current Phase-3 root has no requested frontend browser evidence"),
+            "creates_product_judgment": False,
+        }
+
+    failures = [str(value) for value in ensure_list(structured.get("blocking_reasons")) if str(value).strip()]
+    current_binding = dict(structured.get("current_binding") or {})
+    surfaces = [
+        {
+            "page_id": str(row.get("page_id") or "").strip(),
+            "route": str(row.get("route") or "").strip(),
+            "page_title": str(row.get("page_title") or row.get("page_id") or "").strip(),
+            "source_path": str(row.get("source_path") or "").strip(),
+        }
+        for row in ensure_list(structured.get("review_surfaces"))
+        if isinstance(row, dict) and str(row.get("page_id") or "").strip()
+    ]
+    request_binding = {
+        "current_binding": current_binding,
+        "review_surfaces": surfaces,
+        "runtime_smoke_report": str(structured.get("runtime_smoke_report") or ""),
+        "ui_ia_contract_path": str(structured.get("ui_ia_contract_path") or ""),
+    }
+    request_id = _ui_review_digest({
+        "schema_version": OPEN_ENDED_MATURITY_REVIEW_SCHEMA,
+        "binding": request_binding,
+        "pass_score_floor": OPEN_ENDED_MATURITY_PASS_SCORE,
+        "blocking_severities": sorted(OPEN_ENDED_MATURITY_BLOCKING_SEVERITIES),
+        "fixed_dimensions": False,
+    }) if not failures else ""
+    return {
+        "schema_version": OPEN_ENDED_MATURITY_REVIEW_SCHEMA,
+        "review_layer": "open-ended-maturity-review",
+        "review_round": 1,
+        "status": "review-required" if not failures else "blocked",
+        "review_required": True,
+        "review_request_id": request_id,
+        "current_binding": current_binding,
+        "runtime_smoke_report": str(structured.get("runtime_smoke_report") or ""),
+        "ui_ia_contract_path": str(structured.get("ui_ia_contract_path") or ""),
+        "review_surfaces": surfaces,
+        "review_instruction": (
+            "Treat the current rendered frontend as a formal product about to be handed to real terminal users. "
+            "Do not use a predefined dimension checklist and do not infer quality from test/browser pass status. "
+            "Freely discover any product incompleteness, task break, confusing interaction, missing business context, "
+            "unrecoverable state, fake/synthetic behavior, engineering/demo residue, weak information architecture, "
+            "or other reason the product would not be ready for real use. Record concrete findings with evidence first; "
+            "only after the findings are complete assign one holistic maturity score."
+        ),
+        "review_response_contract": {
+            "evidence_type": OPEN_ENDED_MATURITY_REVIEW_EVIDENCE_TYPE,
+            "required_fields": [
+                "review_request_id",
+                "reviewer",
+                "status",
+                "reviewed_page_ids",
+                "holistic_score",
+                "summary",
+                "findings",
+                "evidence_paths",
+            ],
+            "fixed_dimensions": False,
+            "pass_score_floor": OPEN_ENDED_MATURITY_PASS_SCORE,
+            "blocking_severities": sorted(OPEN_ENDED_MATURITY_BLOCKING_SEVERITIES),
+            "allowed_return_paths": sorted(UI_PRODUCT_REVIEW_RETURN_PATHS),
+            "human_signoff_created": False,
+        },
+        "blocking_reasons": failures,
+        "creates_product_judgment": False,
+        "claim_ceiling": (
+            "First-round open-ended maturity review request only. It deliberately excludes the later structured-review "
+            "rubric, score, assessments and findings so product-maturity discovery is not anchored by qualification scoring."
+        ),
+    }
+
+
+def validate_open_ended_maturity_review(
+    entry: dict[str, Any],
+    *,
+    review_request: dict[str, Any],
+) -> tuple[bool, list[str], float | None, list[dict[str, Any]]]:
+    errors: list[str] = []
+    if str(review_request.get("status") or "") != "review-required":
+        errors.append("current-open-ended-maturity-review-request-not-ready")
+    if str(entry.get("review_request_id") or "").strip() != str(review_request.get("review_request_id") or "").strip():
+        errors.append("open-ended-maturity-review-request-id-mismatch")
+    if not str(entry.get("reviewer") or "").strip():
+        errors.append("open-ended-maturity-review-reviewer-missing")
+    status = str(entry.get("status") or "").strip().lower()
+    if status not in {"pass", "fail", "review-bound"}:
+        errors.append("open-ended-maturity-review-status-invalid")
+    if ensure_list(entry.get("assessments")):
+        errors.append("open-ended-maturity-review-fixed-assessments-forbidden")
+
+    page_ids = {
+        str(row.get("page_id") or "").strip()
+        for row in ensure_list(review_request.get("review_surfaces"))
+        if isinstance(row, dict) and str(row.get("page_id") or "").strip()
+    }
+    reviewed_page_ids = {str(value).strip() for value in ensure_list(entry.get("reviewed_page_ids")) if str(value).strip()}
+    if page_ids and not page_ids.issubset(reviewed_page_ids):
+        errors.append("open-ended-maturity-review-page-coverage-incomplete")
+
+    score: float | None = None
+    try:
+        score = float(entry.get("holistic_score"))
+    except (TypeError, ValueError):
+        errors.append("open-ended-maturity-review-score-invalid")
+    else:
+        if score < 0 or score > 100:
+            errors.append("open-ended-maturity-review-score-invalid")
+    if not str(entry.get("summary") or "").strip():
+        errors.append("open-ended-maturity-review-summary-missing")
+
+    binding = review_request.get("current_binding") if isinstance(review_request.get("current_binding"), dict) else {}
+    current_evidence = {
+        str(row.get("path") or "")
+        for key in ("screenshots", "browser_traces")
+        for row in ensure_list(binding.get(key))
+        if isinstance(row, dict) and str(row.get("path") or "").strip()
+    }
+    supplied_evidence = {str(value).strip() for value in ensure_list(entry.get("evidence_paths")) if str(value).strip()}
+    if current_evidence and not (current_evidence & supplied_evidence):
+        errors.append("open-ended-maturity-review-current-visual-evidence-missing")
+
+    findings: list[dict[str, Any]] = []
+    for raw in ensure_list(entry.get("findings")):
+        if not isinstance(raw, dict):
+            continue
+        finding = {
+            key: str(raw.get(key) or "").strip()
+            for key in ("finding_id", "category", "severity", "page_id", "evidence_ref", "observation", "user_impact", "return_path")
+        }
+        finding["severity"] = finding["severity"].lower()
+        if not all(finding.values()):
+            errors.append("open-ended-maturity-review-finding-incomplete")
+            continue
+        if finding["page_id"] not in page_ids and finding["page_id"] != "__product__":
+            errors.append(f"open-ended-maturity-review-finding-page-foreign:{finding['finding_id']}")
+        if finding["evidence_ref"] not in current_evidence:
+            errors.append(f"open-ended-maturity-review-finding-evidence-foreign:{finding['finding_id']}")
+        if finding["return_path"] not in UI_PRODUCT_REVIEW_RETURN_PATHS:
+            errors.append(f"open-ended-maturity-review-return-path-invalid:{finding['finding_id']}")
+        if finding["severity"] not in {"critical", "high", "medium", "low"}:
+            errors.append(f"open-ended-maturity-review-severity-invalid:{finding['finding_id']}")
+        findings.append(finding)
+
+    blocking_findings = [row for row in findings if row["severity"] in OPEN_ENDED_MATURITY_BLOCKING_SEVERITIES]
+    if status == "pass":
+        if score is not None and score < OPEN_ENDED_MATURITY_PASS_SCORE:
+            errors.append("open-ended-maturity-review-pass-score-below-floor")
+        if blocking_findings:
+            errors.append("open-ended-maturity-review-pass-has-blocking-findings")
+    if status == "fail":
+        if not findings:
+            errors.append("open-ended-maturity-review-fail-requires-finding")
+        if score is not None and score >= OPEN_ENDED_MATURITY_PASS_SCORE and not blocking_findings:
+            errors.append("open-ended-maturity-review-fail-requires-low-score-or-blocking-finding")
+    if status == "review-bound" and not str(entry.get("review_bound_reason") or "").strip():
+        errors.append("open-ended-maturity-review-bound-reason-missing")
+    return not errors, errors, score, findings
+
+
+def validate_agentic_ui_product_review(
+    entry: dict[str, Any],
+    *,
+    review_request: dict[str, Any],
+) -> tuple[bool, list[str], list[dict[str, Any]], list[dict[str, Any]]]:
+    errors: list[str] = []
+    if str(review_request.get("status") or "") != "review-required":
+        errors.append("current-ui-product-review-request-not-ready")
+    if str(entry.get("review_request_id") or "").strip() != str(review_request.get("review_request_id") or "").strip():
+        errors.append("ui-product-review-request-id-mismatch")
+    if not str(entry.get("reviewer") or "").strip():
+        errors.append("ui-product-review-reviewer-missing")
+    status = str(entry.get("status") or "").strip().lower()
+    if status not in {"pass", "fail", "review-bound"}:
+        errors.append("ui-product-review-status-invalid")
+
+    page_ids = {
+        str(row.get("page_id") or "").strip()
+        for row in ensure_list(review_request.get("review_surfaces"))
+        if isinstance(row, dict) and str(row.get("page_id") or "").strip()
+    }
+    reviewed_page_ids = {str(value).strip() for value in ensure_list(entry.get("reviewed_page_ids")) if str(value).strip()}
+    if page_ids and not page_ids.issubset(reviewed_page_ids):
+        errors.append("ui-product-review-page-coverage-incomplete")
+
+    assessments: list[dict[str, Any]] = []
+    by_dimension: dict[str, dict[str, Any]] = {}
+    for raw in ensure_list(entry.get("assessments")):
+        if not isinstance(raw, dict):
+            continue
+        dimension = str(raw.get("dimension") or "").strip()
+        if dimension not in UI_PRODUCT_REVIEW_DIMENSIONS or dimension in by_dimension:
+            continue
+        assessment = {
+            "dimension": dimension,
+            "status": str(raw.get("status") or "").strip().lower(),
+            "rationale": str(raw.get("rationale") or "").strip(),
+        }
+        assessments.append(assessment)
+        by_dimension[dimension] = assessment
+    missing = [dimension for dimension in UI_PRODUCT_REVIEW_DIMENSIONS if dimension not in by_dimension]
+    if missing:
+        errors.append("ui-product-review-dimensions-missing:" + ",".join(missing))
+    for dimension, assessment in by_dimension.items():
+        if assessment["status"] not in {"pass", "fail", "review-bound"} or not assessment["rationale"]:
+            errors.append(f"ui-product-review-assessment-invalid:{dimension}")
+
+    binding = review_request.get("current_binding") if isinstance(review_request.get("current_binding"), dict) else {}
+    current_evidence = {
+        str(row.get("path") or "")
+        for key in ("screenshots", "browser_traces")
+        for row in ensure_list(binding.get(key))
+        if isinstance(row, dict) and str(row.get("path") or "").strip()
+    }
+    supplied_evidence = {str(value).strip() for value in ensure_list(entry.get("evidence_paths")) if str(value).strip()}
+    if current_evidence and not (current_evidence & supplied_evidence):
+        errors.append("ui-product-review-current-visual-evidence-missing")
+
+    findings: list[dict[str, Any]] = []
+    for raw in ensure_list(entry.get("findings")):
+        if not isinstance(raw, dict):
+            continue
+        finding = {
+            key: str(raw.get(key) or "").strip()
+            for key in ("finding_id", "category", "severity", "page_id", "evidence_ref", "observation", "user_impact", "return_path")
+        }
+        finding["severity"] = finding["severity"].lower()
+        if not all(finding.values()):
+            errors.append("ui-product-review-finding-incomplete")
+            continue
+        if finding["page_id"] not in page_ids:
+            errors.append(f"ui-product-review-finding-page-foreign:{finding['finding_id']}")
+        if finding["evidence_ref"] not in current_evidence:
+            errors.append(f"ui-product-review-finding-evidence-foreign:{finding['finding_id']}")
+        if finding["return_path"] not in UI_PRODUCT_REVIEW_RETURN_PATHS:
+            errors.append(f"ui-product-review-return-path-invalid:{finding['finding_id']}")
+        findings.append(finding)
+
+    assessment_statuses = {row["status"] for row in assessments}
+    if status == "pass" and assessment_statuses != {"pass"}:
+        errors.append("ui-product-review-pass-requires-all-dimensions-pass")
+    if status == "fail" and ("fail" not in assessment_statuses or not findings):
+        errors.append("ui-product-review-fail-requires-failed-dimension-and-finding")
+    if status == "review-bound" and "review-bound" not in assessment_statuses:
+        errors.append("ui-product-review-bound-requires-review-bound-dimension")
+    return not errors, errors, assessments, findings
+
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -149,6 +862,103 @@ def _current_s4_runtime_evidence_is_pass(payload: dict[str, Any]) -> bool:
     )
 
 
+def _load_p3_realization_decisions_summary(
+    *,
+    phase3_root: Path,
+    authority: dict[str, Any],
+    delta: dict[str, Any],
+) -> dict[str, Any]:
+    metadata = load_json_if_exists(phase3_root / "phase3-run-metadata.json") or {}
+    binding_path = phase3_root / ".phase3-evidence" / "p3-realization-decisions-binding.json"
+    binding = load_json_if_exists(binding_path) or {}
+    if binding:
+        raw_path = str(binding.get("path") or "").strip()
+        root_relative = str(binding.get("project_artifact_root_relative") or "").strip()
+        if not raw_path or Path(raw_path).is_absolute() or not root_relative or Path(root_relative).is_absolute():
+            path = (phase3_root / P3_REALIZATION_DECISIONS_FILENAME).resolve()
+        else:
+            path = (phase3_root / root_relative / raw_path).resolve()
+    else:
+        raw_path = str(metadata.get("p3_realization_decisions_path") or "").strip()
+        if raw_path:
+            path = Path(raw_path).expanduser()
+            if not path.is_absolute():
+                project_root = str(metadata.get("project_artifact_root") or "").strip()
+                base = Path(project_root).expanduser() if project_root else phase3_root
+                path = base / path
+            path = path.resolve()
+        else:
+            path = (phase3_root / P3_REALIZATION_DECISIONS_FILENAME).resolve()
+
+    errors: list[str] = []
+    if not path.is_file() or path.is_symlink():
+        return {
+            "status": "missing",
+            "valid": False,
+            "path": str(path),
+            "errors": ["p3-realization-decisions-missing"],
+        }
+    text = path.read_text(encoding="utf-8")
+    if P3_REALIZATION_DECISIONS_MARKER not in text:
+        errors.append("schema-marker-missing")
+    decision_id = str(authority.get("decision_id") or delta.get("decision_id") or "").strip()
+    decision_digest = str(authority.get("decision_digest") or delta.get("decision_digest") or "").strip()
+    ledger_digest = str(delta.get("content_digest") or "").strip()
+    content_sha256 = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    if binding:
+        if Path(str(binding.get("path") or "")).is_absolute() or Path(str(binding.get("project_artifact_root_relative") or "")).is_absolute():
+            errors.append("binding-path-not-portable")
+        if str(binding.get("status") or "") != "bound":
+            errors.append("binding-status-invalid")
+        if str(binding.get("content_sha256") or "") != content_sha256:
+            errors.append("binding-content-sha256-mismatch")
+        if str(binding.get("p3_decision_id") or "") != decision_id:
+            errors.append("binding-decision-id-mismatch")
+        if str(binding.get("p3_decision_digest") or "") != decision_digest:
+            errors.append("binding-decision-digest-mismatch")
+        if str(binding.get("authority_delta_content_digest") or "") != ledger_digest:
+            errors.append("binding-authority-delta-digest-mismatch")
+        if binding.get("upstream_reconciled") is not False:
+            errors.append("binding-upstream-reconciliation-invalid")
+    else:
+        errors.append("p3-realization-decisions-binding-missing")
+    for label, expected in (
+        ("P3 implementation decision id", decision_id),
+        ("P3 implementation decision digest", decision_digest),
+        ("Authority Delta content digest", ledger_digest),
+    ):
+        if not expected or not re.search(rf"^- {re.escape(label)}: `{re.escape(expected)}`$", text, flags=re.MULTILINE):
+            errors.append(f"metadata-mismatch:{label}")
+    for exact in (
+        "- upstream_reconciled: `false`",
+        "- PRD backfill: `not-performed`",
+        "- ESP backfill: `not-performed`",
+    ):
+        if exact not in text:
+            errors.append(f"boundary-missing:{exact.split(':', 1)[0].lstrip('- ')}")
+    records = [row for row in ensure_list(delta.get("records")) if isinstance(row, dict)]
+    if not records:
+        if P3_REALIZATION_NO_MATERIAL_DECISIONS not in text:
+            errors.append("no-material-decisions-declaration-missing")
+    else:
+        for row in records:
+            delta_id = str(row.get("delta_id") or "").strip()
+            if not delta_id:
+                errors.append("delta-id-missing")
+                continue
+            if f"`{delta_id}`" not in text:
+                errors.append(f"authority-delta-not-projected:{delta_id}")
+    return {
+        "status": "pass" if not errors else "blocked",
+        "valid": not errors,
+        "path": str(path),
+        "content_sha256": content_sha256,
+        "binding_path": str(binding_path),
+        "record_count": len(records),
+        "errors": errors,
+    }
+
+
 def load_phase3_current_closure_summary(phase3_root: Path) -> dict[str, Any]:
     authority_path = phase3_root / "p3-agentic-implementation-authority.json"
     application_path = phase3_root / "p3-agentic-implementation-application-receipt.json"
@@ -242,6 +1052,12 @@ def load_phase3_current_closure_summary(phase3_root: Path) -> dict[str, Any]:
         if str(row.get("implementation_decision_digest") or "").strip()
     }
     digest_aligned = len(decision_digests) == 1 and (not trace_digests or trace_digests == decision_digests)
+    realization_decisions = _load_p3_realization_decisions_summary(
+        phase3_root=phase3_root,
+        authority=authority,
+        delta=delta,
+    )
+    realization_decisions_complete = bool(realization_decisions.get("valid"))
     complete = bool(
         authority_complete
         and application_complete
@@ -249,14 +1065,18 @@ def load_phase3_current_closure_summary(phase3_root: Path) -> dict[str, Any]:
         and bindings_complete
         and trace_complete
         and delta_safe
+        and realization_decisions_complete
         and runtime_pass
         and digest_aligned
     )
+    realization_decisions_path = Path(str(realization_decisions.get("path") or "")).expanduser()
     evidence_paths = [
         relative_to_root(path, phase3_root)
         for path in (authority_path, application_path, exact_path, bindings_path, trace_path, delta_path, *runtime_paths)
         if path.exists() and path.is_file()
     ]
+    if realization_decisions_path.is_file():
+        evidence_paths.append(str(realization_decisions_path))
     claim_ceilings = dedupe_preserve_order(
         str(report.get("claim_ceiling") or "").strip()
         for report in runtime_reports
@@ -270,6 +1090,8 @@ def load_phase3_current_closure_summary(phase3_root: Path) -> dict[str, Any]:
         "exact_bindings_complete": exact_complete,
         "trace_complete": trace_complete,
         "authority_delta_safe": delta_safe,
+        "realization_decisions_complete": realization_decisions_complete,
+        "realization_decisions": realization_decisions,
         "runtime_evidence_complete": runtime_refs_complete,
         "runtime_evidence_pass": runtime_pass,
         "digest_aligned": digest_aligned,
@@ -365,6 +1187,26 @@ def load_phase3_runtime_environment_summary(phase3_root: Path) -> dict[str, Any]
     }
 
 
+def _current_closure_supersedes_mainline(
+    *,
+    current_closure: Mapping[str, Any],
+    metadata: Mapping[str, Any],
+    metadata_summary: Mapping[str, Any],
+    verdict: Mapping[str, Any],
+) -> bool:
+    current_digest = str(current_closure.get("decision_digest") or "").strip()
+    recorded_digests = {
+        str(value).strip()
+        for value in (
+            metadata.get("agentic_implementation_decision_digest"),
+            metadata_summary.get("agentic_implementation_decision_digest"),
+            verdict.get("agentic_implementation_decision_digest"),
+        )
+        if str(value).strip()
+    }
+    return bool(current_digest and recorded_digests and current_digest not in recorded_digests)
+
+
 def load_phase3_mainline_summary(phase3_root: Path) -> dict[str, Any]:
     metadata = load_json_if_exists(phase3_root / "phase3-run-metadata.json") or {}
     metadata_summary = metadata.get("mainline_assessment_summary")
@@ -377,13 +1219,25 @@ def load_phase3_mainline_summary(phase3_root: Path) -> dict[str, Any]:
         metadata_summary = {}
     if not isinstance(metadata_artifacts, dict):
         metadata_artifacts = {}
-    if not verdict and not metadata_summary and current_closure.get("present"):
+    # Current modular closure may replace a legacy mainline snapshot only when the
+    # decision identity proves that snapshot is stale. Mechanical closure completeness
+    # alone must not erase contemporaneous quality or claim-ceiling evidence.
+    current_closure_is_only_source = not verdict and not metadata_summary
+    current_closure_explicitly_supersedes = bool(current_closure.get("complete")) and _current_closure_supersedes_mainline(
+        current_closure=current_closure,
+        metadata=metadata,
+        metadata_summary=metadata_summary,
+        verdict=verdict,
+    )
+    if current_closure.get("present") and (
+        current_closure_is_only_source or current_closure_explicitly_supersedes
+    ):
         current_ceiling = "; ".join(str(value) for value in current_closure.get("claim_ceilings", []) if str(value).strip())
         return {
             "present": True,
             "source": "p3-current-closure",
             "phase": "P3",
-            "mainline_profile": "backend-first",
+            "mainline_profile": "current-modular",
             "recommended_formal_state": str(current_closure.get("recommended_formal_state") or "implementation-in-progress"),
             "phase_verdict": str(current_closure.get("phase_verdict") or "RETURN-REMEDIATE"),
             "phase_total_score": None,

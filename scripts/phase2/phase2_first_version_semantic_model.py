@@ -246,15 +246,17 @@ def derive_boundary_scope(prd_text: str) -> str:
     named_private_boundary = re.search(r"\b[a-z][a-z0-9-]+-private boundary\b", lowered)
     if named_account_boundary or named_single_boundary or named_private_boundary:
         return "account"
-    return "tenant"
+    if re.search(r"\btenant(?:s)?\b|租户", lowered):
+        return "tenant"
+    return "undecided"
 
 
 def boundary_phrase(boundary_scope: str) -> str:
-    return "account" if boundary_scope == "account" else "tenant"
+    return boundary_scope if boundary_scope in {"account", "tenant"} else "undecided"
 
 
 def boundary_subject(boundary_scope: str) -> str:
-    return "account" if boundary_scope == "account" else "tenant"
+    return boundary_scope if boundary_scope in {"account", "tenant"} else "undecided"
 
 
 def workflow_scope_summary(context: dict[str, object]) -> str:

@@ -150,8 +150,8 @@ def validate_role_agent_manifest(
     for required in ("module-boundary-design", "api-contract-design", "data-ownership-design"):
         if required not in forbidden:
             errors.append(f"wff-programmer must forbid {required}")
-    if programmer.get("return_routes", {}).get("architecture_conflict") != "wff-architect":
-        errors.append("wff-programmer architecture_conflict must return to wff-architect")
+    if programmer.get("return_routes", {}).get("architecture_conflict") != "wff-programmer":
+        errors.append("wff-programmer architecture_conflict must remain in P3 gap decisions")
 
     return errors
 

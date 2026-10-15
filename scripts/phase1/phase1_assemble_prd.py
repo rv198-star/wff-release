@@ -2584,6 +2584,22 @@ def canonical_operational_flow_steps(runtime_context: dict[str, object]) -> list
     ia_rows = [row for row in runtime_context.get("ia_matrix", []) if isinstance(row, dict)]
     source_flows = [flow for flow in runtime_context.get("source_flows", []) if isinstance(flow, dict)]
     if agentic_product_authority_active(runtime_context):
+        topology_mode = authority_workflow_topology_mode(runtime_context)
+        topology_statement = authority_workflow_topology(runtime_context)
+        if topology_mode == "ordered-flow" and topology_statement:
+            topology_steps = [
+                clean_operational_flow_step_text(part)
+                for part in re.split(r"\s*(?:->|→)\s*", topology_statement)
+            ]
+            topology_steps = [
+                step
+                for step in topology_steps
+                if step
+                and not looks_like_placeholder(step)
+                and "review-bound" not in step.casefold()
+            ]
+            if len(topology_steps) >= 4:
+                return list(dict.fromkeys(topology_steps))
         ownership_review_bound = authority_step_ownership_review_bound(runtime_context)
         independent = authority_requires_independent_outcomes(runtime_context)
         for flow_index, flow in enumerate(source_flows, start=1):

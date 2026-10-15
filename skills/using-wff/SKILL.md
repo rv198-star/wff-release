@@ -16,9 +16,15 @@ It answers two questions, in this order:
 
 `using-wff` routes to existing WFF skills. It must not generate PRDs, architecture packs, code, validation packs, proof snapshots, or lifecycle artifacts itself.
 
+## Installed Resource Resolution
+
+If a required companion resource appears missing, inspect `.wff/wff-project.json` first. When it records `resource_root`, treat that path as the WFF install-pack root before declaring the resource absent. Resource roots may also live under user-global `~/.wff/<install-pack>/`.
+
 ## Core Rule
 
 `using-wff` is an admission gate before it is a router. It may decide that WFF should not be used.
+
+Across WFF work, repair follows the Root-Cause Replacement Principle: locate the earliest authoritative model, contract, invariant, or control owner that creates the defect; replace that owning logic with the correct behavior; then rerun dependent WFF validation; the corrected logic takes effect in the next WFF version and never requires in-cycle regeneration of frozen project artifacts, whose gaps are resolved downstream under the one-directional flow (P1 -> P2 -> P3) and recorded for the next upstream version. State rules as intended valid behavior directly. Boundary guards and exceptions protect genuine external, security, protocol, or compatibility boundaries after the owning logic is correct. See `docs/governance/root-cause-replacement-principle-v0.1.md`.
 
 For external work, there are only three external WFF entry routes:
 

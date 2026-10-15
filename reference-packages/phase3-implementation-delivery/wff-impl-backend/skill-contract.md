@@ -22,6 +22,8 @@ Generate backend API/service/repository implementation inside the accepted P2 to
 - Do not reopen product scope or architecture boundaries.
 - Do not silently bypass ActionCard obligations.
 - Do not claim delivery readiness without verification and delivery gate evidence.
+- For replay-safe `return-existing` operations, authorize the exact slice before any pre-service replay lookup; replay may skip Service/provider work only after role/tenant policy succeeds.
+- P3-local replay payload fields may be migration-compatible nullable for older frozen rows, but current writes and replay projections must still satisfy the accepted operation result contract.
 
 ## Runtime
 

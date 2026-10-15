@@ -19,7 +19,7 @@
 4. build scenario coverage matrix across all known business scenarios
 5. define schema draft and storage/constraint strategy
 6. define access-pattern-driven index strategy, hotspot rationale, and schema migration/version-tagging posture where rollout sequencing matters
-7. define interface contracts, canonical response/error contract, API endpoint draft, scenario GWT-compatible acceptance structure, and interaction flow
+7. define interface contracts, canonical response/error contract, API endpoint draft, terminal-role access matrix, scenario GWT-compatible acceptance structure, and interaction flow
 8. define security posture and critical external dependency realizability
 9. define substitute-boundary plan plus stack/deployment assumptions
 10. build materially different architecture alternatives, complete the technology selection evaluation matrix, and verify time-sensitive facts with external evidence
@@ -40,6 +40,11 @@
 - canonical response/error contract explicit
 - schema draft explicit (each core aggregate table must include: table name, ≥5 key column names, PK declaration, at least one FK or cross-table reference semantic, and critical constraints; table-name-only or column-direction-only drafts do not pass this checkpoint)
 - API endpoint draft explicit
+- every terminal-facing read model is checked for human recognizability and action sufficiency: the target persona can distinguish the correct durable record using accepted human/business labels or context, not only UUID/status/version fields
+- every terminal-facing successful operation is **consumer-outcome sufficient**: it exposes or resolves the meaningful result needed to complete the accepted task; opaque `*_ref`/`*_id` values require explicit human-readable authority or an accepted resolver/read projection
+- every image/file input has a real materialization/storage path yielding a backend/provider-readable resource reference; browser-local filename/size and synthetic pseudo-refs are rejected
+- when P1 exposes accepted interaction-backed terminal roles, terminal-role access is bound to exact P2 operations/APIs with role-specific visible business objects, denied behavior, and service-boundary enforcement posture; distinct P1 roles must not collapse into a super-role
+- any missing/contradictory role-operation or data-visibility truth remains review-bound and routes to its authority owner rather than being inferred from adjacent pages or implementation convenience
 - one primary command boundary per authoritative mutation explicit
 - public-boundary names registry-closed across schema/contracts/endpoints or explicitly marked derived/deferred
 - interaction flow explicit
@@ -74,7 +79,7 @@
 ## 5. Method Assets
 - required: architecture/data/interface design references
 - optional: quality taxonomy references
-- anti-patterns: schema without ownership, ownerless lifecycle states, duplicated command boundaries, dangling named artifacts, contracts without failure semantics, hidden coupling, silent stack/security assumptions
+- anti-patterns: schema without ownership, ownerless lifecycle states, duplicated command boundaries, dangling named artifacts, contracts without failure semantics, hidden coupling, silent stack/security assumptions, accepted terminal roles collapsed into one convenience/super-role, frontend-only role denial treated as API authorization
 - anti-patterns: indexes listed without query-path rationale, response schemas implied only by examples, business/system failures collapsed into one generic error bucket, retryability omitted while proposing asynchronous or dependency-heavy flows
 
 ## 6. Output Rules

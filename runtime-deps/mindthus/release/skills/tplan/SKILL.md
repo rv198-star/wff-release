@@ -47,6 +47,9 @@ become evidence. Checkpoint Command means `scripts/checkpoint.py` may bundle a l
 optional sparse evidence, and survey output, without bypassing gates.
 Mission Pulse means `scripts/mission_pulse.py` may build a read-only Snapshot/Pulse/Gate
 route note before continuation, freeze, handoff, stop, branch cleanup, or risk review.
+Role-Separated Review Policy keeps important Mission claims from collapsing doing,
+direction-checking, acceptance, and learning into one cognitive flow. It is
+responsibility separation, not a new runtime role model.
 
 ### Runtime Loop
 
@@ -56,9 +59,9 @@ hand edits. Separate logs from evidence. Survey state, build a packet with
 validated decisions. Stop in Chinese when continuation is unsafe.
 
 Lite Quickstart Recipe: Prefer these recipes over script-help exploration when inputs
-are known. Start with `python3 skills/tplan/scripts/init_lite.py --dir ...`, checkpoint
-with `scripts/checkpoint.py`, escalate through evidence, packet, hook, and
-`scripts/apply_decision.py`.
+are known: start with `python3 skills/tplan/scripts/init_lite.py --dir ...`, checkpoint
+with `scripts/checkpoint.py`, then escalate through evidence, packet, hook, and
+`scripts/apply_decision.py` only when needed.
 
 ### Shared Risk Context
 
@@ -71,18 +74,22 @@ with active shared risk must expose `risk_assessment`.
 
 ### Mission Shared Context Memory
 
-Before starting a Mission, run Mission identity preflight with `preflight_mission.py`.
-Project-level memory lives at
-`.tplan/shared_contexts/tplan_mission_shared_context-<mission_id>.md`. Continue only
-when Mission identity is continuous; otherwise create a new Mission. `source_contexts`
-are background memory for a new Mission, not a derived Mission status or inherited
-acceptance authority.
+Run Mission identity preflight with `preflight_mission.py` at
+`.tplan/shared_contexts/tplan_mission_shared_context-<mission_id>.md`. `source_contexts`
+are background only and never inherit acceptance authority.
+
+Re-entry: a residual Mission is only a candidate. Require `--disposition` and
+`--rationale`; record its receipt before mutation. Active-Mission continuation is separate.
 
 ### User-Facing Output Adapter
 
 Internal IDs are for runtime stability. User-facing output should lead with meaning;
 ordinary updates should not lead with raw IDs. Use `scripts/render_user_update.py` for
-compact Chinese status updates.
+compact Chinese status updates. For completion or cost review, use the Standard tree.
+
+Terminal handoff: run `render_execution_cost_tree.py "$MISSION_DIR"
+--completion-handoff`; include both emitted links, or state the rendering failure. Full
+delivery contract: `resources/user-output.md`.
 
 ### Read-only SubAgent Acceleration
 
@@ -134,6 +141,7 @@ context.
 - `tplan` is runtime governance, not a standalone reasoning engine.
 - Scripts validate bookkeeping only; they do not prove semantic correctness.
 - Evidence is not a process log.
+- Execution trace is cost/lifecycle telemetry, not evidence or a raw transcript.
 - Shared Risk Context is not a cross-task transcript.
 - Mission shared context Markdown is memory; `mission.json.shared_context` is the
   runtime index.
@@ -142,10 +150,9 @@ context.
 
 ## Runtime Support / 支撑材料
 
-- `resources/schema.md`: mission files, task fields, decision packet, hook output.
-- `resources/lifecycle.md`: Mission completion, closure, task states, transitions.
-- `resources/policy.md`: risk/resource policy and human-in-loop authority.
-- `resources/hooks.md`: decision hooks, routed skills, path/risk/continuation contracts.
-- `resources/user-output.md`: user-facing rendering rules.
-- `resources/subagents.md`: read-only SubAgent acceleration and merge rules.
-- `scripts/mission_pulse.py`: read-only Mission Pulse route note.
+- Core contracts: `resources/schema.md`, `lifecycle.md`, `policy.md`, and `hooks.md`.
+- Output contracts: `resources/user-output.md` and `execution-trace.md`.
+- Review carriers: `resources/subagents.md`, `resources/platforms/*.md`, and
+  `scripts/*review_packet.py`.
+- Runtime views: `scripts/mission_pulse.py`, `render_user_update.py`, and
+  `render_execution_cost_tree.py`.

@@ -246,6 +246,17 @@ def phase1_summary(root: Path) -> dict[str, Any]:
     evidence = detect_phase1_convergence_evidence(root, prd)
     report_text = read_text(report)
     mainline_assessment = load_phase_mainline_assessment(root)
+    phase_verdict_payload = load_json(first_existing(root, "phase-verdict.json"))
+    agentic_product_authority = (
+        dict(phase_verdict_payload.get("agentic_product_authority", {}))
+        if isinstance(phase_verdict_payload, dict)
+        and isinstance(phase_verdict_payload.get("agentic_product_authority"), dict)
+        else {}
+    )
+    agentic_product_commitments_resolved = bool(
+        str(agentic_product_authority.get("status") or "").strip().lower() == "accepted"
+        and int(agentic_product_authority.get("review_bound_commitment_count", 0) or 0) == 0
+    )
     return {
         "root": str(root),
         "status": nested_bullet_value(report_text, "current_overall_status", "当前总体状态") or "unknown",
@@ -262,7 +273,9 @@ def phase1_summary(root: Path) -> dict[str, Any]:
             "prd_main_document_present": bool(prd),
             "convergence_evidence_present": bool(evidence),
             "phase_verdict_present": bool(mainline_assessment.get("present")),
+            "agentic_product_commitments_resolved": agentic_product_commitments_resolved,
         },
+        "agentic_product_authority": agentic_product_authority,
         "required_artifact_checks": {
             "execution_report_present": bool(report),
             "prd_main_document_present": bool(prd),
@@ -546,10 +559,19 @@ def classify_mainline_verdict(
             failures.append(f"{phase_name} missing required artifacts: {', '.join(missing)}")
 
     phase1_mainline_verdict = str(phase1.get("mainline_assessment", {}).get("phase_verdict") or "").strip()
+    phase1_review_bound_consumed_downstream = bool(
+        phase1_mainline_verdict == "PASS with review-bound items"
+        and phase1.get("checks", {}).get("agentic_product_commitments_resolved") is True
+        and str(phase2.get("mainline_assessment", {}).get("phase_verdict") or "").strip() == "PASS"
+        and phase3.get("status") == "delivery-ready"
+        and phase4.get("closure_decision") == "pass"
+        and bool(review_check_value(phase3.get("checks", {}), "review_red_team_usable", "human_review_red_team_usable"))
+        and bool(review_check_value(phase4.get("checks", {}), "review_red_team_usable", "human_review_red_team_usable"))
+    )
     if phase1_mainline_verdict:
         if phase1_mainline_verdict in {"BLOCKED", "RETURN-REMEDIATE"}:
             failures.append(f"phase1 mainline verdict is `{phase1_mainline_verdict}`")
-        elif phase1_mainline_verdict == "PASS with review-bound items":
+        elif phase1_mainline_verdict == "PASS with review-bound items" and not phase1_review_bound_consumed_downstream:
             warnings.append("phase1 mainline verdict is `PASS with review-bound items`")
     elif phase1["status"] == "blocked":
         failures.append("phase1 remains blocked")
@@ -676,8 +698,19 @@ def classify_mainline_verdict(
         if not cross_phase_checks[key]:
             failures.append(f"cross-phase linkage failed: {key}")
 
-    warnings.extend(str(item) for item in phase3.get("warnings", []))
-    warnings.extend(str(item) for item in phase4.get("warnings", []))
+    resolved_informational_warnings = {
+        "behavior_card_test_gap_resolved_by_strict_runtime",
+    }
+    warnings.extend(
+        str(item)
+        for item in phase3.get("warnings", [])
+        if str(item) not in resolved_informational_warnings
+    )
+    warnings.extend(
+        str(item)
+        for item in phase4.get("warnings", [])
+        if str(item) not in resolved_informational_warnings
+    )
 
     if failures:
         return "blocked", failures, warnings

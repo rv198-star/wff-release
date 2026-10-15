@@ -101,6 +101,23 @@ Role ability comes from mounted WFF skills, not from personality text.
 Role = mounted skills + allowed profiles + routing rules + evidence boundary
 ```
 
+## In-cycle problem routing
+
+The role set is unchanged. Roles are optional entry surfaces; P3 gap decisions do not call them at runtime. P3 remains the sole T0/T1/T2 decision maker under `reference-packages/phase3-implementation-delivery/p3-realization-decisions-contract.md`.
+
+| Existing role | Problem destination within the delivery cycle |
+|---|---|
+| WFF Product Manager | Before P1 admission, missing source goes to intake/context completion; after P1/P2 freeze, downstream product gaps go to P3 decisions and next-version backport. |
+| WFF Architect | Resolve current P2 authoring locally; frozen product/architecture gaps found downstream go to P3 decisions and next-version backport. |
+| WFF Programmer | Repair implementation in P3; resolve T2/conflict/infeasible gaps in P3 with conservative defaults and `backport_target`. |
+| WFF QA Tester | P4 consumption errors stay P4; implementation defects and product/architecture gaps go to P3, which owns repair or gap decisions. |
+| WFF Refactor Architect | Respect the admitted change scope; preserve frozen artifacts and queue upstream absorption for the next version. |
+| WFF Reviewer | Send findings to the current artifact owner; downstream implementation/gap findings go to P3, without convening an approval panel. |
+
+This is the in-cycle contract. `config/wff-role-mounts.json` routes frozen business/architecture gaps to WFF Programmer for `p3-gap-decision-required`, the existing Authority Delta ledger and next-version backport. It never requests current-cycle P1/P2 regeneration or a role meeting.
+
+No role can regenerate frozen P1/P2 in-cycle. Report a fundamentally wrong direction to a human for a cycle-termination decision. Missing external approval remains review-bound; a role never supplies it.
+
 ## Human Communication Contract
 
 All WFF roles must explain hard ideas in plain language first.

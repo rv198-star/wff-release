@@ -496,6 +496,9 @@ def _apply_agentic_product_authority_to_domain_context(
     if not isinstance(canonical, dict):
         return context
     result = dict(context)
+    result["source_surface_modules"] = [
+        dict(row) for row in context.get("modules", []) if isinstance(row, dict)
+    ]
     primary_segment = str(canonical.get("primary_segment") or "").strip()
     if primary_segment:
         result["segments"] = [primary_segment]
@@ -525,6 +528,12 @@ def _apply_agentic_product_authority_to_domain_context(
         dict(row) for row in canonical.get("world_knowledge_backfill", []) if isinstance(row, dict)
     ]
     result["product_world_decision"] = dict(canonical.get("product_world_decision") or {})
+    interaction_context = direct_driver.get("interaction_relevant_product_context")
+    if isinstance(interaction_context, dict):
+        result["interaction_relevant_product_context"] = dict(interaction_context)
+        result["interaction_semantics_contract"] = str(
+            direct_driver.get("interaction_semantics_contract") or "product-interaction-semantics-v1"
+        )
     profile = dict(result.get("source_semantic_profile") or {})
     if primary_segment:
         profile["primary_actor"] = primary_segment
@@ -1652,6 +1661,20 @@ def _module_row_for_surface(surface: str, module_rows: list[dict[str, str]]) -> 
     return None
 
 
+def _object_row_for_surface(surface: str, object_rows: list[dict[str, str]]) -> dict[str, str] | None:
+    surface_keys = _label_match_keys(surface)
+    for row in object_rows:
+        owner_module = str(
+            row.get("Owner Module")
+            or row.get("owner_module")
+            or row.get("owner module")
+            or ""
+        ).strip()
+        if owner_module and surface_keys & _label_match_keys(owner_module):
+            return row
+    return None
+
+
 def _surface_reference_phrases(surface: str, module_row: dict[str, str] | None) -> list[str]:
     phrases = list(_label_variants(surface))
     if module_row:
@@ -1719,6 +1742,9 @@ def infer_surface_primary_actor(surface: str, context: dict[str, object]) -> str
     module_row = _module_row_for_surface(surface, context.get('modules', []))
     if module_row and str(module_row.get("primary_actor", "")).strip():
         return str(module_row.get("primary_actor", "")).strip()
+    source_surface_row = _module_row_for_surface(surface, context.get('source_surface_modules', []))
+    if source_surface_row and str(source_surface_row.get("primary_actor", "")).strip():
+        return str(source_surface_row.get("primary_actor", "")).strip()
     reference_phrases = _surface_reference_phrases(surface, module_row)
     score_by_role = {role: 0 for role in roles}
     role_order = {role: index for index, role in enumerate(roles)}
@@ -1746,7 +1772,18 @@ def infer_surface_primary_actor(surface: str, context: dict[str, object]) -> str
     ]
     if scored:
         return max(scored)[2]
-    return roles[0]
+    authority_actors = unique_preserve_order(
+        [
+            actor
+            for row in context.get('modules', [])
+            if isinstance(row, dict)
+            for actor in [str(row.get('primary_actor', '')).strip()]
+            if actor and actor != REVIEW_BOUND_MISSING_SOURCE_ROLE and not actor.casefold().startswith('review-bound')
+        ]
+    )
+    if len(authority_actors) == 1:
+        return authority_actors[0]
+    return REVIEW_BOUND_MISSING_SOURCE_ROLE
 
 
 def signal_phrase(values: list[str], fallback: str, *, limit: int = 2) -> str:
@@ -1826,6 +1863,12 @@ def _apply_agentic_product_authority_to_world_model(
         "decision_id": authority.get("decision_id", ""),
     }
     result["world_knowledge_backfill"] = world_knowledge_backfill
+    interaction_context = authority.get("interaction_relevant_product_context")
+    if isinstance(interaction_context, dict):
+        result["interaction_relevant_product_context"] = dict(interaction_context)
+        result["interaction_semantics_contract"] = str(
+            authority.get("interaction_semantics_contract") or "product-interaction-semantics-v1"
+        )
     option_set = result.get("product_world_option_set")
     if isinstance(option_set, dict):
         option_set = dict(option_set)
@@ -2760,23 +2803,26 @@ def render_screen_navigation_rows(context: dict[str, object]) -> str:
         "| screen/module | primary actor | required information objects | entry conditions | exit actions | downstream dependency |",
         "|---|---|---|---|---|---|",
     ]
+    source_surface_rows = context.get("source_surface_modules", [])
     for idx, surface in enumerate(surfaces):
         module_row = _module_row_for_surface(surface, module_rows)
-        required_objects = str(module_row.get('core_objects', '')).strip() if module_row else ''
+        source_surface_row = _module_row_for_surface(surface, source_surface_rows)
+        projection_row = module_row or source_surface_row
+        required_objects = str(projection_row.get('core_objects', '')).strip() if projection_row else ''
         if not required_objects:
-            fallback_object_row = object_rows[idx % len(object_rows)] if object_rows else {}
+            matched_object_row = _object_row_for_surface(surface, object_rows) or {}
             required_objects = str(
-                fallback_object_row.get('Object')
-                or fallback_object_row.get('object')
-                or 'Business Object'
+                matched_object_row.get('Object')
+                or matched_object_row.get('object')
+                or 'review-bound business object'
             ).strip()
         next_surface = surfaces[idx + 1] if idx + 1 < len(surfaces) else 'review'
-        entry_conditions = str(module_row.get('input', '')).strip() if module_row else ''
-        exit_action = str(module_row.get('exit_action', '')).strip() if module_row else ''
+        entry_conditions = str(projection_row.get('input', '')).strip() if projection_row else ''
+        exit_action = str(projection_row.get('exit_action', '')).strip() if projection_row else ''
         downstream_dependency = (
-            str(module_row.get('downstream_dependency', '')).strip()
-            or str(module_row.get('output', '')).strip()
-            if module_row
+            str(projection_row.get('downstream_dependency', '')).strip()
+            or str(projection_row.get('output', '')).strip()
+            if projection_row
             else ''
         )
         lines.append(

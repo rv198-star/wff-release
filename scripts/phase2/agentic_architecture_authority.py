@@ -35,6 +35,10 @@ from common.bounded_agentic_challenge_compat import (
     require_current_integrity_pair,
 )
 from common.complexity_classifier import count_external_integrations
+from common.product_interaction_semantics import (
+    ProductInteractionSemanticsContractError,
+    validate_p2_product_interaction_semantics,
+)
 from phase2.bounded_challenge_binding import validate_p2_decision_challenge_binding
 
 
@@ -64,11 +68,25 @@ DEPENDENCY_DISPOSITIONS = {
     "review-bound",
 }
 PERSISTENCE_MODES = {"durable-write", "read-only", "no-durable-state"}
-PERSISTENCE_COMMAND_KINDS = {"insert", "update", "append", "upsert", "select-one", "none"}
+PERSISTENCE_COMMAND_KINDS = {"insert", "update", "append", "upsert", "select-one", "select-many", "select-projection", "none"}
 IDEMPOTENCY_MODES = {"replay-safe", "not-applicable"}
 DURABLE_CARRIER_KINDS = {"aggregate", "dedicated-record", "not-applicable"}
 DURABLE_ENFORCEMENT_MODES = {"unique-constraint", "primary-key", "application-transaction", "not-applicable"}
-REPLAY_BEHAVIORS = {"return-existing", "reject-conflict", "idempotent-update", "read-only", "no-durable-state"}
+REPLAY_BEHAVIORS = {"return-existing", "reject-conflict", "idempotent-update", "new-write-per-request", "read-only", "no-durable-state"}
+INTERACTION_BINDING_MODES = {"read", "write", "read_write"}
+INTERACTION_VALUE_SOURCES = {"user-input", "workflow-context", "response-binding", "auth-session"}
+INTERACTION_CANDIDATE_SOURCE_STATUSES = {"accepted", "absent", "review-bound", "not-applicable"}
+INTERACTION_DISCOVERY_REQUIREMENTS = {"required", "not-required", "review-bound"}
+INTERACTION_CARDINALITIES = {"one", "optional-one", "many", "one-or-more", "review-bound"}
+INTERACTION_CANDIDATE_SOURCE_KINDS = {
+    "workflow-context",
+    "existing-business-data",
+    "operation",
+    "accepted-vocabulary",
+    "user-defined",
+    "review-bound",
+    "not-applicable",
+}
 
 NON_OPERATION_TYPES = {
     "boundary",
@@ -100,6 +118,12 @@ def p1_agentic_product_authority_is_valid(authority: Mapping[str, Any]) -> bool:
     expected = str(authority.get("content_digest") or "")
     body = {key: value for key, value in authority.items() if key != "content_digest"}
     if not expected or expected != canonical_digest(body):
+        return False
+    interaction_contract = str(authority.get("interaction_semantics_contract") or "").strip()
+    if interaction_contract and (
+        interaction_contract != "product-interaction-semantics-v1"
+        or not isinstance(authority.get("interaction_relevant_product_context"), Mapping)
+    ):
         return False
     commitments = authority.get("commitments")
     return bool(
@@ -218,6 +242,12 @@ def build_p2_agentic_architecture_candidate(phase1_prd: Path) -> dict[str, Any]:
                 dict(row) for row in authority.get("world_knowledge_backfill", []) if isinstance(row, dict)
             ],
             "product_world_decision": dict(authority.get("product_world_decision") or {}),
+            "interaction_relevant_product_context": (
+                deepcopy(authority.get("interaction_relevant_product_context"))
+                if isinstance(authority.get("interaction_relevant_product_context"), Mapping)
+                else None
+            ),
+            "interaction_semantics_contract": str(authority.get("interaction_semantics_contract") or ""),
             "claim_ceiling": authority.get("claim_ceiling", ""),
         },
         "candidate_context": {
@@ -234,6 +264,7 @@ def build_p2_agentic_architecture_candidate(phase1_prd: Path) -> dict[str, Any]:
             "aggregate_and_writer_decisions",
             "state_invariant_policy_failure_decisions",
             "data_and_interaction_decisions",
+            "product_interaction_semantics",
             "durable_persistence_identity_decisions",
             "commitment_dispositions",
             "dependency_dispositions",
@@ -272,12 +303,27 @@ def build_decision_template(candidate: Mapping[str, Any], *, owner_id: str = "ho
         "aggregate_and_writer_decisions": [],
         "state_invariant_policy_failure_decisions": [],
         "data_and_interaction_decisions": [],
+        "product_interaction_semantics": [],
         "durable_persistence_identity_decisions": [],
         "commitment_dispositions": [
             {
                 "commitment_id": row["commitment_id"],
                 "disposition": "p2-local-repair",
                 "realization_ids": [],
+                "interaction_context_coverage": [
+                    {
+                        "context_id": str(context.get("context_id") or "").strip(),
+                        "role": str(context.get("user_role_or_actor") or "").strip(),
+                        "operation_ids": [],
+                        "reentry_required": False,
+                        "reentry_operation_ids": [],
+                        "reason": "Host Agent must decide exact task-context and re-entry realization from accepted P1 semantics.",
+                    }
+                    for context in _p1_interaction_context_rows(candidate).values()
+                    if row["commitment_id"] in {
+                        str(value).strip() for value in context.get("commitment_ids", []) if str(value).strip()
+                    }
+                ],
                 "reason": "Host Agent disposition required.",
                 "owner": "P2 host Agent",
                 "evidence_refs": [row["commitment_id"]],
@@ -341,6 +387,256 @@ def _strings(value: Any, *, field: str, non_empty: bool = False) -> list[str]:
     return result
 
 
+def _fresh_interaction_semantics_required(candidate: Mapping[str, Any]) -> bool:
+    p1_authority = candidate.get("p1_authority")
+    if not isinstance(p1_authority, Mapping):
+        return False
+    return bool(
+        str(p1_authority.get("interaction_semantics_contract") or "").strip()
+        == "product-interaction-semantics-v1"
+        and isinstance(p1_authority.get("interaction_relevant_product_context"), Mapping)
+    )
+
+
+def _p1_interaction_context_rows(candidate: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    p1_authority = candidate.get("p1_authority")
+    if not isinstance(p1_authority, Mapping):
+        return {}
+    context = p1_authority.get("interaction_relevant_product_context")
+    if not isinstance(context, Mapping):
+        return {}
+    rows = context.get("task_contexts", [])
+    if not isinstance(rows, list):
+        return {}
+    return {
+        str(row.get("context_id") or "").strip(): dict(row)
+        for row in rows
+        if isinstance(row, Mapping) and str(row.get("context_id") or "").strip()
+    }
+
+
+def _p1_interaction_context_ids(candidate: Mapping[str, Any]) -> set[str]:
+    return set(_p1_interaction_context_rows(candidate))
+
+
+def _validate_interaction_candidate_source(
+    semantics: Mapping[str, Any],
+    *,
+    semantic_id: str,
+    p1_commitments: set[str],
+    operation_ids: set[str],
+    p1_context_refs: list[str],
+    p1_vocabulary_context_ids: set[str],
+) -> bool:
+    source = semantics.get("candidate_source")
+    if not isinstance(source, Mapping):
+        raise P2AgenticArchitectureAuthorityError(
+            f"fresh P2 Product Interaction Semantics candidate_source must be structured: {semantic_id}"
+        )
+    status = str(source.get("status") or "").strip()
+    source_kind = str(source.get("source_kind") or "").strip()
+    if status not in INTERACTION_CANDIDATE_SOURCE_STATUSES:
+        raise P2AgenticArchitectureAuthorityError(
+            f"unsupported Product Interaction Semantics candidate-source status: {semantic_id}:{status or 'missing'}"
+        )
+    if source_kind not in INTERACTION_CANDIDATE_SOURCE_KINDS:
+        raise P2AgenticArchitectureAuthorityError(
+            f"unsupported Product Interaction Semantics candidate-source kind: {semantic_id}:{source_kind or 'missing'}"
+        )
+    authority_refs = _strings(
+        source.get("authority_refs", []),
+        field=f"{semantic_id}.candidate_source.authority_refs",
+    )
+    unknown_authority_refs = sorted(set(authority_refs) - p1_commitments)
+    if unknown_authority_refs:
+        raise P2AgenticArchitectureAuthorityError(
+            f"Product Interaction Semantics candidate source references unknown P1 authority: {semantic_id}:{','.join(unknown_authority_refs)}"
+        )
+    source_operation_ids = _strings(
+        source.get("operation_ids", []),
+        field=f"{semantic_id}.candidate_source.operation_ids",
+    )
+    unknown_operations = sorted(set(source_operation_ids) - operation_ids)
+    if unknown_operations:
+        raise P2AgenticArchitectureAuthorityError(
+            f"Product Interaction Semantics candidate source references unknown operation: {semantic_id}:{','.join(unknown_operations)}"
+        )
+    if status == "accepted" and source_kind in {"review-bound", "not-applicable"}:
+        raise P2AgenticArchitectureAuthorityError(
+            f"accepted Product Interaction Semantics candidate source has non-accepted kind: {semantic_id}:{source_kind}"
+        )
+    if status == "accepted" and source_kind == "operation" and not source_operation_ids:
+        raise P2AgenticArchitectureAuthorityError(
+            f"accepted operation-backed Product Interaction Semantics candidate source requires operation_ids: {semantic_id}"
+        )
+    if status == "accepted" and source_kind == "accepted-vocabulary" and not (
+        authority_refs or set(p1_context_refs).intersection(p1_vocabulary_context_ids)
+    ):
+        raise P2AgenticArchitectureAuthorityError(
+            f"accepted vocabulary Product Interaction Semantics candidate source requires P1 authority or vocabulary-bearing interaction context: {semantic_id}"
+        )
+    if status == "accepted" and source_kind == "existing-business-data" and not (
+        authority_refs or source_operation_ids or p1_context_refs
+    ):
+        raise P2AgenticArchitectureAuthorityError(
+            f"existing-business-data Product Interaction Semantics candidate source requires accepted authority, context, or operation: {semantic_id}"
+        )
+    if status == "accepted" and source_kind == "workflow-context" and not (p1_context_refs or authority_refs):
+        raise P2AgenticArchitectureAuthorityError(
+            f"workflow-context Product Interaction Semantics candidate source requires accepted context authority: {semantic_id}"
+        )
+    if status == "accepted" and source_kind == "user-defined" and not (p1_context_refs or authority_refs):
+        raise P2AgenticArchitectureAuthorityError(
+            f"user-defined Product Interaction Semantics candidate source requires accepted P1 authority or context: {semantic_id}"
+        )
+    discovery_requirement = str(semantics.get("discovery_requirement") or "").strip().casefold()
+    if discovery_requirement not in INTERACTION_DISCOVERY_REQUIREMENTS:
+        raise P2AgenticArchitectureAuthorityError(
+            f"unsupported Product Interaction Semantics discovery requirement: {semantic_id}:{discovery_requirement or 'missing'}"
+        )
+    discovery_required = discovery_requirement == "required"
+    gaps = semantics.get("unresolved_interaction_gaps", [])
+    unresolved_gaps = [str(item).strip() for item in gaps if str(item).strip()] if isinstance(gaps, list) else []
+    if discovery_required and status != "accepted" and not unresolved_gaps:
+        raise P2AgenticArchitectureAuthorityError(
+            f"Product Interaction Semantics discovery gap must remain explicit when candidate source is unavailable: {semantic_id}"
+        )
+    if discovery_requirement == "review-bound" and not unresolved_gaps:
+        raise P2AgenticArchitectureAuthorityError(
+            f"review-bound Product Interaction Semantics discovery requirement must name an unresolved gap: {semantic_id}"
+        )
+    if discovery_required and status == "accepted" and source_kind == "not-applicable":
+        raise P2AgenticArchitectureAuthorityError(
+            f"required discovery cannot use not-applicable candidate source: {semantic_id}"
+        )
+    return bool(
+        unresolved_gaps
+        or status in {"absent", "review-bound"}
+        or str(semantics.get("truth_state") or "").strip().casefold() in {"review-bound", "unresolved"}
+    )
+
+
+def _validate_product_interaction_semantics_rows(
+    payload: Mapping[str, Any],
+    *,
+    candidate: Mapping[str, Any],
+    p1_commitments: set[str],
+    operation_ids: set[str],
+    request_mapping_index: Mapping[tuple[str, str], str],
+    interaction_operation_index: Mapping[str, str],
+    request_field_type_index: Mapping[tuple[str, str], str],
+) -> bool:
+    fresh_required = _fresh_interaction_semantics_required(candidate)
+    raw_rows = payload.get("product_interaction_semantics")
+    if raw_rows is None:
+        if fresh_required:
+            raise P2AgenticArchitectureAuthorityError(
+                "fresh P2 decision requires Product Interaction Semantics authority"
+            )
+        return False
+    rows = _rows(raw_rows, field="product_interaction_semantics")
+    p1_context_rows = _p1_interaction_context_rows(candidate)
+    p1_context_ids = set(p1_context_rows)
+    p1_vocabulary_context_ids = {
+        context_id
+        for context_id, row in p1_context_rows.items()
+        if isinstance(row.get("business_vocabulary"), list)
+        and any(str(item).strip() for item in row.get("business_vocabulary", []))
+    }
+    seen_ids: set[str] = set()
+    seen_bindings: set[tuple[str, str]] = set()
+    unresolved = False
+    for row in rows:
+        semantic_id = str(row.get("semantic_id") or "").strip()
+        if not semantic_id or semantic_id in seen_ids:
+            raise P2AgenticArchitectureAuthorityError(
+                f"Product Interaction Semantics identity is missing or duplicated: {semantic_id or 'missing-semantic'}"
+            )
+        seen_ids.add(semantic_id)
+        operation_id = str(row.get("operation_id") or "").strip()
+        interaction_id = str(row.get("interaction_id") or "").strip()
+        contract_field = str(row.get("contract_field") or "").strip()
+        binding_source = str(row.get("binding_source") or "").strip()
+        if operation_id not in operation_ids:
+            raise P2AgenticArchitectureAuthorityError(
+                f"Product Interaction Semantics references unknown operation: {semantic_id}:{operation_id or 'missing-operation'}"
+            )
+        expected_operation_id = str(interaction_operation_index.get(interaction_id) or "")
+        if expected_operation_id and operation_id != expected_operation_id:
+            raise P2AgenticArchitectureAuthorityError(
+                f"Product Interaction Semantics operation diverges from accepted interaction binding: {semantic_id}:{operation_id}!={expected_operation_id}"
+            )
+        mapping_key = (interaction_id, contract_field)
+        expected_source = str(request_mapping_index.get(mapping_key) or "")
+        if not interaction_id or not contract_field or not expected_source:
+            raise P2AgenticArchitectureAuthorityError(
+                f"Product Interaction Semantics does not bind an accepted interaction request field: {semantic_id}"
+            )
+        if mapping_key in seen_bindings:
+            raise P2AgenticArchitectureAuthorityError(
+                f"Product Interaction Semantics duplicates interaction-field binding: {interaction_id}:{contract_field}"
+            )
+        seen_bindings.add(mapping_key)
+        if binding_source != expected_source:
+            raise P2AgenticArchitectureAuthorityError(
+                f"Product Interaction Semantics binding source diverges from accepted interaction mapping: {semantic_id}"
+            )
+        p1_context_refs = _strings(
+            row.get("p1_context_refs", []),
+            field=f"{semantic_id}.p1_context_refs",
+        )
+        unknown_context_refs = sorted(set(p1_context_refs) - p1_context_ids)
+        if unknown_context_refs:
+            raise P2AgenticArchitectureAuthorityError(
+                f"Product Interaction Semantics references unknown P1 interaction context: {semantic_id}:{','.join(unknown_context_refs)}"
+            )
+        semantics = row.get("semantics")
+        if not isinstance(semantics, Mapping):
+            raise P2AgenticArchitectureAuthorityError(
+                f"Product Interaction Semantics payload is missing: {semantic_id}"
+            )
+        try:
+            validate_p2_product_interaction_semantics(semantics)
+        except ProductInteractionSemanticsContractError as exc:
+            raise P2AgenticArchitectureAuthorityError(str(exc)) from exc
+        cardinality = str(semantics.get("cardinality") or "").strip().casefold()
+        if cardinality not in INTERACTION_CARDINALITIES:
+            raise P2AgenticArchitectureAuthorityError(
+                f"unsupported Product Interaction Semantics cardinality: {semantic_id}:{cardinality or 'missing'}"
+            )
+        request_type = str(request_field_type_index.get((operation_id, contract_field)) or "").strip().casefold()
+        is_collection = any(token in request_type for token in ("array", "list", "set", "[]"))
+        if is_collection and cardinality not in {"many", "one-or-more", "review-bound"}:
+            raise P2AgenticArchitectureAuthorityError(
+                f"Product Interaction Semantics cardinality flattens accepted collection field: {semantic_id}:{contract_field}"
+            )
+        if request_type and not is_collection and cardinality in {"many", "one-or-more"}:
+            raise P2AgenticArchitectureAuthorityError(
+                f"Product Interaction Semantics cardinality exceeds accepted scalar field: {semantic_id}:{contract_field}"
+            )
+        unresolved = (
+            _validate_interaction_candidate_source(
+                semantics,
+                semantic_id=semantic_id,
+                p1_commitments=p1_commitments,
+                operation_ids=operation_ids,
+                p1_context_refs=p1_context_refs,
+                p1_vocabulary_context_ids=p1_vocabulary_context_ids,
+            )
+            or unresolved
+        )
+    if fresh_required:
+        expected_bindings = set(request_mapping_index)
+        if seen_bindings != expected_bindings:
+            missing = sorted(expected_bindings - seen_bindings)
+            extra = sorted(seen_bindings - expected_bindings)
+            detail = ", ".join(f"{interaction}:{field}" for interaction, field in (missing or extra))
+            raise P2AgenticArchitectureAuthorityError(
+                f"Product Interaction Semantics coverage does not match accepted request-field mappings: {detail or 'empty mismatch'}"
+            )
+    return unresolved
+
+
 def validate_p2_agentic_architecture_decision(
     decision: Mapping[str, Any],
     *,
@@ -362,13 +658,22 @@ def validate_p2_agentic_architecture_decision(
     payload = decision.get("semantic_payload")
     if not isinstance(payload, dict):
         raise P2AgenticArchitectureAuthorityError("P2 architecture semantic payload is missing")
-    sufficiency = payload.get("context_sufficiency")
-    if not isinstance(sufficiency, dict) or sufficiency.get("status") not in {"sufficient", "insufficient", "review-bound"}:
-        raise P2AgenticArchitectureAuthorityError("P2 context sufficiency decision is invalid")
-    if decision.get("decision_status") == "accepted" and (
-        sufficiency.get("status") != "sufficient" or sufficiency.get("supports_architecture_claim") is not True
-    ):
-        raise P2AgenticArchitectureAuthorityError("accepted P2 decision requires sufficient architecture context for its bounded claim")
+    final_review = decision.get("decision_integrity_contract") == "p2-omr-sqr-integrity-v1"
+    if (payload.get("review_contract") == "p2-omr-sqr.v1") != final_review:
+        raise P2AgenticArchitectureAuthorityError("P2 payload and final-review acceptance contracts must agree")
+    if final_review:
+        if "context_sufficiency" in payload:
+            raise P2AgenticArchitectureAuthorityError("Final-review P2 has no duplicate sufficiency self-assessment")
+        if decision["final_review"]["bindings"].get("candidate_digest") != candidate["content_digest"]:
+            raise P2AgenticArchitectureAuthorityError("Final review belongs to a different P2 candidate")
+    else:
+        sufficiency = payload.get("context_sufficiency")
+        if not isinstance(sufficiency, dict) or sufficiency.get("status") not in {"sufficient", "insufficient", "review-bound"}:
+            raise P2AgenticArchitectureAuthorityError("P2 context sufficiency decision is invalid")
+        if decision.get("decision_status") == "accepted" and (
+            sufficiency.get("status") != "sufficient" or sufficiency.get("supports_architecture_claim") is not True
+        ):
+            raise P2AgenticArchitectureAuthorityError("accepted P2 decision requires sufficient architecture context for its bounded claim")
 
     p1_commitments = {
         str(row.get("commitment_id") or "")
@@ -395,6 +700,53 @@ def validate_p2_agentic_architecture_decision(
                 raise P2AgenticArchitectureAuthorityError(f"P2 operation misses {field}: {operation_id}")
         if str(row.get("service_id") or "").strip() not in service_ids:
             raise P2AgenticArchitectureAuthorityError(f"P2 operation references unknown service: {operation_id}")
+        terminal_access = row.get("terminal_access")
+        if terminal_access is not None:
+            if not isinstance(terminal_access, dict):
+                raise P2AgenticArchitectureAuthorityError(f"P2 terminal access must be an object: {operation_id}")
+            exposure = str(terminal_access.get("exposure") or "").strip()
+            if exposure not in {"terminal-direct", "system-continuation", "review-bound"}:
+                raise P2AgenticArchitectureAuthorityError(f"P2 terminal access exposure is invalid: {operation_id}")
+            allowed_roles = _strings(terminal_access.get("allowed_roles", []), field=f"terminal_access.allowed_roles:{operation_id}")
+            visible_objects = _strings(
+                terminal_access.get("visible_business_objects", []),
+                field=f"terminal_access.visible_business_objects:{operation_id}",
+            )
+            authority_refs = _strings(
+                terminal_access.get("authority_refs", []),
+                field=f"terminal_access.authority_refs:{operation_id}",
+            )
+            if len(set(allowed_roles)) != len(allowed_roles):
+                raise P2AgenticArchitectureAuthorityError(f"P2 terminal access duplicates allowed roles: {operation_id}")
+            unknown_authority_refs = sorted(set(authority_refs) - p1_commitments)
+            if unknown_authority_refs:
+                raise P2AgenticArchitectureAuthorityError(
+                    f"P2 terminal access references unknown P1 authority: {operation_id}: {','.join(unknown_authority_refs)}"
+                )
+            for field in ("denied_behavior", "reason", "claim_ceiling"):
+                if not str(terminal_access.get(field) or "").strip():
+                    raise P2AgenticArchitectureAuthorityError(f"P2 terminal access misses {field}: {operation_id}")
+            if exposure == "terminal-direct":
+                if not allowed_roles:
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 terminal-direct access requires at least one allowed role: {operation_id}"
+                    )
+                if not authority_refs:
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 terminal-direct access requires accepted P1 authority refs: {operation_id}"
+                    )
+                if not visible_objects:
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 terminal-direct access requires bounded visible business objects: {operation_id}"
+                    )
+            elif exposure == "system-continuation" and allowed_roles:
+                raise P2AgenticArchitectureAuthorityError(
+                    f"P2 system-continuation access must not declare allowed roles: {operation_id}"
+                )
+            elif exposure == "review-bound" and allowed_roles:
+                raise P2AgenticArchitectureAuthorityError(
+                    f"P2 review-bound terminal access must not declare allowed roles: {operation_id}"
+                )
 
     aggregates = _rows(payload.get("aggregate_and_writer_decisions"), field="aggregate_and_writer_decisions")
     aggregate_by_id = {
@@ -460,41 +812,241 @@ def validate_p2_agentic_architecture_decision(
                 )
         return result
 
+    def operation_result_fields(operation_id: str) -> set[str]:
+        result: set[str] = set()
+        for row in data_decisions:
+            if str(row.get("operation_id") or "").strip() != operation_id:
+                continue
+            raw_fields = row.get("result_fields", [])
+            if isinstance(raw_fields, list):
+                result.update(
+                    str(field.get("name") or "").strip()
+                    for field in raw_fields
+                    if isinstance(field, dict) and str(field.get("name") or "").strip()
+                )
+        return result
+
+    request_field_type_index: dict[tuple[str, str], str] = {}
+    for data_row in data_decisions:
+        operation_id = str(data_row.get("operation_id") or "").strip()
+        raw_request_fields = data_row.get("request_fields", [])
+        if isinstance(raw_request_fields, list):
+            for field in raw_request_fields:
+                if not isinstance(field, Mapping):
+                    continue
+                field_name = str(field.get("name") or "").strip()
+                if field_name:
+                    request_field_type_index[(operation_id, field_name)] = str(field.get("type") or "").strip()
+        result_rows = data_row.get("result_fields", [])
+        if not isinstance(result_rows, list):
+            continue
+        for field in result_rows:
+            if not isinstance(field, Mapping):
+                continue
+            field_name = str(field.get("name") or "").strip()
+            field_type = str(field.get("type") or "string").strip().casefold()
+            nested_key = (
+                "item_fields"
+                if any(token in field_type for token in ("array", "list"))
+                else "fields"
+                if any(token in field_type for token in ("object", "map"))
+                else ""
+            )
+            if not nested_key:
+                continue
+            nested_rows = field.get(nested_key)
+            if not isinstance(nested_rows, list) or not nested_rows:
+                raise P2AgenticArchitectureAuthorityError(
+                    f"P2 structured result field requires {nested_key}: {operation_id}:{field_name or 'missing-field'}"
+                )
+            nested_names: set[str] = set()
+            for nested in nested_rows:
+                if not isinstance(nested, Mapping):
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 structured result field contains invalid nested field: {operation_id}:{field_name}"
+                    )
+                nested_name = str(nested.get("name") or "").strip()
+                nested_type = str(nested.get("type") or "").strip()
+                if not nested_name or not nested_type or nested_name in nested_names:
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 structured result field nested identity/type is missing or duplicated: {operation_id}:{field_name}"
+                    )
+                nested_names.add(nested_name)
+
+    operation_by_id = {
+        str(row.get("operation_id") or "").strip(): row
+        for row in operations
+        if str(row.get("operation_id") or "").strip()
+    }
+    interaction_binding_ids: set[str] = set()
+    interaction_operation_index: dict[str, str] = {}
+    request_mapping_index: dict[tuple[str, str], str] = {}
+    for data_row in data_decisions:
+        raw_bindings = data_row.get("interaction_bindings", [])
+        if raw_bindings in (None, []):
+            continue
+        operation_id = str(data_row.get("operation_id") or "").strip()
+        if operation_id not in operation_ids:
+            raise P2AgenticArchitectureAuthorityError(
+                f"P2 interaction binding parent operation is unknown: {operation_id or 'missing-operation'}"
+            )
+        bindings = _rows(raw_bindings, field=f"{operation_id}.interaction_bindings", non_empty=True)
+        request_denominator = operation_request_fields(operation_id)
+        result_denominator = operation_result_fields(operation_id)
+        operation_method = str(operation_by_id[operation_id].get("method") or "POST").strip().upper()
+        for binding in bindings:
+            interaction_id = str(binding.get("interaction_id") or "").strip()
+            if not interaction_id or interaction_id in interaction_binding_ids:
+                raise P2AgenticArchitectureAuthorityError(
+                    f"P2 interaction binding identity is duplicated or missing: {interaction_id or 'missing-interaction'}"
+                )
+            interaction_binding_ids.add(interaction_id)
+            interaction_operation_index[interaction_id] = operation_id
+            mode = str(binding.get("binding_mode") or "").strip()
+            if mode not in INTERACTION_BINDING_MODES:
+                raise P2AgenticArchitectureAuthorityError(
+                    f"unsupported P2 interaction binding mode: {interaction_id}"
+                )
+            if mode == "read" and operation_method not in {"GET", "HEAD"}:
+                raise P2AgenticArchitectureAuthorityError(
+                    f"P2 read interaction is bound to a non-read operation: {interaction_id}:{operation_id}"
+                )
+            if mode in {"write", "read_write"} and operation_method in {"GET", "HEAD"}:
+                raise P2AgenticArchitectureAuthorityError(
+                    f"P2 write interaction is bound to a read operation: {interaction_id}:{operation_id}"
+                )
+            for field_name in ("reason", "claim_ceiling"):
+                if not str(binding.get(field_name) or "").strip():
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 interaction binding misses {field_name}: {interaction_id}"
+                    )
+
+            request_mappings = _rows(
+                binding.get("request_field_mapping", []),
+                field=f"{interaction_id}.request_field_mapping",
+            )
+            mapped_request_fields: set[str] = set()
+            mapped_ui_fields: set[str] = set()
+            for mapping in request_mappings:
+                ui_field = str(mapping.get("ui_field") or "").strip()
+                contract_field = str(mapping.get("contract_field") or "").strip()
+                source = str(mapping.get("source") or "").strip()
+                if not ui_field or not contract_field:
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 interaction request mapping is incomplete: {interaction_id}"
+                    )
+                if contract_field not in request_denominator:
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 interaction mapping references undeclared request field: {interaction_id}:{contract_field}"
+                    )
+                if source not in INTERACTION_VALUE_SOURCES:
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"unsupported interaction value source: {interaction_id}:{source or 'missing-source'}"
+                    )
+                if contract_field in mapped_request_fields or ui_field in mapped_ui_fields:
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 interaction request mapping duplicates field identity: {interaction_id}"
+                    )
+                mapped_request_fields.add(contract_field)
+                mapped_ui_fields.add(ui_field)
+                request_mapping_index[(interaction_id, contract_field)] = source
+            if request_denominator and mapped_request_fields != request_denominator:
+                missing_fields = sorted(request_denominator - mapped_request_fields)
+                extra_fields = sorted(mapped_request_fields - request_denominator)
+                detail = ", ".join(missing_fields or extra_fields)
+                raise P2AgenticArchitectureAuthorityError(
+                    f"P2 interaction request mapping does not cover the accepted request denominator: {interaction_id}: {detail}"
+                )
+
+            response_mappings = _rows(
+                binding.get("response_field_mapping", []),
+                field=f"{interaction_id}.response_field_mapping",
+                non_empty=True,
+            )
+            mapped_response_fields: set[str] = set()
+            mapped_response_ui_fields: set[str] = set()
+            for mapping in response_mappings:
+                contract_field = str(mapping.get("contract_field") or "").strip()
+                ui_field = str(mapping.get("ui_field") or "").strip()
+                if not contract_field or not ui_field:
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 interaction response mapping is incomplete: {interaction_id}"
+                    )
+                if contract_field not in result_denominator:
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 interaction mapping references undeclared result field: {interaction_id}:{contract_field}"
+                    )
+                if contract_field in mapped_response_fields or ui_field in mapped_response_ui_fields:
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 interaction response mapping duplicates field identity: {interaction_id}"
+                    )
+                mapped_response_fields.add(contract_field)
+                mapped_response_ui_fields.add(ui_field)
+
+    unresolved_interaction_semantics = _validate_product_interaction_semantics_rows(
+        payload,
+        candidate=candidate,
+        p1_commitments=p1_commitments,
+        operation_ids=operation_ids,
+        request_mapping_index=request_mapping_index,
+        interaction_operation_index=interaction_operation_index,
+        request_field_type_index=request_field_type_index,
+    )
+
+    pre_non_operations = _rows(payload.get("non_operation_realizations"), field="non_operation_realizations")
+    pre_non_operation_ids = {
+        str(row.get("realization_id") or "").strip()
+        for row in pre_non_operations
+        if str(row.get("realization_id") or "").strip()
+    }
     durable_rows = _rows(
         payload.get("durable_persistence_identity_decisions"),
         field="durable_persistence_identity_decisions",
     )
     durable_by_operation: dict[str, dict[str, Any]] = {}
+    durable_by_non_operation: dict[str, dict[str, Any]] = {}
     for row in durable_rows:
         operation_id = str(row.get("operation_id") or "").strip()
-        if operation_id not in operation_ids or operation_id in durable_by_operation:
+        non_operation_id = str(row.get("non_operation_realization_id") or "").strip()
+        if bool(operation_id) == bool(non_operation_id):
             raise P2AgenticArchitectureAuthorityError(
-                f"P2 durable persistence operation identity is unknown or duplicated: {operation_id or 'missing-operation'}"
+                "P2 durable persistence identity must bind exactly one operation_id or non_operation_realization_id"
             )
+        if operation_id:
+            if operation_id not in operation_ids or operation_id in durable_by_operation:
+                raise P2AgenticArchitectureAuthorityError(
+                    f"P2 durable persistence operation identity is unknown or duplicated: {operation_id}"
+                )
+        else:
+            if non_operation_id not in pre_non_operation_ids or non_operation_id in durable_by_non_operation:
+                raise P2AgenticArchitectureAuthorityError(
+                    f"P2 durable persistence non-operation identity is unknown or duplicated: {non_operation_id or 'missing-non-operation'}"
+                )
+        durable_subject_id = operation_id or non_operation_id
         mode = str(row.get("persistence_mode") or "").strip()
         command_kind = str(row.get("command_kind") or "").strip()
         idempotency_mode = str(row.get("idempotency_mode") or "").strip()
         replay_behavior = str(row.get("replay_behavior") or "").strip()
         if mode not in PERSISTENCE_MODES:
-            raise P2AgenticArchitectureAuthorityError(f"unsupported P2 persistence mode: {operation_id}")
+            raise P2AgenticArchitectureAuthorityError(f"unsupported P2 persistence mode: {durable_subject_id}")
         if command_kind not in PERSISTENCE_COMMAND_KINDS:
-            raise P2AgenticArchitectureAuthorityError(f"unsupported P2 persistence command kind: {operation_id}")
+            raise P2AgenticArchitectureAuthorityError(f"unsupported P2 persistence command kind: {durable_subject_id}")
         expected_command_kinds = {
             "durable-write": {"insert", "update", "append", "upsert"},
-            "read-only": {"select-one"},
+            "read-only": {"select-one", "select-many", "select-projection"},
             "no-durable-state": {"none"},
         }[mode]
         if command_kind not in expected_command_kinds:
             raise P2AgenticArchitectureAuthorityError(
-                f"P2 persistence command kind diverges from persistence mode: {operation_id}"
+                f"P2 persistence command kind diverges from persistence mode: {durable_subject_id}"
             )
         if idempotency_mode not in IDEMPOTENCY_MODES:
-            raise P2AgenticArchitectureAuthorityError(f"unsupported P2 idempotency mode: {operation_id}")
+            raise P2AgenticArchitectureAuthorityError(f"unsupported P2 idempotency mode: {durable_subject_id}")
         if replay_behavior not in REPLAY_BEHAVIORS:
-            raise P2AgenticArchitectureAuthorityError(f"unsupported P2 replay behavior: {operation_id}")
+            raise P2AgenticArchitectureAuthorityError(f"unsupported P2 replay behavior: {durable_subject_id}")
         for field in ("reason", "claim_ceiling"):
             if not str(row.get(field) or "").strip():
-                raise P2AgenticArchitectureAuthorityError(f"P2 durable persistence decision misses {field}: {operation_id}")
+                raise P2AgenticArchitectureAuthorityError(f"P2 durable persistence decision misses {field}: {durable_subject_id}")
 
         identity_components = _strings(
             row.get("identity_components", []),
@@ -502,11 +1054,11 @@ def validate_p2_agentic_architecture_decision(
         )
         carrier = row.get("durable_carrier")
         if not isinstance(carrier, dict):
-            raise P2AgenticArchitectureAuthorityError(f"P2 durable carrier is missing: {operation_id}")
+            raise P2AgenticArchitectureAuthorityError(f"P2 durable carrier is missing: {durable_subject_id}")
         carrier_kind = str(carrier.get("kind") or "").strip()
         carrier_id = str(carrier.get("carrier_id") or "").strip()
         if carrier_kind not in DURABLE_CARRIER_KINDS:
-            raise P2AgenticArchitectureAuthorityError(f"unsupported P2 durable carrier kind: {operation_id}")
+            raise P2AgenticArchitectureAuthorityError(f"unsupported P2 durable carrier kind: {durable_subject_id}")
         bindings = _rows(carrier.get("field_bindings", []), field=f"{operation_id}.durable_carrier.field_bindings")
         enforcement = carrier.get("enforcement")
         if not isinstance(enforcement, dict):
@@ -525,7 +1077,7 @@ def validate_p2_agentic_architecture_decision(
         if carrier_kind == "aggregate":
             aggregate = aggregate_by_id.get(carrier_id)
             if aggregate is None:
-                raise P2AgenticArchitectureAuthorityError(f"P2 durable carrier references unknown aggregate: {operation_id}")
+                raise P2AgenticArchitectureAuthorityError(f"P2 durable carrier references unknown aggregate: {durable_subject_id}")
             carrier_data_rows = [
                 item for item in data_decisions
                 if str(item.get("aggregate_id") or "").strip() == carrier_id
@@ -533,69 +1085,72 @@ def validate_p2_agentic_architecture_decision(
             carrier_fields = set().union(*(decision_fields(item) for item in carrier_data_rows)) if carrier_data_rows else set()
             accepted_writer = str(aggregate.get("writer_service_id") or aggregate.get("writer") or "").strip()
             if accepted_writer and writer_service_id != accepted_writer:
-                raise P2AgenticArchitectureAuthorityError(f"P2 durable writer diverges from aggregate writer: {operation_id}")
+                raise P2AgenticArchitectureAuthorityError(f"P2 durable writer diverges from aggregate writer: {durable_subject_id}")
         elif carrier_kind == "dedicated-record":
             carrier_decision = data_by_id.get(carrier_id)
             if carrier_decision is None or not str(carrier_decision.get("table_name") or "").strip():
-                raise P2AgenticArchitectureAuthorityError(f"P2 dedicated durable carrier is not declared as a data record: {operation_id}")
+                raise P2AgenticArchitectureAuthorityError(f"P2 dedicated durable carrier is not declared as a data record: {durable_subject_id}")
             carrier_data_rows = [carrier_decision]
             carrier_fields = decision_fields(carrier_decision)
         else:
             if carrier_id or bindings or enforcement_mode != "not-applicable" or enforcement_fields:
-                raise P2AgenticArchitectureAuthorityError(f"not-applicable durable carrier cannot bind fields or enforcement: {operation_id}")
+                raise P2AgenticArchitectureAuthorityError(f"not-applicable durable carrier cannot bind fields or enforcement: {durable_subject_id}")
 
         if mode == "durable-write":
             if not writer_service_id or writer_service_id not in service_ids:
-                raise P2AgenticArchitectureAuthorityError(f"P2 durable write requires a known writer service: {operation_id}")
+                raise P2AgenticArchitectureAuthorityError(f"P2 durable write requires a known writer service: {durable_subject_id}")
             if carrier_kind == "not-applicable" or not carrier_fields:
-                raise P2AgenticArchitectureAuthorityError(f"P2 durable write requires a concrete durable carrier: {operation_id}")
+                raise P2AgenticArchitectureAuthorityError(f"P2 durable write requires a concrete durable carrier: {durable_subject_id}")
             if enforcement_mode == "not-applicable":
-                raise P2AgenticArchitectureAuthorityError(f"P2 durable write requires an explicit persistence enforcement mode: {operation_id}")
+                raise P2AgenticArchitectureAuthorityError(f"P2 durable write requires an explicit persistence enforcement mode: {durable_subject_id}")
         else:
             expected_behavior = "read-only" if mode == "read-only" else "no-durable-state"
             if carrier_kind != "not-applicable" or writer_service_id or replay_behavior != expected_behavior:
-                raise P2AgenticArchitectureAuthorityError(f"non-write P2 operation has an invalid durable persistence posture: {operation_id}")
+                raise P2AgenticArchitectureAuthorityError(f"non-write P2 persistence subject has an invalid durable persistence posture: {durable_subject_id}")
 
         if enforcement_fields and not set(enforcement_fields).issubset(carrier_fields):
             unknown = sorted(set(enforcement_fields) - carrier_fields)
             raise P2AgenticArchitectureAuthorityError(
-                f"P2 persistence enforcement references undeclared carrier fields for {operation_id}: " + ", ".join(unknown)
+                f"P2 persistence enforcement references undeclared carrier fields for {durable_subject_id}: " + ", ".join(unknown)
             )
         if enforcement_mode == "primary-key":
             constraints = {}
             for item in carrier_data_rows:
                 constraints.update(data_field_constraints(item))
             if not enforcement_fields or any("pk" not in constraints.get(field, "").casefold() for field in enforcement_fields):
-                raise P2AgenticArchitectureAuthorityError(f"P2 primary-key replay enforcement is not backed by declared PK fields: {operation_id}")
+                raise P2AgenticArchitectureAuthorityError(f"P2 primary-key replay enforcement is not backed by declared PK fields: {durable_subject_id}")
         if enforcement_mode == "unique-constraint":
             if not enforcement_fields or set(enforcement_fields) not in declared_unique_sets(carrier_data_rows):
-                raise P2AgenticArchitectureAuthorityError(f"P2 unique replay enforcement is not backed by an exact declared unique constraint: {operation_id}")
+                raise P2AgenticArchitectureAuthorityError(f"P2 unique replay enforcement is not backed by an exact declared unique constraint: {durable_subject_id}")
 
         if idempotency_mode == "replay-safe":
             if mode != "durable-write" or not identity_components:
-                raise P2AgenticArchitectureAuthorityError(f"replay-safe P2 operation requires durable-write identity components: {operation_id}")
+                raise P2AgenticArchitectureAuthorityError(f"replay-safe P2 persistence subject requires durable-write identity components: {durable_subject_id}")
             binding_by_component = {
                 str(binding.get("identity_component") or "").strip(): str(binding.get("carrier_field") or "").strip()
                 for binding in bindings
                 if str(binding.get("identity_component") or "").strip()
             }
             if set(identity_components) != set(binding_by_component):
-                raise P2AgenticArchitectureAuthorityError(f"P2 replay identity is not fully bound to durable fields: {operation_id}")
+                raise P2AgenticArchitectureAuthorityError(f"P2 replay identity is not fully bound to durable fields: {durable_subject_id}")
             unknown_fields = sorted(set(binding_by_component.values()) - carrier_fields)
             if unknown_fields:
                 raise P2AgenticArchitectureAuthorityError(
-                    f"P2 replay identity binds undeclared durable fields for {operation_id}: " + ", ".join(unknown_fields)
+                    f"P2 replay identity binds undeclared durable fields for {durable_subject_id}: " + ", ".join(unknown_fields)
                 )
-            request_fields = operation_request_fields(operation_id)
+            request_fields = operation_request_fields(operation_id) if operation_id else set()
             for component in identity_components:
                 prefix, _, field_name = component.partition(".")
                 if prefix in {"request", "path", "query"} and field_name not in request_fields:
                     raise P2AgenticArchitectureAuthorityError(
-                        f"P2 replay identity references undeclared request field for {operation_id}: {component}"
+                        f"P2 replay identity references undeclared request field for {durable_subject_id}: {component}"
                     )
         elif identity_components or bindings:
-            raise P2AgenticArchitectureAuthorityError(f"non-replay-safe P2 operation cannot claim replay identity bindings: {operation_id}")
-        durable_by_operation[operation_id] = row
+            raise P2AgenticArchitectureAuthorityError(f"non-replay-safe P2 persistence subject cannot claim replay identity bindings: {durable_subject_id}")
+        if operation_id:
+            durable_by_operation[operation_id] = row
+        else:
+            durable_by_non_operation[non_operation_id] = row
 
     missing_durable = sorted(operation_ids - set(durable_by_operation))
     if missing_durable:
@@ -613,6 +1168,15 @@ def validate_p2_agentic_architecture_decision(
             raise P2AgenticArchitectureAuthorityError(f"unsupported P2 non-operation type: {realization_id}")
         non_operation_ids.add(realization_id)
 
+    p1_context_rows = _p1_interaction_context_rows(candidate)
+    contexts_by_commitment: dict[str, dict[str, dict[str, Any]]] = {}
+    for context_id, context_row in p1_context_rows.items():
+        for context_commitment_id in _strings(
+            context_row.get("commitment_ids", []),
+            field=f"{context_id}.commitment_ids",
+        ):
+            contexts_by_commitment.setdefault(context_commitment_id, {})[context_id] = context_row
+
     dispositions = _rows(payload.get("commitment_dispositions"), field="commitment_dispositions", non_empty=True)
     disposition_by_commitment: dict[str, dict[str, Any]] = {}
     for row in dispositions:
@@ -627,6 +1191,102 @@ def validate_p2_agentic_architecture_decision(
             raise P2AgenticArchitectureAuthorityError(f"exact-operation disposition is invalid: {commitment_id}")
         if disposition == "exact-operation-set" and (not ids or not set(ids).issubset(operation_ids)):
             raise P2AgenticArchitectureAuthorityError(f"exact-operation-set disposition is invalid: {commitment_id}")
+        relevant_contexts = contexts_by_commitment.get(commitment_id, {})
+        coverage_rows = _rows(
+            row.get("interaction_context_coverage", []),
+            field=f"{commitment_id}.interaction_context_coverage",
+        )
+        if disposition == "exact-operation-set" and len(relevant_contexts) > 1:
+            if not coverage_rows:
+                raise P2AgenticArchitectureAuthorityError(
+                    f"multi-context exact-operation-set requires interaction context coverage: {commitment_id}"
+                )
+            coverage_by_context: dict[str, dict[str, Any]] = {}
+            for coverage in coverage_rows:
+                context_id = str(coverage.get("context_id") or "").strip()
+                if context_id not in relevant_contexts or context_id in coverage_by_context:
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 interaction context coverage identity is unknown or duplicated: {commitment_id}:{context_id or 'missing-context'}"
+                    )
+                context_row = relevant_contexts[context_id]
+                role = str(coverage.get("role") or "").strip()
+                expected_role = str(context_row.get("user_role_or_actor") or "").strip()
+                if not role or role != expected_role:
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 interaction context coverage role mismatch: {commitment_id}:{context_id}"
+                    )
+                context_operation_ids = _strings(
+                    coverage.get("operation_ids", []),
+                    field=f"{commitment_id}.{context_id}.operation_ids",
+                    non_empty=True,
+                )
+                if not set(context_operation_ids).issubset(set(ids)):
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 interaction context coverage escapes disposition operations: {commitment_id}:{context_id}"
+                    )
+                for context_operation_id in context_operation_ids:
+                    operation_row = operation_by_id[context_operation_id]
+                    terminal_access = operation_row.get("terminal_access")
+                    allowed_roles = (
+                        _strings(
+                            terminal_access.get("allowed_roles", []),
+                            field=f"terminal_access.allowed_roles:{context_operation_id}",
+                        )
+                        if isinstance(terminal_access, Mapping)
+                        else []
+                    )
+                    if role not in allowed_roles:
+                        raise P2AgenticArchitectureAuthorityError(
+                            f"P2 interaction context operation is not visible to its accepted role: {commitment_id}:{context_id}:{context_operation_id}"
+                        )
+                reentry_required = coverage.get("reentry_required")
+                if not isinstance(reentry_required, bool):
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 interaction context coverage must decide reentry_required: {commitment_id}:{context_id}"
+                    )
+                reentry_operation_ids = _strings(
+                    coverage.get("reentry_operation_ids", []),
+                    field=f"{commitment_id}.{context_id}.reentry_operation_ids",
+                )
+                if reentry_required:
+                    if not reentry_operation_ids or not set(reentry_operation_ids).issubset(set(context_operation_ids)):
+                        raise P2AgenticArchitectureAuthorityError(
+                            f"P2 re-entry coverage requires bounded context operations: {commitment_id}:{context_id}"
+                        )
+                    for reentry_operation_id in reentry_operation_ids:
+                        operation_row = operation_by_id[reentry_operation_id]
+                        method = str(operation_row.get("method") or "").strip().upper()
+                        if method not in {"GET", "HEAD"}:
+                            raise P2AgenticArchitectureAuthorityError(
+                                f"P2 re-entry coverage must use a read operation: {commitment_id}:{context_id}:{reentry_operation_id}"
+                            )
+                        terminal_access = operation_row.get("terminal_access")
+                        authority_refs = (
+                            _strings(
+                                terminal_access.get("authority_refs", []),
+                                field=f"terminal_access.authority_refs:{reentry_operation_id}",
+                            )
+                            if isinstance(terminal_access, Mapping)
+                            else []
+                        )
+                        if commitment_id not in authority_refs:
+                            raise P2AgenticArchitectureAuthorityError(
+                                f"P2 re-entry operation lacks exact commitment authority: {commitment_id}:{context_id}:{reentry_operation_id}"
+                            )
+                elif reentry_operation_ids:
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 non-reentry context cannot claim reentry operations: {commitment_id}:{context_id}"
+                    )
+                if not str(coverage.get("reason") or "").strip():
+                    raise P2AgenticArchitectureAuthorityError(
+                        f"P2 interaction context coverage misses reason: {commitment_id}:{context_id}"
+                    )
+                coverage_by_context[context_id] = coverage
+            if set(coverage_by_context) != set(relevant_contexts):
+                missing_contexts = sorted(set(relevant_contexts) - set(coverage_by_context))
+                raise P2AgenticArchitectureAuthorityError(
+                    "P2 multi-context exact-operation-set misses task-context coverage: " + ", ".join(missing_contexts)
+                )
         if disposition == "non-operation-realization" and (not ids or not set(ids).issubset(non_operation_ids)):
             raise P2AgenticArchitectureAuthorityError(f"non-operation disposition is invalid: {commitment_id}")
         if disposition in {"return-p1", "p2-local-repair", "deferred", "excluded", "review-bound"} and ids:
@@ -682,6 +1342,12 @@ def validate_p2_agentic_architecture_decision(
         row.get("disposition") in {"deferred", "review-bound"} for row in dispositions
     ):
         raise P2AgenticArchitectureAuthorityError("P2 ready handoff cannot hide deferred/review-bound commitment dispositions")
+    if handoff.get("status") == "ready" and unresolved_interaction_semantics:
+        raise P2AgenticArchitectureAuthorityError(
+            "P2 ready handoff cannot hide unresolved Product Interaction Semantics"
+        )
+    if final_review:
+        return
     try:
         validate_p2_decision_challenge_binding(
             decision=decision,
@@ -715,8 +1381,11 @@ def build_p2_agentic_architecture_authority(
         "claim_ceiling": decision.get("claim_ceiling", ""),
         "decision_integrity_contract": str(decision.get("decision_integrity_contract") or ""),
         "challenge_binding_digest": str((decision.get("challenge_binding") or {}).get("content_digest") or ""),
-        "bounded_challenge": challenge_summary(decision["bounded_challenge"]),
+        **({"final_review_digest": decision["final_review"]["content_digest"]} if decision.get("final_review")
+           else {"bounded_challenge": challenge_summary(decision["bounded_challenge"])}),
     }
+    if _fresh_interaction_semantics_required(candidate):
+        payload["interaction_semantics_contract"] = "product-interaction-semantics-v1"
     return _with_digest(payload)
 
 
@@ -724,7 +1393,15 @@ def p2_agentic_architecture_authority_is_valid(authority: Mapping[str, Any]) -> 
     if authority.get("schema_version") != AUTHORITY_SCHEMA or authority.get("status") != "accepted-p2-agentic-architecture-authority":
         return False
     body = {key: value for key, value in authority.items() if key != "content_digest"}
-    return bool(authority.get("content_digest") == canonical_digest(body) and authority.get("decision_digest"))
+    if authority.get("content_digest") != canonical_digest(body) or not authority.get("decision_digest"):
+        return False
+    interaction_contract = str(authority.get("interaction_semantics_contract") or "").strip()
+    if interaction_contract and (
+        interaction_contract != "product-interaction-semantics-v1"
+        or not isinstance(authority.get("product_interaction_semantics"), list)
+    ):
+        return False
+    return True
 
 
 def build_disposition_ledger(authority: Mapping[str, Any]) -> dict[str, Any]:
@@ -798,6 +1475,48 @@ def architecture_authority_markdown(authority: Mapping[str, Any], *, surface: st
                 ceiling=str(row.get("claim_ceiling") or "").replace("|", "\\|"),
             )
         )
+    interaction_rows = authority.get("product_interaction_semantics", [])
+    if isinstance(interaction_rows, list):
+        lines.extend(
+            [
+                "",
+                "### Product Interaction Semantics",
+                "",
+                "| Semantic ID | Interaction / Field | Binding Source | Meaning | Cardinality | Candidate Source | Discovery | Context / Default | Frequency | Free Form | Truth State | Gaps |",
+                "|---|---|---|---|---|---|---|---|---|---|---|---|",
+            ]
+        )
+        for row in interaction_rows:
+            if not isinstance(row, Mapping):
+                continue
+            semantics = row.get("semantics") if isinstance(row.get("semantics"), Mapping) else {}
+            candidate_source = semantics.get("candidate_source") if isinstance(semantics.get("candidate_source"), Mapping) else {}
+            candidate_label = "/".join(
+                part
+                for part in (
+                    str(candidate_source.get("status") or "").strip(),
+                    str(candidate_source.get("source_kind") or "").strip(),
+                )
+                if part
+            ) or "-"
+            lines.append(
+                "| {semantic_id} | `{interaction_id}` / `{field}` | `{binding_source}` | {meaning} | {cardinality} | {candidate} | {discovery} | {context}; {default} | {frequency} | `{free_form}` | `{truth_state}` | {gaps} |".format(
+                    semantic_id=str(row.get("semantic_id") or ""),
+                    interaction_id=str(row.get("interaction_id") or ""),
+                    field=str(row.get("contract_field") or ""),
+                    binding_source=str(row.get("binding_source") or ""),
+                    meaning=str(semantics.get("user_meaning") or "").replace("|", "\\|"),
+                    cardinality=str(semantics.get("cardinality") or "").replace("|", "\\|"),
+                    candidate=candidate_label.replace("|", "\\|"),
+                    discovery=str(semantics.get("discovery_requirement") or "").replace("|", "\\|"),
+                    context=str(semantics.get("context_carryover") or "").replace("|", "\\|"),
+                    default=str(semantics.get("default_or_recent_semantics") or "").replace("|", "\\|"),
+                    frequency=str(semantics.get("usage_frequency") or "").replace("|", "\\|"),
+                    free_form=str(bool(semantics.get("free_form_allowed"))).lower(),
+                    truth_state=str(semantics.get("truth_state") or ""),
+                    gaps=", ".join(str(item).replace("|", "\\|") for item in semantics.get("unresolved_interaction_gaps", []) if str(item).strip()) or "-",
+                )
+            )
     lines.extend(
         [
             "",

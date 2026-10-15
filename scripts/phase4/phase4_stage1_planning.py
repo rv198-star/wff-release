@@ -23,6 +23,7 @@ from common.output_language import localize_phase4_stage1_markdown
 from common.markdown_table_tools import markdown_tables
 from phase4.phase4_common import (
     api_id_for_operation,
+    build_ui_product_review_request,
     block_text,
     collect_visual_evidence_paths,
     compact_token,
@@ -790,6 +791,79 @@ def build_surface_records(
             record["source_ids"] = dedupe_preserve_order([*record["source_ids"], *packet_source_ids])
             record["test_targets"] = dedupe_preserve_order([*record["test_targets"], *packet_test_targets])
     return sorted(surfaces.values(), key=lambda row: row["surface_name"])
+
+
+def build_current_frontend_review_acceptance_items(
+    *,
+    phase3_root: Path,
+    review_request: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Backfill current frontend acceptance from identity-bound P3 browser evidence.
+
+    Historical backend-first worker packets may legitimately omit frontend surfaces even
+    after a later current P3 frontend realization has been materialized and qualified.
+    Stage-01 must not let that stale packet shape erase the current UI review obligation.
+    """
+    if str(review_request.get("status") or "") != "review-required":
+        return []
+    binding = review_request.get("current_binding") if isinstance(review_request.get("current_binding"), dict) else {}
+    journey_paths = dedupe_preserve_order(
+        str(row.get("path") or "").strip()
+        for row in ensure_list(binding.get("consumer_journeys"))
+        if isinstance(row, dict) and str(row.get("path") or "").strip()
+    )
+    items: list[dict[str, Any]] = []
+    for surface in ensure_list(review_request.get("review_surfaces")):
+        if not isinstance(surface, dict):
+            continue
+        page_id = str(surface.get("page_id") or "").strip()
+        route = str(surface.get("route") or "").strip()
+        source_path = str(surface.get("source_path") or "").strip()
+        if not page_id or not route or not source_path or not (phase3_root / source_path).is_file():
+            continue
+        title = str(surface.get("page_title") or page_id).strip() or page_id
+        slug = stable_suffix(page_id)
+        source_id = f"CURRENT-P3-FRONTEND-{page_id}"
+        common = {
+            "source_id": source_id,
+            "source_type": "current-p3-frontend-surface",
+            "related_api_ids": [],
+            "api_linkage_status": "current-frontend-review-binding",
+            "related_req_ids": [],
+            "related_surface_refs": [title],
+            "actual_result": "",
+            "status": "not-run",
+            "evidence_path": [],
+            "owner_or_executor": "phase4-stage02",
+            "notes": f"current identity-bound frontend surface {page_id} {route}",
+            "test_targets": journey_paths,
+            "implementation_targets": [source_path],
+            "surface_name": title,
+            "surface_slug": slug,
+        }
+        items.append(
+            {
+                **common,
+                "test_id": f"TEST-UI-CURRENT-{slug}",
+                "acceptance_type": "ui-review",
+                "acceptance_item": f"{title} passes the current two-round AI product review gate",
+                "scenario_prompt": "Run first-round Open-ended Maturity Review, then isolated Structured Qualification Review, then synthesize without averaging scores.",
+                "expected_result": "OMR has no blocking Critical/High finding, SQR passes every required dimension, and RSG passes for the current frontend identity.",
+                "expected_evidence": ["open-ended-maturity-review-request.json", "ui-product-review-request.json", "current browser screenshots/traces"],
+            }
+        )
+        items.append(
+            {
+                **common,
+                "test_id": f"TEST-VISUAL-CURRENT-{slug}",
+                "acceptance_type": "visual-evidence",
+                "acceptance_item": f"{title} has current desktop/mobile visual evidence",
+                "scenario_prompt": "Consume the current identity-bound desktop/mobile screenshots and traces for the surface.",
+                "expected_result": "Current reviewable visual artifacts exist for both desktop and mobile browser qualification.",
+                "expected_evidence": ["screenshot", "browser trace"],
+            }
+        )
+    return items
 
 
 def load_phase3_full_targeted_passed_tests(phase3_root: Path) -> list[str]:
@@ -1634,6 +1708,14 @@ def build_phase4_stage1_planning(
         operation_rows=operation_rows,
         phase3_root=phase3_root,
     )
+    current_frontend_review_request = build_ui_product_review_request(phase3_root=phase3_root)
+    if not [item for item in acceptance_items if item.get("acceptance_type") == "ui-review"]:
+        acceptance_items.extend(
+            build_current_frontend_review_acceptance_items(
+                phase3_root=phase3_root,
+                review_request=current_frontend_review_request,
+            )
+        )
     if not [item for item in acceptance_items if item.get("acceptance_type") == "functional"]:
         acceptance_items.extend(
             build_phase2_decision_runtime_acceptance_items(

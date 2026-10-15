@@ -108,6 +108,7 @@ def build_p2_authority_generation_model(authority: Mapping[str, Any]) -> dict[st
     raw_aggregates = _rows(authority.get("aggregate_and_writer_decisions"))
     raw_state_policy = _rows(authority.get("state_invariant_policy_failure_decisions"))
     raw_data_decisions = _rows(authority.get("data_and_interaction_decisions"))
+    raw_product_interaction_semantics = _rows(authority.get("product_interaction_semantics"))
     raw_durable_persistence = _rows(authority.get("durable_persistence_identity_decisions"))
     aggregate_rows: list[dict[str, Any]] = []
     aggregate_ids: set[str] = set()
@@ -168,12 +169,14 @@ def build_p2_authority_generation_model(authority: Mapping[str, Any]) -> dict[st
         "decision_id": _text(authority.get("decision_id")),
         "decision_digest": _text(authority.get("decision_digest")),
         "p1_authority": dict(authority.get("p1_authority") or {}),
+        "interaction_semantics_contract": _text(authority.get("interaction_semantics_contract")),
         "services": services,
         "operations": operation_rows,
         "non_operations": _rows(authority.get("non_operation_realizations")),
         "aggregates": aggregate_rows,
         "state_policy_failure": raw_state_policy,
         "data_decisions": raw_data_decisions,
+        "product_interaction_semantics": raw_product_interaction_semantics,
         "durable_persistence_identity": raw_durable_persistence,
         "commitment_dispositions": _rows(authority.get("commitment_dispositions")),
         "dependency_dispositions": _rows(authority.get("dependency_dispositions")),
@@ -247,6 +250,8 @@ def apply_p2_authority_to_parsed_context(
     result["architecture_non_operations"] = model["non_operations"]
     result["architecture_state_policy_failure"] = model["state_policy_failure"]
     result["architecture_data_decisions"] = model["data_decisions"]
+    result["architecture_product_interaction_semantics"] = model["product_interaction_semantics"]
+    result["interaction_semantics_contract"] = model["interaction_semantics_contract"]
     result["architecture_durable_persistence_identity"] = model["durable_persistence_identity"]
     result["architecture_commitment_dispositions"] = model["commitment_dispositions"]
     return result
@@ -313,6 +318,9 @@ def validate_p2_canonical_authority_application(
         require_identity("non-operation", _text(row.get("realization_id")))
     for row in model["commitment_dispositions"]:
         require_identity("commitment-disposition", _text(row.get("commitment_id")))
+    for row in model["product_interaction_semantics"]:
+        require_identity("product-interaction-semantic", _text(row.get("semantic_id")))
+        require_identity("product-interaction-field", _text(row.get("contract_field")))
 
     stage_03 = artifact_texts.get("stage-03-data-storage-and-interface-design.md", "")
     endpoint_rows = _markdown_table_rows_after_marker(stage_03, "- api_endpoint_draft:")
@@ -479,6 +487,9 @@ def validate_p2_canonical_authority_application(
         "aggregate_ids": [_text(row.get("aggregate_id")) for row in model["aggregates"]],
         "non_operation_ids": [_text(row.get("realization_id")) for row in model["non_operations"]],
         "durable_persistence_operation_ids": accepted_durable_ids,
+        "product_interaction_semantic_ids": [
+            _text(row.get("semantic_id")) for row in model["product_interaction_semantics"]
+        ],
         "p1_topology_mode": topology_mode,
     }
     return {
@@ -498,6 +509,7 @@ def validate_p2_canonical_authority_application(
         "checked_aggregate_count": len(model["aggregates"]),
         "checked_non_operation_count": len(model["non_operations"]),
         "checked_durable_persistence_count": len(accepted_durable),
+        "checked_product_interaction_semantics_count": len(model["product_interaction_semantics"]),
         "p1_topology_mode": topology_mode,
         "claim_ceiling": (
             "This report proves bounded canonical application checks over accepted P2 architecture authority. "

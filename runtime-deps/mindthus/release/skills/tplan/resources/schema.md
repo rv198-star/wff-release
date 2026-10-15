@@ -7,8 +7,13 @@ Each Mission directory contains:
 - `mission.json`: machine-readable Mission, Task, SubTask, and Step state.
 - `mission.md`: narrative, rationale, and review notes.
 - `evidence.jsonl`: append-only evidence event stream. This is not a process log.
+- `execution_trace.jsonl`: lifecycle and sanitized execution-cost events. This is not
+  acceptance evidence or a raw transcript.
+- `.interaction-guard.json`: optional persistent host-interruption guard. It is runtime
+  control state, not Mission business schema; an absent file means no guard is open.
 - `logs/`: active task-local step logs.
 - `archive/`: archived step logs and task summaries when needed.
+- `reports/`: generated progressive execution-cost trees and other read-only reports.
 
 Project-level Mission shared context memory lives outside the Mission directory:
 
@@ -25,8 +30,18 @@ Required top-level fields:
 - `tasks`: list of runtime nodes. Runtime `v0.1` supports `task`, `subtask`, and
   `step` nodes.
 - `active_task_id`: task id or null.
+- `runtime_provenance`: script-owned immutable creator/runtime fingerprint. It is
+  required on newly initialized Missions. A missing field is accepted only as an
+  explicitly diagnosed legacy Mission and is pinned by its first supported unguarded
+  mutation.
 - `shared_context`: optional runtime index for the project-level Mission shared
   context file and scoped shared risk signals.
+
+Runtime provenance uses `tplan.runtime_provenance.v0.1`; its fingerprint records package
+and source identity, canonical skill/script roots, build hash, capability versions, and
+capabilities. Path relocation alone is compatible when build and capabilities match.
+Version, source, build, or capability differences are incompatible. See
+`runtime-provenance.md` for mutation, render, doctor, and recovery behavior.
 
 Required Mission fields:
 
@@ -89,6 +104,50 @@ Structure changes should go through `scripts/add_node.py` or another runtime scr
 Agentic judgment decides what to add and why; scripts own field defaults, shape
 normalization, and validation before write.
 
+## Execution Trace Sidecar
+
+The Mission schema remains `tplan.v0.1`; execution telemetry uses the additive
+`tplan.execution_trace.v0.1` sidecar. Lifecycle records cover Mission initialization,
+dynamic node addition, task status, active node, and Mission status. Cost records use
+sanitized `span_started`/`span_completed` pairs for host-observed operations, while a
+standalone `span_completed` remains valid for after-the-fact platform telemetry.
+
+Trace coverage is `exact`, `partial`, or `snapshot_only`. Exact lifecycle coverage does
+not imply that every platform cost was observable. See `execution-trace.md` for the
+span, attribution, privacy, and renderer contracts.
+
+## Interaction Guard Sidecar
+
+When a host can observe an interrupting user message, it opens
+`.interaction-guard.json` before handling that message. The guard records a canonical
+digest of the complete `mission.json`, an evidence-stream boundary digest, the baseline
+active task, a monotonic revision, and opaque message references. The guard protects
+future Mission fields by default, rather than maintaining a fragile allowlist of
+control fields.
+
+While a guard is open, all public runtime Mission mutations, evidence writes, and the
+compatibility Mission writer fail closed unless they are part of a guard resolution.
+Task-local operational logs, sanitized execution telemetry, and read-only reports may
+continue, but they do not gain user authority. A `resume_original` resolution may close
+only if both baseline digests still match and no message remains pending. An authorized
+change needs a persisted proposal followed by a newer pending confirmation message, and
+a one-time receipt bound to the guard identity, revision, baseline, complete decision
+digest, exact mutation digest, and confirmation reference. A raw filesystem writer is
+outside this runtime API boundary and needs host sandboxing if it is in scope.
+
+Guard state is included as `guard_after` in the Mission transaction journal. Recovery
+rolls Mission, trace, evidence, and guard state forward together. Legacy transaction
+`tplan.mission_transaction.v0.1` remains readable; new transactions use v0.2.
+
+The sidecar and dispositions are platform-neutral. Native carriers map their own
+message, before-tool, and turn-end events through
+`resources/interaction-host-contract.md`. A carrier may use a separate
+host-owned runtime marker to distinguish the first prompt of a normal turn from a
+second, mid-turn message. That marker contains only opaque platform
+and message references, is not Mission business state, and must never be treated as
+authority. Native hooks, checkpoint detection, and prompt-only fallback must report
+their real enforcement level separately.
+
 ## Adaptive Runtime Records
 
 Runtime level changes how much state is materialized, not what `tplan` is allowed to
@@ -137,9 +196,108 @@ Mission shared context Markdown is the primary memory surface. It is stored at:
 ```
 
 `preflight_mission.py` performs Mission identity startup checks before initialization.
-It can report `continue_existing`, `create_new`, or `needs_agentic_selection`.
 Mission identity is continuity of objective, acceptance evidence, and authority
 boundary. Scripts compare declared metadata only; they do not decide semantic sameness.
+
+Residual Mission discovery and re-entry authorization are separate. The preflight
+schema is `tplan.mission_reentry_preflight.v0.1`. Discovery merges shared-context and
+runtime-only candidates by Mission id:
+
+```json
+{
+  "action": "needs_agentic_selection",
+  "identity_action": "continue_existing",
+  "decision_required": true,
+  "candidate_disposition": "resume_existing",
+  "missing_current_intent": [],
+  "conflicts": [],
+  "warnings": [],
+  "assessment_digest": "sha256:...",
+  "user_message": "当前目标和验收标准与旧 Mission 一致，但这仍只是恢复候选……",
+  "reentry_packet": {
+    "mission_id": "M1",
+    "objective": "...",
+    "status": "active",
+    "acceptance_evidence": [],
+    "active_task": {},
+    "latest_state": "...",
+    "latest_trace_event": {},
+    "recovery_boundary": null,
+    "blockers": [],
+    "active_risk_signals": [],
+    "freshness_signals": {
+      "shared_context_updated_at": "...",
+      "runtime_snapshot_availability": "loaded",
+      "shared_context_matches_runtime": true,
+      "runtime_files": {
+        "content_digests": {
+          "mission": "sha256:...",
+          "narrative": "sha256:...",
+          "evidence": "sha256:...",
+          "trace": "sha256:..."
+        }
+      }
+    },
+    "runtime_snapshot": {},
+    "current_intent": {}
+  }
+}
+```
+
+`identity_action=continue_existing` is a shape-level continuity finding, not an
+execution action. A selected residual Mission keeps `action=needs_agentic_selection`
+until the caller explicitly supplies one disposition and a non-empty rationale:
+
+- `resume_existing`
+- `create_new_from_context`
+- `requires_human`
+- `ignore_candidate`
+
+`resume_existing` is legal only for an active Mission with explicit matching current
+objective and acceptance evidence and no blocking identity/runtime conflict. When a
+runtime snapshot exists it is authoritative and its provenance must be compatible;
+stale shared Markdown is reported as a warning rather than overriding valid runtime
+state. Terminal Missions route to context-only new-Mission handling; `blocked` and
+`requires_human` expose their recovery boundary. A `create_new_from_context` decision
+never inherits prior acceptance authority.
+
+Supplying `--disposition` changes the CLI from read-only assessment to explicit
+application. It first writes a decision-bound receipt under
+`.tplan/reentry_decisions/`, then applies `resume_existing` to the exact assessed
+runtime boundary. Mission, narrative, evidence, and trace content digests are compared
+again under the runtime lock; any drift records `application_failed` and leaves the
+re-entry decision unapplied. Successful runtime application records the decision at
+`mission.json.shared_context.reentry_decision`. Context-only resume candidates first
+record `recorded_pending_runtime_initialization`; a successful initializer then advances
+the same receipt to `applied_to_initialized_runtime`, while a failed initializer records
+`initialization_failed`. Other dispositions never mutate the old Mission.
+
+The receipt schema is `tplan.mission_reentry_receipt.v0.1`:
+
+```json
+{
+  "schema_version": "tplan.mission_reentry_receipt.v0.1",
+  "decision": {
+    "assessment_digest": "sha256:...",
+    "decision_digest": "sha256:...",
+    "disposition": "resume_existing",
+    "rationale": "..."
+  },
+  "application": {
+    "status": "applied_to_runtime",
+    "runtime_dir": "path/to/runtime",
+    "mission_digest_before": "sha256:...",
+    "mission_digest_after": "sha256:..."
+  }
+}
+```
+
+Without `--json`, preflight leads with `user_message`, explaining in plain language
+why continuation is safe only after selection, unsafe, or undecidable.
+
+`init_mission.py` and `init_lite.py` reject a matching residual context unless
+`--reentry-disposition resume_existing` and `--reentry-rationale` are supplied. The
+accepted decision is recorded at `mission.json.shared_context.reentry_decision`.
 
 `mission.json.shared_context` is the runtime index. When present, it includes:
 
@@ -213,7 +371,7 @@ logs.
 
 Sparse evidence categories:
 
-- acceptance passed or failed
+- `acceptance_passed` or `acceptance_failed`
 - blocker
 - user feedback
 - decision
@@ -230,6 +388,23 @@ Each line is one JSON object with:
 - `summary`
 - `task_id`
 - `payload`
+
+New qualified acceptance events are fail-closed. Their payload must contain a
+non-empty, distinct `acceptance_ids` list; every id must exist in the Mission, and the
+event `task_id` must name a node whose own declaration or success-critical ancestor
+covers those ids. This validates shape and references only. The Agent or reviewer,
+not the script, remains responsible for deciding whether the acceptance claim is true.
+
+Legacy `acceptance` remains readable. A complete legacy record is classified using the
+same reference rules; an incomplete one is retained as `unclassified_writeback` with
+an audit warning and is never silently upgraded. `decision_applied` is runtime-reserved
+and cannot be appended through the public evidence command.
+
+Validated writeback and countable progress are different. Only qualified acceptance
+and a runtime-applied path decision count as positive progress. Blockers, failures,
+feedback, stops, risk changes, failed acceptance, and unapplied decision recommendations
+are constraint deltas. State changes, artifacts, key findings, and unknown event types
+remain state or unclassified writeback unless a qualified evidence event is written.
 
 `stop_report` evidence events use English payload keys with Chinese user-facing
 content:

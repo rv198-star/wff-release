@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -88,6 +90,16 @@ def safe_compose_version_probe(command: list[str], timeout_seconds: int = 5) -> 
         return None
 
 
+def detect_pnpm_command() -> list[str]:
+    pnpm = shutil.which("pnpm")
+    if pnpm:
+        return [pnpm]
+    corepack = shutil.which("corepack")
+    if corepack:
+        return [corepack, "pnpm"]
+    return []
+
+
 def detect_compose_command() -> list[str]:
     docker = shutil.which("docker")
     if docker:
@@ -158,6 +170,116 @@ def command_has_transient_network_failure(payload: dict[str, Any]) -> bool:
             "network timeout",
         )
     )
+
+
+FRONTEND_RUNTIME_EVIDENCE_MARKER_RE = re.compile(
+    r"^\s*//\s*@wff:frontend-runtime-evidence\s+page_id=(?P<page>[A-Za-z0-9_.:-]+)\s+interaction_id=(?P<interaction>[A-Za-z0-9_.:-]+)(?:\s+operation_id=(?P<operation>[A-Za-z0-9_.:-]+))?\s*$",
+    re.MULTILINE,
+)
+FRONTEND_CONSUMER_JOURNEY_MARKER_RE = re.compile(
+    r"^\s*//\s*@wff:frontend-consumer-journey\s+journey_id=(?P<journey>[A-Za-z0-9_.:-]+)\s+entry_route=(?P<entry>\S+)\s+outcome=(?P<outcome>[A-Za-z0-9_.:-]+)(?:\s+persona_id=(?P<persona>[A-Za-z0-9_.:-]+))?\s*$",
+    re.MULTILINE,
+)
+FRONTEND_CLEAN_FIRST_USE_MARKER_RE = re.compile(
+    r"^\s*//\s*@wff:frontend-clean-first-use\s+journey_id=(?P<journey>[A-Za-z0-9_.:-]+)(?:\s+persona_id=(?P<persona>[A-Za-z0-9_.:-]+))?\s*$",
+    re.MULTILINE,
+)
+FRONTEND_CONSUMER_PAGE_MARKER_RE = re.compile(
+    r"^\s*//\s*@wff:frontend-consumer-page\s+page_id=(?P<page>[A-Za-z0-9_.:-]+)\s*$",
+    re.MULTILINE,
+)
+FRONTEND_BROWSER_SUBSTITUTION_PATTERNS = (
+    ("page.route", re.compile(r"\bpage\.route\s*\(")),
+    ("context.route", re.compile(r"\bcontext\.route\s*\(")),
+    ("route.fulfill", re.compile(r"\broute\.fulfill\s*\(")),
+    ("route.abort", re.compile(r"\broute\.abort\s*\(")),
+    ("page.setContent", re.compile(r"\bpage\.setContent\s*\(")),
+    ("page.setExtraHTTPHeaders", re.compile(r"\bpage\.setExtraHTTPHeaders\s*\(")),
+    ("context.setExtraHTTPHeaders", re.compile(r"\bcontext\.setExtraHTTPHeaders\s*\(")),
+    ("extraHTTPHeaders", re.compile(r"\bextraHTTPHeaders\b")),
+    ("phase3-role-session", re.compile(r"phase3-role-session")),
+    ("x-phase3-auth-context", re.compile(r"x-phase3-auth-context", re.IGNORECASE)),
+    ("VITE_PHASE3_ALLOW_AUTH_CONTEXT_HEADER", re.compile(r"VITE_PHASE3_ALLOW_AUTH_CONTEXT_HEADER")),
+    ("direct-auth-session-endpoint", re.compile(r"[\"']/auth/session[\"']")),
+    ("document.cookie", re.compile(r"\bdocument\.cookie\b")),
+)
+
+
+def sha256_file(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def frontend_runtime_evidence_markers(text: str) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for match in FRONTEND_RUNTIME_EVIDENCE_MARKER_RE.finditer(text):
+        row = {"page_id": match.group("page"), "interaction_id": match.group("interaction")}
+        if match.group("operation"):
+            row["operation_id"] = match.group("operation")
+        rows.append(row)
+    return rows
+
+
+def frontend_consumer_journey_markers(text: str) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for match in FRONTEND_CONSUMER_JOURNEY_MARKER_RE.finditer(text):
+        row = {
+            "journey_id": match.group("journey"),
+            "entry_route": match.group("entry"),
+            "outcome": match.group("outcome"),
+        }
+        if match.group("persona"):
+            row["persona_id"] = match.group("persona")
+        rows.append(row)
+    return rows
+
+
+def frontend_clean_first_use_markers(text: str) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for match in FRONTEND_CLEAN_FIRST_USE_MARKER_RE.finditer(text):
+        row = {"journey_id": match.group("journey")}
+        if match.group("persona"):
+            row["persona_id"] = match.group("persona")
+        rows.append(row)
+    return rows
+
+
+def frontend_consumer_page_markers(text: str) -> list[dict[str, str]]:
+    return [{"page_id": match.group("page")} for match in FRONTEND_CONSUMER_PAGE_MARKER_RE.finditer(text)]
+
+
+def frontend_browser_substitution_findings(text: str) -> list[str]:
+    return [label for label, pattern in FRONTEND_BROWSER_SUBSTITUTION_PATTERNS if pattern.search(text)]
+
+
+def playwright_json_summary(payload: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        return {"valid": False, "expected": 0, "unexpected": 0, "skipped": 0, "flaky": 0, "project_names": []}
+    stats = payload.get("stats") if isinstance(payload.get("stats"), Mapping) else {}
+    config = payload.get("config") if isinstance(payload.get("config"), Mapping) else {}
+    projects = config.get("projects") if isinstance(config.get("projects"), list) else []
+    expected = int(stats.get("expected", 0) or 0)
+    unexpected = int(stats.get("unexpected", 0) or 0)
+    skipped = int(stats.get("skipped", 0) or 0)
+    flaky = int(stats.get("flaky", 0) or 0)
+    names = [str(project.get("name") or "").strip() for project in projects if isinstance(project, Mapping) and str(project.get("name") or "").strip()]
+    return {
+        "valid": bool(expected > 0 and unexpected == 0),
+        "expected": expected,
+        "unexpected": unexpected,
+        "skipped": skipped,
+        "flaky": flaky,
+        "project_names": names,
+    }
+
+
+def parse_playwright_json_output(stdout: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        payload = json.loads(str(stdout or ""))
+    except json.JSONDecodeError:
+        return {}, playwright_json_summary(None)
+    if not isinstance(payload, dict):
+        return {}, playwright_json_summary(None)
+    return payload, playwright_json_summary(payload)
 
 
 def command_has_host_port_bind_conflict(report: Mapping[str, Any] | None) -> bool:

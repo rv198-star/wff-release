@@ -175,6 +175,7 @@ def write_semantic_realization_ledger(
         trace_registry_final=trace_registry_final,
         commitment_union_verification=authority["verification"],
         authority_source_paths=authority["source_paths"],
+        authority_delta_ledger=load_json_object(output_dir / ".phase3-evidence" / "p3-authority-delta-ledger.json"),
     )
     write_json(output_dir / "semantic-realization-ledger.json", ledger)
     return ledger

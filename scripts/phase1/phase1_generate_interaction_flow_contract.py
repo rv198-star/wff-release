@@ -339,11 +339,14 @@ def parse_surface_pages(prototype_spec_text: str) -> list[dict[str, object]]:
         readiness_status = normalize_text(row.get("readiness_status") or "")
         blocked_reason = normalize_text(row.get("blocked_reason") or "")
         primary_action = normalize_text(row.get("primary_action") or "")
+        canonical_page_id = normalize_text(row.get("canonical_page_id") or "")
+        route_slug = slugify(route.strip("/")) if route.strip("/") else ""
+        page_slug = canonical_page_id or route_slug or slugify(page_name)
         pages.append(
             {
                 "page_id": page_id,
                 "page_name": page_name,
-                "page_slug": slugify(page_name),
+                "page_slug": page_slug,
                 "route": route,
                 "page_blueprint_type": page_blueprint_type,
                 "primary_actor": primary_actor,

@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+## v1.8.0
+
+发布 tag：`v1.8.0`
+
+发布日期：2026-08-21
+
+### 版本定位
+
+这是 1.x Stable 线的根因恢复语义 minor release。新增 `Root-Cause Replacement / 根因替换`
+认知原语，补齐 Anti-Spiral 在停止局部修补之后的恢复动作；它是兼容性的能力新增，不是
+新的独立 Skill、root-cause finder 或 mandatory refactor。
+
+### Root-Cause Replacement
+
+- 根因与 canonical owner 已有证据确认后，优先通过 delete / rewrite / equal-replace 直接
+  替换错误规则，并同步移除由旧模型产生的冗余 exception、fallback 或 override。
+- canonical mainline 直接描述目标行为、有效状态、controller、contract 和成功路径；真实
+  boundary / veto / safety / authority 继续使用明确禁止性语言。
+- 根因仍是假设时先服从 Evidence / Claim Ceiling；明确局部 bug 继续按局部根因修复，不把
+  本原语解释成大范围重构许可。
+
+### 方法链与 Runtime 接入
+
+- Anti-Spiral 继续负责刹车，Root-Cause Replacement 只接管根因确认后的 recovery shape。
+- WAE 在 evidence-confirmed controller mismatch 后重写正确 owner；迁移 adapter 只服务真实
+  外部 contract 或 staged migration，并需要 removal condition。
+- TVG 遇到错误 canonical model 时先退出 value-gain loop，稳定上游后再恢复强化。
+- `using-mindthus` 不新增 judgment owner；`before-continue` primitive activation 增加
+  Root-Cause Replacement reminder，但 checker 继续保持 `shape_only`，不判断真正根因。
+
+### 兼容性
+
+- Stable package / plugin manifest 使用 `1.8.0`。
+- TPlan runtime generation 保持 `1.5.4` / `mindthus-v1.5.4`。
+- WFF bundled payload pin：`42887387800806b08796c5972590272414c28c97`。
+
 ## v1.4.1
 
 发布日期：2026-06-29

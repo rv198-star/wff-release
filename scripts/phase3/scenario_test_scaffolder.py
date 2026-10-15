@@ -38,6 +38,7 @@ from phase3.test_scaffolder_common import (
 from phase3.scenario_replay_test_common import (
     first_matching_failure_code,
     literal_ts_value,
+    provider_runtime_boundary_failures,
     response_data_example_record,
     response_is_array,
     scalar_business_value_fields,
@@ -252,14 +253,68 @@ def preferred_failure_code(
     return ""
 
 
+def endpoint_uses_return_existing_replay(
+    row: dict[str, object],
+    *,
+    operation_id: str = "",
+    p2_authority: dict[str, object] | None = None,
+) -> bool:
+    rule = str(row.get("idempotency_rule") or "").strip().lower().replace("_", "-")
+    if "return-existing" in rule or "return existing" in rule:
+        return True
+    authority = p2_authority or {}
+    durable_rows = authority.get("durable_persistence_identity_decisions", [])
+    if not isinstance(durable_rows, list):
+        return False
+    return any(
+        isinstance(item, dict)
+        and str(item.get("operation_id") or "").strip() == operation_id
+        and str(item.get("replay_behavior") or "").strip().lower().replace("_", "-") == "return-existing"
+        for item in durable_rows
+    )
+
+
+def explicit_user_input_fields_for_operation(
+    p2_authority: dict[str, object] | None,
+    operation_id: str,
+) -> tuple[bool, list[str]]:
+    authority = p2_authority or {}
+    rows = authority.get("data_and_interaction_decisions", [])
+    if not isinstance(rows, list):
+        return False, []
+    saw_binding = False
+    fields: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict) or str(row.get("operation_id") or "").strip() != operation_id:
+            continue
+        bindings = row.get("interaction_bindings", [])
+        if not isinstance(bindings, list):
+            continue
+        for binding in bindings:
+            if not isinstance(binding, dict):
+                continue
+            mappings = binding.get("request_field_mapping", [])
+            if not isinstance(mappings, list):
+                continue
+            saw_binding = True
+            for mapping in mappings:
+                if not isinstance(mapping, dict) or str(mapping.get("source") or "").strip() != "user-input":
+                    continue
+                field = str(mapping.get("contract_field") or "").strip()
+                if field and field not in fields:
+                    fields.append(field)
+    return saw_binding, fields
+
+
 def scenario_failure_variants(
     endpoint_rows: list[dict[str, object]],
     operation_ids: list[str],
     *,
     behavior_card_models: dict[str, dict[str, object]] | None = None,
+    p2_authority: dict[str, object] | None = None,
 ) -> list[dict[str, str]]:
     variant_specs = [
-        ("invalid request", ("400",), re.compile(r"(invalid|validation|required|missing)")),
+        ("invalid request", ("400",), re.compile(r"(invalid|validation|required|missing|bad[-_ ]?request|malformed)")),
         ("permission", ("403",), re.compile(r"(forbidden|permission|tenant)")),
         ("conflict", ("409",), re.compile(r"(conflict|stale|duplicate|version)")),
         ("dependency", ("5",), re.compile(r"(db|database|dependency|unavailable|timeout)")),
@@ -276,8 +331,31 @@ def scenario_failure_variants(
                     continue
                 if not failure_has_runtime_signal_for_endpoint(row, failure, behavior_card_models=behavior_card_models):
                     continue
-                if label == "invalid request" and not field_invalid_failure_has_concrete_payload_shape(
-                    row.get("request_body_example", {}), failure
+                if label == "invalid request":
+                    if not code_pattern.search(code.lower()):
+                        continue
+                    if not field_invalid_failure_has_concrete_payload_shape(row.get("request_body_example", {}), failure):
+                        continue
+                    has_interaction_authority, user_input_fields = explicit_user_input_fields_for_operation(
+                        p2_authority,
+                        operation_id,
+                    )
+                    if has_interaction_authority:
+                        from phase3.impl_verification_pack import _failure_field_hint
+
+                        if not _failure_field_hint(
+                            code,
+                            user_input_fields,
+                            preferred_user_input_fields=user_input_fields,
+                        ):
+                            continue
+                if (
+                    label == "conflict"
+                    and endpoint_uses_return_existing_replay(
+                        row,
+                        operation_id=operation_id,
+                        p2_authority=p2_authority,
+                    )
                 ):
                     continue
                 if status.startswith(status_prefixes) or code_pattern.search(code):
@@ -857,7 +935,7 @@ def render_read_bundle_body(
     literal_fields = scalar_business_value_fields(endpoint_rows, final_operation_id)
     enriched_context_fields = dedupe_preserve_order([*context_fields, *shared_fields])
     const_lines = [
-        f"const expectedContextFields = {json.dumps(enriched_context_fields, ensure_ascii=False)};",
+        f"const expectedContextFields: string[] = {json.dumps(enriched_context_fields, ensure_ascii=False)};",
         f"const finalDataFields = {json.dumps(final_fields, ensure_ascii=False)};",
     ]
     if not shared_fields and not literal_fields:
@@ -910,7 +988,6 @@ def render_read_bundle_body(
     lines.extend([
         "    for (const field of finalDataFields) {",
         "      expect(finalRecord).toHaveProperty(field);",
-        "      expect(String(finalRecord[field] ?? '')).not.toHaveLength(0);",
         "    }",
     ])
     for field in shared_fields:
@@ -937,7 +1014,7 @@ def render_operation_chain_body(
     endpoint_rows: list[dict[str, object]],
 ) -> tuple[list[str], list[str]]:
     const_lines = [
-        f"const expectedContextFields = {json.dumps(context_fields, ensure_ascii=False)};",
+        f"const expectedContextFields: string[] = {json.dumps(context_fields, ensure_ascii=False)};",
         f"const finalDataFields = {json.dumps(final_fields, ensure_ascii=False)};",
         f'const finalRecordKey = "{final_record_key}";',
         f'const finalIdField = "{final_id_field}";',
@@ -986,6 +1063,41 @@ def render_operation_chain_body(
         ],
     ]
     return const_lines, lines
+
+
+def render_provider_deferred_body(
+    operation_ids: list[str],
+    *,
+    boundary_operation_id: str,
+    error_code: str,
+) -> tuple[list[str], list[str]]:
+    return [
+        f'const providerBoundaryOperationId = "{boundary_operation_id}";',
+        f'const providerBoundaryErrorCode = "{error_code}";',
+    ], [
+        "    const context: Record<string, unknown> = {};",
+        "    const boundaryIndex = operationIds.indexOf(providerBoundaryOperationId);",
+        "    expect(boundaryIndex).toBeGreaterThanOrEqual(0);",
+        "    const completedResults: unknown[] = [];",
+        "    for (const operationId of operationIds.slice(0, boundaryIndex)) {",
+        "      const payload = applyRuntimeContext(buildBehaviorCardPayload(operationId, buildOperationPayload(operationId), behaviorEvidenceKeysByOperation), context);",
+        "      const result = await invokeHttpOperation(runtime, operationId, payload);",
+        "      completedResults.push(result);",
+        "      absorbEnvelopeContext(result, context);",
+        "      const persistenceEvidence = await collectPersistenceRoundTripEvidence(runtime, operationId, result);",
+        "      if (await requiresPersistenceRoundTripEvidence(runtime, operationId)) {",
+        "        expect(persistenceEvidence.some((entry) => entry.mismatchedFieldNames.length === 0)).toBe(true);",
+        "      }",
+        "    }",
+        "    const boundaryPayload = applyRuntimeContext(buildBehaviorCardPayload(providerBoundaryOperationId, buildOperationPayload(providerBoundaryOperationId), behaviorEvidenceKeysByOperation), context);",
+        "    const beforeRows = await collectScenarioState(runtime);",
+        "    const error = await captureApiError(invokeHttpOperation(runtime, providerBoundaryOperationId, boundaryPayload));",
+        "    const afterRows = await collectScenarioState(runtime);",
+        "    expect(error.status).toBe(503);",
+        "    expect(error.envelope.error_code).toBe(providerBoundaryErrorCode);",
+        "    expect(afterRows).toEqual(beforeRows);",
+        "    expect(completedResults).toHaveLength(boundaryIndex);",
+    ]
 
 
 def render_generic_success_body(
@@ -1151,6 +1263,7 @@ def render_scenario_test(
     endpoint_rows: list[dict[str, object]] | None = None,
     unresolved_operation_ids: list[str] | None = None,
     behavior_card_models: dict[str, dict[str, object]] | None = None,
+    p2_authority: dict[str, object] | None = None,
 ) -> str:
     scenario_name = str(row["scenario"])
     scenario_id, label = scenario_identifier(scenario_name)
@@ -1174,15 +1287,32 @@ def render_scenario_test(
         model = (behavior_card_models or {}).get(operation_id)
         if model:
             behavior_mapping_lines.extend(render_behavior_step_test_mapping(model)["scenario"].splitlines())
-    const_lines, body_lines = render_body(
-        row,
-        operation_ids=operation_ids,
-        endpoint_rows=endpoint_rows,
-        failure_code=failure_code,
-        behavior_card_models=behavior_card_models,
+    provider_boundaries = provider_runtime_boundary_failures(p2_authority)
+    provider_boundary = next(
+        ((operation_id, provider_boundaries[operation_id]) for operation_id in operation_ids if operation_id in provider_boundaries),
+        None,
     )
+    if provider_boundary is not None:
+        const_lines, body_lines = render_provider_deferred_body(
+            operation_ids,
+            boundary_operation_id=provider_boundary[0],
+            error_code=provider_boundary[1],
+        )
+    else:
+        const_lines, body_lines = render_body(
+            row,
+            operation_ids=operation_ids,
+            endpoint_rows=endpoint_rows,
+            failure_code=failure_code,
+            behavior_card_models=behavior_card_models,
+        )
     supplemental_failure_lines = render_supplemental_failure_variant_tests(
-        scenario_failure_variants(endpoint_rows, operation_ids, behavior_card_models=behavior_card_models)
+        scenario_failure_variants(
+            endpoint_rows,
+            operation_ids,
+            behavior_card_models=behavior_card_models,
+            p2_authority=p2_authority,
+        )
     )
     include_failure_code = any("failureCode" in line for line in const_lines + body_lines)
     generated_body_text = "\n".join([*behavior_mapping_lines, *const_lines, *body_lines, *supplemental_failure_lines])
@@ -1200,7 +1330,7 @@ def render_scenario_test(
             f"const behaviorEvidenceKeysByOperation = {json.dumps(behavior_evidence_key_map(operation_ids, behavior_card_models), ensure_ascii=False)};",
             *([f'const failureCode = "{failure_code}";'] if include_failure_code else []),
             *typescript_behavior_card_payload_helper_lines(map_name="behaviorEvidenceKeysByOperation"),
-            *(scenario_state_collector_lines() if "buildFailurePayload" in generated_body_text else []),
+            *(scenario_state_collector_lines() if "buildFailurePayload" in generated_body_text or "collectScenarioState" in generated_body_text else []),
             *behavior_mapping_lines,
             *const_lines,
             "",
@@ -1245,6 +1375,7 @@ def scaffold_scenario_tests(
     esp_text: str = "",
     openapi_spec: dict[str, object] | None = None,
     behavior_card_models: dict[str, dict[str, object]] | None = None,
+    p2_authority: dict[str, object] | None = None,
 ) -> dict[str, object]:
     rows = parse_scenario_rows(stage_03_text)
     source_endpoint_rows = parse_api_endpoint_rows(esp_text) if esp_text.strip() else []
@@ -1279,6 +1410,7 @@ def scaffold_scenario_tests(
                 endpoint_rows=render_endpoint_rows,
                 unresolved_operation_ids=unresolved_operation_ids,
                 behavior_card_models=behavior_card_models,
+                p2_authority=p2_authority,
             ),
             encoding="utf-8",
         )

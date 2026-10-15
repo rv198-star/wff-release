@@ -43,12 +43,15 @@ def build_runbook(
     auth_precondition = (
         "- Provision external IdP / OIDC credentials and inject them through environment variables."
         if auth_integration_mode == "external-idp"
-        else "- Provision signing/session secrets for the selected real auth boundary and verify tenant-scoped claim/session enforcement."
+        else (
+            "- Provision signing/session secrets for the selected real auth boundary and verify tenant-scoped claim/session enforcement. "
+            "If the P3 local product-session adapter is selected, explicitly set `PHASE3_LOCAL_AUTH_ENABLED=true` and provision only scrypt-hashed users through `PHASE3_AUTH_USERS_JSON`; otherwise keep the adapter disabled."
+        )
     )
     auth_smoke_check = (
         "- Verify auth redirect / session bootstrap succeeds."
         if auth_integration_mode == "external-idp"
-        else "- Verify bearer/session authentication succeeds and tenant-scoped claims are accepted."
+        else "- Verify product-facing session entry succeeds, browser business traffic reaches the API through the BFF-managed Bearer session, and tenant-scoped claims are accepted without browser Authorization or Phase-3 auth-context injection."
     )
     return localize_phase3_delivery_runbook(
         "\n".join(
@@ -111,9 +114,10 @@ def build_runtime_compose_env_example(tech_stack_text: str) -> str:
         if auth_integration_mode == "external-idp"
         else [
             "AUTH_TOKEN_SECRET=replace-me",
+            "PHASE3_AUTH_USERS_JSON=[]",
         ]
     )
-    auth_lines = [*auth_lines, "PHASE3_ALLOW_AUTH_CONTEXT_HEADER=false"]
+    auth_lines = [*auth_lines, "PHASE3_LOCAL_AUTH_ENABLED=false", "PHASE3_ALLOW_AUTH_CONTEXT_HEADER=false"]
     return "\n".join(
         [
             "POSTGRES_USER=postgres",
@@ -127,7 +131,7 @@ def build_runtime_compose_env_example(tech_stack_text: str) -> str:
             "WEB_PORT=3100",
             "WEB_API_BASE_URL=http://api:3000",
             "VITE_API_BASE_URL=/api",
-            "VITE_PHASE3_ALLOW_AUTH_CONTEXT_HEADER=false",
+            "WFF_SESSION_COOKIE_SECURE=false",
             "API_HOST_PORT=53000",
             "WEB_HOST_PORT=53100",
             "POSTGRES_HOST_PORT=55432",
@@ -180,9 +184,14 @@ def build_compose_prod(tech_stack_text: str) -> str:
         if auth_integration_mode == "external-idp"
         else [
             "      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET:?AUTH_TOKEN_SECRET is required}",
+            "      PHASE3_AUTH_USERS_JSON: ${PHASE3_AUTH_USERS_JSON:-[]}",
         ]
     )
-    auth_env_lines = [*auth_env_lines, "      PHASE3_ALLOW_AUTH_CONTEXT_HEADER: ${PHASE3_ALLOW_AUTH_CONTEXT_HEADER:-false}"]
+    auth_env_lines = [
+        *auth_env_lines,
+        "      PHASE3_LOCAL_AUTH_ENABLED: ${PHASE3_LOCAL_AUTH_ENABLED:-false}",
+        "      PHASE3_ALLOW_AUTH_CONTEXT_HEADER: ${PHASE3_ALLOW_AUTH_CONTEXT_HEADER:-false}",
+    ]
     lines = [
         "services:",
         "  api:",
@@ -227,6 +236,7 @@ def build_compose_prod(tech_stack_text: str) -> str:
         "      WEB_PORT: ${WEB_PORT:-3100}",
         "      WEB_API_BASE_URL: ${WEB_API_BASE_URL:-http://api:3000}",
         "      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}",
+        "      WFF_SESSION_COOKIE_SECURE: ${WFF_SESSION_COOKIE_SECURE:-true}",
         "      CONTAINER_HEALTH_PORT: ${WEB_PORT:-3100}",
         "      CONTAINER_HEALTH_PATH: /",
         "    ports:",

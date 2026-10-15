@@ -421,7 +421,7 @@ def authority_table_specs(context: dict[str, object]) -> list[dict[str, object]]
                 field_rows.append(
                     [
                         name,
-                        str(field.get("type") or field.get("data_type") or "string").strip(),
+                        str(field.get("storage_type") or field.get("type") or field.get("data_type") or "string").strip(),
                         bool(field.get("nullable", False)),
                         str(field.get("constraint") or field.get("constraints") or "authority-defined").strip(),
                         str(field.get("index") or field.get("index_hint") or "authority-defined").strip(),
@@ -431,6 +431,22 @@ def authority_table_specs(context: dict[str, object]) -> list[dict[str, object]]
         fk_fields = [str(row[0]) for row in field_rows if "fk" in str(row[3]).casefold()]
         unique_fields = [str(row[0]) for row in field_rows if "unique" in str(row[3]).casefold()]
         first_data = data_decisions[0] if data_decisions else {}
+        accepted_unique_constraints = list(
+            dict.fromkeys(
+                text
+                for decision in data_decisions
+                for text in [_authority_constraint_text(decision.get("unique_constraints"))]
+                if text and text != "none"
+            )
+        )
+        accepted_composite_indexes = list(
+            dict.fromkeys(
+                text
+                for decision in data_decisions
+                for text in [_authority_constraint_text(decision.get("composite_indexes"))]
+                if text and text != "none"
+            )
+        )
         specs.append(
             {
                 "object_name": aggregate_id,
@@ -443,8 +459,8 @@ def authority_table_specs(context: dict[str, object]) -> list[dict[str, object]]
                 "writer_service_id": str(aggregate.get("writer_service_id") or "").strip(),
                 "pk": ", ".join(pk_fields) or str(first_data.get("pk") or "none").strip(),
                 "fk": ", ".join(fk_fields) or str(first_data.get("fk") or "none").strip(),
-                "unique_constraints": ", ".join(unique_fields) or _authority_constraint_text(first_data.get("unique_constraints")),
-                "composite_indexes": _authority_constraint_text(first_data.get("composite_indexes")),
+                "unique_constraints": ", ".join(unique_fields) or "; ".join(accepted_unique_constraints) or "none",
+                "composite_indexes": "; ".join(accepted_composite_indexes) or "none",
                 "pii_level": str(first_data.get("pii_level") or aggregate.get("pii_level") or "authority-bound").strip(),
                 "sensitive_fields": str(first_data.get("sensitive_fields") or aggregate.get("sensitive_fields") or "authority-bound").strip(),
                 "masking_or_encryption": str(first_data.get("masking_or_encryption") or aggregate.get("masking_or_encryption") or "authority-bound").strip(),
@@ -1725,6 +1741,89 @@ def build_binding_and_trace_rows(
             ]
         )
     return binding_rows, enrichment_rows, traceability_rows
+
+
+def build_terminal_role_access_rows(
+    *,
+    phase1_page_map: list[dict[str, str]],
+    phase1_interactions: list[dict[str, str]],
+    binding_rows: list[list[str]],
+    endpoint_specs: list[ServiceSpec],
+) -> list[list[str]]:
+    """Bind P1 terminal-role/data authority to exact P2 operation/API bindings.
+
+    The matrix is deliberately an authority projection, not IAM implementation.
+    P1 owns accepted role/page/object truth; P2 binds that truth to the exact
+    operation/API boundary and requires later service-boundary enforcement.
+    """
+    page_by_id = {
+        str(row.get("page_id") or "").strip(): row
+        for row in phase1_page_map
+        if str(row.get("page_id") or "").strip()
+    }
+    page_id_by_interaction = {
+        str(row.get("interaction_id") or "").strip(): str(row.get("page_id") or "").strip()
+        for row in phase1_interactions
+        if str(row.get("interaction_id") or "").strip()
+    }
+    operation_by_http = {
+        (str(spec.path).strip(), str(spec.method).strip().upper()): str(spec.endpoint_name).strip()
+        for spec in endpoint_specs
+        if str(spec.path).strip() and str(spec.endpoint_name).strip()
+    }
+    rows: list[list[str]] = []
+    for binding in binding_rows:
+        if len(binding) < 19:
+            continue
+        interaction_id = str(binding[1]).strip()
+        page_id = page_id_by_interaction.get(interaction_id, "")
+        page = page_by_id.get(page_id, {})
+        endpoint = str(binding[6]).strip()
+        method = str(binding[7]).strip().upper()
+        operation_id = operation_by_http.get((endpoint, method), "")
+        page_roles = split_inline_values(str(page.get("allowed_roles") or ""))
+        binding_roles = split_inline_values(str(binding[11]))
+        roles = page_roles or binding_roles
+        entry_roles = set(split_inline_values(str(page.get("workspace_entry_roles") or "")))
+        visible_objects = ", ".join(split_inline_values(str(page.get("business_objects") or ""))) or "review-bound"
+        denied_behavior = str(page.get("denied_behavior") or "").strip() or "review-bound"
+        readiness = str(binding[17]).strip() or "review-bound"
+        blocked_reason = str(binding[18]).strip()
+        if blocked_reason in {"", "—", "-", "none", "n/a"}:
+            blocked_reason = ""
+        page_role_set = set(page_roles)
+        binding_role_set = set(binding_roles)
+        if page_role_set and binding_role_set and page_role_set != binding_role_set:
+            readiness = "review-bound"
+            blocked_reason = blocked_reason or "P1 page allowed_roles and P2 interaction RBAC projection diverge"
+        if not operation_id:
+            readiness = "review-bound"
+            blocked_reason = blocked_reason or "exact P2 operation binding is unresolved"
+        if not roles:
+            roles = ["review-bound"]
+            readiness = "review-bound"
+            blocked_reason = blocked_reason or "accepted terminal role is missing"
+        for role in roles:
+            rows.append(
+                [
+                    role,
+                    page_id or "review-bound",
+                    str(page.get("route") or "").strip() or "review-bound",
+                    "yes" if role in entry_roles else "no",
+                    interaction_id or "review-bound",
+                    operation_id or "review-bound",
+                    endpoint or "review-bound",
+                    method or "review-bound",
+                    str(binding[4]).strip() or "review-bound",
+                    visible_objects,
+                    denied_behavior,
+                    "p1-role+p2-operation-binding",
+                    "service-boundary-role-enforcement-required" if readiness == "ready" else "review-bound",
+                    readiness,
+                    blocked_reason or "—",
+                ]
+            )
+    return rows
 
 
 def service_event_name(service: ServiceSpec) -> str:

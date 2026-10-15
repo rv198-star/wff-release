@@ -57,6 +57,11 @@
   - API endpoint draft includes for each mutating endpoint: HTTP method, path, key request body fields (≥3 fields), primary success response shape, and at least one explicit failure/error semantic; path-only drafts do not pass this gate
   - API endpoint draft records response_profile, retryability_policy, and idempotency_rule for implementation-facing endpoints
   - response/error handling differentiates `business_error` from `system_error`
+  - terminal-facing success responses and read models are consumer-outcome sufficient: the intended persona can recognize the selected durable object with accepted human/business labels or context and can consume the meaningful success result needed for the next task; technical identity/status/listability alone does not qualify
+  - reference-shaped result fields (`*_ref`, `*_id`, or equivalent) are not treated as human-readable content unless accepted authority explicitly says the value itself is consumer-readable; otherwise the contract provides an accepted resolver/read projection or keeps the outcome review-bound
+  - image/file inputs have an accepted materialization/storage path that yields a backend/provider-readable resource reference; browser-local filename/size or synthetic pseudo-reference values do not qualify as file materialization
+  - when P1 exposes interaction-backed terminal roles, `terminal_role_access_matrix` binds every accepted role/page interaction to the exact P2 operation/API boundary, visible business objects, denied behavior, and service-boundary enforcement posture
+  - distinct accepted terminal roles are not merged into a convenience/super-role; missing or contradictory role/operation/data truth stays review-bound instead of being invented in P2/P3
   - aggregate lifecycle and write ownership remain aligned
   - each authoritative business mutation has one primary command boundary or an explicit non-overlapping multi-step split
   - public-boundary names are registry-closed across schema, contracts, endpoints, and handoff notes
@@ -89,7 +94,7 @@
 4. build scenario coverage matrix across all known business scenarios
 5. define schema draft, storage strategy, and tradeoffs
 6. define access-pattern and index strategy for dominant read/write paths plus schema migration/version-tagging posture where rollout sequencing matters
-7. define interface contracts, canonical response/error contract, API endpoint draft, scenario GWT-compatible acceptance structure, and error/compatibility behavior
+7. define interface contracts, canonical response/error contract, API endpoint draft, terminal-role access matrix, scenario GWT-compatible acceptance structure, and error/compatibility behavior
 8. define interaction flow, security posture, and dependency-impact notes
 9. evaluate critical external dependency realizability and substitute-boundary options
 10. define stack/deployment assumptions, build materially different architecture alternatives, and fill the technology selection evaluation matrix
@@ -105,6 +110,7 @@
 - interface contract set
 - canonical response/error contract
 - API endpoint draft
+- terminal-role access matrix
 - lifecycle and command consistency checks
 - public-boundary registry closure notes
 - interaction flow notes
@@ -129,7 +135,7 @@
 - Stage-04 does not need to invent hot-path indexes or response/error envelope semantics from scratch
 - Stage-04 does not need to infer the dominant bottleneck, why baseline lost, or which stronger candidate won
 - Stage-04 does not need to guess whether a critical dependency is direct, substitute-boundary, or still blocked/review-bound
-- Stage-04 does not need to repair ownerless lifecycle states, overlapping command endpoints, or dangling public-boundary names
+- Stage-04 does not need to repair ownerless lifecycle states, overlapping command endpoints, dangling public-boundary names, or re-infer terminal-role operation/data boundaries from frontend behavior
 - all known business scenarios are covered, even if only critical ones are diagrammed later
 - critical, failure-path, and concurrent-conflict scenarios remain GWT-compatible rather than collapsing into unstructured acceptance prose
 - unresolved items and provisional content are explicit

@@ -14,8 +14,9 @@ from phase3.ui_locale import normalize_role_display_name
 
 
 LIFECYCLE_TRIGGERS = {"page_load", "route_enter", "handoff_resume"}
+P3_REALIZATION_OPEN_STATUS = "p3-realization-open"
 NON_READY_STATUSES = {"blocked", "review-bound", "stale"}
-VALID_READINESS_STATUSES = {"ready", *NON_READY_STATUSES}
+VALID_READINESS_STATUSES = {"ready", P3_REALIZATION_OPEN_STATUS, *NON_READY_STATUSES}
 
 
 def load_json(path: Path | None) -> dict[str, Any]:
@@ -46,6 +47,32 @@ def _interaction_rows(page: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(rows, list) and rows:
         return [row for row in rows if isinstance(row, dict)]
     return []
+
+
+def _operation_catalog(ui_ia_contract: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    rows = ui_ia_contract.get("canonical_operation_catalog", [])
+    if not isinstance(rows, list):
+        return {}
+    return {
+        _clean_text(row.get("operation_id")): dict(row)
+        for row in rows
+        if isinstance(row, dict) and _clean_text(row.get("operation_id"))
+    }
+
+
+def _realization_open_candidates(
+    interaction: dict[str, Any],
+    operation_catalog: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if _interaction_status(interaction) != P3_REALIZATION_OPEN_STATUS:
+        return []
+    if _clean_text(interaction.get("authority_status")).lower() != "sufficient":
+        return []
+    operation_ids = _clean_list(interaction.get("operation_candidates"))
+    if not operation_ids:
+        operation_id = _clean_text(interaction.get("operation_id"))
+        operation_ids = [operation_id] if operation_id else []
+    return [operation_catalog[operation_id] for operation_id in operation_ids if operation_id in operation_catalog]
 
 
 def _interaction_status(row: dict[str, Any]) -> str:
@@ -152,6 +179,12 @@ def metric_definitions() -> dict[str, dict[str, Any]]:
 
 def compute_surface_contract_metrics(ui_ia_contract: dict[str, Any]) -> dict[str, Any]:
     pages = _page_rows(ui_ia_contract)
+    operation_catalog = _operation_catalog(ui_ia_contract)
+    business_data = ui_ia_contract.get("business_data_requirements") if isinstance(ui_ia_contract.get("business_data_requirements"), dict) else {}
+    read_model_reentry = bool(
+        business_data.get("context_reentry_required")
+        and str(business_data.get("read_model_status") or "").strip().lower() == "sufficient"
+    )
     core_pages = [page for page in pages if _is_core_surface(page)] or pages
     page_ids = [_clean_text(page.get("page_id")) or _clean_text(page.get("route")) for page in core_pages]
     page_id_set = {page_id for page_id in page_ids if page_id}
@@ -237,6 +270,8 @@ def compute_surface_contract_metrics(ui_ia_contract: dict[str, Any]) -> dict[str
             status = _interaction_status(interaction)
             interaction_id = _clean_text(interaction.get("interaction_id"))
             interaction_blocked_reason = _blocked_reason(interaction)
+            realization_candidates = _realization_open_candidates(interaction, operation_catalog)
+            realization_open = status == P3_REALIZATION_OPEN_STATUS and bool(realization_candidates)
             status_summary[status] = status_summary.get(status, 0) + 1
             if interaction_status_raw and status not in VALID_READINESS_STATUSES:
                 readiness_consistency_issues.append(
@@ -278,7 +313,7 @@ def compute_surface_contract_metrics(ui_ia_contract: dict[str, Any]) -> dict[str
                             "status": status,
                         }
                     )
-            elif interaction_blocked_reason:
+            elif interaction_blocked_reason and status != P3_REALIZATION_OPEN_STATUS:
                 readiness_consistency_issues.append(
                     {
                         "row_kind": "interaction",
@@ -294,23 +329,24 @@ def compute_surface_contract_metrics(ui_ia_contract: dict[str, Any]) -> dict[str
             for key in ("interaction_id", "region", "element_type", "interaction_pattern", "trigger_kind", "action_type"):
                 if not _clean_text(interaction.get(key)):
                     missing_dimensions.append(key)
-            for key in ("service_binding_id", "domain_service", "api_endpoint"):
-                if not _clean_text(interaction.get(key)):
-                    missing_dimensions.append(key)
+            if not realization_open:
+                for key in ("service_binding_id", "domain_service", "api_endpoint"):
+                    if not _clean_text(interaction.get(key)):
+                        missing_dimensions.append(key)
             trigger_kind = _clean_text(interaction.get("trigger_kind")).lower()
             if trigger_kind in LIFECYCLE_TRIGGERS:
                 if not _clean_text(interaction.get("display_field_set")) and not _clean_list(interaction.get("display_field_set")):
                     missing_dimensions.append("display_field_set")
-                if not _clean_text(interaction.get("response_field_mapping")):
+                if not realization_open and not _clean_text(interaction.get("response_field_mapping")):
                     missing_dimensions.append("response_field_mapping")
             else:
-                if not _clean_text(interaction.get("input_schema_ref")):
+                if not realization_open and not _clean_text(interaction.get("input_schema_ref")):
                     missing_dimensions.append("input_schema_ref")
-                if not _clean_text(interaction.get("request_field_mapping")):
+                if not realization_open and not _clean_text(interaction.get("request_field_mapping")):
                     missing_dimensions.append("request_field_mapping")
-                if not _clean_text(interaction.get("response_field_mapping")):
+                if not realization_open and not _clean_text(interaction.get("response_field_mapping")):
                     missing_dimensions.append("response_field_mapping")
-            if _clean_text(interaction.get("next_page_id")) or _clean_text(interaction.get("next_route")):
+            if (_clean_text(interaction.get("next_page_id")) or _clean_text(interaction.get("next_route"))) and not realization_open:
                 for key in ("flow_id", "step_id", "transition_condition", "failure_route"):
                     if not _clean_text(interaction.get(key)):
                         missing_dimensions.append(key)
@@ -329,16 +365,24 @@ def compute_surface_contract_metrics(ui_ia_contract: dict[str, Any]) -> dict[str
             next_page_id = _clean_text(interaction.get("next_page_id"))
             transition_condition = _clean_text(interaction.get("transition_condition"))
             handoff_context_fields = _clean_list(interaction.get("handoff_context_fields"))
-            if (
+            exact_flow = bool(
                 flow_id
-                and flow_id not in seen_flow_ids
                 and next_page_id
                 and next_page_id != page_id
                 and next_page_id in page_id_set
                 and transition_condition
                 and handoff_context_fields
                 and status == "ready"
-            ):
+            )
+            read_model_flow = bool(
+                realization_open
+                and read_model_reentry
+                and flow_id
+                and next_page_id
+                and next_page_id != page_id
+                and next_page_id in page_id_set
+            )
+            if flow_id not in seen_flow_ids and (exact_flow or read_model_flow):
                 seen_flow_ids.add(flow_id)
                 cross_page_flows.append(
                     {
@@ -346,21 +390,32 @@ def compute_surface_contract_metrics(ui_ia_contract: dict[str, Any]) -> dict[str
                         "from_page_id": page_id,
                         "interaction_id": interaction_id,
                         "next_page_id": next_page_id,
-                        "handoff_context_fields": handoff_context_fields,
+                        "handoff_context_fields": handoff_context_fields or ["read-model-reentry"],
+                        "continuity_mode": "exact-handoff" if exact_flow else "read-model-reentry",
                     }
                 )
 
         has_bound_interaction = any(
-            _clean_text(interaction.get("service_binding_id"))
-            and _clean_text(interaction.get("domain_service"))
-            and _clean_text(interaction.get("api_endpoint"))
+            (
+                _clean_text(interaction.get("service_binding_id"))
+                and _clean_text(interaction.get("domain_service"))
+                and _clean_text(interaction.get("api_endpoint"))
+            )
+            or bool(_realization_open_candidates(interaction, operation_catalog))
             for interaction in interactions
         )
         has_read_side_binding = any(
-            _clean_text(interaction.get("api_endpoint"))
-            and (
-                _clean_text(interaction.get("binding_mode")).lower() in {"read", "read_write"}
-                or _clean_text(interaction.get("trigger_kind")).lower() in LIFECYCLE_TRIGGERS
+            (
+                _clean_text(interaction.get("api_endpoint"))
+                and (
+                    _clean_text(interaction.get("binding_mode")).lower() in {"read", "read_write"}
+                    or _clean_text(interaction.get("trigger_kind")).lower() in LIFECYCLE_TRIGGERS
+                )
+            )
+            or any(
+                _clean_text(candidate.get("binding_mode")).lower() in {"read", "read_write"}
+                or _clean_text(candidate.get("method")).upper() == "GET"
+                for candidate in _realization_open_candidates(interaction, operation_catalog)
             )
             for interaction in interactions
         )
@@ -395,10 +450,28 @@ def compute_surface_contract_metrics(ui_ia_contract: dict[str, Any]) -> dict[str
             page_alignment_issues.append("allowed_roles_missing")
         page_has_role_alignment_signal = False
         for interaction in interactions:
-            visibility_rule = _clean_text(interaction.get("visibility_rule"))
-            rbac_policy = _clean_text(interaction.get("rbac_policy"))
+            realization_candidates = _realization_open_candidates(interaction, operation_catalog)
             error_state = _clean_text(interaction.get("error_state"))
             failure_codes = _clean_text(interaction.get("failure_codes"))
+            if realization_candidates:
+                comparable_roles = {
+                    _clean_text(role).lower()
+                    for candidate in realization_candidates
+                    for role in _clean_list(candidate.get("terminal_roles"))
+                    if _clean_text(role)
+                }
+                if not comparable_roles:
+                    page_alignment_issues.append(f"{_clean_text(interaction.get('interaction_id')) or 'interaction'}:terminal_role_authority_missing")
+                    continue
+                if allowed_roles and not (comparable_roles & allowed_roles):
+                    page_alignment_issues.append(
+                        f"{_clean_text(interaction.get('interaction_id')) or 'interaction'}:role_mismatch"
+                    )
+                else:
+                    page_has_role_alignment_signal = True
+                continue
+            visibility_rule = _clean_text(interaction.get("visibility_rule"))
+            rbac_policy = _clean_text(interaction.get("rbac_policy"))
             if not visibility_rule:
                 page_alignment_issues.append(f"{_clean_text(interaction.get('interaction_id')) or 'interaction'}:visibility_rule_missing")
                 continue

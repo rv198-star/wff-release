@@ -7,18 +7,36 @@ truth.
 
 from __future__ import annotations
 
+import copy
+import hashlib
+import hmac
 import json
 import os
 import re
 import sys
+import threading
 import uuid
 from collections import Counter
-from datetime import datetime, timezone
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback
+    fcntl = None  # type: ignore[assignment]
+
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - POSIX path
+    msvcrt = None  # type: ignore[assignment]
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from runtime_bootstrap import activate_runtime
+
+activate_runtime(__file__)
 
 from _runtime.core.io import load_json
 from _runtime.core.report import Finding
@@ -26,7 +44,37 @@ from _runtime.core.shape import findings_from_messages
 
 
 SCHEMA_VERSION = "tplan.v0.1"
+EXECUTION_TRACE_SCHEMA_VERSION = "tplan.execution_trace.v0.1"
+MISSION_TRANSACTION_SCHEMA_VERSION = "tplan.mission_transaction.v0.2"
+LEGACY_MISSION_TRANSACTION_SCHEMA_VERSION = "tplan.mission_transaction.v0.1"
+INTERACTION_GUARD_SCHEMA_VERSION = "tplan.interaction_guard.v0.2"
+LEGACY_INTERACTION_GUARD_SCHEMA_VERSION = "tplan.interaction_guard.v0.1"
+AUTHORITY_RECEIPT_SCHEMA_VERSION = "tplan.authority_receipt.v0.1"
 SHARED_CONTEXT_SCHEMA_VERSION = "tplan.shared_context.v0.1"
+USER_UPDATE_CURSOR_SCHEMA_VERSION = "tplan.user_update_cursor.v0.2"
+OUTCOME_ATTRIBUTION_SCHEMA_VERSION = "tplan.outcome_attribution.v0.1"
+RUNTIME_MANIFEST_SCHEMA_VERSION = "tplan.runtime_manifest.v0.1"
+RUNTIME_FINGERPRINT_SCHEMA_VERSION = "tplan.runtime_fingerprint.v0.1"
+RUNTIME_PROVENANCE_SCHEMA_VERSION = "tplan.runtime_provenance.v0.1"
+MISSION_REENTRY_PREFLIGHT_SCHEMA_VERSION = "tplan.mission_reentry_preflight.v0.1"
+MISSION_REENTRY_RECEIPT_SCHEMA_VERSION = "tplan.mission_reentry_receipt.v0.1"
+RUNTIME_MANIFEST_RELATIVE_PATH = Path("resources/runtime-manifest.json")
+RESERVED_EVIDENCE_EVENT_TYPES = {"decision_applied"}
+_RESERVED_EVIDENCE_AUTHORITY = object()
+_RESERVED_EVIDENCE_CONTEXT = threading.local()
+QUALIFIED_ACCEPTANCE_EVENT_TYPES = {"acceptance_passed", "acceptance_failed"}
+CONSTRAINT_EVIDENCE_EVENT_TYPES = {
+    "blocker",
+    "blocked",
+    "failure",
+    "interruption",
+    "stop_report",
+    "user_feedback",
+    "feedback",
+    "risk_context_update",
+    "risk_context_recovery",
+    "decision_recommendation",
+}
 SHARED_CONTEXT_MARKER_START = "<!-- tplan-shared-context"
 SHARED_CONTEXT_MARKER_END = "-->"
 
@@ -41,6 +89,13 @@ MISSION_STATUSES = {
 }
 
 TERMINAL_MISSION_STATUSES = MISSION_STATUSES - {"active"}
+
+MISSION_REENTRY_DISPOSITIONS = {
+    "resume_existing",
+    "create_new_from_context",
+    "requires_human",
+    "ignore_candidate",
+}
 
 TASK_STATUSES = {
     "pending",
@@ -66,6 +121,99 @@ ALLOWED_TASK_TRANSITIONS = {
 
 TASK_ROLES = {"success-critical", "supporting", "exploratory"}
 NODE_KINDS = {"task", "subtask", "step"}
+
+TRACE_EVENT_TYPES = {
+    "mission_initialized",
+    "node_added",
+    "task_status_changed",
+    "active_node_changed",
+    "mission_status_changed",
+    "interaction_guard_state",
+    "span_started",
+    "span_completed",
+}
+TRACE_SPAN_EVENT_TYPES = {"span_started", "span_completed"}
+TRACE_SPAN_KINDS = {"model", "agent_turn", "script", "tool", "wait", "runtime"}
+TRACE_SPAN_STATUSES = {"ok", "error", "cancelled", "unknown"}
+TRACE_MEASUREMENT_SOURCES = {"platform_reported", "host_measured", "inferred", "unavailable"}
+TRACE_ATTRIBUTIONS = {"exact", "shared", "mission_overhead", "unattributed"}
+TRACE_USAGE_FIELDS = {
+    "input_tokens",
+    "cached_input_tokens",
+    "output_tokens",
+    "reasoning_output_tokens",
+}
+TRACE_SPAN_FIELDS = {
+    "span_id",
+    "parent_span_id",
+    "kind",
+    "label",
+    "status",
+    "measurement_source",
+    "attribution",
+    "started_at",
+    "finished_at",
+    "duration_ms",
+    "attempt",
+    "shared_task_ids",
+}
+TRACE_SPAN_START_FIELDS = TRACE_SPAN_FIELDS - {"status", "started_at", "finished_at", "duration_ms"}
+TRACE_METADATA_FIELDS = {
+    "agent_role",
+    "cache_hit",
+    "exit_code",
+    "model",
+    "operation",
+    "parallel_group_id",
+    "provider",
+    "tool_class",
+}
+TRACE_REF_FIELDS = {"artifact_refs", "evidence_ids", "evidence_links"}
+TRACE_COMMON_RECORD_FIELDS = {
+    "schema_version",
+    "event_id",
+    "event_type",
+    "timestamp",
+    "mission_id",
+    "task_id",
+    "refs",
+}
+TRACE_LIFECYCLE_PAYLOAD_FIELDS = {
+    "mission_initialized": {"mission_status", "active_task_id", "tasks"},
+    "node_added": {"parent_id", "kind", "status", "title", "dynamic"},
+    "task_status_changed": {"from_status", "to_status", "outcome_summary", "artifact_refs"},
+    "active_node_changed": {"from_task_id", "to_task_id"},
+    "mission_status_changed": {"from_status", "to_status"},
+    "interaction_guard_state": {"guard_id", "disposition", "phase", "reason"},
+}
+INTERACTION_GUARD_PHASES = {"protecting", "awaiting_authority", "orphaned"}
+INTERACTION_MESSAGE_STATUSES = {"pending", "acknowledged", "superseded"}
+INTERACTION_DISPOSITIONS = {
+    "resume_original",
+    "await_clarification",
+    "apply_authorized_change",
+    "stop",
+}
+INTERACTION_GUARD_LEASE_SECONDS = 120
+_GUARD_UNSET = object()
+TRACE_THREAD_LOCK = threading.RLock()
+TRACE_FORBIDDEN_KEYS = {
+    "prompt",
+    "raw_prompt",
+    "response",
+    "raw_response",
+    "stdout",
+    "stderr",
+    "environment",
+    "env",
+    "credentials",
+    "credential",
+    "secrets",
+    "secret",
+    "command",
+    "command_args",
+    "arguments",
+}
 
 RECOMMENDATIONS = {"add", "subtract", "continue", "switch", "close", "escalate"}
 
@@ -376,6 +524,386 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def runtime_skill_root(anchor: str | Path = __file__) -> Path:
+    resolved = Path(anchor).resolve()
+    if resolved.is_dir():
+        return resolved
+    return resolved.parents[1]
+
+
+def _runtime_manifest_path(skill_root: Path) -> Path:
+    return skill_root / RUNTIME_MANIFEST_RELATIVE_PATH
+
+
+def load_runtime_manifest(skill_root: Path | None = None) -> dict[str, Any]:
+    root = (skill_root or runtime_skill_root()).resolve()
+    path = _runtime_manifest_path(root)
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise TplanError(f"TPlan runtime manifest is missing: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise TplanError(f"TPlan runtime manifest is invalid JSON: {path}") from exc
+    if not isinstance(manifest, dict):
+        raise TplanError(f"TPlan runtime manifest must be an object: {path}")
+    required = {
+        "schema_version",
+        "package_version",
+        "source_id",
+        "capability_versions",
+        "capabilities",
+        "required_scripts",
+        "fingerprint_files",
+    }
+    if set(manifest) != required:
+        missing = sorted(required - set(manifest))
+        extra = sorted(set(manifest) - required)
+        details = []
+        if missing:
+            details.append("missing " + ", ".join(missing))
+        if extra:
+            details.append("unsupported " + ", ".join(extra))
+        raise TplanError("TPlan runtime manifest fields invalid: " + "; ".join(details))
+    if manifest.get("schema_version") != RUNTIME_MANIFEST_SCHEMA_VERSION:
+        raise TplanError(
+            f"TPlan runtime manifest schema must be {RUNTIME_MANIFEST_SCHEMA_VERSION}"
+        )
+    for field in ("package_version", "source_id"):
+        if not isinstance(manifest.get(field), str) or not manifest[field]:
+            raise TplanError(f"TPlan runtime manifest {field} must be a non-empty string")
+    capability_versions = manifest.get("capability_versions")
+    if (
+        not isinstance(capability_versions, dict)
+        or not capability_versions
+        or not all(
+            isinstance(key, str)
+            and key
+            and isinstance(value, str)
+            and value
+            for key, value in capability_versions.items()
+        )
+    ):
+        raise TplanError(
+            "TPlan runtime manifest capability_versions must map names to versions"
+        )
+    for field in ("capabilities", "required_scripts", "fingerprint_files"):
+        values = manifest.get(field)
+        if (
+            not isinstance(values, list)
+            or not values
+            or not all(isinstance(value, str) and value for value in values)
+            or len(values) != len(set(values))
+        ):
+            raise TplanError(
+                f"TPlan runtime manifest {field} must be a non-empty unique string list"
+            )
+        if field != "capabilities" and any(
+            Path(value).is_absolute() or ".." in Path(value).parts
+            for value in values
+        ):
+            raise TplanError(
+                f"TPlan runtime manifest {field} paths must stay under the skill root"
+            )
+    return manifest
+
+
+def runtime_fingerprint(skill_root: Path | None = None) -> dict[str, Any]:
+    root = (skill_root or runtime_skill_root()).resolve()
+    manifest = load_runtime_manifest(root)
+    missing_scripts = [
+        relative
+        for relative in manifest["required_scripts"]
+        if not (root / relative).is_file()
+    ]
+    if missing_scripts:
+        raise TplanError(
+            "TPlan runtime required scripts are missing under "
+            f"{root}: {', '.join(missing_scripts)}"
+        )
+
+    digest = hashlib.sha256()
+    for relative in manifest["fingerprint_files"]:
+        path = root / relative
+        if not path.is_file():
+            raise TplanError(f"TPlan runtime fingerprint file is missing: {path}")
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return {
+        "schema_version": RUNTIME_FINGERPRINT_SCHEMA_VERSION,
+        "package_version": manifest["package_version"],
+        "source_id": manifest["source_id"],
+        "skill_root": str(root),
+        "script_root": str((root / "scripts").resolve()),
+        "build_hash": "sha256:" + digest.hexdigest(),
+        "capability_versions": dict(sorted(manifest["capability_versions"].items())),
+        "capabilities": sorted(manifest["capabilities"]),
+    }
+
+
+def validate_runtime_fingerprint(value: Any) -> list[str]:
+    if not isinstance(value, dict):
+        return ["runtime fingerprint must be an object"]
+    required = {
+        "schema_version",
+        "package_version",
+        "source_id",
+        "skill_root",
+        "script_root",
+        "build_hash",
+        "capability_versions",
+        "capabilities",
+    }
+    errors: list[str] = []
+    if set(value) != required:
+        errors.append("runtime fingerprint fields are invalid")
+    if value.get("schema_version") != RUNTIME_FINGERPRINT_SCHEMA_VERSION:
+        errors.append(
+            f"runtime fingerprint schema_version must be {RUNTIME_FINGERPRINT_SCHEMA_VERSION}"
+        )
+    for field in ("package_version", "source_id", "skill_root", "script_root"):
+        if not isinstance(value.get(field), str) or not value[field]:
+            errors.append(f"runtime fingerprint {field} must be a non-empty string")
+    build_hash = value.get("build_hash")
+    if not isinstance(build_hash, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", build_hash) is None:
+        errors.append("runtime fingerprint build_hash must be a sha256 digest")
+    capability_versions = value.get("capability_versions")
+    if (
+        not isinstance(capability_versions, dict)
+        or not capability_versions
+        or not all(
+            isinstance(key, str)
+            and key
+            and isinstance(version, str)
+            and version
+            for key, version in capability_versions.items()
+        )
+    ):
+        errors.append("runtime fingerprint capability_versions are invalid")
+    capabilities = value.get("capabilities")
+    if (
+        not isinstance(capabilities, list)
+        or not capabilities
+        or not all(isinstance(item, str) and item for item in capabilities)
+        or len(capabilities) != len(set(capabilities or []))
+    ):
+        errors.append("runtime fingerprint capabilities are invalid")
+    return errors
+
+
+def runtime_fingerprint_compatibility(
+    recorded: Any,
+    current: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    current = current or runtime_fingerprint()
+    recorded_errors = validate_runtime_fingerprint(recorded)
+    current_errors = validate_runtime_fingerprint(current)
+    if recorded_errors or current_errors:
+        return {
+            "status": "incompatible",
+            "compatible": False,
+            "differences": {
+                "recorded_errors": recorded_errors,
+                "current_errors": current_errors,
+            },
+        }
+    identity_fields = (
+        "package_version",
+        "source_id",
+        "build_hash",
+        "capability_versions",
+        "capabilities",
+    )
+    differences = {
+        field: {"recorded": recorded[field], "current": current[field]}
+        for field in identity_fields
+        if recorded[field] != current[field]
+    }
+    if differences:
+        return {
+            "status": "incompatible",
+            "compatible": False,
+            "differences": differences,
+        }
+    relocated = any(
+        recorded[field] != current[field] for field in ("skill_root", "script_root")
+    )
+    return {
+        "status": "compatible_relocated" if relocated else "exact",
+        "compatible": True,
+        "differences": (
+            {
+                field: {"recorded": recorded[field], "current": current[field]}
+                for field in ("skill_root", "script_root")
+                if recorded[field] != current[field]
+            }
+            if relocated
+            else {}
+        ),
+    }
+
+
+def validate_runtime_provenance(value: Any) -> list[str]:
+    if not isinstance(value, dict):
+        return ["runtime_provenance must be an object"]
+    errors: list[str] = []
+    if set(value) != {"schema_version", "origin", "fingerprint"}:
+        errors.append("runtime_provenance fields are invalid")
+    if value.get("schema_version") != RUNTIME_PROVENANCE_SCHEMA_VERSION:
+        errors.append(
+            f"runtime_provenance schema_version must be {RUNTIME_PROVENANCE_SCHEMA_VERSION}"
+        )
+    if value.get("origin") not in {"native", "legacy_adopted"}:
+        errors.append("runtime_provenance origin must be native or legacy_adopted")
+    errors.extend(validate_runtime_fingerprint(value.get("fingerprint")))
+    return errors
+
+
+def new_runtime_provenance(*, origin: str = "native") -> dict[str, Any]:
+    if origin not in {"native", "legacy_adopted"}:
+        raise TplanError("runtime provenance origin unsupported")
+    return {
+        "schema_version": RUNTIME_PROVENANCE_SCHEMA_VERSION,
+        "origin": origin,
+        "fingerprint": runtime_fingerprint(),
+    }
+
+
+def runtime_provenance_report(
+    mission: dict[str, Any],
+    *,
+    current: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    current = current or runtime_fingerprint()
+    provenance = mission.get("runtime_provenance")
+    if provenance is None:
+        return {
+            "status": "legacy_unpinned",
+            "severity": "warning",
+            "compatible": None,
+            "origin": None,
+            "recorded": None,
+            "current": current,
+            "diagnostics": [
+                {
+                    "code": "runtime_provenance_missing",
+                    "message": (
+                        "Mission predates runtime provenance; the creating runtime "
+                        "cannot be verified"
+                    ),
+                }
+            ],
+        }
+    errors = validate_runtime_provenance(provenance)
+    if errors:
+        return {
+            "status": "incompatible",
+            "severity": "error",
+            "compatible": False,
+            "origin": provenance.get("origin") if isinstance(provenance, dict) else None,
+            "recorded": (
+                provenance.get("fingerprint") if isinstance(provenance, dict) else None
+            ),
+            "current": current,
+            "diagnostics": [
+                {
+                    "code": "runtime_provenance_invalid",
+                    "message": "; ".join(errors),
+                }
+            ],
+        }
+    compatibility = runtime_fingerprint_compatibility(
+        provenance["fingerprint"],
+        current,
+    )
+    diagnostics: list[dict[str, str]] = []
+    severity = "ok"
+    if compatibility["status"] == "compatible_relocated":
+        severity = "warning"
+        diagnostics.append(
+            {
+                "code": "runtime_path_relocated",
+                "message": (
+                    "runtime content is compatible but the selected canonical path "
+                    "differs from the recorded path"
+                ),
+            }
+        )
+    elif not compatibility["compatible"]:
+        severity = "error"
+        diagnostics.append(
+            {
+                "code": "runtime_fingerprint_mismatch",
+                "message": (
+                    "selected TPlan runtime does not match the Mission runtime fingerprint"
+                ),
+            }
+        )
+    if provenance["origin"] == "legacy_adopted":
+        if severity == "ok":
+            severity = "warning"
+        diagnostics.append(
+            {
+                "code": "runtime_legacy_adopted",
+                "message": (
+                    "Mission was first pinned by a later runtime; its original creator "
+                    "remains unknown"
+                ),
+            }
+        )
+    return {
+        "status": (
+            "legacy_adopted_" + compatibility["status"]
+            if provenance["origin"] == "legacy_adopted"
+            else compatibility["status"]
+        ),
+        "severity": severity,
+        "compatible": compatibility["compatible"],
+        "origin": provenance["origin"],
+        "recorded": provenance["fingerprint"],
+        "current": current,
+        "differences": compatibility["differences"],
+        "diagnostics": diagnostics,
+    }
+
+
+def _prepare_runtime_provenance(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    *,
+    allow_legacy_adoption: bool,
+    allow_prepared_legacy_adoption: bool = False,
+) -> None:
+    before_provenance = before.get("runtime_provenance")
+    after_provenance = after.get("runtime_provenance")
+    if before_provenance is None:
+        if not allow_legacy_adoption:
+            raise TplanError(
+                "legacy Mission has no runtime provenance and cannot be adopted "
+                "inside this protected mutation"
+            )
+        if after_provenance is None:
+            after["runtime_provenance"] = new_runtime_provenance(origin="legacy_adopted")
+        elif allow_prepared_legacy_adoption:
+            report = runtime_provenance_report(after)
+            if after_provenance.get("origin") != "legacy_adopted" or report["severity"] == "error":
+                raise TplanError(
+                    "prepared legacy runtime provenance is invalid or incompatible"
+                )
+        else:
+            raise TplanError("runtime_provenance is runtime-owned and cannot be supplied")
+        return
+    if after_provenance != before_provenance:
+        raise TplanError("runtime_provenance is runtime-owned and immutable")
+    report = runtime_provenance_report(before)
+    if report["severity"] == "error":
+        raise TplanError(
+            "TPlan runtime fingerprint mismatch; run runtime_doctor.py and use the "
+            "recorded or explicitly compatible runtime before mutating the Mission"
+        )
+
+
 def slugify(value: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-")
     return slug or "unnamed"
@@ -405,10 +933,11 @@ def validate_mission_directory_identity(mission: Any, mission_dir: Path) -> list
     return []
 
 
-def find_project_runtime_dirs(project_root: Path, mission_id: str) -> list[str]:
+def find_project_runtime_candidates(project_root: Path) -> list[dict[str, Any]]:
     if not project_root.exists():
         return []
-    runtime_dirs: set[str] = set()
+    candidates: list[dict[str, Any]] = []
+    seen_runtime_dirs: set[str] = set()
     for path in project_root.rglob("evidence.jsonl"):
         mission_path = path.parent / "mission.json"
         if not mission_path.exists():
@@ -422,9 +951,34 @@ def find_project_runtime_dirs(project_root: Path, mission_id: str) -> list[str]:
         mission_meta = mission.get("mission")
         if not isinstance(mission_meta, dict):
             continue
-        if mission_meta.get("id") == mission_id:
-            runtime_dirs.add(runtime_dir_identity(project_root, mission_path.parent))
-    return sorted(runtime_dirs)
+        mission_id = mission_meta.get("id")
+        if not isinstance(mission_id, str) or not mission_id:
+            continue
+        runtime_dir = runtime_dir_identity(project_root, mission_path.parent)
+        if runtime_dir in seen_runtime_dirs:
+            continue
+        seen_runtime_dirs.add(runtime_dir)
+        candidates.append(
+            {
+                "mission_id": mission_id,
+                "title": mission_meta.get("title"),
+                "objective": mission_meta.get("objective"),
+                "status": mission_meta.get("status"),
+                "runtime_dir": runtime_dir,
+            }
+        )
+    return sorted(
+        candidates,
+        key=lambda item: (str(item.get("mission_id")), str(item.get("runtime_dir"))),
+    )
+
+
+def find_project_runtime_dirs(project_root: Path, mission_id: str) -> list[str]:
+    return [
+        str(candidate["runtime_dir"])
+        for candidate in find_project_runtime_candidates(project_root)
+        if candidate.get("mission_id") == mission_id
+    ]
 
 
 def require_policy_value(name: str, value: int) -> int:
@@ -441,29 +995,120 @@ def mission_paths(mission_dir: Path) -> dict[str, Path]:
         "mission": mission_dir / "mission.json",
         "narrative": mission_dir / "mission.md",
         "evidence": mission_dir / "evidence.jsonl",
+        "trace": mission_dir / "execution_trace.jsonl",
+        "transaction": mission_dir / ".mission-transaction.json",
+        "interaction_guard": mission_dir / ".interaction-guard.json",
         "logs": mission_dir / "logs",
         "archive": mission_dir / "archive",
+        "reports": mission_dir / "reports",
     }
+
+
+def cleanup_failed_initialization(mission_dir: Path) -> None:
+    """Remove only files/directories owned by an initialization attempt."""
+
+    paths = mission_paths(mission_dir)
+    for name in (
+        "transaction",
+        "interaction_guard",
+        "trace",
+        "evidence",
+        "narrative",
+        "mission",
+    ):
+        path = paths[name]
+        if path.exists() and path.is_file():
+            path.unlink()
+    lock_path = mission_dir / ".execution_trace.lock"
+    if lock_path.exists() and lock_path.is_file():
+        lock_path.unlink()
+    for name in ("logs", "archive", "reports"):
+        path = paths[name]
+        if path.exists() and path.is_dir():
+            try:
+                path.rmdir()
+            except OSError:
+                pass
+    if mission_dir.exists():
+        try:
+            mission_dir.rmdir()
+        except OSError:
+            pass
 
 
 def read_json(path: Path) -> dict[str, Any]:
     return load_json(path, error_factory=TplanError)
 
 
-def write_json(path: Path, data: dict[str, Any]) -> None:
+def _fsync_directory(path: Path) -> None:
+    try:
+        directory_fd = os.open(path, os.O_RDONLY)
+    except OSError:  # pragma: no cover - platform-specific directory handles
+        return
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def write_json(path: Path, data: dict[str, Any], *, durable: bool = False) -> None:
+    write_text_atomic(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n", durable=durable)
+
+
+def write_text_atomic(path: Path, text: str, *, durable: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     try:
+        with tmp_path.open("w", encoding="utf-8") as handle:
+            handle.write(text)
+            if durable:
+                handle.flush()
+                os.fsync(handle.fileno())
         os.replace(tmp_path, path)
+        if durable:
+            _fsync_directory(path.parent)
     except OSError:
         if tmp_path.exists():
             tmp_path.unlink()
         raise
 
 
-def read_mission(mission_dir: Path) -> dict[str, Any]:
+@contextmanager
+def execution_trace_lock(mission_dir: Path):
+    """Serialize trace append/state commits across local processes."""
+
+    lock_path = mission_dir / ".execution_trace.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with TRACE_THREAD_LOCK, lock_path.open("a+b") as handle:
+        if fcntl is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        elif msvcrt is not None:  # pragma: no cover - Windows fallback
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            elif msvcrt is not None:  # pragma: no cover - Windows fallback
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def _read_mission_unlocked(mission_dir: Path) -> dict[str, Any]:
     return read_json(mission_paths(mission_dir)["mission"])
+
+
+def read_mission(mission_dir: Path) -> dict[str, Any]:
+    if not mission_dir.exists():
+        return _read_mission_unlocked(mission_dir)
+    with execution_trace_lock(mission_dir):
+        _recover_pending_mission_transaction_unlocked(mission_dir)
+        return _read_mission_unlocked(mission_dir)
 
 
 LITE_RUNTIME_STATE_HEADING = "## Lite Runtime State"
@@ -554,12 +1199,537 @@ def sync_mission_narrative(
     next_block = render_lite_runtime_state(mission, state)
     updated = _replace_lite_runtime_state_sections(narrative, next_block)
     if updated != narrative:
-        narrative_path.write_text(updated, encoding="utf-8")
+        write_text_atomic(narrative_path, updated)
 
 
 def write_mission(mission_dir: Path, data: dict[str, Any], *, latest_state: str | None = None) -> None:
-    write_json(mission_paths(mission_dir)["mission"], data)
-    sync_mission_narrative(mission_dir, data, latest_state=latest_state)
+    """Write initial Mission state, but never bypass an open interaction guard.
+
+    Runtime mutations must use ``commit_mission_state``.  This compatibility writer
+    remains for initialization and tests; once a Mission has a guard, it is deliberately
+    fail-closed so a supported API cannot silently alter the protected baseline.
+    """
+
+    paths = mission_paths(mission_dir)
+    if paths["mission"].exists():
+        with execution_trace_lock(mission_dir):
+            _recover_pending_mission_transaction_unlocked(mission_dir)
+            if _read_interaction_guard_unlocked(mission_dir) is not None:
+                raise TplanError("interaction guard is open; write_mission cannot bypass protected Mission state")
+            before = _read_mission_unlocked(mission_dir)
+            prepared = copy.deepcopy(data)
+            _prepare_runtime_provenance(
+                before,
+                prepared,
+                allow_legacy_adoption=True,
+            )
+            write_json(paths["mission"], prepared)
+            sync_mission_narrative(mission_dir, prepared, latest_state=latest_state)
+        return
+    prepared = copy.deepcopy(data)
+    prepared.setdefault("runtime_provenance", new_runtime_provenance())
+    write_json(paths["mission"], prepared)
+    sync_mission_narrative(mission_dir, prepared, latest_state=latest_state)
+
+
+def _canonical_json_bytes(value: Any) -> bytes:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _sha256_digest(value: Any) -> str:
+    return "sha256:" + hashlib.sha256(_canonical_json_bytes(value)).hexdigest()
+
+
+def mission_control_digest(mission: dict[str, Any]) -> str:
+    """Digest the complete Mission state; future fields are protected by default."""
+
+    return _sha256_digest(mission)
+
+
+def _evidence_boundary_digest_unlocked(mission_dir: Path) -> str:
+    path = mission_paths(mission_dir)["evidence"]
+    return "sha256:" + hashlib.sha256(path.read_bytes() if path.exists() else b"").hexdigest()
+
+
+def interaction_guard_path(mission_dir: Path) -> Path:
+    return mission_paths(mission_dir)["interaction_guard"]
+
+
+def _safe_interaction_ref(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value) > 500 or "\n" in value or "\r" in value:
+        raise TplanError(f"interaction guard {label} must be a safe non-empty single-line string")
+    return value
+
+
+def _normalize_legacy_interaction_guard(guard: dict[str, Any]) -> dict[str, Any]:
+    """Read v0.1 guards conservatively without reviving their continuation protocol."""
+
+    if guard.get("schema_version") != LEGACY_INTERACTION_GUARD_SCHEMA_VERSION:
+        return guard
+    normalized = copy.deepcopy(guard)
+    normalized["schema_version"] = INTERACTION_GUARD_SCHEMA_VERSION
+    # A v0.1 sidecar may have been waiting on the retired continuation protocol.
+    # Never make it eligible for an automatic turn-end release during migration.
+    normalized["phase"] = "orphaned"
+    binding_id = normalized.get("binding_id")
+    normalized["platform_profile_id"] = f"legacy:{normalized.get('platform', 'unknown')}"
+    normalized["lease"] = {
+        "owner_session_id": binding_id if isinstance(binding_id, str) and binding_id else "legacy-unknown",
+        "owner_turn_id": None,
+        "opened_event_id": "legacy-schema",
+        "deadline_at": normalized.get("opened_at"),
+        "last_event_seq": 0,
+    }
+    normalized["recovery"] = {
+        "reason": "legacy_schema_migration",
+        "allowed_actions": ["resume_unchanged", "stop_fixed"],
+    }
+    return normalized
+
+
+def _validate_interaction_guard(guard: Any) -> dict[str, Any]:
+    if not isinstance(guard, dict):
+        raise TplanError("interaction guard must be an object")
+    guard = _normalize_legacy_interaction_guard(guard)
+    if guard.get("schema_version") != INTERACTION_GUARD_SCHEMA_VERSION:
+        raise TplanError(f"interaction guard schema_version must be {INTERACTION_GUARD_SCHEMA_VERSION}")
+    for field in (
+        "guard_id",
+        "platform",
+        "platform_profile_id",
+        "baseline_digest",
+        "baseline_evidence_digest",
+        "opened_at",
+    ):
+        _safe_interaction_ref(guard.get(field), field)
+    if guard.get("phase") not in INTERACTION_GUARD_PHASES:
+        raise TplanError("interaction guard phase unsupported")
+    revision = guard.get("revision")
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+        raise TplanError("interaction guard revision must be a positive integer")
+    active_task_id = guard.get("baseline_active_task_id")
+    if active_task_id is not None:
+        _safe_interaction_ref(active_task_id, "baseline_active_task_id")
+    messages = guard.get("messages")
+    if not isinstance(messages, list) or not messages:
+        raise TplanError("interaction guard messages must be a non-empty list")
+    seen_refs: set[str] = set()
+    for message in messages:
+        if not isinstance(message, dict):
+            raise TplanError("interaction guard message must be an object")
+        message_ref = _safe_interaction_ref(message.get("message_ref"), "message_ref")
+        if message_ref in seen_refs:
+            raise TplanError("interaction guard message_ref must be unique")
+        seen_refs.add(message_ref)
+        if message.get("status") not in INTERACTION_MESSAGE_STATUSES:
+            raise TplanError("interaction guard message status unsupported")
+        received_revision = message.get("received_revision")
+        if isinstance(received_revision, bool) or not isinstance(received_revision, int) or received_revision < 1:
+            raise TplanError("interaction guard message received_revision must be a positive integer")
+        if received_revision > revision:
+            raise TplanError("interaction guard message received_revision cannot exceed guard revision")
+    binding_id = guard.get("binding_id")
+    if binding_id is not None:
+        _safe_interaction_ref(binding_id, "binding_id")
+    lease = guard.get("lease")
+    if not isinstance(lease, dict) or set(lease) != {
+        "owner_session_id",
+        "owner_turn_id",
+        "opened_event_id",
+        "deadline_at",
+        "last_event_seq",
+    }:
+        raise TplanError("interaction guard lease is malformed")
+    for field in ("owner_session_id", "opened_event_id", "deadline_at"):
+        _safe_interaction_ref(lease.get(field), f"lease {field}")
+    if lease.get("owner_turn_id") is not None:
+        _safe_interaction_ref(lease.get("owner_turn_id"), "lease owner_turn_id")
+    if isinstance(lease.get("last_event_seq"), bool) or not isinstance(lease.get("last_event_seq"), int) or lease["last_event_seq"] < 0:
+        raise TplanError("interaction guard lease last_event_seq must be a non-negative integer")
+    recovery = guard.get("recovery")
+    if not isinstance(recovery, dict) or set(recovery) != {"reason", "allowed_actions"}:
+        raise TplanError("interaction guard recovery is malformed")
+    if recovery.get("reason") is not None:
+        _safe_interaction_ref(recovery.get("reason"), "recovery reason")
+    if recovery.get("allowed_actions") != ["resume_unchanged", "stop_fixed"]:
+        raise TplanError("interaction guard recovery actions are unsupported")
+    proposal = guard.get("proposal")
+    if proposal is not None:
+        if not isinstance(proposal, dict) or set(proposal) != {"proposal_id", "mutation_digest", "decision_digest", "created_revision"}:
+            raise TplanError("interaction guard proposal must contain proposal_id, mutation_digest, decision_digest, and created_revision")
+        _safe_interaction_ref(proposal.get("proposal_id"), "proposal_id")
+        _safe_interaction_ref(proposal.get("mutation_digest"), "mutation_digest")
+        _safe_interaction_ref(proposal.get("decision_digest"), "decision_digest")
+        created_revision = proposal.get("created_revision")
+        if isinstance(created_revision, bool) or not isinstance(created_revision, int) or created_revision < 1:
+            raise TplanError("interaction guard proposal created_revision must be a positive integer")
+        if created_revision > revision:
+            raise TplanError("interaction guard proposal created_revision cannot exceed guard revision")
+    return guard
+
+
+def _read_interaction_guard_unlocked(mission_dir: Path) -> dict[str, Any] | None:
+    path = interaction_guard_path(mission_dir)
+    if not path.exists():
+        return None
+    return _validate_interaction_guard(read_json(path))
+
+
+def _interaction_guard_boundary_state_unlocked(mission_dir: Path) -> dict[str, Any]:
+    """Return only user-visible guard control state, never message contents."""
+
+    guard = _read_interaction_guard_unlocked(mission_dir)
+    if guard is None:
+        return {"present": False}
+    return {
+        "present": True,
+        "guard_id": guard["guard_id"],
+        "revision": guard["revision"],
+        "phase": guard["phase"],
+        "baseline_active_task_id": guard["baseline_active_task_id"],
+    }
+
+
+def _interaction_guard_boundary_digest_unlocked(mission_dir: Path) -> str:
+    return _sha256_digest(_interaction_guard_boundary_state_unlocked(mission_dir))
+
+
+def read_interaction_guard(mission_dir: Path) -> dict[str, Any] | None:
+    if not mission_dir.exists():
+        return None
+    with execution_trace_lock(mission_dir):
+        _recover_pending_mission_transaction_unlocked(mission_dir)
+        guard = _read_interaction_guard_unlocked(mission_dir)
+        return copy.deepcopy(guard) if guard is not None else None
+
+
+def _write_interaction_guard_unlocked(mission_dir: Path, guard: dict[str, Any] | None) -> None:
+    path = interaction_guard_path(mission_dir)
+    if guard is None:
+        if path.exists():
+            path.unlink()
+            _fsync_directory(path.parent)
+        return
+    normalized = _validate_interaction_guard(guard)
+    write_json(path, normalized, durable=True)
+
+
+def _interaction_guard_deadline() -> str:
+    return (datetime.now(timezone.utc) + timedelta(seconds=INTERACTION_GUARD_LEASE_SECONDS)).isoformat()
+
+
+def _guard_lease_expired(guard: dict[str, Any], *, at: datetime | None = None) -> bool:
+    deadline = guard["lease"]["deadline_at"]
+    try:
+        parsed = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise TplanError("interaction guard lease deadline_at must be ISO-8601") from exc
+    if parsed.tzinfo is None:
+        raise TplanError("interaction guard lease deadline_at must include timezone")
+    return parsed <= (at or datetime.now(timezone.utc))
+
+
+def _ensure_no_interaction_guard_unlocked(mission_dir: Path, operation: str) -> None:
+    if _read_interaction_guard_unlocked(mission_dir) is not None:
+        raise TplanError(f"interaction guard is open; {operation} cannot mutate protected Mission artifacts")
+
+
+def begin_interaction_guard(
+    mission_dir: Path,
+    *,
+    platform: str,
+    message_ref: str,
+    binding_id: str | None = None,
+    platform_profile_id: str | None = None,
+    owner_turn_id: str | None = None,
+    opened_event_id: str | None = None,
+    event_seq: int = 0,
+) -> dict[str, Any]:
+    """Persist a fail-closed interrupt guard before a host handles a user message."""
+
+    platform = _safe_interaction_ref(platform, "platform")
+    message_ref = _safe_interaction_ref(message_ref, "message_ref")
+    if binding_id is not None:
+        binding_id = _safe_interaction_ref(binding_id, "binding_id")
+    profile_id = _safe_interaction_ref(platform_profile_id or f"{platform}@unverified", "platform_profile_id")
+    if owner_turn_id is not None:
+        owner_turn_id = _safe_interaction_ref(owner_turn_id, "owner_turn_id")
+    opened_event_id = _safe_interaction_ref(opened_event_id or "runtime-begin", "opened_event_id")
+    if isinstance(event_seq, bool) or not isinstance(event_seq, int) or event_seq < 0:
+        raise TplanError("interaction guard event_seq must be a non-negative integer")
+    with execution_trace_lock(mission_dir):
+        _recover_pending_mission_transaction_unlocked(mission_dir)
+        mission = _prepare_supported_runtime_write_unlocked(
+            mission_dir,
+            operation="begin_interaction_guard",
+            allow_interaction_guard=True,
+        )
+        guard = _read_interaction_guard_unlocked(mission_dir)
+        if guard is not None:
+            if guard["platform"] != platform:
+                raise TplanError("interaction guard platform mismatch; do not guess Mission ownership")
+            if guard.get("binding_id") != binding_id:
+                raise TplanError("interaction guard binding mismatch; do not guess Mission ownership")
+            if any(message["message_ref"] == message_ref for message in guard["messages"]):
+                return copy.deepcopy(guard)
+            updated = copy.deepcopy(guard)
+            updated["revision"] += 1
+            updated["messages"].append(
+                {"message_ref": message_ref, "status": "pending", "received_revision": updated["revision"]}
+            )
+            updated["lease"]["owner_session_id"] = binding_id or updated["lease"]["owner_session_id"]
+            updated["lease"]["owner_turn_id"] = owner_turn_id
+            updated["lease"]["deadline_at"] = _interaction_guard_deadline()
+            updated["lease"]["last_event_seq"] = max(updated["lease"]["last_event_seq"], event_seq)
+            _write_interaction_guard_unlocked(mission_dir, updated)
+            return copy.deepcopy(updated)
+
+        created = {
+            "schema_version": INTERACTION_GUARD_SCHEMA_VERSION,
+            "guard_id": f"IG{uuid.uuid4().hex[:12]}",
+            "phase": "protecting",
+            "revision": 1,
+            "opened_at": now_iso(),
+            "platform": platform,
+            "baseline_digest": mission_control_digest(mission),
+            "baseline_evidence_digest": _evidence_boundary_digest_unlocked(mission_dir),
+            "baseline_active_task_id": mission.get("active_task_id"),
+            "messages": [{"message_ref": message_ref, "status": "pending", "received_revision": 1}],
+            "platform_profile_id": profile_id,
+            "lease": {
+                "owner_session_id": binding_id or "unbound",
+                "owner_turn_id": owner_turn_id,
+                "opened_event_id": opened_event_id,
+                "deadline_at": _interaction_guard_deadline(),
+                "last_event_seq": event_seq,
+            },
+            "recovery": {"reason": None, "allowed_actions": ["resume_unchanged", "stop_fixed"]},
+        }
+        if binding_id is not None:
+            created["binding_id"] = binding_id
+        _write_interaction_guard_unlocked(mission_dir, created)
+        return copy.deepcopy(created)
+
+
+def _acknowledge_guard_messages(guard: dict[str, Any], message_refs: list[str]) -> dict[str, Any]:
+    if not message_refs:
+        raise TplanError("interaction guard resolve requires at least one message_ref")
+    refs = {_safe_interaction_ref(item, "message_ref") for item in message_refs}
+    updated = copy.deepcopy(guard)
+    found: set[str] = set()
+    for message in updated["messages"]:
+        if message["message_ref"] in refs:
+            message["status"] = "acknowledged"
+            found.add(message["message_ref"])
+    missing = refs - found
+    if missing:
+        raise TplanError("interaction guard resolve references unknown message_ref")
+    return updated
+
+
+def _guard_has_pending_messages(guard: dict[str, Any]) -> bool:
+    return any(message.get("status") == "pending" for message in guard["messages"])
+
+
+def _interaction_guard_trace_record(
+    mission: dict[str, Any], guard: dict[str, Any], *, disposition: str, phase: str, reason: str | None = None
+) -> dict[str, Any]:
+    return _new_trace_record(
+        mission,
+        "interaction_guard_state",
+        task_id=guard.get("baseline_active_task_id"),
+        payload={
+            "guard_id": guard["guard_id"],
+            "disposition": disposition,
+            "phase": phase,
+            "reason": reason,
+        },
+        source={"kind": "interaction_guard", "name": disposition},
+        commit_id=f"C{uuid.uuid4().hex[:12]}",
+    )
+
+
+def mutation_digest(decision: dict[str, Any]) -> str:
+    mutations = decision.get("proposed_mutations")
+    if not isinstance(mutations, list):
+        raise TplanError("decision proposed_mutations must be a list")
+    return _sha256_digest(mutations)
+
+
+def decision_digest(decision: dict[str, Any]) -> str:
+    """Bind the entire reviewed proposal, not only its state-changing subset."""
+
+    return _sha256_digest(decision)
+
+
+def _authority_receipt_payload(receipt: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in receipt.items() if key != "signature"}
+
+
+def issue_authority_receipt(
+    mission_dir: Path,
+    *,
+    guard_id: str,
+    guard_revision: int,
+    proposal_id: str,
+    decision: dict[str, Any],
+    confirmation_ref: str,
+    secret: str,
+) -> dict[str, Any]:
+    """Create a host receipt. Callers must keep `secret` outside agent-controlled state."""
+
+    if not isinstance(secret, str) or not secret:
+        raise TplanError("authority receipt secret must be non-empty")
+    guard = read_interaction_guard(mission_dir)
+    if guard is None:
+        raise TplanError("cannot issue authority receipt without an open interaction guard")
+    if guard["guard_id"] != guard_id or guard["revision"] != guard_revision:
+        raise TplanError("authority receipt guard identity or revision mismatch")
+    proposal = guard.get("proposal")
+    if guard.get("phase") != "awaiting_authority" or not isinstance(proposal, dict):
+        raise TplanError("authority receipt requires a persisted awaiting-confirmation proposal")
+    if proposal.get("proposal_id") != proposal_id or proposal.get("mutation_digest") != mutation_digest(decision):
+        raise TplanError("authority receipt proposal does not match the persisted guard proposal")
+    if proposal.get("decision_digest") != decision_digest(decision):
+        raise TplanError("authority receipt decision does not match the persisted guard proposal")
+    confirmation_ref = _safe_interaction_ref(confirmation_ref, "confirmation_ref")
+    confirmation = next((message for message in guard["messages"] if message["message_ref"] == confirmation_ref), None)
+    if confirmation is None or confirmation.get("status") != "pending":
+        raise TplanError("authority receipt requires a pending confirmation message")
+    if confirmation["received_revision"] <= proposal["created_revision"]:
+        raise TplanError("authority receipt requires a confirmation message received after the proposal")
+    payload = {
+        "schema_version": AUTHORITY_RECEIPT_SCHEMA_VERSION,
+        "receipt_id": f"AR{uuid.uuid4().hex[:12]}",
+        "guard_id": guard_id,
+        "guard_revision": guard_revision,
+        "baseline_digest": guard["baseline_digest"],
+        "proposal_id": _safe_interaction_ref(proposal_id, "proposal_id"),
+        "mutation_digest": mutation_digest(decision),
+        "decision_digest": decision_digest(decision),
+        "message_refs": [message["message_ref"] for message in guard["messages"]],
+        "confirmation_ref": confirmation_ref,
+        "issued_at": now_iso(),
+    }
+    signature = hmac.new(secret.encode("utf-8"), _canonical_json_bytes(payload), hashlib.sha256).hexdigest()
+    return {**payload, "signature": signature}
+
+
+def _verify_authority_receipt(
+    receipt: Any,
+    *,
+    guard: dict[str, Any],
+    decision: dict[str, Any],
+    secret: str,
+) -> None:
+    if not isinstance(receipt, dict):
+        raise TplanError("authority receipt must be an object")
+    if not isinstance(secret, str) or not secret:
+        raise TplanError("authority receipt verifier secret must be non-empty")
+    required = {
+        "schema_version",
+        "receipt_id",
+        "guard_id",
+        "guard_revision",
+        "baseline_digest",
+        "proposal_id",
+        "mutation_digest",
+        "decision_digest",
+        "message_refs",
+        "confirmation_ref",
+        "issued_at",
+        "signature",
+    }
+    if set(receipt) != required:
+        raise TplanError("authority receipt fields unsupported or incomplete")
+    if receipt.get("schema_version") != AUTHORITY_RECEIPT_SCHEMA_VERSION:
+        raise TplanError("authority receipt schema_version unsupported")
+    for field in ("receipt_id", "guard_id", "baseline_digest", "proposal_id", "confirmation_ref", "issued_at", "signature"):
+        _safe_interaction_ref(receipt.get(field), field)
+    if receipt.get("guard_id") != guard["guard_id"] or receipt.get("guard_revision") != guard["revision"]:
+        raise TplanError("authority receipt guard identity or revision mismatch")
+    if receipt.get("baseline_digest") != guard["baseline_digest"]:
+        raise TplanError("authority receipt baseline mismatch")
+    proposal = guard.get("proposal")
+    if guard.get("phase") != "awaiting_authority" or not isinstance(proposal, dict):
+        raise TplanError("authority receipt requires a persisted awaiting-confirmation proposal")
+    if receipt.get("proposal_id") != proposal.get("proposal_id"):
+        raise TplanError("authority receipt proposal mismatch")
+    if receipt.get("mutation_digest") != mutation_digest(decision):
+        raise TplanError("authority receipt mutation mismatch")
+    if receipt.get("decision_digest") != proposal.get("decision_digest") or receipt.get("decision_digest") != decision_digest(decision):
+        raise TplanError("authority receipt decision mismatch")
+    message_refs = receipt.get("message_refs")
+    if not isinstance(message_refs, list) or set(message_refs) != {message["message_ref"] for message in guard["messages"]}:
+        raise TplanError("authority receipt message_refs mismatch")
+    confirmation = next((message for message in guard["messages"] if message["message_ref"] == receipt.get("confirmation_ref")), None)
+    if confirmation is None or confirmation.get("status") != "pending":
+        raise TplanError("authority receipt confirmation_ref must remain pending")
+    if confirmation["received_revision"] <= proposal["created_revision"]:
+        raise TplanError("authority receipt confirmation was not received after the proposal")
+    expected = hmac.new(secret.encode("utf-8"), _canonical_json_bytes(_authority_receipt_payload(receipt)), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(receipt.get("signature", ""), expected):
+        raise TplanError("authority receipt signature invalid")
+
+
+def _recover_pending_mission_transaction_unlocked(mission_dir: Path) -> bool:
+    """Roll a prepared lifecycle mutation forward after an interrupted process."""
+
+    paths = mission_paths(mission_dir)
+    transaction_path = paths["transaction"]
+    if not transaction_path.exists():
+        return False
+    transaction = read_json(transaction_path)
+    transaction_schema = transaction.get("schema_version")
+    if transaction_schema not in {MISSION_TRANSACTION_SCHEMA_VERSION, LEGACY_MISSION_TRANSACTION_SCHEMA_VERSION}:
+        raise TplanError("unsupported pending Mission transaction schema")
+    mission = transaction.get("mission")
+    trace_text = transaction.get("trace_text")
+    evidence_text = transaction.get("evidence_text")
+    latest_state = transaction.get("latest_state")
+    guard_after = transaction.get("guard_after", _GUARD_UNSET)
+    if not isinstance(mission, dict) or not isinstance(trace_text, str):
+        raise TplanError("pending Mission transaction is malformed")
+    if evidence_text is not None and not isinstance(evidence_text, str):
+        raise TplanError("pending Mission transaction evidence_text is malformed")
+    if latest_state is not None and not isinstance(latest_state, str):
+        raise TplanError("pending Mission transaction latest_state is malformed")
+    if transaction_schema == MISSION_TRANSACTION_SCHEMA_VERSION:
+        if guard_after is not None and guard_after is not _GUARD_UNSET:
+            _validate_interaction_guard(guard_after)
+    elif guard_after is not _GUARD_UNSET:
+        raise TplanError("legacy Mission transaction must not define guard_after")
+
+    current = _read_mission_unlocked(mission_dir)
+    _prepare_runtime_provenance(
+        current,
+        mission,
+        allow_legacy_adoption=_read_interaction_guard_unlocked(mission_dir) is None,
+        allow_prepared_legacy_adoption=True,
+    )
+    mission_errors = validate_mission(mission)
+    if mission_errors:
+        raise TplanError("; ".join(mission_errors))
+
+    write_text_atomic(paths["trace"], trace_text, durable=True)
+    if evidence_text is not None:
+        write_text_atomic(paths["evidence"], evidence_text, durable=True)
+    write_json(paths["mission"], mission, durable=True)
+    sync_mission_narrative(mission_dir, mission, latest_state=latest_state)
+    if guard_after is not _GUARD_UNSET:
+        _write_interaction_guard_unlocked(mission_dir, guard_after)
+    transaction_path.unlink()
+    _fsync_directory(transaction_path.parent)
+    return True
+
+
+def _require_no_pending_mission_transaction_unlocked(mission_dir: Path, operation: str) -> None:
+    """Keep read-only views from implicitly committing an interrupted mutation."""
+
+    if mission_paths(mission_dir)["transaction"].exists():
+        raise TplanError(
+            f"pending Mission transaction must be recovered by a mutation-capable command before {operation}"
+        )
 
 
 def task_map(mission: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -632,6 +1802,55 @@ def _validate_shared_context(
     if not isinstance(shared_context, dict):
         errors.append("shared_context must be an object")
         return
+
+    reentry_decision = shared_context.get("reentry_decision")
+    if reentry_decision is not None:
+        if not isinstance(reentry_decision, dict):
+            errors.append("shared_context reentry_decision must be an object")
+        else:
+            if (
+                reentry_decision.get("schema_version")
+                != MISSION_REENTRY_PREFLIGHT_SCHEMA_VERSION
+            ):
+                errors.append(
+                    "shared_context reentry_decision schema_version must be "
+                    f"{MISSION_REENTRY_PREFLIGHT_SCHEMA_VERSION}"
+                )
+            disposition = reentry_decision.get("disposition")
+            if disposition not in MISSION_REENTRY_DISPOSITIONS:
+                errors.append("shared_context reentry_decision disposition unsupported")
+            rationale = reentry_decision.get("rationale")
+            if not isinstance(rationale, str) or not rationale.strip():
+                errors.append(
+                    "shared_context reentry_decision rationale must be a non-empty string"
+                )
+            mission_meta = state.get("mission")
+            if (
+                isinstance(mission_meta, dict)
+                and reentry_decision.get("mission_id") != mission_meta.get("id")
+            ):
+                errors.append(
+                    "shared_context reentry_decision mission_id must match Mission id"
+                )
+            assessment_digest = reentry_decision.get("assessment_digest")
+            if not isinstance(assessment_digest, str) or not assessment_digest.startswith(
+                "sha256:"
+            ):
+                errors.append(
+                    "shared_context reentry_decision assessment_digest must be a sha256 digest"
+                )
+            decision_digest = reentry_decision.get("decision_digest")
+            if not isinstance(decision_digest, str) or not decision_digest.startswith(
+                "sha256:"
+            ):
+                errors.append(
+                    "shared_context reentry_decision decision_digest must be a sha256 digest"
+                )
+            recorded_at = reentry_decision.get("recorded_at")
+            if not isinstance(recorded_at, str) or not recorded_at:
+                errors.append(
+                    "shared_context reentry_decision recorded_at must be a non-empty string"
+                )
 
     risk_signals = shared_context.get("risk_signals")
     if not isinstance(risk_signals, list):
@@ -779,6 +1998,8 @@ def validate_mission(state: Any) -> list[str]:
 
     if state.get("schema_version") != SCHEMA_VERSION:
         errors.append(f"schema_version must be {SCHEMA_VERSION}")
+    if "runtime_provenance" in state:
+        errors.extend(validate_runtime_provenance(state.get("runtime_provenance")))
 
     mission = state.get("mission")
     if not isinstance(mission, dict):
@@ -1111,12 +2332,15 @@ def normalize_task_for_mission(mission: dict[str, Any], raw: dict[str, Any]) -> 
 def add_task_node(mission_dir: Path, raw: dict[str, Any]) -> dict[str, Any]:
     mission = read_mission(mission_dir)
     node = normalize_task_for_mission(mission, raw)
-    updated = dict(mission)
+    updated = copy.deepcopy(mission)
     updated["tasks"] = list(mission.get("tasks", [])) + [node]
-    errors = validate_mission(updated)
-    if errors:
-        raise TplanError("; ".join(errors))
-    write_mission(mission_dir, updated)
+    commit_mission_state(
+        mission_dir,
+        mission,
+        updated,
+        source={"kind": "runtime_script", "name": "add_node"},
+        latest_state=f"Task node {node['id']} was added.",
+    )
     return node
 
 
@@ -1133,6 +2357,7 @@ def build_mission(
 ) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
+        "runtime_provenance": new_runtime_provenance(),
         "mission": {
             "id": mission_id,
             "title": title,
@@ -1207,6 +2432,7 @@ def render_shared_context_markdown(
         "source_contexts": source_contexts,
         "runtime_dir": shared_context.get("runtime_dir"),
         "runtime_dir_name": shared_context.get("runtime_dir_name"),
+        "reentry_decision": shared_context.get("reentry_decision"),
         "risk_signals": _risk_signals(mission),
         "updated_at": now_iso(),
     }
@@ -1295,6 +2521,432 @@ def _shared_context_candidate(path: Path) -> dict[str, Any]:
     }
 
 
+def _resolve_project_runtime_dir(project_root: Path, runtime_dir: str) -> Path:
+    path = Path(runtime_dir)
+    return path if path.is_absolute() else project_root / path
+
+
+def _file_content_digest(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _content_digest_from_bytes(content: bytes | None) -> str | None:
+    if content is None:
+        return None
+    return "sha256:" + hashlib.sha256(content).hexdigest()
+
+
+def _runtime_snapshot_file_state_unlocked(path: Path) -> dict[str, Any]:
+    try:
+        content = path.read_bytes()
+    except FileNotFoundError:
+        return {"content": None, "mtime_ns": None}
+    return {"content": content, "mtime_ns": path.stat().st_mtime_ns}
+
+
+def _latest_recovery_boundary(events: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if event.get("event_type") != "stop_report":
+            continue
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        return {
+            "event_id": event.get("id"),
+            "summary": event.get("summary"),
+            "blocking_issue": payload.get("blocking_issue"),
+            "need_from_human": payload.get("need_from_human"),
+            "resume_condition": payload.get("resume_condition"),
+        }
+    return None
+
+
+def _reentry_blockers(
+    events: list[dict[str, Any]],
+    active_task_id: Any,
+) -> list[dict[str, Any]]:
+    blocker_types = {
+        "blocker",
+        "blocked",
+        "failure",
+        "interruption",
+        "stop_report",
+    }
+    blockers: list[dict[str, Any]] = []
+    for event in reversed(events):
+        if event.get("event_type") not in blocker_types:
+            continue
+        task_id = event.get("task_id")
+        if active_task_id is not None and task_id not in {None, active_task_id}:
+            continue
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            payload = {}
+        blockers.append(
+            {
+                "event_id": event.get("id"),
+                "event_type": event.get("event_type"),
+                "timestamp": event.get("timestamp"),
+                "task_id": task_id,
+                "summary": event.get("summary"),
+                "blocking_issue": payload.get("blocking_issue"),
+                "resume_condition": payload.get("resume_condition"),
+            }
+        )
+        if len(blockers) == 5:
+            break
+    return blockers
+
+
+def _runtime_reentry_snapshot(
+    project_root: Path,
+    runtime_dirs: list[str],
+    mission_id: str,
+) -> dict[str, Any] | None:
+    if len(runtime_dirs) != 1:
+        return None
+    runtime_identity = runtime_dirs[0]
+    runtime_dir = _resolve_project_runtime_dir(project_root, runtime_identity)
+    paths = mission_paths(runtime_dir)
+    if not paths["mission"].exists():
+        return {
+            "availability": "missing",
+            "runtime_dir": runtime_identity,
+            "diagnostics": ["runtime mission.json is missing"],
+        }
+    with execution_trace_lock(runtime_dir):
+        if not paths["mission"].exists():
+            return {
+                "availability": "missing",
+                "runtime_dir": runtime_identity,
+                "diagnostics": ["runtime mission.json is missing"],
+            }
+        snapshots = {
+            "mission": _runtime_snapshot_file_state_unlocked(paths["mission"]),
+            "narrative": _runtime_snapshot_file_state_unlocked(paths["narrative"]),
+            "evidence": _runtime_snapshot_file_state_unlocked(paths["evidence"]),
+            "trace": _runtime_snapshot_file_state_unlocked(paths["trace"]),
+        }
+        try:
+            mission_content = snapshots["mission"]["content"]
+            if mission_content is None:
+                raise FileNotFoundError(paths["mission"])
+            mission = json.loads(mission_content.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            return {
+                "availability": "unreadable",
+                "runtime_dir": runtime_identity,
+                "diagnostics": [str(exc)],
+            }
+
+        validation_errors = validate_mission(mission)
+        if paths["transaction"].exists():
+            validation_errors.append(
+                "pending Mission transaction must be resolved before re-entry assessment"
+            )
+        mission_meta = mission.get("mission")
+        if not isinstance(mission_meta, dict):
+            mission_meta = {}
+        active_task_id = mission.get("active_task_id")
+        active_task = next(
+            (
+                task
+                for task in mission.get("tasks", [])
+                if isinstance(task, dict) and task.get("id") == active_task_id
+            ),
+            None,
+        )
+        latest_state = None
+        narrative_content = snapshots["narrative"]["content"]
+        if narrative_content is not None:
+            try:
+                narrative = narrative_content.decode("utf-8")
+            except UnicodeDecodeError:
+                narrative = ""
+            if LITE_RUNTIME_STATE_HEADING in narrative:
+                latest_state = _existing_lite_latest_state(narrative)
+
+        trace_records: list[dict[str, Any]] = []
+        trace_diagnostics: list[str] = []
+        trace_content = snapshots["trace"]["content"]
+        if trace_content is not None:
+            try:
+                for line_number, line in enumerate(
+                    trace_content.decode("utf-8").splitlines(),
+                    start=1,
+                ):
+                    if not line.strip():
+                        continue
+                    value = json.loads(line)
+                    if isinstance(value, dict):
+                        trace_records.append(value)
+                    else:
+                        trace_diagnostics.append(
+                            f"execution trace line {line_number} is not an object"
+                        )
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                trace_diagnostics.append(str(exc))
+        if trace_records and not trace_diagnostics:
+            trace_diagnostics.extend(validate_execution_trace(mission, trace_records))
+        latest_trace_record = next(
+            (
+                record
+                for record in reversed(trace_records)
+                if record.get("event_type") not in TRACE_SPAN_EVENT_TYPES
+            ),
+            None,
+        )
+        latest_trace_event = (
+            {
+                "event_id": latest_trace_record.get("event_id"),
+                "event_type": latest_trace_record.get("event_type"),
+                "timestamp": latest_trace_record.get("timestamp"),
+                "task_id": latest_trace_record.get("task_id"),
+                "payload": latest_trace_record.get("payload", {}),
+            }
+            if isinstance(latest_trace_record, dict)
+            else None
+        )
+        if latest_state is None and latest_trace_event is not None:
+            latest_state = {
+                "source": "execution_trace",
+                **latest_trace_event,
+            }
+
+        events: list[dict[str, Any]] = []
+        event_diagnostics: list[str] = []
+        evidence_content = snapshots["evidence"]["content"]
+        if evidence_content is not None:
+            try:
+                for line_number, line in enumerate(
+                    evidence_content.decode("utf-8").splitlines(),
+                    start=1,
+                ):
+                    if not line.strip():
+                        continue
+                    value = json.loads(line)
+                    if isinstance(value, dict):
+                        events.append(value)
+                    else:
+                        event_diagnostics.append(
+                            f"evidence line {line_number} is not an object"
+                        )
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                event_diagnostics.append(str(exc))
+
+        provenance = runtime_provenance_report(mission)
+        shared_context = mission.get("shared_context")
+        risk_signals = (
+            shared_context.get("risk_signals", [])
+            if isinstance(shared_context, dict)
+            else []
+        )
+        active_risks = [
+            signal
+            for signal in risk_signals
+            if isinstance(signal, dict) and signal.get("status") == "active"
+        ]
+        diagnostics = list(validation_errors) + event_diagnostics + trace_diagnostics
+        if mission_meta.get("id") != mission_id:
+            diagnostics.append(
+                f"runtime mission_id {mission_meta.get('id')} does not match {mission_id}"
+            )
+        return {
+            "availability": "loaded",
+            "runtime_dir": runtime_identity,
+            "mission_id": mission_meta.get("id"),
+            "mission_digest": mission_control_digest(mission),
+            "title": mission_meta.get("title"),
+            "objective": mission_meta.get("objective"),
+            "status": mission_meta.get("status"),
+            "acceptance_evidence": _mission_acceptance_evidence(mission),
+            "active_task": (
+                {
+                    "id": active_task.get("id"),
+                    "title": active_task.get("title"),
+                    "status": active_task.get("status"),
+                }
+                if isinstance(active_task, dict)
+                else None
+            ),
+            "latest_state": latest_state,
+            "latest_trace_event": latest_trace_event,
+            "recovery_boundary": _latest_recovery_boundary(events),
+            "blockers": _reentry_blockers(events, active_task_id),
+            "active_risk_signals": active_risks,
+            "runtime_provenance": {
+                "status": provenance["status"],
+                "severity": provenance["severity"],
+                "compatible": provenance["compatible"],
+                "diagnostics": provenance["diagnostics"],
+            },
+            "freshness": {
+                "mission_mtime_ns": snapshots["mission"]["mtime_ns"],
+                "narrative_mtime_ns": snapshots["narrative"]["mtime_ns"],
+                "evidence_mtime_ns": snapshots["evidence"]["mtime_ns"],
+                "trace_mtime_ns": snapshots["trace"]["mtime_ns"],
+                "content_digests": {
+                    key: _content_digest_from_bytes(snapshot["content"])
+                    for key, snapshot in snapshots.items()
+                },
+            },
+            "diagnostics": diagnostics,
+        }
+
+
+def _reentry_candidate_disposition(
+    *,
+    mission_status: Any,
+    conflicts: list[str],
+    missing_current_intent: list[str],
+) -> str | None:
+    if mission_status in {"blocked", "requires_human"}:
+        return "requires_human"
+    if mission_status in TERMINAL_MISSION_STATUSES:
+        return "create_new_from_context"
+    if conflicts or missing_current_intent:
+        return None
+    if mission_status == "active":
+        return "resume_existing"
+    return None
+
+
+def _mission_reentry_user_message(preflight: dict[str, Any]) -> str:
+    decision = preflight.get("reentry_decision")
+    if isinstance(decision, dict):
+        disposition = decision.get("disposition")
+        rationale = decision.get("rationale")
+        messages = {
+            "resume_existing": "已明确选择继续旧 Mission",
+            "create_new_from_context": "已明确选择新建 Mission，旧 Mission 只作为背景",
+            "requires_human": "已明确选择等待人工确认，不继续执行旧 Mission",
+            "ignore_candidate": "已明确忽略该恢复候选",
+        }
+        message = messages.get(str(disposition), "已记录重入处置")
+        return f"{message}。理由：{rationale}"
+
+    mission_id = preflight.get("mission_id")
+    candidates = preflight.get("candidates")
+    if mission_id is None:
+        if isinstance(candidates, list) and candidates:
+            return (
+                f"发现 {len(candidates)} 个旧 Mission 候选；目前没有选择任何一个，"
+                "也没有发生 Mission 写入。"
+            )
+        return "没有发现旧 Mission 候选，可以按当前请求创建新 Mission。"
+
+    packet = preflight.get("reentry_packet")
+    if not isinstance(packet, dict):
+        return "没有发现与该 Mission id 对应的旧状态，可以创建新 Mission。"
+
+    status = packet.get("status")
+    recovery_boundary = packet.get("recovery_boundary")
+    if status in {"blocked", "requires_human"}:
+        resume_condition = (
+            recovery_boundary.get("resume_condition")
+            if isinstance(recovery_boundary, dict)
+            else None
+        )
+        suffix = f"恢复条件：{resume_condition}" if resume_condition else "尚无可验证的恢复条件"
+        return f"旧 Mission 正在等待人工或处于阻塞状态，不能继续。{suffix}。"
+    if status in TERMINAL_MISSION_STATUSES:
+        return (
+            f"旧 Mission 状态为 {status}，默认不能续跑；如需利用旧材料，应新建 "
+            "Mission 并只把它作为背景。"
+        )
+
+    missing = preflight.get("missing_current_intent")
+    if isinstance(missing, list) and missing:
+        labels = {
+            "objective": "当前目标",
+            "acceptance_evidence": "当前验收标准",
+        }
+        missing_text = "、".join(labels.get(str(item), str(item)) for item in missing)
+        return f"缺少{missing_text}，无法判断当前请求是否仍属于旧 Mission，因此不能续跑。"
+
+    conflicts = preflight.get("conflicts")
+    if isinstance(conflicts, list) and conflicts:
+        labels = {
+            "mission_id": "Mission 标识",
+            "objective": "目标",
+            "acceptance_evidence": "验收标准",
+            "runtime_dir": "运行目录",
+            "runtime_snapshot": "运行状态",
+            "runtime_provenance": "运行时来源",
+            "mission_status": "Mission 状态",
+        }
+        conflict_text = "、".join(
+            labels.get(str(item), str(item)) for item in conflicts
+        )
+        return f"旧 Mission 与当前请求在{conflict_text}上存在冲突，不能继续。"
+
+    if preflight.get("candidate_disposition") == "resume_existing":
+        warnings = preflight.get("warnings")
+        warning_text = (
+            "共享上下文快照已落后，将以 runtime 状态为准；"
+            if isinstance(warnings, list) and "shared_context_stale" in warnings
+            else ""
+        )
+        return (
+            f"{warning_text}当前目标和验收标准与旧 Mission 一致，但这仍只是恢复候选；"
+            "必须明确选择 resume_existing 并说明理由后才能继续。"
+        )
+    return "现有信息不足以安全决定是否继续旧 Mission，需要 agent 或人工明确处置。"
+
+
+def _apply_mission_reentry_disposition(
+    preflight: dict[str, Any],
+    *,
+    disposition: str,
+    rationale: str,
+) -> dict[str, Any]:
+    if disposition not in MISSION_REENTRY_DISPOSITIONS:
+        allowed = ", ".join(sorted(MISSION_REENTRY_DISPOSITIONS))
+        raise TplanError(f"re-entry disposition must be one of: {allowed}")
+    if not isinstance(rationale, str) or not rationale.strip():
+        raise TplanError("re-entry disposition requires a non-empty rationale")
+    if preflight.get("reentry_packet") is None:
+        raise TplanError("re-entry disposition requires an existing Mission candidate")
+
+    candidate_disposition = preflight.get("candidate_disposition")
+    if disposition == "resume_existing" and candidate_disposition != "resume_existing":
+        raise TplanError(
+            "residual Mission is not eligible for resume_existing; "
+            "inspect missing_current_intent, conflicts, status, and recovery boundary"
+        )
+    if disposition == "create_new_from_context" and preflight.get("mission_id") is None:
+        raise TplanError("create_new_from_context requires a selected Mission candidate")
+
+    normalized_rationale = " ".join(rationale.split())
+    decision_basis = {
+        "assessment_digest": preflight.get("assessment_digest"),
+        "mission_id": preflight.get("mission_id"),
+        "disposition": disposition,
+        "rationale": normalized_rationale,
+    }
+    decision = {
+        "schema_version": MISSION_REENTRY_PREFLIGHT_SCHEMA_VERSION,
+        **decision_basis,
+        "decision_digest": _sha256_digest(decision_basis),
+        "recorded_at": now_iso(),
+        "acceptance_authority": (
+            "preserved"
+            if disposition == "resume_existing"
+            else "not_inherited"
+            if disposition == "create_new_from_context"
+            else "not_applied"
+        ),
+    }
+    selected = copy.deepcopy(preflight)
+    selected["action"] = disposition
+    selected["decision_required"] = False
+    selected["reentry_decision"] = decision
+    selected["user_message"] = _mission_reentry_user_message(selected)
+    return selected
+
+
 def build_mission_preflight(
     project_root: Path,
     *,
@@ -1302,51 +2954,97 @@ def build_mission_preflight(
     objective: str | None = None,
     acceptance_evidence: list[dict[str, Any]] | None = None,
     mission_dir: Path | None = None,
+    disposition: str | None = None,
+    rationale: str | None = None,
 ) -> dict[str, Any]:
+    if rationale is not None and disposition is None:
+        raise TplanError("re-entry rationale requires --disposition")
+
     context_dir = shared_context_dir(project_root)
     if mission_id is None:
-        candidates = []
+        candidate_index: dict[str, dict[str, Any]] = {}
         if context_dir.exists():
-            candidates = [
-                _shared_context_candidate(path)
-                for path in sorted(context_dir.glob("tplan_mission_shared_context-*.md"))
-            ]
-        return {
+            for context_path in sorted(
+                context_dir.glob("tplan_mission_shared_context-*.md")
+            ):
+                candidate = _shared_context_candidate(context_path)
+                candidate["sources"] = ["shared_context"]
+                candidate["runtime_dirs"] = []
+                candidate_index[str(candidate["mission_id"])] = candidate
+        for runtime_candidate in find_project_runtime_candidates(project_root):
+            candidate_id = str(runtime_candidate["mission_id"])
+            candidate = candidate_index.setdefault(
+                candidate_id,
+                {
+                    "mission_id": candidate_id,
+                    "title": runtime_candidate.get("title"),
+                    "objective": runtime_candidate.get("objective"),
+                    "status": runtime_candidate.get("status"),
+                    "context_file": None,
+                    "sources": [],
+                    "runtime_dirs": [],
+                },
+            )
+            if "runtime" not in candidate["sources"]:
+                candidate["sources"].append("runtime")
+            candidate["runtime_dirs"].append(runtime_candidate["runtime_dir"])
+        candidates = [candidate_index[key] for key in sorted(candidate_index)]
+        payload = {
+            "schema_version": MISSION_REENTRY_PREFLIGHT_SCHEMA_VERSION,
             "action": "needs_agentic_selection" if candidates else "create_new",
+            "identity_action": "needs_agentic_selection" if candidates else "create_new",
+            "decision_required": bool(candidates),
+            "candidate_disposition": None,
             "mission_id": None,
             "context_file": None,
             "candidates": candidates,
             "conflicts": [],
+            "warnings": [],
+            "missing_current_intent": [],
+            "reason_codes": (
+                ["residual_mission_candidates_require_selection"] if candidates else []
+            ),
+            "assessment_digest": None,
+            "reentry_packet": None,
         }
+        payload["user_message"] = _mission_reentry_user_message(payload)
+        if disposition is not None:
+            raise TplanError("re-entry disposition requires an explicit mission_id")
+        return payload
 
     path = shared_context_path(project_root, mission_id)
     requested_runtime_dir = runtime_dir_identity(project_root, mission_dir) if mission_dir is not None else None
     requested_runtime_dir_name = mission_dir.name if mission_dir is not None else None
-    discovered_runtime_dirs = find_project_runtime_dirs(project_root, mission_id) if requested_runtime_dir is not None else []
-    if not path.exists():
-        conflicts = []
-        if discovered_runtime_dirs and requested_runtime_dir not in discovered_runtime_dirs:
-            conflicts.append("runtime_dir")
-        conflicts = list(dict.fromkeys(conflicts))
-        return {
+    discovered_runtime_dirs = find_project_runtime_dirs(project_root, mission_id)
+    if not path.exists() and not discovered_runtime_dirs:
+        conflicts: list[str] = []
+        payload = {
+            "schema_version": MISSION_REENTRY_PREFLIGHT_SCHEMA_VERSION,
             "action": "needs_agentic_selection" if conflicts else "create_new",
+            "identity_action": "needs_agentic_selection" if conflicts else "create_new",
+            "decision_required": bool(conflicts),
+            "candidate_disposition": None,
             "mission_id": mission_id,
             "context_file": str(path),
             "loaded_context": None,
             "runtime_dirs": discovered_runtime_dirs,
             "conflicts": conflicts,
+            "warnings": [],
+            "missing_current_intent": [],
+            "reason_codes": ["runtime_dir_conflict"] if conflicts else [],
+            "assessment_digest": None,
+            "reentry_packet": None,
         }
+        payload["user_message"] = _mission_reentry_user_message(payload)
+        if disposition is not None:
+            raise TplanError("re-entry disposition requires an existing Mission candidate")
+        return payload
 
-    metadata = read_shared_context_metadata(path)
+    metadata = read_shared_context_metadata(path) if path.exists() else {}
     conflicts: list[str] = []
+    warnings: list[str] = []
     if metadata.get("mission_id") not in {None, mission_id}:
         conflicts.append("mission_id")
-    if objective is not None and metadata.get("objective") not in {None, objective}:
-        conflicts.append("objective")
-    if acceptance_evidence is not None:
-        existing = metadata.get("acceptance_evidence")
-        if isinstance(existing, list) and _acceptance_fingerprint(existing) != _acceptance_fingerprint(acceptance_evidence):
-            conflicts.append("acceptance_evidence")
     existing_runtime_dir = metadata.get("runtime_dir")
     existing_runtime_dir_name = metadata.get("runtime_dir_name")
     if requested_runtime_dir is not None:
@@ -1356,15 +3054,423 @@ def build_mission_preflight(
             conflicts.append("runtime_dir")
         elif discovered_runtime_dirs and any(item != requested_runtime_dir for item in discovered_runtime_dirs):
             conflicts.append("runtime_dir")
+    elif len(discovered_runtime_dirs) > 1:
+        conflicts.append("runtime_dir")
+
+    runtime_dirs = discovered_runtime_dirs or [
+        item for item in (existing_runtime_dir,) if isinstance(item, str)
+    ]
+    runtime_snapshot = _runtime_reentry_snapshot(project_root, runtime_dirs, mission_id)
+    authoritative_objective = metadata.get("objective")
+    authoritative_acceptance = metadata.get("acceptance_evidence")
+    authoritative_status = metadata.get("status")
+    authoritative_title = metadata.get("title")
+    authoritative_active_task = (
+        {"id": metadata.get("active_task_id"), "title": None, "status": None}
+        if metadata.get("active_task_id") is not None
+        else None
+    )
+    authoritative_risks = [
+        signal
+        for signal in metadata.get("risk_signals", [])
+        if isinstance(signal, dict) and signal.get("status") == "active"
+    ]
+    recovery_boundary = None
+    blockers: list[dict[str, Any]] = []
+    latest_state = None
+    latest_trace_event = None
+    if isinstance(runtime_snapshot, dict):
+        availability = runtime_snapshot.get("availability")
+        if availability == "loaded":
+            if runtime_snapshot.get("diagnostics"):
+                conflicts.append("runtime_snapshot")
+            provenance = runtime_snapshot.get("runtime_provenance")
+            if isinstance(provenance, dict) and not provenance.get("compatible", False):
+                conflicts.append("runtime_provenance")
+            runtime_objective = runtime_snapshot.get("objective")
+            runtime_acceptance = runtime_snapshot.get("acceptance_evidence")
+            runtime_status = runtime_snapshot.get("status")
+            if (
+                metadata.get("objective") not in {None, runtime_objective}
+                or (
+                    isinstance(metadata.get("acceptance_evidence"), list)
+                    and _acceptance_fingerprint(metadata["acceptance_evidence"])
+                    != _acceptance_fingerprint(runtime_acceptance or [])
+                )
+                or metadata.get("status") not in {None, runtime_status}
+                or metadata.get("active_task_id")
+                not in {
+                    None,
+                    (runtime_snapshot.get("active_task") or {}).get("id")
+                    if isinstance(runtime_snapshot.get("active_task"), dict)
+                    else None,
+                }
+            ):
+                warnings.append("shared_context_stale")
+            authoritative_objective = runtime_objective
+            authoritative_acceptance = runtime_acceptance
+            authoritative_status = runtime_status
+            authoritative_title = runtime_snapshot.get("title")
+            authoritative_active_task = runtime_snapshot.get("active_task")
+            authoritative_risks = runtime_snapshot.get("active_risk_signals", [])
+            recovery_boundary = runtime_snapshot.get("recovery_boundary")
+            blockers = runtime_snapshot.get("blockers", [])
+            latest_state = runtime_snapshot.get("latest_state")
+            latest_trace_event = runtime_snapshot.get("latest_trace_event")
+        elif availability in {"missing", "unreadable"}:
+            conflicts.append("runtime_snapshot")
+
+    missing_current_intent = []
+    if objective is None:
+        missing_current_intent.append("objective")
+    elif authoritative_objective not in {None, objective}:
+        conflicts.append("objective")
+    if acceptance_evidence is None:
+        missing_current_intent.append("acceptance_evidence")
+    elif (
+        isinstance(authoritative_acceptance, list)
+        and _acceptance_fingerprint(authoritative_acceptance)
+        != _acceptance_fingerprint(acceptance_evidence)
+    ):
+        conflicts.append("acceptance_evidence")
+
+    if authoritative_status in TERMINAL_MISSION_STATUSES:
+        conflicts.append("mission_status")
     conflicts = list(dict.fromkeys(conflicts))
-    return {
-        "action": "needs_agentic_selection" if conflicts else "continue_existing",
+    warnings = list(dict.fromkeys(warnings))
+    candidate_disposition = _reentry_candidate_disposition(
+        mission_status=authoritative_status,
+        conflicts=conflicts,
+        missing_current_intent=missing_current_intent,
+    )
+    identity_action = (
+        "continue_existing"
+        if not conflicts and not missing_current_intent and authoritative_status == "active"
+        else "needs_agentic_selection"
+    )
+    reason_codes = ["residual_mission_requires_explicit_reentry_decision"]
+    if not path.exists():
+        reason_codes.append("runtime_only_candidate")
+    if missing_current_intent:
+        reason_codes.append("current_intent_incomplete")
+    if conflicts:
+        reason_codes.append("identity_or_runtime_conflict")
+    if warnings:
+        reason_codes.append("shared_context_snapshot_stale")
+    if authoritative_status in {"blocked", "requires_human"}:
+        reason_codes.append("mission_requires_human")
+    elif authoritative_status in TERMINAL_MISSION_STATUSES:
+        reason_codes.append("mission_terminal")
+    freshness_signals = {
+        "shared_context_updated_at": metadata.get("updated_at"),
+        "runtime_snapshot_availability": (
+            runtime_snapshot.get("availability")
+            if isinstance(runtime_snapshot, dict)
+            else None
+        ),
+        "shared_context_matches_runtime": (
+            "shared_context_stale" not in warnings
+            if path.exists()
+            and isinstance(runtime_snapshot, dict)
+            and runtime_snapshot.get("availability") == "loaded"
+            else None
+        ),
+        "runtime_files": (
+            runtime_snapshot.get("freshness")
+            if isinstance(runtime_snapshot, dict)
+            else None
+        ),
+    }
+    reentry_packet = {
+        "mission_id": mission_id,
+        "title": authoritative_title,
+        "objective": authoritative_objective,
+        "status": authoritative_status,
+        "acceptance_evidence": authoritative_acceptance,
+        "active_task": authoritative_active_task,
+        "latest_state": latest_state,
+        "latest_trace_event": latest_trace_event,
+        "recovery_boundary": recovery_boundary,
+        "blockers": blockers,
+        "active_risk_signals": authoritative_risks,
+        "freshness_signals": freshness_signals,
+        "runtime_snapshot": runtime_snapshot,
+        "current_intent": {
+            "objective": objective,
+            "acceptance_evidence": acceptance_evidence,
+        },
+    }
+    assessment_digest = _sha256_digest(
+        {
+            "reentry_packet": reentry_packet,
+            "conflicts": conflicts,
+            "warnings": warnings,
+            "missing_current_intent": missing_current_intent,
+            "candidate_disposition": candidate_disposition,
+        }
+    )
+    payload = {
+        "schema_version": MISSION_REENTRY_PREFLIGHT_SCHEMA_VERSION,
+        "action": "needs_agentic_selection",
+        "identity_action": identity_action,
+        "decision_required": True,
+        "candidate_disposition": candidate_disposition,
         "mission_id": mission_id,
         "context_file": str(path),
-        "loaded_context": metadata,
-        "runtime_dirs": discovered_runtime_dirs or [item for item in (existing_runtime_dir,) if isinstance(item, str)],
+        "loaded_context": metadata if path.exists() else None,
+        "runtime_dirs": runtime_dirs,
         "conflicts": conflicts,
+        "warnings": warnings,
+        "missing_current_intent": missing_current_intent,
+        "reason_codes": reason_codes,
+        "assessment_digest": assessment_digest,
+        "reentry_packet": reentry_packet,
     }
+    payload["user_message"] = _mission_reentry_user_message(payload)
+    if disposition is not None:
+        return _apply_mission_reentry_disposition(
+            payload,
+            disposition=disposition,
+            rationale=rationale or "",
+        )
+    return payload
+
+
+def mission_reentry_receipt_path(
+    project_root: Path,
+    decision: dict[str, Any],
+) -> Path:
+    mission_id = decision.get("mission_id")
+    decision_digest = decision.get("decision_digest")
+    if not isinstance(mission_id, str) or not mission_id:
+        raise TplanError("re-entry decision mission_id must be a non-empty string")
+    if not isinstance(decision_digest, str) or not decision_digest.startswith("sha256:"):
+        raise TplanError("re-entry decision_digest must be a sha256 digest")
+    digest_suffix = decision_digest.removeprefix("sha256:")[:16]
+    return (
+        project_root
+        / ".tplan"
+        / "reentry_decisions"
+        / f"{slugify(mission_id)}-{digest_suffix}.json"
+    )
+
+
+def record_and_apply_mission_reentry_decision(
+    project_root: Path,
+    preflight: dict[str, Any],
+) -> dict[str, Any]:
+    decision = preflight.get("reentry_decision")
+    if not isinstance(decision, dict) or preflight.get("decision_required"):
+        raise TplanError("an explicit re-entry disposition is required before recording")
+    if decision.get("schema_version") != MISSION_REENTRY_PREFLIGHT_SCHEMA_VERSION:
+        raise TplanError("re-entry decision schema_version is unsupported")
+    if decision.get("assessment_digest") != preflight.get("assessment_digest"):
+        raise TplanError("re-entry decision assessment_digest does not match preflight")
+    if decision.get("mission_id") != preflight.get("mission_id"):
+        raise TplanError("re-entry decision mission_id does not match preflight")
+    if decision.get("disposition") != preflight.get("action"):
+        raise TplanError("re-entry decision disposition does not match selected action")
+    decision_basis = {
+        "assessment_digest": decision.get("assessment_digest"),
+        "mission_id": decision.get("mission_id"),
+        "disposition": decision.get("disposition"),
+        "rationale": decision.get("rationale"),
+    }
+    if decision.get("decision_digest") != _sha256_digest(decision_basis):
+        raise TplanError("re-entry decision digest does not match its decision fields")
+
+    disposition = decision.get("disposition")
+    reentry_packet = preflight.get("reentry_packet")
+    runtime_snapshot = (
+        reentry_packet.get("runtime_snapshot")
+        if isinstance(reentry_packet, dict)
+        else None
+    )
+    runtime_application: tuple[str, str, dict[str, Any]] | None = None
+    if (
+        disposition == "resume_existing"
+        and isinstance(runtime_snapshot, dict)
+        and runtime_snapshot.get("availability") == "loaded"
+    ):
+        runtime_identity = runtime_snapshot.get("runtime_dir")
+        expected_digest = runtime_snapshot.get("mission_digest")
+        if not isinstance(runtime_identity, str) or not runtime_identity:
+            raise TplanError("resume_existing runtime snapshot is missing runtime_dir")
+        if not isinstance(expected_digest, str) or not expected_digest.startswith("sha256:"):
+            raise TplanError("resume_existing runtime snapshot is missing mission_digest")
+        expected_freshness = runtime_snapshot.get("freshness")
+        expected_content_digests = (
+            expected_freshness.get("content_digests")
+            if isinstance(expected_freshness, dict)
+            else None
+        )
+        if not isinstance(expected_content_digests, dict):
+            raise TplanError(
+                "resume_existing runtime snapshot is missing freshness content digests"
+            )
+        runtime_application = (
+            runtime_identity,
+            expected_digest,
+            expected_content_digests,
+        )
+
+    receipt_path = mission_reentry_receipt_path(project_root, decision)
+    receipt = {
+        "schema_version": MISSION_REENTRY_RECEIPT_SCHEMA_VERSION,
+        "decision": copy.deepcopy(decision),
+        "context_file": preflight.get("context_file"),
+        "runtime_dirs": copy.deepcopy(preflight.get("runtime_dirs", [])),
+        "application": {
+            "status": "recorded",
+            "runtime_dir": None,
+            "mission_digest_before": None,
+            "mission_digest_after": None,
+        },
+    }
+    # The disposition receipt must exist before any Mission mutation begins.
+    write_json(receipt_path, receipt, durable=True)
+
+    if runtime_application is not None:
+        runtime_identity, expected_digest, expected_content_digests = runtime_application
+        runtime_dir = _resolve_project_runtime_dir(project_root, runtime_identity)
+        try:
+            with execution_trace_lock(runtime_dir):
+                _recover_pending_mission_transaction_unlocked(runtime_dir)
+                before = _read_mission_unlocked(runtime_dir)
+                if mission_control_digest(before) != expected_digest:
+                    raise TplanError(
+                        "Mission changed after re-entry assessment; rerun preflight before resuming"
+                    )
+                paths = mission_paths(runtime_dir)
+                current_content_digests = {
+                    "mission": _file_content_digest(paths["mission"]),
+                    "narrative": _file_content_digest(paths["narrative"]),
+                    "evidence": _file_content_digest(paths["evidence"]),
+                    "trace": _file_content_digest(paths["trace"]),
+                }
+                if current_content_digests != expected_content_digests:
+                    raise TplanError(
+                        "Mission artifacts changed after re-entry assessment; "
+                        "rerun preflight before resuming"
+                    )
+                updated = copy.deepcopy(before)
+                shared_context = updated.get("shared_context")
+                if not isinstance(shared_context, dict):
+                    shared_context = {}
+                risk_signals = shared_context.get("risk_signals")
+                if not isinstance(risk_signals, list):
+                    risk_signals = []
+                shared_context["risk_signals"] = risk_signals
+                shared_context["reentry_decision"] = copy.deepcopy(decision)
+                updated["shared_context"] = shared_context
+                _commit_mission_state_unlocked(
+                    runtime_dir,
+                    before,
+                    updated,
+                    source={"kind": "runtime_script", "name": "mission_reentry"},
+                    latest_state=(
+                        "Explicit re-entry decision recorded; "
+                        "the existing Mission may resume."
+                    ),
+                )
+            receipt["application"] = {
+                "status": "applied_to_runtime",
+                "runtime_dir": runtime_identity,
+                "mission_digest_before": expected_digest,
+                "mission_digest_after": mission_control_digest(updated),
+            }
+        except (OSError, TplanError, ValueError) as exc:
+            receipt["application"] = {
+                "status": "application_failed",
+                "runtime_dir": runtime_identity,
+                "mission_digest_before": expected_digest,
+                "mission_digest_after": None,
+                "error": _one_line(exc),
+            }
+            write_json(receipt_path, receipt, durable=True)
+            raise
+    elif disposition == "resume_existing":
+        receipt["application"]["status"] = "recorded_pending_runtime_initialization"
+    elif disposition == "create_new_from_context":
+        receipt["application"]["status"] = "recorded_for_new_mission_context"
+    else:
+        receipt["application"]["status"] = "recorded_without_runtime_mutation"
+
+    write_json(receipt_path, receipt, durable=True)
+    selected = copy.deepcopy(preflight)
+    selected["decision_receipt"] = {
+        "path": str(receipt_path),
+        "schema_version": MISSION_REENTRY_RECEIPT_SCHEMA_VERSION,
+        "application": copy.deepcopy(receipt["application"]),
+    }
+    selected["user_message"] = (
+        _mission_reentry_user_message(selected)
+        + f" 决定已记录在 {receipt_path}，应用状态为 "
+        f"{receipt['application']['status']}。"
+    )
+    return selected
+
+
+def finalize_mission_reentry_initialization(
+    project_root: Path,
+    preflight: dict[str, Any] | None,
+    mission_dir: Path,
+    *,
+    error: BaseException | None = None,
+) -> None:
+    if not isinstance(preflight, dict):
+        return
+    decision = preflight.get("reentry_decision")
+    receipt_info = preflight.get("decision_receipt")
+    if not isinstance(decision, dict) or not isinstance(receipt_info, dict):
+        return
+
+    receipt_path = mission_reentry_receipt_path(project_root, decision)
+    if receipt_info.get("path") != str(receipt_path):
+        raise TplanError("re-entry initialization receipt path does not match decision")
+    receipt = read_json(receipt_path)
+    if receipt.get("schema_version") != MISSION_REENTRY_RECEIPT_SCHEMA_VERSION:
+        raise TplanError("re-entry initialization receipt schema is unsupported")
+    receipt_decision = receipt.get("decision")
+    if (
+        not isinstance(receipt_decision, dict)
+        or receipt_decision.get("decision_digest") != decision.get("decision_digest")
+    ):
+        raise TplanError("re-entry initialization receipt does not match decision")
+
+    runtime_identity = runtime_dir_identity(project_root, mission_dir)
+    if error is not None:
+        receipt["application"] = {
+            "status": "initialization_failed",
+            "runtime_dir": runtime_identity,
+            "mission_digest_before": None,
+            "mission_digest_after": None,
+            "error": _one_line(error),
+        }
+        write_json(receipt_path, receipt, durable=True)
+        return
+
+    mission = read_json(mission_paths(mission_dir)["mission"])
+    shared_context = mission.get("shared_context")
+    stored_decision = (
+        shared_context.get("reentry_decision")
+        if isinstance(shared_context, dict)
+        else None
+    )
+    if (
+        not isinstance(stored_decision, dict)
+        or stored_decision.get("decision_digest") != decision.get("decision_digest")
+    ):
+        raise TplanError(
+            "initialized Mission does not contain the recorded re-entry decision"
+        )
+    receipt["application"] = {
+        "status": "applied_to_initialized_runtime",
+        "runtime_dir": runtime_identity,
+        "mission_digest_before": None,
+        "mission_digest_after": mission_control_digest(mission),
+    }
+    write_json(receipt_path, receipt, durable=True)
 
 
 def attach_project_shared_context(
@@ -1373,6 +3479,8 @@ def attach_project_shared_context(
     *,
     mission_dir: Path | None = None,
     source_contexts: list[str] | None = None,
+    reentry_disposition: str | None = None,
+    reentry_rationale: str | None = None,
 ) -> dict[str, Any]:
     mission_meta = mission["mission"]
     preflight = build_mission_preflight(
@@ -1381,12 +3489,29 @@ def attach_project_shared_context(
         objective=mission_meta["objective"],
         acceptance_evidence=_mission_acceptance_evidence(mission),
         mission_dir=mission_dir,
+        disposition=reentry_disposition,
+        rationale=reentry_rationale,
     )
+    loaded_context = preflight.get("loaded_context")
+    has_reentry_candidate = isinstance(preflight.get("reentry_packet"), dict)
+    if has_reentry_candidate and preflight.get("decision_required"):
+        if preflight.get("conflicts"):
+            conflicts = ", ".join(preflight["conflicts"])
+            raise TplanError(f"shared context preflight conflict: {conflicts}")
+        raise TplanError(
+            "residual Mission requires explicit re-entry disposition and rationale "
+            "before runtime initialization"
+        )
+    if has_reentry_candidate and preflight.get("action") != "resume_existing":
+        raise TplanError(
+            "runtime initialization can only apply resume_existing to the selected "
+            "Mission id; use a new mission_id with --source-context for "
+            f"{preflight.get('action')}"
+        )
     if preflight.get("conflicts"):
         conflicts = ", ".join(preflight["conflicts"])
         raise TplanError(f"shared context preflight conflict: {conflicts}")
 
-    loaded_context = preflight.get("loaded_context")
     loaded_sources = []
     if isinstance(loaded_context, dict) and isinstance(loaded_context.get("source_contexts"), list):
         loaded_sources = [str(item) for item in loaded_context["source_contexts"]]
@@ -1419,6 +3544,9 @@ def attach_project_shared_context(
         "runtime_dir": runtime_dir,
         "runtime_dir_name": runtime_dir_name,
     }
+    reentry_decision = preflight.get("reentry_decision")
+    if isinstance(reentry_decision, dict):
+        mission["shared_context"]["reentry_decision"] = reentry_decision
     return preflight
 
 
@@ -1465,7 +3593,7 @@ def write_indexed_shared_context(mission: dict[str, Any]) -> Path | None:
     return write_project_shared_context(Path(project_root), mission)
 
 
-def read_events(mission_dir: Path) -> list[dict[str, Any]]:
+def _read_events_unlocked(mission_dir: Path) -> list[dict[str, Any]]:
     path = mission_paths(mission_dir)["evidence"]
     events: list[dict[str, Any]] = []
     if not path.exists():
@@ -1476,16 +3604,1421 @@ def read_events(mission_dir: Path) -> list[dict[str, Any]]:
     return events
 
 
-def append_event(mission_dir: Path, event: dict[str, Any]) -> dict[str, Any]:
-    path = mission_paths(mission_dir)["evidence"]
+def read_events(mission_dir: Path) -> list[dict[str, Any]]:
+    if not mission_dir.exists():
+        return []
+    with execution_trace_lock(mission_dir):
+        _recover_pending_mission_transaction_unlocked(mission_dir)
+        return _read_events_unlocked(mission_dir)
+
+
+def read_user_update_snapshot(mission_dir: Path) -> dict[str, Any]:
+    """Read the user-update comparison boundary under one runtime lock.
+
+    This is a read-only delivery snapshot.  It deliberately contains no delivery
+    cursor or progress verdict: callers may compare its digests mechanically, but
+    only an agent can decide what a discovered change means.
+    """
+
+    with execution_trace_lock(mission_dir):
+        _require_no_pending_mission_transaction_unlocked(mission_dir, "rendering a user update")
+        mission = _read_mission_unlocked(mission_dir)
+        events = _read_events_unlocked(mission_dir)
+        trace = _read_execution_trace_unlocked(mission_dir)
+        interaction_guard_state = _interaction_guard_boundary_state_unlocked(mission_dir)
+        return {
+            "mission": mission,
+            "events": events,
+            "trace": trace,
+            "mission_binding": _sha256_digest(str(mission_dir.resolve())),
+            "mission_digest": mission_control_digest(mission),
+            "evidence_digest": _evidence_boundary_digest_unlocked(mission_dir),
+            "interaction_guard_digest": _sha256_digest(interaction_guard_state),
+            "interaction_guard_state": interaction_guard_state,
+        }
+
+
+def read_outcome_attribution_snapshot(mission_dir: Path) -> dict[str, Any]:
+    """Read Mission, evidence, and trace as one no-write attribution boundary."""
+
+    with execution_trace_lock(mission_dir):
+        _require_no_pending_mission_transaction_unlocked(mission_dir, "reading outcome attribution")
+        mission = _read_mission_unlocked(mission_dir)
+        return {
+            "mission": mission,
+            "events": _read_events_unlocked(mission_dir),
+            "trace": _read_execution_trace_unlocked(mission_dir),
+            "runtime_provenance": runtime_provenance_report(mission),
+        }
+
+
+def _acceptance_coverage_for_task(mission: dict[str, Any], task_id: str) -> set[str]:
+    """Return acceptance ids declared by a node or success-critical ancestors."""
+
+    chain = parent_chain(mission, task_id)
+    covered: set[str] = set()
+    for task in chain:
+        if task.get("id") == task_id or task.get("role") == "success-critical":
+            values = task.get("acceptance_evidence", [])
+            if isinstance(values, list):
+                covered.update(value for value in values if isinstance(value, str))
+    return covered
+
+
+def validate_evidence_event(
+    mission: dict[str, Any],
+    event: Any,
+    *,
+    compatibility: bool = False,
+    internal: bool = False,
+) -> list[str]:
+    """Validate evidence shape and mechanical references, never semantic truth.
+
+    Compatibility mode is for historical reads: incomplete legacy ``acceptance``
+    records return findings instead of being silently upgraded. New qualified
+    acceptance records always fail closed.
+    """
+
+    if not isinstance(event, dict):
+        return ["evidence event must be an object"]
+    errors: list[str] = []
+    for field in ("id", "timestamp", "event_type", "summary", "task_id", "payload"):
+        if field not in event:
+            errors.append(f"evidence event missing field: {field}")
+    for field in ("id", "timestamp", "event_type", "summary"):
+        value = event.get(field)
+        if field in event and (not isinstance(value, str) or not value.strip()):
+            errors.append(f"evidence event {field} must be a non-empty string")
+        elif isinstance(value, str) and ("\n" in value or "\r" in value):
+            errors.append(f"evidence event {field} must be single-line")
+    timestamp = event.get("timestamp")
+    if isinstance(timestamp, str) and timestamp.strip():
+        try:
+            normalized = timestamp[:-1] + "+00:00" if timestamp.endswith("Z") else timestamp
+            parsed = datetime.fromisoformat(normalized)
+            if parsed.tzinfo is None:
+                raise ValueError
+        except ValueError:
+            errors.append("evidence event timestamp must be ISO-8601 with timezone")
+    payload = event.get("payload")
+    if "payload" in event and not isinstance(payload, dict):
+        errors.append("evidence event payload must be an object")
+    task_id = event.get("task_id")
+    if task_id is not None and (not isinstance(task_id, str) or not task_id):
+        errors.append("evidence event task_id must be null or a non-empty string")
+    elif isinstance(task_id, str) and task_id not in task_map(mission):
+        errors.append(f"evidence event task_id does not exist: {task_id}")
+
+    event_type = event.get("event_type")
+    if event_type in RESERVED_EVIDENCE_EVENT_TYPES and not internal:
+        errors.append(f"evidence event type is runtime-reserved: {event_type}")
+
+    strict_acceptance = event_type in QUALIFIED_ACCEPTANCE_EVENT_TYPES
+    legacy_acceptance = event_type == "acceptance"
+    if strict_acceptance or legacy_acceptance:
+        acceptance_values = payload.get("acceptance_ids") if isinstance(payload, dict) else None
+        acceptance_errors: list[str] = []
+        if not isinstance(acceptance_values, list) or not acceptance_values:
+            acceptance_errors.append("evidence payload acceptance_ids must be a non-empty list")
+        elif not all(isinstance(value, str) and value for value in acceptance_values):
+            acceptance_errors.append("evidence payload acceptance_ids items must be non-empty strings")
+        elif len(acceptance_values) != len(set(acceptance_values)):
+            acceptance_errors.append("evidence payload acceptance_ids must be distinct")
+        else:
+            unknown = sorted(set(acceptance_values) - acceptance_ids(mission))
+            if unknown:
+                acceptance_errors.append(
+                    "evidence acceptance_ids do not exist: " + ", ".join(unknown)
+                )
+        if not isinstance(task_id, str) or not task_id:
+            acceptance_errors.append("qualified acceptance evidence requires task_id")
+        elif isinstance(acceptance_values, list) and all(
+            isinstance(value, str) and value for value in acceptance_values
+        ):
+            uncovered = sorted(set(acceptance_values) - _acceptance_coverage_for_task(mission, task_id))
+            if uncovered:
+                acceptance_errors.append(
+                    "task or success-critical ancestor does not cover acceptance_ids: "
+                    + ", ".join(uncovered)
+                )
+        errors.extend(acceptance_errors)
+    return errors
+
+
+def classify_evidence_outcome(mission: dict[str, Any], event: Any) -> dict[str, Any]:
+    """Classify one evidence record without inferring semantic truth or causality."""
+
+    event_type = event.get("event_type") if isinstance(event, dict) else None
+    errors = validate_evidence_event(mission, event, compatibility=True, internal=True)
+    if errors:
+        return {"classification": "unclassified_writeback", "warnings": errors}
+    if event_type in {"acceptance", "acceptance_passed"}:
+        return {"classification": "acceptance_delta", "warnings": []}
+    if event_type == "acceptance_failed" or event_type in CONSTRAINT_EVIDENCE_EVENT_TYPES:
+        return {"classification": "constraint_delta", "warnings": []}
+    if event_type == "decision_applied":
+        return {"classification": "decision_applied_candidate", "warnings": []}
+    return {"classification": "unclassified_writeback", "warnings": []}
+
+
+def _validate_new_evidence_ids_unlocked(
+    mission_dir: Path, new_events: list[dict[str, Any]]
+) -> list[str]:
+    """Keep evidence references globally unique across existing and batched writes."""
+
+    existing_ids = [
+        event.get("id")
+        for event in _read_events_unlocked(mission_dir)
+        if isinstance(event, dict) and isinstance(event.get("id"), str)
+    ]
+    new_ids = [event.get("id") for event in new_events if isinstance(event.get("id"), str)]
+    batch_duplicates = sorted(
+        event_id for event_id, count in Counter(new_ids).items() if count > 1
+    )
+    collisions = sorted(set(existing_ids) & set(new_ids))
+    errors: list[str] = []
+    if batch_duplicates:
+        errors.append("prepared evidence ids must be unique: " + ", ".join(batch_duplicates))
+    if collisions:
+        errors.append("evidence ids already exist: " + ", ".join(collisions))
+    return errors
+
+
+def prepare_event(mission_dir: Path, event: dict[str, Any]) -> dict[str, Any]:
     event = dict(event)
     event.setdefault("id", _next_event_id(mission_dir))
     event.setdefault("timestamp", now_iso())
     event.setdefault("task_id", None)
     event.setdefault("payload", {})
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
     return event
+
+
+def append_event(mission_dir: Path, event: dict[str, Any]) -> dict[str, Any]:
+    path = mission_paths(mission_dir)["evidence"]
+    with execution_trace_lock(mission_dir):
+        _recover_pending_mission_transaction_unlocked(mission_dir)
+        mission = _prepare_supported_runtime_write_unlocked(
+            mission_dir,
+            operation="append_event",
+        )
+        event = prepare_event(mission_dir, event)
+        errors = validate_evidence_event(mission, event)
+        if errors:
+            raise TplanError("; ".join(errors))
+        errors = _validate_new_evidence_ids_unlocked(mission_dir, [event])
+        if errors:
+            raise TplanError("; ".join(errors))
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+    return event
+
+
+def _read_execution_trace_unlocked(mission_dir: Path) -> list[dict[str, Any]]:
+    path = mission_paths(mission_dir)["trace"]
+    records: list[dict[str, Any]] = []
+    if not path.exists():
+        return records
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise TplanError(f"execution trace line {line_number} is invalid JSON: {exc.msg}") from exc
+        if not isinstance(record, dict):
+            raise TplanError(f"execution trace line {line_number} must be an object")
+        records.append(record)
+    return records
+
+
+def read_execution_trace(mission_dir: Path) -> list[dict[str, Any]]:
+    if not mission_dir.exists():
+        return []
+    with execution_trace_lock(mission_dir):
+        _recover_pending_mission_transaction_unlocked(mission_dir)
+        return _read_execution_trace_unlocked(mission_dir)
+
+
+def _trace_mission_id(mission: dict[str, Any]) -> str:
+    mission_meta = mission.get("mission")
+    mission_id = mission_meta.get("id") if isinstance(mission_meta, dict) else None
+    if not isinstance(mission_id, str) or not mission_id:
+        raise TplanError("mission id is required for execution tracing")
+    return mission_id
+
+
+def _parse_trace_timestamp(value: Any, field: str) -> datetime:
+    if not isinstance(value, str) or not value:
+        raise TplanError(f"execution trace {field} must be a non-empty ISO-8601 string")
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise TplanError(f"execution trace {field} must be ISO-8601") from exc
+    if parsed.tzinfo is None:
+        raise TplanError(f"execution trace {field} must include a timezone")
+    return parsed
+
+
+def _trace_forbidden_path(value: Any, path: str = "record") -> str | None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            normalized = str(key).strip().lower()
+            next_path = f"{path}.{key}"
+            if normalized in TRACE_FORBIDDEN_KEYS:
+                return next_path
+            forbidden = _trace_forbidden_path(item, next_path)
+            if forbidden:
+                return forbidden
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            forbidden = _trace_forbidden_path(item, f"{path}[{index}]")
+            if forbidden:
+                return forbidden
+    return None
+
+
+def _require_trace_string(errors: list[str], data: dict[str, Any], field: str, label: str) -> str | None:
+    value = data.get(field)
+    if not isinstance(value, str) or not value:
+        errors.append(f"{label} {field} must be a non-empty string")
+        return None
+    return value
+
+
+def _valid_safe_trace_text(value: Any, *, limit: int) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and len(value) <= limit and "\n" not in value and "\r" not in value
+
+
+def _safe_trace_summary(value: Any, *, limit: int) -> str:
+    summary = re.sub(r"\s+", " ", str(value or "")).strip()
+    return summary if len(summary) <= limit else summary[: limit - 1].rstrip() + "…"
+
+
+def _valid_trace_refs(values: Any) -> bool:
+    return isinstance(values, list) and all(
+        _valid_safe_trace_text(item, limit=500) for item in values
+    )
+
+
+def _validate_lifecycle_payload(
+    errors: list[str],
+    mission: dict[str, Any],
+    event_type: str,
+    payload: dict[str, Any],
+) -> None:
+    allowed = TRACE_LIFECYCLE_PAYLOAD_FIELDS.get(event_type, set())
+    unsupported = sorted(set(payload) - allowed)
+    if unsupported:
+        errors.append(f"execution trace {event_type} payload fields unsupported: {', '.join(unsupported)}")
+    tasks = task_map(mission)
+    if event_type == "mission_initialized":
+        if payload.get("mission_status") not in MISSION_STATUSES:
+            errors.append("execution trace mission_initialized mission_status unsupported")
+        active_task_id = payload.get("active_task_id")
+        if active_task_id is not None and active_task_id not in tasks:
+            errors.append("execution trace mission_initialized active_task_id must reference a task or be null")
+        snapshots = payload.get("tasks")
+        if not isinstance(snapshots, list):
+            errors.append("execution trace mission_initialized tasks must be a list")
+        else:
+            for snapshot in snapshots:
+                if not isinstance(snapshot, dict) or set(snapshot) != {"id", "parent_id", "kind", "status", "title"}:
+                    errors.append("execution trace mission_initialized task snapshots have invalid shape")
+                    continue
+                if snapshot.get("id") not in tasks:
+                    errors.append("execution trace mission_initialized task snapshot must reference a task")
+                if snapshot.get("kind") not in NODE_KINDS or snapshot.get("status") not in TASK_STATUSES:
+                    errors.append("execution trace mission_initialized task snapshot kind/status unsupported")
+                if not _valid_safe_trace_text(snapshot.get("title"), limit=240):
+                    errors.append("execution trace mission_initialized task title must be a safe single-line summary")
+    elif event_type == "node_added":
+        if payload.get("parent_id") is not None and payload.get("parent_id") not in tasks:
+            errors.append("execution trace node_added parent_id must reference a task or be null")
+        if payload.get("kind") not in NODE_KINDS or payload.get("status") not in TASK_STATUSES:
+            errors.append("execution trace node_added kind/status unsupported")
+        if not _valid_safe_trace_text(payload.get("title"), limit=240):
+            errors.append("execution trace node_added title must be a safe single-line summary")
+        if payload.get("dynamic") is not True:
+            errors.append("execution trace node_added dynamic must be true")
+    elif event_type == "task_status_changed":
+        if payload.get("from_status") not in TASK_STATUSES or payload.get("to_status") not in TASK_STATUSES:
+            errors.append("execution trace task_status_changed from_status/to_status unsupported")
+        if "outcome_summary" in payload and not _valid_safe_trace_text(payload["outcome_summary"], limit=500):
+            errors.append("execution trace outcome_summary must be a safe single-line summary of at most 500 characters")
+        if "artifact_refs" in payload and not _valid_trace_refs(payload["artifact_refs"]):
+            errors.append("execution trace task_status_changed artifact_refs must be safe references")
+    elif event_type == "active_node_changed":
+        for field in ("from_task_id", "to_task_id"):
+            value = payload.get(field)
+            if value is not None and value not in tasks:
+                errors.append(f"execution trace active_node_changed {field} must reference a task or be null")
+    elif event_type == "mission_status_changed":
+        if payload.get("from_status") not in MISSION_STATUSES or payload.get("to_status") not in MISSION_STATUSES:
+            errors.append("execution trace mission_status_changed from_status/to_status unsupported")
+    elif event_type == "interaction_guard_state":
+        if not _valid_safe_trace_text(payload.get("guard_id"), limit=500):
+            errors.append("execution trace interaction_guard_state guard_id must be a safe reference")
+        if payload.get("disposition") not in {"await_clarification", "resume_original", "apply_authorized_change", "stop", "orphaned"}:
+            errors.append("execution trace interaction_guard_state disposition unsupported")
+        if payload.get("phase") not in {"closed", "awaiting_authority", "orphaned"}:
+            errors.append("execution trace interaction_guard_state phase unsupported")
+        if payload.get("reason") is not None and not _valid_safe_trace_text(payload.get("reason"), limit=500):
+            errors.append("execution trace interaction_guard_state reason must be null or a safe reference")
+
+
+def validate_execution_trace_record(mission: dict[str, Any], record: Any) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(record, dict):
+        return ["execution trace record must be an object"]
+
+    forbidden = _trace_forbidden_path(record)
+    if forbidden:
+        errors.append(f"execution trace contains forbidden raw-content field: {forbidden}")
+
+    if record.get("schema_version") != EXECUTION_TRACE_SCHEMA_VERSION:
+        errors.append(f"execution trace schema_version must be {EXECUTION_TRACE_SCHEMA_VERSION}")
+    _require_trace_string(errors, record, "event_id", "execution trace")
+    event_type = _require_trace_string(errors, record, "event_type", "execution trace")
+    if event_type is not None and event_type not in TRACE_EVENT_TYPES:
+        errors.append(f"execution trace event_type unsupported: {event_type}")
+    try:
+        _parse_trace_timestamp(record.get("timestamp"), "timestamp")
+    except TplanError as exc:
+        errors.append(str(exc))
+
+    mission_id = record.get("mission_id")
+    expected_mission_id = _trace_mission_id(mission)
+    if mission_id != expected_mission_id:
+        errors.append(f"execution trace mission_id must be {expected_mission_id}")
+
+    task_id = record.get("task_id")
+    tasks = task_map(mission)
+    if task_id is not None:
+        if not isinstance(task_id, str) or not task_id:
+            errors.append("execution trace task_id must be a non-empty string or null")
+        elif task_id not in tasks:
+            errors.append(f"execution trace task_id {task_id} does not exist")
+
+    if event_type == "span_completed":
+        event_fields = {"span", "usage", "usage_source", "metadata"}
+    elif event_type == "span_started":
+        event_fields = {"span", "metadata"}
+    else:
+        event_fields = {"payload", "source", "commit_id"}
+    allowed_record_fields = TRACE_COMMON_RECORD_FIELDS | event_fields
+    unsupported_record_fields = sorted(set(record) - allowed_record_fields)
+    if unsupported_record_fields:
+        errors.append(f"execution trace record fields unsupported: {', '.join(unsupported_record_fields)}")
+
+    refs = record.get("refs", {})
+    if not isinstance(refs, dict):
+        errors.append("execution trace refs must be an object")
+    else:
+        unsupported_refs = sorted(set(refs) - TRACE_REF_FIELDS)
+        if unsupported_refs:
+            errors.append(f"execution trace refs fields unsupported: {', '.join(unsupported_refs)}")
+        for field, values in refs.items():
+            if not _valid_trace_refs(values):
+                errors.append(f"execution trace refs {field} must be a list of safe single-line references")
+    if event_type not in TRACE_SPAN_EVENT_TYPES:
+        payload = record.get("payload", {})
+        if not isinstance(payload, dict):
+            errors.append("execution trace payload must be an object")
+        elif isinstance(event_type, str):
+            _validate_lifecycle_payload(errors, mission, event_type, payload)
+        source_record = record.get("source", {})
+        if not isinstance(source_record, dict):
+            errors.append("execution trace source must be an object")
+        elif set(source_record) != {"kind", "name"}:
+            errors.append("execution trace source requires only kind and name")
+        elif not all(_valid_safe_trace_text(value, limit=160) for value in source_record.values()):
+            errors.append("execution trace source values must be safe single-line strings")
+        commit_id = record.get("commit_id")
+        if event_type != "mission_initialized" and not _valid_safe_trace_text(commit_id, limit=80):
+            errors.append(f"execution trace {event_type} requires commit_id")
+        return errors
+
+    span = record.get("span")
+    if not isinstance(span, dict):
+        errors.append("execution trace span must be an object")
+        return errors
+
+    allowed_span_fields = TRACE_SPAN_START_FIELDS if event_type == "span_started" else TRACE_SPAN_FIELDS
+    unsupported_span_fields = sorted(set(span) - allowed_span_fields)
+    if unsupported_span_fields:
+        errors.append(f"execution trace span fields unsupported: {', '.join(unsupported_span_fields)}")
+
+    _require_trace_string(errors, span, "span_id", "execution trace span")
+    label = span.get("label")
+    if label is not None and not _valid_safe_trace_text(label, limit=160):
+        errors.append("execution trace span label must be a non-empty single-line string of at most 160 characters")
+    kind = _require_trace_string(errors, span, "kind", "execution trace span")
+    if kind is not None and kind not in TRACE_SPAN_KINDS:
+        errors.append(f"execution trace span kind unsupported: {kind}")
+    source = _require_trace_string(errors, span, "measurement_source", "execution trace span")
+    if source is not None and source not in TRACE_MEASUREMENT_SOURCES:
+        errors.append(f"execution trace span measurement_source unsupported: {source}")
+    attribution = _require_trace_string(errors, span, "attribution", "execution trace span")
+    if attribution is not None and attribution not in TRACE_ATTRIBUTIONS:
+        errors.append(f"execution trace span attribution unsupported: {attribution}")
+
+    attempt = span.get("attempt")
+    if isinstance(attempt, bool) or not isinstance(attempt, int) or attempt < 1:
+        errors.append("execution trace span attempt must be a positive integer")
+    parent_span_id = span.get("parent_span_id")
+    if parent_span_id is not None and (not isinstance(parent_span_id, str) or not parent_span_id):
+        errors.append("execution trace span parent_span_id must be a non-empty string or null")
+
+    if attribution == "exact" and task_id is None:
+        errors.append("execution trace exact attribution requires task_id")
+    if attribution == "shared":
+        shared_task_ids = span.get("shared_task_ids")
+        if (
+            not isinstance(shared_task_ids, list)
+            or not all(isinstance(item, str) for item in shared_task_ids)
+            or len(set(shared_task_ids)) < 2
+        ):
+            errors.append("execution trace shared attribution requires at least two distinct shared_task_ids")
+        elif not all(isinstance(item, str) and item in tasks for item in shared_task_ids):
+            errors.append("execution trace shared_task_ids must reference existing tasks")
+        if task_id is not None:
+            errors.append("execution trace shared attribution uses shared_task_ids and requires task_id null")
+    elif "shared_task_ids" in span:
+        errors.append("execution trace shared_task_ids is allowed only for shared attribution")
+    if attribution in {"mission_overhead", "unattributed"} and task_id is not None:
+        errors.append(f"execution trace {attribution} attribution requires task_id null")
+
+    metadata = record.get("metadata", {})
+    if not isinstance(metadata, dict):
+        errors.append("execution trace metadata must be an object")
+    else:
+        unsupported_metadata = sorted(set(metadata) - TRACE_METADATA_FIELDS)
+        if unsupported_metadata:
+            errors.append(f"execution trace metadata fields unsupported: {', '.join(unsupported_metadata)}")
+        for field, value in metadata.items():
+            if not isinstance(value, (str, int, bool)) or isinstance(value, float):
+                errors.append(f"execution trace metadata {field} must be a string, integer, or boolean")
+            elif isinstance(value, str) and not _valid_safe_trace_text(value, limit=160):
+                errors.append(f"execution trace metadata {field} must be a safe single-line string")
+
+    if event_type == "span_started":
+        return errors
+
+    status = _require_trace_string(errors, span, "status", "execution trace span")
+    if status is not None and status not in TRACE_SPAN_STATUSES:
+        errors.append(f"execution trace span status unsupported: {status}")
+    try:
+        started_at = _parse_trace_timestamp(span.get("started_at"), "span.started_at")
+        finished_at = _parse_trace_timestamp(span.get("finished_at"), "span.finished_at")
+        if finished_at < started_at:
+            errors.append("execution trace span finished_at must not precede started_at")
+    except TplanError as exc:
+        errors.append(str(exc))
+
+    duration_ms = span.get("duration_ms")
+    if isinstance(duration_ms, bool) or not isinstance(duration_ms, int) or duration_ms < 0:
+        errors.append("execution trace span duration_ms must be a non-negative integer")
+    if source == "unavailable" and duration_ms != 0:
+        errors.append("execution trace unavailable duration measurement must use duration_ms 0")
+
+    usage = record.get("usage", {})
+    if not isinstance(usage, dict):
+        errors.append("execution trace usage must be an object")
+    else:
+        unknown_usage = sorted(set(usage) - TRACE_USAGE_FIELDS)
+        if unknown_usage:
+            errors.append(f"execution trace usage fields unsupported: {', '.join(unknown_usage)}")
+        for field, value in usage.items():
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                errors.append(f"execution trace usage {field} must be a non-negative integer")
+        input_tokens = usage.get("input_tokens")
+        cached_tokens = usage.get("cached_input_tokens")
+        if isinstance(input_tokens, int) and isinstance(cached_tokens, int) and cached_tokens > input_tokens:
+            errors.append("execution trace cached_input_tokens must not exceed input_tokens")
+    usage_source = record.get("usage_source")
+    if usage_source is not None and usage_source not in TRACE_MEASUREMENT_SOURCES:
+        errors.append("execution trace usage_source unsupported")
+    if isinstance(usage, dict) and usage and usage_source is None:
+        errors.append("execution trace non-empty usage requires usage_source")
+    return errors
+
+
+def validate_execution_trace(mission: dict[str, Any], records: Any) -> list[str]:
+    if not isinstance(records, list):
+        return ["execution trace must be a list of records"]
+    errors: list[str] = []
+    event_ids: set[str] = set()
+    span_events: dict[str, dict[str, tuple[int, dict[str, Any]]]] = {}
+
+    def validate_span_pair(
+        span_id: str,
+        started_line: int,
+        started_record: dict[str, Any],
+        completed_line: int,
+        completed_record: dict[str, Any],
+    ) -> None:
+        if started_line >= completed_line:
+            errors.append(
+                f"execution trace line {started_line}: span_started must precede span_completed for {span_id}"
+            )
+        started_span = started_record.get("span", {})
+        completed_span = completed_record.get("span", {})
+        for field in (
+            "kind",
+            "label",
+            "measurement_source",
+            "attribution",
+            "attempt",
+            "parent_span_id",
+            "shared_task_ids",
+        ):
+            if started_span.get(field) != completed_span.get(field):
+                errors.append(
+                    f"execution trace line {completed_line}: span_started/span_completed {field} mismatch for {span_id}"
+                )
+        if started_record.get("task_id") != completed_record.get("task_id"):
+            errors.append(
+                f"execution trace line {completed_line}: span_started/span_completed task_id mismatch for {span_id}"
+            )
+        started_metadata = started_record.get("metadata", {})
+        completed_metadata = completed_record.get("metadata", {})
+        if isinstance(started_metadata, dict) and isinstance(completed_metadata, dict):
+            for field in set(started_metadata) & set(completed_metadata):
+                if started_metadata[field] != completed_metadata[field]:
+                    errors.append(
+                        f"execution trace line {completed_line}: span_started/span_completed metadata.{field} mismatch for {span_id}"
+                    )
+        try:
+            start_marker = _parse_trace_timestamp(started_record.get("timestamp"), "timestamp")
+            measured_start = _parse_trace_timestamp(completed_span.get("started_at"), "span.started_at")
+            if measured_start < start_marker:
+                errors.append(
+                    f"execution trace line {completed_line}: measured span start precedes span_started marker for {span_id}"
+                )
+        except TplanError:
+            pass
+
+    for index, record in enumerate(records, start=1):
+        for error in validate_execution_trace_record(mission, record):
+            errors.append(f"execution trace line {index}: {error}")
+        if not isinstance(record, dict):
+            continue
+        event_id = record.get("event_id")
+        if isinstance(event_id, str):
+            if event_id in event_ids:
+                errors.append(f"execution trace line {index}: duplicate event_id {event_id}")
+            event_ids.add(event_id)
+        event_type = record.get("event_type")
+        span = record.get("span")
+        span_id = span.get("span_id") if isinstance(span, dict) else None
+        if isinstance(span_id, str) and event_type in TRACE_SPAN_EVENT_TYPES:
+            events = span_events.setdefault(span_id, {})
+            if event_type in events:
+                errors.append(f"execution trace line {index}: duplicate {event_type} for span_id {span_id}")
+                continue
+            events[event_type] = (index, record)
+            if "span_started" in events and "span_completed" in events:
+                started_line, started_record = events["span_started"]
+                completed_line, completed_record = events["span_completed"]
+                validate_span_pair(
+                    span_id,
+                    started_line,
+                    started_record,
+                    completed_line,
+                    completed_record,
+                )
+    return errors
+
+
+def _new_trace_record(
+    mission: dict[str, Any],
+    event_type: str,
+    *,
+    task_id: str | None = None,
+    timestamp: str | None = None,
+    payload: dict[str, Any] | None = None,
+    refs: dict[str, Any] | None = None,
+    source: dict[str, Any] | None = None,
+    commit_id: str | None = None,
+) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "schema_version": EXECUTION_TRACE_SCHEMA_VERSION,
+        "event_id": f"X{uuid.uuid4().hex[:12]}",
+        "event_type": event_type,
+        "timestamp": timestamp or now_iso(),
+        "mission_id": _trace_mission_id(mission),
+        "task_id": task_id,
+        "payload": payload or {},
+        "refs": refs or {},
+    }
+    if source:
+        record["source"] = source
+    if commit_id:
+        record["commit_id"] = commit_id
+    return record
+
+
+def _append_execution_trace_record_unlocked(mission_dir: Path, record: dict[str, Any]) -> dict[str, Any]:
+    mission = _read_mission_unlocked(mission_dir)
+    normalized = dict(record)
+    normalized.setdefault("schema_version", EXECUTION_TRACE_SCHEMA_VERSION)
+    normalized.setdefault("event_id", f"X{uuid.uuid4().hex[:12]}")
+    normalized.setdefault("timestamp", now_iso())
+    normalized.setdefault("mission_id", _trace_mission_id(mission))
+    normalized.setdefault("task_id", None)
+    normalized.setdefault("refs", {})
+    if normalized.get("event_type") not in TRACE_SPAN_EVENT_TYPES:
+        normalized.setdefault("payload", {})
+    errors = validate_execution_trace_record(mission, normalized)
+    if errors:
+        raise TplanError("; ".join(errors))
+
+    existing = _read_execution_trace_unlocked(mission_dir)
+    event_id = normalized["event_id"]
+    if any(item.get("event_id") == event_id for item in existing):
+        raise TplanError(f"execution trace event_id already exists: {event_id}")
+    span_id = normalized.get("span", {}).get("span_id")
+    trace_errors = validate_execution_trace(mission, [*existing, normalized])
+    if trace_errors:
+        raise TplanError("; ".join(trace_errors))
+    initialized = next((item for item in existing if item.get("event_type") == "mission_initialized"), None)
+    if span_id and initialized is not None:
+        observed_at = (
+            _parse_trace_timestamp(normalized["span"]["finished_at"], "span.finished_at")
+            if normalized.get("event_type") == "span_completed"
+            else _parse_trace_timestamp(normalized["timestamp"], "timestamp")
+        )
+        mission_started = _parse_trace_timestamp(initialized["timestamp"], "mission_initialized.timestamp")
+        if observed_at < mission_started:
+            raise TplanError("execution trace span event must not precede Mission initialization")
+
+    path = mission_paths(mission_dir)["trace"]
+    previous = path.read_text(encoding="utf-8") if path.exists() else ""
+    if previous and not previous.endswith("\n"):
+        previous += "\n"
+    write_text_atomic(path, previous + json.dumps(normalized, ensure_ascii=False) + "\n")
+    return normalized
+
+
+def append_execution_trace_record(mission_dir: Path, record: dict[str, Any]) -> dict[str, Any]:
+    with execution_trace_lock(mission_dir):
+        _recover_pending_mission_transaction_unlocked(mission_dir)
+        _prepare_supported_runtime_write_unlocked(
+            mission_dir,
+            operation="append_execution_trace_record",
+        )
+        return _append_execution_trace_record_unlocked(mission_dir, record)
+
+
+def _initialize_execution_trace_unlocked(
+    mission_dir: Path, mission: dict[str, Any], *, timestamp: str | None = None
+) -> dict[str, Any]:
+    path = mission_paths(mission_dir)["trace"]
+    if path.exists() and path.read_text(encoding="utf-8").strip():
+        raise TplanError(f"execution trace already exists: {path}")
+    tasks = [
+        {
+            "id": task.get("id"),
+            "parent_id": task.get("parent_id"),
+            "kind": task.get("kind"),
+            "status": task.get("status"),
+            "title": _safe_trace_summary(task.get("title"), limit=240),
+        }
+        for task in mission.get("tasks", [])
+        if isinstance(task, dict)
+    ]
+    record = _new_trace_record(
+        mission,
+        "mission_initialized",
+        task_id=mission.get("active_task_id"),
+        timestamp=timestamp,
+        payload={
+            "mission_status": mission.get("mission", {}).get("status"),
+            "active_task_id": mission.get("active_task_id"),
+            "tasks": tasks,
+        },
+        source={"kind": "runtime", "name": "mission_initialization"},
+    )
+    errors = validate_execution_trace_record(mission, record)
+    if errors:
+        raise TplanError("; ".join(errors))
+    write_text_atomic(path, json.dumps(record, ensure_ascii=False) + "\n")
+    return record
+
+
+def initialize_execution_trace(mission_dir: Path, mission: dict[str, Any], *, timestamp: str | None = None) -> dict[str, Any]:
+    with execution_trace_lock(mission_dir):
+        _recover_pending_mission_transaction_unlocked(mission_dir)
+        prepared_mission = _prepare_supported_runtime_write_unlocked(
+            mission_dir,
+            operation="initialize_execution_trace",
+        )
+        return _initialize_execution_trace_unlocked(
+            mission_dir,
+            prepared_mission,
+            timestamp=timestamp,
+        )
+
+
+def _state_change_trace_records(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    *,
+    source: dict[str, Any],
+    refs: dict[str, Any] | None = None,
+    task_details: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    timestamp = now_iso()
+    commit_id = f"C{uuid.uuid4().hex[:12]}"
+    records: list[dict[str, Any]] = []
+    before_tasks = task_map(before)
+    after_tasks = task_map(after)
+    task_details = task_details or {}
+
+    for task_id in sorted(set(after_tasks) - set(before_tasks)):
+        task = after_tasks[task_id]
+        records.append(
+            _new_trace_record(
+                after,
+                "node_added",
+                task_id=task_id,
+                timestamp=timestamp,
+                payload={
+                    "parent_id": task.get("parent_id"),
+                    "kind": task.get("kind"),
+                    "status": task.get("status"),
+                    "title": _safe_trace_summary(task.get("title"), limit=240),
+                    "dynamic": True,
+                },
+                refs=refs,
+                source=source,
+                commit_id=commit_id,
+            )
+        )
+
+    for task_id in sorted(set(before_tasks) & set(after_tasks)):
+        previous_status = before_tasks[task_id].get("status")
+        next_status = after_tasks[task_id].get("status")
+        if previous_status == next_status:
+            continue
+        payload = {"from_status": previous_status, "to_status": next_status}
+        payload.update(task_details.get(task_id, {}))
+        records.append(
+            _new_trace_record(
+                after,
+                "task_status_changed",
+                task_id=task_id,
+                timestamp=timestamp,
+                payload=payload,
+                refs=refs,
+                source=source,
+                commit_id=commit_id,
+            )
+        )
+
+    previous_active = before.get("active_task_id")
+    next_active = after.get("active_task_id")
+    if previous_active != next_active:
+        records.append(
+            _new_trace_record(
+                after,
+                "active_node_changed",
+                task_id=next_active,
+                timestamp=timestamp,
+                payload={"from_task_id": previous_active, "to_task_id": next_active},
+                refs=refs,
+                source=source,
+                commit_id=commit_id,
+            )
+        )
+
+    previous_mission_status = before.get("mission", {}).get("status")
+    next_mission_status = after.get("mission", {}).get("status")
+    if previous_mission_status != next_mission_status:
+        records.append(
+            _new_trace_record(
+                after,
+                "mission_status_changed",
+                timestamp=timestamp,
+                payload={"from_status": previous_mission_status, "to_status": next_mission_status},
+                refs=refs,
+                source=source,
+                commit_id=commit_id,
+            )
+        )
+    return records
+
+
+def _commit_mission_state_unlocked(
+    mission_dir: Path,
+    before: dict[str, Any],
+    after: dict[str, Any],
+    *,
+    source: dict[str, Any],
+    refs: dict[str, Any] | None = None,
+    task_details: dict[str, dict[str, Any]] | None = None,
+    latest_state: str | None = None,
+    prepared_evidence_events: list[dict[str, Any]] | None = None,
+    extra_trace_records: list[dict[str, Any]] | None = None,
+    guard_after: dict[str, Any] | None | object = _GUARD_UNSET,
+    reserved_evidence_authority: object | None = None,
+    allow_prepared_legacy_adoption: bool = False,
+) -> list[dict[str, Any]]:
+    current = _read_mission_unlocked(mission_dir)
+    if current != before:
+        raise TplanError("Mission state changed concurrently; reload and retry the mutation")
+    active_guard = _read_interaction_guard_unlocked(mission_dir)
+    if active_guard is not None and guard_after is _GUARD_UNSET:
+        raise TplanError("interaction guard is open; Mission mutation requires an authorized resolution")
+    if guard_after is not _GUARD_UNSET and guard_after is not None:
+        _validate_interaction_guard(guard_after)
+    _prepare_runtime_provenance(
+        before,
+        after,
+        allow_legacy_adoption=active_guard is None,
+        allow_prepared_legacy_adoption=allow_prepared_legacy_adoption,
+    )
+    errors = validate_mission(after)
+    if errors:
+        raise TplanError("; ".join(errors))
+    for event in prepared_evidence_events or []:
+        errors = validate_evidence_event(
+            after,
+            event,
+            internal=reserved_evidence_authority is _RESERVED_EVIDENCE_AUTHORITY,
+        )
+        if errors:
+            raise TplanError("; ".join(errors))
+    if prepared_evidence_events:
+        errors = _validate_new_evidence_ids_unlocked(mission_dir, prepared_evidence_events)
+        if errors:
+            raise TplanError("; ".join(errors))
+    records = _state_change_trace_records(
+        before,
+        after,
+        source=source,
+        refs=refs,
+        task_details=task_details,
+    )
+    extra_records = copy.deepcopy(extra_trace_records or [])
+    if records and extra_records:
+        transaction_timestamp = records[0]["timestamp"]
+        transaction_commit_id = records[0]["commit_id"]
+        for record in extra_records:
+            record["timestamp"] = transaction_timestamp
+            record["commit_id"] = transaction_commit_id
+    records.extend(extra_records)
+    for record in records:
+        errors = validate_execution_trace_record(after, record)
+        if errors:
+            raise TplanError("; ".join(errors))
+
+    paths = mission_paths(mission_dir)
+    previous_trace = paths["trace"].read_text(encoding="utf-8") if paths["trace"].exists() else ""
+    next_trace = previous_trace
+    if next_trace and not next_trace.endswith("\n"):
+        next_trace += "\n"
+    next_trace += "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records)
+
+    evidence_text: str | None = None
+    if prepared_evidence_events:
+        evidence_text = paths["evidence"].read_text(encoding="utf-8") if paths["evidence"].exists() else ""
+        if evidence_text and not evidence_text.endswith("\n"):
+            evidence_text += "\n"
+        evidence_text += "".join(
+            json.dumps(event, ensure_ascii=False) + "\n" for event in prepared_evidence_events
+        )
+
+    transaction = {
+        "schema_version": MISSION_TRANSACTION_SCHEMA_VERSION,
+        "transaction_id": f"TX{uuid.uuid4().hex[:12]}",
+        "prepared_at": now_iso(),
+        "mission": after,
+        "trace_text": next_trace,
+        "evidence_text": evidence_text,
+        "latest_state": latest_state,
+        "guard_after": None if guard_after is _GUARD_UNSET else guard_after,
+    }
+    write_json(paths["transaction"], transaction, durable=True)
+    _recover_pending_mission_transaction_unlocked(mission_dir)
+    return records
+
+
+def _prepare_supported_runtime_write_unlocked(
+    mission_dir: Path,
+    *,
+    operation: str,
+    allow_interaction_guard: bool = False,
+) -> dict[str, Any]:
+    """Apply one provenance gate before any supported non-Mission artifact write."""
+
+    guard = _read_interaction_guard_unlocked(mission_dir)
+    if guard is not None and not allow_interaction_guard:
+        raise TplanError(
+            f"interaction guard is open; {operation} cannot mutate protected Mission artifacts"
+        )
+    before = _read_mission_unlocked(mission_dir)
+    prepared = copy.deepcopy(before)
+    _prepare_runtime_provenance(
+        before,
+        prepared,
+        allow_legacy_adoption=guard is None,
+    )
+    if prepared != before:
+        _commit_mission_state_unlocked(
+            mission_dir,
+            before,
+            prepared,
+            source={"kind": "runtime", "name": "runtime_provenance_adoption"},
+            latest_state=f"Runtime provenance adopted before {operation}.",
+            allow_prepared_legacy_adoption=True,
+        )
+    return prepared
+
+
+def commit_mission_state(
+    mission_dir: Path,
+    before: dict[str, Any],
+    after: dict[str, Any],
+    *,
+    source: dict[str, Any],
+    refs: dict[str, Any] | None = None,
+    task_details: dict[str, dict[str, Any]] | None = None,
+    latest_state: str | None = None,
+    prepared_evidence_events: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Commit a normal runtime mutation.
+
+    Public writers never receive authority to alter guard state.  Closing or replacing
+    a guard is reserved for the tightly checked resolution paths below.
+    """
+
+    with execution_trace_lock(mission_dir):
+        _recover_pending_mission_transaction_unlocked(mission_dir)
+        return _commit_mission_state_unlocked(
+            mission_dir,
+            before,
+            after,
+            source=source,
+            refs=refs,
+            task_details=task_details,
+            latest_state=latest_state,
+            prepared_evidence_events=prepared_evidence_events,
+            guard_after=_GUARD_UNSET,
+            reserved_evidence_authority=getattr(
+                _RESERVED_EVIDENCE_CONTEXT, "authority", None
+            ),
+        )
+
+
+@contextmanager
+def _reserved_evidence_commit_scope():
+    """Grant one thread a non-public capability for a vetted runtime decision."""
+
+    previous = getattr(_RESERVED_EVIDENCE_CONTEXT, "authority", None)
+    _RESERVED_EVIDENCE_CONTEXT.authority = _RESERVED_EVIDENCE_AUTHORITY
+    try:
+        yield
+    finally:
+        if previous is None:
+            try:
+                del _RESERVED_EVIDENCE_CONTEXT.authority
+            except AttributeError:
+                pass
+        else:
+            _RESERVED_EVIDENCE_CONTEXT.authority = previous
+
+
+def resolve_interaction_guard(
+    mission_dir: Path,
+    *,
+    guard_id: str,
+    expected_revision: int,
+    message_refs: list[str],
+    disposition: str,
+    decision: dict[str, Any] | None = None,
+    authority_receipt: dict[str, Any] | None = None,
+    receipt_secret: str | None = None,
+    proposal_id: str | None = None,
+    proposal_decision: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resolve a host-handled interruption without letting it silently rewrite a Mission."""
+
+    if disposition not in INTERACTION_DISPOSITIONS - {"stop"}:
+        raise TplanError("interaction guard disposition unsupported by this resolver")
+    _safe_interaction_ref(guard_id, "guard_id")
+    if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 1:
+        raise TplanError("interaction guard expected_revision must be a positive integer")
+
+    with execution_trace_lock(mission_dir):
+        _recover_pending_mission_transaction_unlocked(mission_dir)
+        guard = _read_interaction_guard_unlocked(mission_dir)
+        if guard is None:
+            raise TplanError("no interaction guard is open")
+        if guard["guard_id"] != guard_id or guard["revision"] != expected_revision:
+            raise TplanError("interaction guard is stale; reload and retry")
+        updated_guard = _acknowledge_guard_messages(guard, message_refs)
+
+        if disposition == "await_clarification":
+            if (proposal_id is None) != (proposal_decision is None):
+                raise TplanError("awaiting confirmation proposal_id and proposal_decision must be supplied together")
+            if proposal_id is not None and proposal_decision is not None:
+                next_revision = updated_guard["revision"] + 1
+                updated_guard["proposal"] = {
+                    "proposal_id": _safe_interaction_ref(proposal_id, "proposal_id"),
+                    "mutation_digest": mutation_digest(proposal_decision),
+                    "decision_digest": decision_digest(proposal_decision),
+                    "created_revision": next_revision,
+                }
+            if updated_guard.get("phase") == "orphaned":
+                raise TplanError("interaction guard is orphaned; only operator recovery may change its disposition")
+            updated_guard["phase"] = "awaiting_authority"
+            updated_guard["revision"] += 1
+            before = _read_mission_unlocked(mission_dir)
+            _commit_mission_state_unlocked(
+                mission_dir,
+                before,
+                before,
+                source={"kind": "interaction_guard", "name": "await_clarification"},
+                latest_state="Interaction guard awaits explicit authority.",
+                extra_trace_records=[
+                    _interaction_guard_trace_record(
+                        before, updated_guard, disposition="await_clarification", phase="awaiting_authority"
+                    )
+                ],
+                guard_after=updated_guard,
+            )
+            return {
+                "disposition": disposition,
+                "guard_id": updated_guard["guard_id"],
+                "revision": updated_guard["revision"],
+                "pending_messages": [
+                    message["message_ref"] for message in updated_guard["messages"] if message["status"] == "pending"
+                ],
+            }
+
+        if _guard_has_pending_messages(updated_guard):
+            raise TplanError("interaction guard still has pending messages; cannot reopen Mission mutation")
+
+        before = _read_mission_unlocked(mission_dir)
+        if disposition == "resume_original":
+            if mission_control_digest(before) != guard["baseline_digest"]:
+                raise TplanError("runtime_integrity: Mission control state drifted during interaction")
+            if _evidence_boundary_digest_unlocked(mission_dir) != guard["baseline_evidence_digest"]:
+                raise TplanError("runtime_integrity: evidence boundary drifted during interaction")
+            _commit_mission_state_unlocked(
+                mission_dir,
+                before,
+                before,
+                source={"kind": "interaction_guard", "name": "resume_original"},
+                latest_state=f"Interaction guard resumed {guard['baseline_active_task_id'] or 'no active task'}.",
+                extra_trace_records=[
+                    _interaction_guard_trace_record(
+                        before, guard, disposition="resume_original", phase="closed"
+                    )
+                ],
+                guard_after=None,
+            )
+            return {
+                "disposition": disposition,
+                "resumed_task_id": guard["baseline_active_task_id"],
+                "guard_id": guard["guard_id"],
+            }
+
+        if decision is None or authority_receipt is None or receipt_secret is None:
+            raise TplanError("authorized interaction change requires decision, authority_receipt, and receipt_secret")
+        if mission_control_digest(before) != guard["baseline_digest"]:
+            raise TplanError("runtime_integrity: Mission control state drifted before authorized interaction change")
+        if _evidence_boundary_digest_unlocked(mission_dir) != guard["baseline_evidence_digest"]:
+            raise TplanError("runtime_integrity: evidence boundary drifted before authorized interaction change")
+        errors = validate_hook_output(decision, active_risk_signals(before))
+        if errors:
+            raise TplanError("; ".join(errors))
+        _verify_authority_receipt(
+            authority_receipt,
+            guard=guard,
+            decision=decision,
+            secret=receipt_secret,
+        )
+        after = copy.deepcopy(before)
+        for mutation in decision["proposed_mutations"]:
+            apply_mutation(after, mutation)
+        errors = validate_mission(after)
+        if errors:
+            raise TplanError("; ".join(errors))
+        event = prepare_event(
+            mission_dir,
+            {
+                "event_type": "decision_applied",
+                "summary": decision["rationale"],
+                "task_id": None,
+                "payload": {
+                    **decision,
+                    "interaction_authorization": {
+                        "receipt_id": authority_receipt["receipt_id"],
+                        "guard_id": guard["guard_id"],
+                        "guard_revision": guard["revision"],
+                        "proposal_id": authority_receipt["proposal_id"],
+                        "mutation_digest": authority_receipt["mutation_digest"],
+                        "decision_digest": authority_receipt["decision_digest"],
+                        "confirmation_ref": authority_receipt["confirmation_ref"],
+                    },
+                },
+            },
+        )
+        task_details = {
+            mutation["task_id"]: {"outcome_summary": decision["rationale"]}
+            for mutation in decision["proposed_mutations"]
+            if mutation.get("type") == "transition_task" and isinstance(mutation.get("task_id"), str)
+        }
+        _commit_mission_state_unlocked(
+            mission_dir,
+            before,
+            after,
+            source={"kind": "interaction_guard", "name": "apply_authorized_change"},
+            refs={"evidence_ids": [event["id"]], "evidence_links": decision.get("evidence_links", [])},
+            task_details=task_details,
+            latest_state=f"Interaction-authorized decision applied: {decision['recommendation']}.",
+            prepared_evidence_events=[event],
+            reserved_evidence_authority=_RESERVED_EVIDENCE_AUTHORITY,
+            extra_trace_records=[
+                _interaction_guard_trace_record(
+                    before, guard, disposition="apply_authorized_change", phase="closed"
+                )
+            ],
+            guard_after=None,
+        )
+        return {
+            "disposition": disposition,
+            "guard_id": guard["guard_id"],
+            "receipt_id": authority_receipt["receipt_id"],
+            "mutation_digest": authority_receipt["mutation_digest"],
+        }
+
+
+def resolve_guard_at_turn_end(
+    mission_dir: Path,
+    *,
+    platform: str,
+    binding_id: str,
+) -> dict[str, Any]:
+    """Resolve the ordinary response on its first owning host end event.
+
+    Guard release deliberately has no continuation dependency.  A concurrent message
+    wins through revision CAS; callers must then orphan rather than manufacture a new
+    model-visible retry prompt.
+    """
+
+    platform = _safe_interaction_ref(platform, "platform")
+    binding_id = _safe_interaction_ref(binding_id, "binding_id")
+    guard = read_interaction_guard(mission_dir)
+    if guard is None:
+        return {"disposition": "none"}
+    if guard.get("platform") != platform or guard.get("binding_id") != binding_id:
+        raise TplanError("interaction guard host binding mismatch at turn end")
+    if guard.get("phase") != "protecting":
+        return {
+            "disposition": "pending_recovery",
+            "guard_id": guard["guard_id"],
+            "phase": guard["phase"],
+        }
+    refs = [message["message_ref"] for message in guard["messages"] if message.get("status") == "pending"]
+    if not refs:
+        raise TplanError("interaction guard has no pending message at turn end")
+    return resolve_interaction_guard(
+        mission_dir,
+        guard_id=guard["guard_id"],
+        expected_revision=guard["revision"],
+        message_refs=refs,
+        disposition="resume_original",
+    )
+
+
+def orphan_interaction_guard(
+    mission_dir: Path,
+    *,
+    reason: str,
+    guard_id: str | None = None,
+    expected_revision: int | None = None,
+) -> dict[str, Any] | None:
+    """Keep Mission writes fail-closed after lifecycle ambiguity without trapping chat."""
+
+    reason = _safe_interaction_ref(reason, "orphan reason")
+    if guard_id is not None:
+        guard_id = _safe_interaction_ref(guard_id, "guard_id")
+    if expected_revision is not None and (
+        isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 1
+    ):
+        raise TplanError("interaction guard expected_revision must be a positive integer")
+    with execution_trace_lock(mission_dir):
+        _recover_pending_mission_transaction_unlocked(mission_dir)
+        guard = _read_interaction_guard_unlocked(mission_dir)
+        if guard is None:
+            return None
+        if guard_id is not None and guard["guard_id"] != guard_id:
+            raise TplanError("interaction guard identity mismatch while orphaning")
+        if expected_revision is not None and guard["revision"] != expected_revision:
+            raise TplanError("interaction guard is stale while orphaning")
+        if guard.get("phase") == "orphaned":
+            return copy.deepcopy(guard)
+        updated = copy.deepcopy(guard)
+        updated["phase"] = "orphaned"
+        updated["revision"] += 1
+        updated["recovery"]["reason"] = reason
+        before = _read_mission_unlocked(mission_dir)
+        _commit_mission_state_unlocked(
+            mission_dir,
+            before,
+            before,
+            source={"kind": "interaction_guard", "name": "orphaned"},
+            latest_state="Interaction guard orphaned; operator recovery required.",
+            extra_trace_records=[
+                _interaction_guard_trace_record(before, updated, disposition="orphaned", phase="orphaned", reason=reason)
+            ],
+            guard_after=updated,
+        )
+        return copy.deepcopy(updated)
+
+
+def orphan_expired_interaction_guard(mission_dir: Path) -> dict[str, Any] | None:
+    """Turn an unresolved expired lease into recoverable fail-closed state.
+
+    This is intentionally a host checkpoint, never an automatic resume.  It is safe
+    to call on every lifecycle callback and leaves non-expired/orphaned guards intact.
+    """
+
+    with execution_trace_lock(mission_dir):
+        _recover_pending_mission_transaction_unlocked(mission_dir)
+        guard = _read_interaction_guard_unlocked(mission_dir)
+        if guard is None or guard.get("phase") == "orphaned" or not _guard_lease_expired(guard):
+            return copy.deepcopy(guard) if guard is not None else None
+        updated = copy.deepcopy(guard)
+        updated["phase"] = "orphaned"
+        updated["revision"] += 1
+        updated["recovery"]["reason"] = "lease_expired"
+        before = _read_mission_unlocked(mission_dir)
+        _commit_mission_state_unlocked(
+            mission_dir,
+            before,
+            before,
+            source={"kind": "interaction_guard", "name": "lease_expired"},
+            latest_state="Interaction guard lease expired; operator recovery required.",
+            extra_trace_records=[
+                _interaction_guard_trace_record(
+                    before, updated, disposition="orphaned", phase="orphaned", reason="lease_expired"
+                )
+            ],
+            guard_after=updated,
+        )
+        return copy.deepcopy(updated)
+
+
+def transition_task_status(
+    mission_dir: Path,
+    task_id: str,
+    status: str,
+    *,
+    outcome_summary: str | None = None,
+    evidence_refs: list[str] | None = None,
+    artifact_refs: list[str] | None = None,
+    source_name: str = "transition_task",
+) -> dict[str, Any]:
+    before = read_mission(mission_dir)
+    after = copy.deepcopy(before)
+    set_task_status(after, task_id, status)
+    details: dict[str, Any] = {}
+    if outcome_summary:
+        details["outcome_summary"] = outcome_summary
+    if artifact_refs:
+        details["artifact_refs"] = artifact_refs
+    refs = {"evidence_ids": evidence_refs or [], "artifact_refs": artifact_refs or []}
+    commit_mission_state(
+        mission_dir,
+        before,
+        after,
+        source={"kind": "runtime_script", "name": source_name},
+        refs=refs,
+        task_details={task_id: details},
+        latest_state=f"Task {task_id} transitioned to {status}.",
+    )
+    return after
+
+
+def start_execution_span(mission_dir: Path, raw: Any) -> dict[str, Any]:
+    """Persist a sanitized host-entry marker before an observed operation begins."""
+    if not isinstance(raw, dict):
+        raise TplanError("execution span start input must be an object")
+    mission = read_mission(mission_dir)
+    span = dict(raw.get("span", {})) if isinstance(raw.get("span"), dict) else raw.get("span")
+    if isinstance(span, dict):
+        span.setdefault("span_id", f"SP{uuid.uuid4().hex[:12]}")
+        span.setdefault("parent_span_id", None)
+        span.setdefault("attempt", 1)
+    record = {
+        "schema_version": EXECUTION_TRACE_SCHEMA_VERSION,
+        "event_id": f"X{uuid.uuid4().hex[:12]}",
+        "event_type": "span_started",
+        "timestamp": raw.get("timestamp") or now_iso(),
+        "mission_id": _trace_mission_id(mission),
+        "task_id": raw.get("task_id"),
+        "span": span,
+        "refs": raw.get("refs", {}),
+    }
+    if "metadata" in raw:
+        record["metadata"] = raw["metadata"]
+    return append_execution_trace_record(mission_dir, record)
+
+
+def record_execution_span(mission_dir: Path, raw: Any) -> dict[str, Any]:
+    """Persist a completed span, either standalone or paired with span_started."""
+    if not isinstance(raw, dict):
+        raise TplanError("execution span input must be an object")
+    mission = read_mission(mission_dir)
+    span = dict(raw.get("span", {})) if isinstance(raw.get("span"), dict) else raw.get("span")
+    started_record: dict[str, Any] | None = None
+    if isinstance(span, dict):
+        span.setdefault("span_id", f"SP{uuid.uuid4().hex[:12]}")
+        started_record = next(
+            (
+                record
+                for record in read_execution_trace(mission_dir)
+                if record.get("event_type") == "span_started"
+                and record.get("span", {}).get("span_id") == span["span_id"]
+            ),
+            None,
+        )
+        if started_record is not None:
+            for field, value in started_record["span"].items():
+                span.setdefault(field, value)
+        span.setdefault("parent_span_id", None)
+        span.setdefault("attempt", 1)
+    usage = raw.get("usage", {})
+    task_id = raw.get("task_id") if "task_id" in raw else (
+        started_record.get("task_id") if started_record is not None else None
+    )
+    record = {
+        "schema_version": EXECUTION_TRACE_SCHEMA_VERSION,
+        "event_id": f"X{uuid.uuid4().hex[:12]}",
+        "event_type": "span_completed",
+        "timestamp": raw.get("timestamp") or (span.get("finished_at") if isinstance(span, dict) else now_iso()),
+        "mission_id": _trace_mission_id(mission),
+        "task_id": task_id,
+        "span": span,
+        "usage": usage,
+        "refs": raw.get("refs", {}),
+    }
+    if isinstance(usage, dict) and usage:
+        record["usage_source"] = raw.get("usage_source") or (
+            span.get("measurement_source") if isinstance(span, dict) else None
+        )
+    if "metadata" in raw and not isinstance(raw.get("metadata"), dict):
+        record["metadata"] = raw["metadata"]
+    elif started_record is not None or "metadata" in raw:
+        metadata = dict(started_record.get("metadata", {})) if started_record is not None else {}
+        metadata.update(raw.get("metadata", {}))
+        record["metadata"] = metadata
+    return append_execution_trace_record(mission_dir, record)
 
 
 def _risk_signals(mission: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1556,7 +5089,8 @@ def _next_event_id(mission_dir: Path) -> str:
 
 
 def record_risk_signal(mission_dir: Path, task_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    mission = read_mission(mission_dir)
+    before = read_mission(mission_dir)
+    mission = copy.deepcopy(before)
     find_task(mission, task_id)
     shared_context = _ensure_shared_context(mission)
     event_id = _next_event_id(mission_dir)
@@ -1585,7 +5119,7 @@ def record_risk_signal(mission_dir: Path, task_id: str, payload: dict[str, Any])
     if errors:
         raise TplanError("; ".join(errors))
     require_indexed_shared_context_target(mission)
-    event = append_event(
+    event = prepare_event(
         mission_dir,
         {
             "id": event_id,
@@ -1596,7 +5130,15 @@ def record_risk_signal(mission_dir: Path, task_id: str, payload: dict[str, Any])
             "payload": {"risk_signal": signal},
         },
     )
-    write_mission(mission_dir, mission)
+    commit_mission_state(
+        mission_dir,
+        before,
+        mission,
+        source={"kind": "runtime_script", "name": "record_risk_context"},
+        refs={"evidence_ids": [event["id"]]},
+        latest_state=f"Shared risk signal {signal['id']} recorded.",
+        prepared_evidence_events=[event],
+    )
     write_indexed_shared_context(mission)
     return {"risk_signal": signal, "event": event}
 
@@ -1611,7 +5153,8 @@ def resolve_risk_signal(
 ) -> dict[str, Any]:
     if status not in RISK_SIGNAL_STATUSES - {"active"}:
         raise TplanError("risk status for recovery must be resolved, superseded, or invalidated")
-    mission = read_mission(mission_dir)
+    before = read_mission(mission_dir)
+    mission = copy.deepcopy(before)
     find_task(mission, task_id)
     signals = _risk_signals(mission)
     signal = next((item for item in signals if item.get("id") == risk_id), None)
@@ -1629,7 +5172,7 @@ def resolve_risk_signal(
     if errors:
         raise TplanError("; ".join(errors))
     require_indexed_shared_context_target(mission)
-    event = append_event(
+    event = prepare_event(
         mission_dir,
         {
             "id": event_id,
@@ -1645,7 +5188,15 @@ def resolve_risk_signal(
             },
         },
     )
-    write_mission(mission_dir, mission)
+    commit_mission_state(
+        mission_dir,
+        before,
+        mission,
+        source={"kind": "runtime_script", "name": "resolve_risk_context"},
+        refs={"evidence_ids": [event["id"]]},
+        latest_state=f"Shared risk signal {risk_id} resolved as {status}.",
+        prepared_evidence_events=[event],
+    )
     write_indexed_shared_context(mission)
     return {"risk_signal": signal, "event": event}
 
@@ -1669,39 +5220,51 @@ def append_step_log(mission_dir: Path, event: dict[str, Any]) -> dict[str, Any]:
     task_id = event.get("task_id")
     if not isinstance(task_id, str) or not task_id:
         raise TplanError("step log task_id must be a non-empty string")
-    find_task(read_mission(mission_dir), task_id)
-    path = step_log_path(mission_dir, task_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    events = read_step_logs(mission_dir, task_id)
-    event = dict(event)
-    event.setdefault("id", f"L{len(events) + 1}")
-    event.setdefault("timestamp", now_iso())
-    event.setdefault("payload", {})
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
-    return event
+    with execution_trace_lock(mission_dir):
+        _recover_pending_mission_transaction_unlocked(mission_dir)
+        mission = _prepare_supported_runtime_write_unlocked(
+            mission_dir,
+            operation="append_step_log",
+        )
+        find_task(mission, task_id)
+        path = step_log_path(mission_dir, task_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        events = read_step_logs(mission_dir, task_id)
+        event = dict(event)
+        event.setdefault("id", f"L{len(events) + 1}")
+        event.setdefault("timestamp", now_iso())
+        event.setdefault("payload", {})
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+        return event
 
 
 def archive_task_logs(mission_dir: Path, task_id: str, summary: str) -> Path:
-    find_task(read_mission(mission_dir), task_id)
-    paths = mission_paths(mission_dir)
-    active_log = step_log_path(mission_dir, task_id)
-    archive_dir = paths["archive"] / slugify(task_id)
-    archive_dir.mkdir(parents=True, exist_ok=True)
-    archived_log = archive_dir / "step_logs.jsonl"
-    if active_log.exists():
-        active_log.replace(archived_log)
-    elif not archived_log.exists():
-        archived_log.write_text("", encoding="utf-8")
-    summary_md = archive_dir / "summary.md"
-    summary_md.write_text(
-        f"# Task {task_id} Summary\n\n"
-        f"{summary}\n\n"
-        f"- archived_at: {now_iso()}\n"
-        f"- step_log: step_logs.jsonl\n",
-        encoding="utf-8",
-    )
-    return archive_dir
+    with execution_trace_lock(mission_dir):
+        _recover_pending_mission_transaction_unlocked(mission_dir)
+        mission = _prepare_supported_runtime_write_unlocked(
+            mission_dir,
+            operation="archive_task_logs",
+        )
+        find_task(mission, task_id)
+        paths = mission_paths(mission_dir)
+        active_log = step_log_path(mission_dir, task_id)
+        archive_dir = paths["archive"] / slugify(task_id)
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        archived_log = archive_dir / "step_logs.jsonl"
+        if active_log.exists():
+            active_log.replace(archived_log)
+        elif not archived_log.exists():
+            archived_log.write_text("", encoding="utf-8")
+        summary_md = archive_dir / "summary.md"
+        summary_md.write_text(
+            f"# Task {task_id} Summary\n\n"
+            f"{summary}\n\n"
+            f"- archived_at: {now_iso()}\n"
+            f"- step_log: step_logs.jsonl\n",
+            encoding="utf-8",
+        )
+        return archive_dir
 
 
 def format_stop_report(payload: dict[str, Any]) -> str:
@@ -1718,7 +5281,7 @@ def format_stop_report(payload: dict[str, Any]) -> str:
     )
 
 
-def record_stop_report(mission_dir: Path, task_id: str, summary: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _validate_stop_report_payload(payload: dict[str, Any]) -> None:
     attempts = payload.get("attempts")
     if not isinstance(attempts, list):
         raise TplanError("attempts must be a list")
@@ -1740,15 +5303,19 @@ def record_stop_report(mission_dir: Path, task_id: str, summary: str, payload: d
         if not isinstance(attempt, str) or not attempt.strip():
             raise TplanError("stop report attempts must be non-empty strings")
 
-    mission = read_mission(mission_dir)
-    find_task(mission, task_id)
+
+def record_stop_report(mission_dir: Path, task_id: str, summary: str, payload: dict[str, Any]) -> dict[str, Any]:
+    _validate_stop_report_payload(payload)
+    before = read_mission(mission_dir)
+    find_task(before, task_id)
+    mission = copy.deepcopy(before)
     set_task_status(mission, task_id, "blocked")
     mission["active_task_id"] = task_id
     mission["mission"]["status"] = "requires_human"
     errors = validate_mission(mission)
     if errors:
         raise TplanError("; ".join(errors))
-    event = append_event(
+    event = prepare_event(
         mission_dir,
         {
             "event_type": "stop_report",
@@ -1757,8 +5324,84 @@ def record_stop_report(mission_dir: Path, task_id: str, summary: str, payload: d
             "payload": payload,
         },
     )
-    write_mission(mission_dir, mission)
+    commit_mission_state(
+        mission_dir,
+        before,
+        mission,
+        source={"kind": "runtime_script", "name": "stop_report"},
+        refs={"evidence_ids": [event["id"]]},
+        task_details={task_id: {"outcome_summary": summary}},
+        latest_state=f"Task {task_id} is blocked and requires human input.",
+        prepared_evidence_events=[event],
+    )
     return event
+
+
+def stop_interaction_guard(
+    mission_dir: Path,
+    *,
+    guard_id: str,
+    expected_revision: int,
+    message_refs: list[str],
+    task_id: str,
+    summary: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply only the fixed graceful-stop delta while resolving an interaction guard."""
+
+    _validate_stop_report_payload(payload)
+    _safe_interaction_ref(guard_id, "guard_id")
+    if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 1:
+        raise TplanError("interaction guard expected_revision must be a positive integer")
+    with execution_trace_lock(mission_dir):
+        _recover_pending_mission_transaction_unlocked(mission_dir)
+        guard = _read_interaction_guard_unlocked(mission_dir)
+        if guard is None:
+            raise TplanError("no interaction guard is open")
+        if guard["guard_id"] != guard_id or guard["revision"] != expected_revision:
+            raise TplanError("interaction guard is stale; reload and retry")
+        updated_guard = _acknowledge_guard_messages(guard, message_refs)
+        if _guard_has_pending_messages(updated_guard):
+            raise TplanError("interaction guard still has pending messages; cannot stop")
+        before = _read_mission_unlocked(mission_dir)
+        if mission_control_digest(before) != guard["baseline_digest"]:
+            raise TplanError("runtime_integrity: Mission control state drifted before interaction stop")
+        if _evidence_boundary_digest_unlocked(mission_dir) != guard["baseline_evidence_digest"]:
+            raise TplanError("runtime_integrity: evidence boundary drifted before interaction stop")
+        if task_id != guard["baseline_active_task_id"]:
+            raise TplanError("interaction stop may only block the baseline active task")
+        mission = copy.deepcopy(before)
+        find_task(mission, task_id)
+        set_task_status(mission, task_id, "blocked")
+        mission["active_task_id"] = task_id
+        mission["mission"]["status"] = "requires_human"
+        errors = validate_mission(mission)
+        if errors:
+            raise TplanError("; ".join(errors))
+        event = prepare_event(
+            mission_dir,
+            {
+                "event_type": "stop_report",
+                "summary": summary,
+                "task_id": task_id,
+                "payload": payload,
+            },
+        )
+        _commit_mission_state_unlocked(
+            mission_dir,
+            before,
+            mission,
+            source={"kind": "interaction_guard", "name": "stop"},
+            refs={"evidence_ids": [event["id"]]},
+            task_details={task_id: {"outcome_summary": summary}},
+            latest_state=f"Task {task_id} is blocked and requires human input.",
+            prepared_evidence_events=[event],
+            extra_trace_records=[
+                _interaction_guard_trace_record(before, guard, disposition="stop", phase="closed")
+            ],
+            guard_after=None,
+        )
+        return {"disposition": "stop", "guard_id": guard["guard_id"], "task_id": task_id, "event": event}
 
 
 def find_task(mission: dict[str, Any], task_id: str) -> dict[str, Any]:
@@ -1820,8 +5463,7 @@ def active_task(mission: dict[str, Any]) -> dict[str, Any] | None:
     return task_map(mission).get(str(task_id))
 
 
-def build_survey(mission_dir: Path) -> dict[str, Any]:
-    mission = read_mission(mission_dir)
+def build_survey_from_state(mission: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
     active = active_task(mission)
     return {
         "mission": mission["mission"],
@@ -1830,8 +5472,13 @@ def build_survey(mission_dir: Path) -> dict[str, Any]:
         "tasks_by_status": tasks_by_status(mission),
         "resource_sufficiency": mission["mission"]["resource_sufficiency"],
         "shared_context": shared_context_summary(mission),
-        "event_count": len(read_events(mission_dir)),
+        "event_count": len(events),
     }
+
+
+def build_survey(mission_dir: Path) -> dict[str, Any]:
+    mission = read_mission(mission_dir)
+    return build_survey_from_state(mission, read_events(mission_dir))
 
 
 def _brief_event(event: dict[str, Any]) -> dict[str, Any]:
@@ -2734,7 +6381,8 @@ def consume_pulse_candidate(
     trigger: str,
     note: str | None = None,
 ) -> dict[str, Any]:
-    mission = read_mission(mission_dir)
+    before = read_mission(mission_dir)
+    mission = copy.deepcopy(before)
     fingerprint = candidate.get("fingerprint")
     if not isinstance(fingerprint, str) or not fingerprint:
         fingerprint = _pulse_candidate_fingerprint(candidate)
@@ -2759,7 +6407,7 @@ def consume_pulse_candidate(
     errors = validate_mission(mission)
     if errors:
         raise TplanError("; ".join(errors))
-    event = append_event(
+    event = prepare_event(
         mission_dir,
         {
             "id": event_id,
@@ -2780,7 +6428,15 @@ def consume_pulse_candidate(
             },
         },
     )
-    write_mission(mission_dir, mission)
+    commit_mission_state(
+        mission_dir,
+        before,
+        mission,
+        source={"kind": "runtime_script", "name": "consume_pulse_candidate"},
+        refs={"evidence_ids": [event["id"]]},
+        latest_state=f"Pulse candidate {candidate.get('signal')} consumed.",
+        prepared_evidence_events=[event],
+    )
     return {"consumed_candidate": entry, "event": event}
 
 
@@ -3100,22 +6756,23 @@ def apply_mutation(mission: dict[str, Any], mutation: Any) -> None:
 
 
 def apply_decision(mission_dir: Path, decision: Any) -> str:
-    mission = read_mission(mission_dir)
-    errors = validate_hook_output(decision, active_risk_signals(mission))
+    before = read_mission(mission_dir)
+    errors = validate_hook_output(decision, active_risk_signals(before))
     if errors:
         raise TplanError("; ".join(errors))
 
-    mode = authority_mode(mission)
+    mode = authority_mode(before)
     if mode == "advisory" or decision["requires_human"]:
         record_decision_recommendation(mission_dir, decision)
         return "recorded_recommendation"
 
+    mission = copy.deepcopy(before)
     for mutation in decision["proposed_mutations"]:
         apply_mutation(mission, mutation)
     errors = validate_mission(mission)
     if errors:
         raise TplanError("; ".join(errors))
-    append_event(
+    event = prepare_event(
         mission_dir,
         {
             "event_type": "decision_applied",
@@ -3124,9 +6781,20 @@ def apply_decision(mission_dir: Path, decision: Any) -> str:
             "payload": decision,
         },
     )
-    write_mission(
-        mission_dir,
-        mission,
-        latest_state=f"Decision applied: {decision['recommendation']}.",
-    )
+    task_details = {
+        mutation["task_id"]: {"outcome_summary": decision["rationale"]}
+        for mutation in decision["proposed_mutations"]
+        if mutation.get("type") == "transition_task" and isinstance(mutation.get("task_id"), str)
+    }
+    with _reserved_evidence_commit_scope():
+        commit_mission_state(
+            mission_dir,
+            before,
+            mission,
+            source={"kind": "decision_hook", "name": decision["recommendation"]},
+            refs={"evidence_ids": [event["id"]], "evidence_links": decision.get("evidence_links", [])},
+            task_details=task_details,
+            latest_state=f"Decision applied: {decision['recommendation']}.",
+            prepared_evidence_events=[event],
+        )
     return "applied_decision"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from hashlib import sha256
 import json
 import re
 from pathlib import Path
@@ -32,6 +33,165 @@ def foundation_implementation_targets_for_test_targets(test_targets: list[str]) 
 
 def frontend_surface_unit_test_path(route: str) -> str:
     return f"tests/unit/web/{route}.unit.test.ts"
+
+
+def is_frontend_owned_target(target: str, *, test: bool = False) -> bool:
+    normalized = str(target or "").strip().replace("\\", "/")
+    return normalized.startswith("tests/unit/web/" if test else "apps/web/")
+
+
+def partition_frontend_owned_s3_targets(
+    rows: list[dict[str, Any]],
+) -> tuple[
+    dict[str, list[dict[str, Any]]],
+    dict[str, list[dict[str, Any]]],
+    dict[str, list[dict[str, Any]]],
+    dict[str, list[dict[str, Any]]],
+]:
+    implementation: dict[str, list[dict[str, Any]]] = {}
+    tests: dict[str, list[dict[str, Any]]] = {}
+    frontend_implementation: dict[str, list[dict[str, Any]]] = {}
+    frontend_tests: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        for target in row.get("implementation_targets", []):
+            if not str(target).strip():
+                continue
+            (frontend_implementation if is_frontend_owned_target(target) else implementation).setdefault(str(target), []).append(row)
+        for target in row.get("test_targets", []):
+            if not str(target).strip():
+                continue
+            (frontend_tests if is_frontend_owned_target(target, test=True) else tests).setdefault(str(target), []).append(row)
+    return implementation, tests, frontend_implementation, frontend_tests
+
+
+def first_non_frontend_implementation_target(row: dict[str, Any]) -> str:
+    return next(
+        (str(target) for target in row.get("implementation_targets", []) if str(target).strip() and not is_frontend_owned_target(str(target))),
+        "",
+    )
+
+
+def frontend_delegation_records(groups: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "path": path,
+            "slice_ids": [str(row.get("slice_id") or "") for row in rows],
+            "owner": "wff-impl-frontend",
+            "status": "delegated-to-frontend-authoring",
+        }
+        for path, rows in sorted(groups.items())
+    ]
+
+
+AGENTIC_BODY_SENTINEL = "WFF_AGENTIC_BODY_REQUIRED"
+_AGENTIC_REGION_RE = re.compile(
+    r"(?P<begin>^[ \t]*// @wff:agentic-begin id=(?P<id>[A-Za-z0-9_.-]+)\n)(?P<body>.*?)(?P<end>^[ \t]*// @wff:agentic-end id=(?P=id)$)",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+def render_agentic_region(block_id: str, placeholder: str, *, indent: str = "") -> str:
+    return f"{indent}// @wff:agentic-begin id={block_id}\n{indent}{placeholder}\n{indent}// @wff:agentic-end id={block_id}"
+
+
+def agentic_region_rows(text: str) -> dict[str, str]:
+    return {match.group("id"): match.group("body") for match in _AGENTIC_REGION_RE.finditer(text)}
+
+
+def agentic_shell_projection(text: str) -> str:
+    return _AGENTIC_REGION_RE.sub(lambda match: match.group("begin") + f"<{match.group('id')}:agentic-body>\n" + match.group("end"), text)
+
+
+def merge_bounded_agentic_regions(
+    path: Path,
+    rendered: str,
+    *,
+    source_path: Path | None = None,
+    error_type: type[ValueError] = ValueError,
+    boundary_label: str = "Agentic",
+    require_regions: bool = True,
+    allow_protected_shell_refresh: bool = False,
+) -> tuple[str, list[dict[str, str]]]:
+    expected = agentic_region_rows(rendered)
+    if not expected:
+        if require_regions:
+            raise error_type(f"{boundary_label} shell has no Agentic regions: {path}")
+        return rendered, []
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    existing_rows = agentic_region_rows(existing) if existing else {}
+    source = existing if any(AGENTIC_BODY_SENTINEL not in body for body in existing_rows.values()) else (source_path.read_text(encoding="utf-8") if source_path and source_path.is_file() else existing)
+    current = agentic_region_rows(source) if source else {}
+    if source and not current:
+        raise error_type(f"{boundary_label} source is legacy/unmarked: {path}")
+    preserved = {block_id: body for block_id, body in current.items() if AGENTIC_BODY_SENTINEL not in body}
+    if preserved and set(current) != set(expected):
+        raise error_type(f"{boundary_label} Agentic block denominator changed: {path}")
+    if preserved and agentic_shell_projection(source) != agentic_shell_projection(rendered) and not allow_protected_shell_refresh:
+        raise error_type(f"protected {boundary_label} template shell changed outside Agentic blocks: {path}")
+    merged = _AGENTIC_REGION_RE.sub(lambda match: match.group("begin") + preserved.get(match.group("id"), match.group("body")) + match.group("end"), rendered)
+    records = [{"block_id": block_id, "status": "authoring-required" if AGENTIC_BODY_SENTINEL in body else "materialized", "sha256": "sha256:" + sha256(body.encode()).hexdigest()} for block_id, body in agentic_region_rows(merged).items()]
+    return merged, records
+
+
+def bind_frontend_runtime_evidence(
+    *,
+    implementation_bindings_path: Path,
+    runtime_report_path: Path,
+    runtime_report: dict[str, Any],
+) -> dict[str, Any]:
+    payload = json.loads(implementation_bindings_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("implementation bindings must be a JSON object")
+    authoring = payload.get("frontend_authoring") if isinstance(payload.get("frontend_authoring"), dict) else {}
+    browser = runtime_report.get("frontend_browser_evidence") if isinstance(runtime_report.get("frontend_browser_evidence"), dict) else {}
+    identity = browser.get("authoring_identity") if isinstance(browser.get("authoring_identity"), dict) else {}
+    if str(browser.get("status") or "") != "pass":
+        raise ValueError("frontend runtime evidence is not passing")
+    if str(authoring.get("status") or "") != "materialized":
+        raise ValueError("frontend runtime evidence cannot bind before source authoring is materialized")
+    identity_fields = (
+        ("content_digest", "content_digest"),
+        ("implementation_decision_digest", "decision_digest"),
+        ("ui_ia_contract_sha256", "ui_ia_contract_sha256"),
+    )
+    for authoring_field, identity_field in identity_fields:
+        if str(authoring.get(authoring_field) or "") != str(identity.get(identity_field) or ""):
+            raise ValueError(f"frontend runtime evidence changed authoring identity: {authoring_field}")
+    root = implementation_bindings_path.resolve().parent
+    report_ref = runtime_report_path.resolve().relative_to(root).as_posix()
+    slice_ids = {
+        str(slice_id)
+        for page in identity.get("pages", [])
+        if isinstance(page, dict)
+        for slice_id in page.get("slice_ids", [])
+        if str(slice_id).strip()
+    }
+    evidence = {
+        "status": "pass",
+        "authoring_content_digest": str(identity.get("content_digest") or ""),
+        "implementation_decision_digest": str(identity.get("decision_digest") or ""),
+        "ui_ia_contract_sha256": str(identity.get("ui_ia_contract_sha256") or ""),
+        "runtime_evidence_ref": report_ref,
+        "interaction_specs": [
+            {"path": str(row.get("path") or ""), "sha256": str(row.get("sha256") or ""), "markers": row.get("markers", [])}
+            for row in browser.get("interaction_specs", [])
+            if isinstance(row, dict)
+        ],
+        "screenshots": list(browser.get("screenshots", [])),
+        "semantic_authority": False,
+        "trace_confirmed": False,
+        "claim_ceiling": "Real frontend runtime/browser evidence only; product/UI review and P4 acceptance remain separate.",
+    }
+    payload["frontend_runtime_evidence"] = evidence
+    for key in ("rows", "non_operation_rows"):
+        rows = payload.get(key)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if isinstance(row, dict) and str(row.get("slice_id") or "") in slice_ids:
+                row["frontend_runtime_evidence"] = evidence
+    implementation_bindings_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return evidence
 
 
 def unit_test_targets_for_implementation_targets(targets: list[str]) -> list[str]:

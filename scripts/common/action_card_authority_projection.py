@@ -13,6 +13,25 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
+from common.product_interaction_semantics import product_interaction_semantics_digest, validate_p2_product_interaction_semantics
+
+
+HIGH_SIGNAL_CONSUMER_INTERACTION_OBLIGATION_KINDS = frozenset(
+    {
+        "preserve-multi-value-business-meaning",
+        "prevent-storage-syntax-collection-entry",
+        "preserve-candidate-discovery",
+        "reuse-existing-business-data",
+        "prevent-opaque-reference-entry",
+        "preserve-bounded-choice-vocabulary",
+        "preserve-context-carryover",
+        "preserve-usage-frequency",
+        "preserve-free-form-boundary",
+        "preserve-error-cost-protection",
+        "preserve-unresolved-interaction-gaps",
+    }
+)
+
 
 def authority_rows(authority: Mapping[str, Any], key: str) -> list[dict[str, Any]]:
     return [dict(row) for row in authority.get(key, []) if isinstance(row, dict)]
@@ -26,6 +45,22 @@ def _strings(values: Any) -> list[str]:
 
 def _unique(values: list[str]) -> list[str]:
     return list(dict.fromkeys(item for item in values if item))
+
+
+def _terminal_role_authority_status(statuses: list[str]) -> str:
+    unique = set(_unique([str(item).strip() for item in statuses if str(item).strip()]))
+    # `not-declared` is absence of terminal-role authority, not a conflicting
+    # authority state. Treat it as neutral when other exact statuses exist and
+    # preserve it only when every contributing operation is undeclared.
+    unique.discard("not-declared")
+    if not unique:
+        return "not-declared"
+    accepted = {"sufficient", "not-applicable-system-continuation"}
+    if unique == {"not-applicable-system-continuation"}:
+        return "not-applicable-system-continuation"
+    if unique.issubset(accepted) and "sufficient" in unique:
+        return "sufficient"
+    return "review-bound"
 
 
 def _unique_structured_rows(values: Any) -> list[dict[str, Any]]:
@@ -258,6 +293,165 @@ def project_component_authority(
     return projected
 
 
+def _p1_interaction_context_by_id(authority: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    p1_authority = authority.get("p1_authority") if isinstance(authority.get("p1_authority"), Mapping) else {}
+    interaction_context = (
+        p1_authority.get("interaction_relevant_product_context")
+        if isinstance(p1_authority.get("interaction_relevant_product_context"), Mapping)
+        else {}
+    )
+    return {
+        str(row.get("context_id") or "").strip(): dict(row)
+        for row in interaction_context.get("task_contexts", [])
+        if isinstance(row, Mapping) and str(row.get("context_id") or "").strip()
+    }
+
+
+def _resolved_p1_interaction_context(
+    raw_row: Mapping[str, Any],
+    p1_context_by_id: Mapping[str, Mapping[str, Any]],
+) -> dict[str, list[str]]:
+    refs = _strings(raw_row.get("p1_context_refs", []))
+    task_frequencies = _unique(
+        [
+            str(p1_context_by_id.get(ref, {}).get("task_frequency") or "").strip()
+            for ref in refs
+            if str(p1_context_by_id.get(ref, {}).get("task_frequency") or "").strip()
+        ]
+    )
+    low_step_requirements = _unique(
+        [
+            str(p1_context_by_id.get(ref, {}).get("high_frequency_low_step_requirement") or "").strip()
+            for ref in refs
+            if str(p1_context_by_id.get(ref, {}).get("high_frequency_low_step_requirement") or "").strip()
+        ]
+    )
+    return {
+        "task_frequencies": task_frequencies,
+        "low_step_requirements": low_step_requirements,
+    }
+
+
+def _interaction_obligation_rows(
+    raw_row: Mapping[str, Any],
+    *,
+    component_type: str,
+    p1_context_by_id: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Translate one frozen P2 semantic packet into component-owned P3 obligations.
+
+    The full semantic packet remains traceable on every related component. Consumer
+    interaction responsibilities are owned by Service cards; Repository cards receive
+    only persistence-relevant constraints. Concrete controls remain P3 Agentic authority.
+    """
+    semantics = raw_row.get("semantics") if isinstance(raw_row.get("semantics"), Mapping) else {}
+    validate_p2_product_interaction_semantics(semantics)
+    semantics_copy = json.loads(json.dumps(dict(semantics), ensure_ascii=False))
+    candidate = semantics_copy.get("candidate_source")
+    candidate_map = candidate if isinstance(candidate, dict) else {}
+    source_kind = str(candidate_map.get("source_kind") or candidate_map.get("kind") or "").strip()
+    discovery = str(semantics_copy.get("discovery_requirement") or "").strip()
+    cardinality = str(semantics_copy.get("cardinality") or "").strip()
+    binding_source = str(raw_row.get("binding_source") or "").strip()
+    contract_field = str(raw_row.get("contract_field") or "").strip()
+    free_form_allowed = bool(semantics_copy.get("free_form_allowed"))
+    normalized_cardinality = cardinality.lower().replace("_", "-")
+    multi_value = normalized_cardinality not in {"", "one", "single", "exactly-one"} and any(
+        token in normalized_cardinality for token in ("many", "multiple", "more", "collection", "array", "list", "set")
+    )
+    repository_context = component_type.strip().lower() == "repository"
+    responsibility_mode = "persistence-context-only" if repository_context else "consumer-interaction-owner"
+    resolved_p1_context = _resolved_p1_interaction_context(raw_row, p1_context_by_id)
+
+    obligations: list[dict[str, str]] = []
+    verification: list[dict[str, str]] = []
+
+    def add(kind: str, requirement: str) -> None:
+        obligations.append({"kind": kind, "requirement": requirement})
+
+    def verify(kind: str, requirement: str) -> None:
+        verification.append({"kind": kind, "requirement": requirement})
+
+    if repository_context:
+        add("preserve-cardinality", f"Persist the accepted cardinality `{cardinality}` without flattening or expanding the business value.")
+        add("preserve-validation-semantics", f"Preserve persistence-relevant validation semantics: {semantics_copy['validation_semantics']}")
+        add("preserve-privacy-or-sensitivity", f"Preserve persistence sensitivity boundary: {semantics_copy['privacy_or_sensitivity']}")
+        verify(
+            "verify-persistence-semantic-context",
+            "Verify the Repository preserves the listed interaction-semantic cardinality, persistence validation, and sensitivity facts without acquiring consumer interaction ownership.",
+        )
+    else:
+        add("preserve-user-meaning", f"Preserve accepted user meaning: {semantics_copy['user_meaning']}")
+        add("preserve-value-source", f"Resolve the value only from the accepted source semantics: {semantics_copy['value_source']}")
+        add("preserve-cardinality", f"Preserve accepted cardinality `{cardinality}`; do not flatten or expand the business meaning.")
+        add("preserve-editability-semantics", f"Preserve accepted editability semantics: {semantics_copy['editability']}")
+        if multi_value:
+            add("preserve-multi-value-business-meaning", "Keep the business value as a real multi-value collection throughout consumer interaction and contract submission.")
+            add("prevent-storage-syntax-collection-entry", "Do not require the consumer to encode the collection as comma-separated IDs or other storage/transport syntax.")
+            verify("verify-multi-value-cardinality", f"Verify `{contract_field}` remains a real multi-value collection end-to-end and is not flattened to one scalar value.")
+            verify("verify-no-storage-syntax-collection-entry", f"Verify the consumer path never requires comma-separated IDs or other storage/transport syntax for `{contract_field}`.")
+        if discovery and discovery.lower() not in {"none", "not-required", "not-applicable"}:
+            add("preserve-candidate-discovery", f"Provide candidate discovery consistent with `{discovery}` using only the accepted candidate source; do not invent a catalog.")
+            accepted_ops = _strings(candidate_map.get("operation_ids", []))
+            accepted_source = ", ".join(accepted_ops) or source_kind or "accepted candidate source"
+            verify("verify-candidate-discovery-source", f"Verify `{contract_field}` candidate discovery is backed only by {accepted_source}; no fabricated catalog or manual opaque-id fallback is accepted.")
+        reusable_existing_data = binding_source in {"response-binding", "workflow-context"} or source_kind in {
+            "operation", "existing-business-data", "accepted-business-data"
+        }
+        opaque_reference_guard = binding_source in {"response-binding", "workflow-context"} or (
+            contract_field.endswith(("_id", "_ref", "_refs")) and not free_form_allowed
+        )
+        if reusable_existing_data:
+            add("reuse-existing-business-data", "Reuse accepted workflow context or existing consumer-visible business data instead of asking the consumer to reconstruct it.")
+        if opaque_reference_guard:
+            add("prevent-opaque-reference-entry", "Do not require the consumer to know or manually enter opaque internal identifiers or references.")
+            verify("verify-no-opaque-reference-entry", f"Verify `{contract_field}` can be resolved from accepted context/data without requiring the consumer to type an opaque internal identifier/reference.")
+        if source_kind == "accepted-vocabulary":
+            add("preserve-bounded-choice-vocabulary", "Keep the choice bounded to the accepted business/state vocabulary; do not widen it into arbitrary prose.")
+            verify("verify-bounded-choice-vocabulary", f"Verify `{contract_field}` rejects values outside the accepted bounded business/state vocabulary.")
+        add("preserve-context-carryover", f"Preserve accepted context carryover: {semantics_copy['context_carryover']}")
+        add("preserve-default-or-recent-semantics", f"Preserve accepted default/recent behavior: {semantics_copy['default_or_recent_semantics']}")
+        task_frequency = "; ".join(resolved_p1_context["task_frequencies"]) or str(semantics_copy["usage_frequency"])
+        low_step = "; ".join(resolved_p1_context["low_step_requirements"])
+        frequency_requirement = f"Design for accepted usage frequency: {task_frequency}"
+        if low_step:
+            frequency_requirement += f"; low-step requirement: {low_step}"
+        add("preserve-usage-frequency", frequency_requirement)
+        add("preserve-free-form-boundary", f"free_form_allowed={str(free_form_allowed).lower()}; rationale: {semantics_copy['free_form_rationale']}")
+        add("preserve-error-cost-protection", f"Protect the task in proportion to the accepted error cost without prescribing the concrete protection mechanism: {semantics_copy['error_cost']}")
+        add("preserve-validation-semantics", f"Preserve validation semantics: {semantics_copy['validation_semantics']}")
+        add("preserve-privacy-or-sensitivity", f"Preserve privacy/sensitivity boundary: {semantics_copy['privacy_or_sensitivity']}")
+        if reusable_existing_data:
+            verify("verify-context-carryover", f"Verify `{contract_field}` reuses accepted workflow/session/business-object context and does not re-request already-known context without justification.")
+        if binding_source == "user-input":
+            verify("verify-free-form-boundary", f"Verify `{contract_field}` preserves free_form_allowed={str(free_form_allowed).lower()} and its accepted rationale; do not over-structure or widen the value beyond authority.")
+            if not free_form_allowed and source_kind == "user-defined":
+                verify("verify-structured-user-input", f"Verify `{contract_field}` remains the accepted structured/non-textual business input rather than arbitrary prose or an opaque internal reference.")
+        verify("verify-error-cost-protection", "Verify the consumer task is protected in proportion to accepted interaction error cost without freezing a concrete UI mechanism upstream.")
+        verify("verify-validation-semantics", f"Verify `{contract_field}` satisfies the accepted validation semantics at the consumer/contract boundary.")
+        verify("verify-privacy-or-sensitivity", "Verify the consumer flow preserves the accepted privacy/sensitivity boundary for all interaction fields in this component.")
+        gaps = [str(item).strip() for item in semantics_copy.get("unresolved_interaction_gaps", []) if str(item).strip()]
+        if gaps:
+            add("preserve-unresolved-interaction-gaps", "Keep unresolved interaction truth review-bound; do not invent product truth: " + "; ".join(gaps))
+            verify("verify-review-bound-gaps", f"Verify unresolved interaction gaps for `{contract_field}` remain review-bound rather than being silently implemented as invented truth.")
+
+    return {
+        "semantic_id": str(raw_row.get("semantic_id") or "").strip(),
+        "operation_id": str(raw_row.get("operation_id") or "").strip(),
+        "interaction_id": str(raw_row.get("interaction_id") or "").strip(),
+        "contract_field": contract_field,
+        "binding_source": binding_source,
+        "p1_context_refs": _strings(raw_row.get("p1_context_refs", [])),
+        "resolved_p1_context": resolved_p1_context,
+        "responsibility_mode": responsibility_mode,
+        "semantic_contract_digest": product_interaction_semantics_digest(semantics_copy),
+        "semantics": semantics_copy,
+        "implementation_obligations": obligations,
+        "verification_obligations": verification,
+        "presentation_authority": "unselected-p3-agentic",
+    }
+
+
 def project_component_semantics(
     component: Mapping[str, Any],
     authority: Mapping[str, Any],
@@ -321,7 +515,10 @@ def project_component_semantics(
     durable_persistence_decisions = [
         row
         for row in authority_rows(authority, "durable_persistence_identity_decisions")
-        if str(row.get("operation_id") or "").strip() in related_operations
+        if (
+            str(row.get("operation_id") or "").strip() in related_operations
+            or str(row.get("non_operation_realization_id") or "").strip() in component_non_operation_ids
+        )
     ]
     architecture_decisions: list[dict[str, Any]] = []
     evidence_scope = set(p1_trace_ids) | set(project_guardrail_p1_trace_ids)
@@ -334,6 +531,22 @@ def project_component_semantics(
         ):
             architecture_decisions.append(row)
 
+    p1_context_by_id = _p1_interaction_context_by_id(authority)
+    component_type = str(component.get("component_type") or "").strip()
+    product_interaction_obligations = [
+        _interaction_obligation_rows(
+            row,
+            component_type=component_type,
+            p1_context_by_id=p1_context_by_id,
+        )
+        for row in authority_rows(authority, "product_interaction_semantics")
+        if str(row.get("operation_id") or "").strip() in related_operations
+    ]
+    interaction_semantics_contract = (
+        str(authority.get("interaction_semantics_contract") or "").strip()
+        if product_interaction_obligations
+        else ""
+    )
     semantic_rows = (
         operation_contracts
         + aggregate_boundaries
@@ -358,6 +571,7 @@ def project_component_semantics(
         + [str(row.get("dependency_id") or "").strip() for row in dependency_constraints]
         + [str(row.get("operation_id") or "").strip() for row in durable_persistence_decisions]
         + [str(row.get("decision_id") or "").strip() for row in architecture_decisions]
+        + [str(row.get("semantic_id") or "").strip() for row in product_interaction_obligations]
     )
     return {
         "p1_trace_ids": p1_trace_ids,
@@ -370,9 +584,44 @@ def project_component_semantics(
         "dependency_constraints": dependency_constraints,
         "durable_persistence_decisions": durable_persistence_decisions,
         "architecture_decisions": architecture_decisions,
+        "interaction_semantics_contract": interaction_semantics_contract,
+        "product_interaction_obligations": product_interaction_obligations,
         "semantic_claim_ceilings": semantic_claim_ceilings,
         "semantic_source_ids": semantic_source_ids,
     }
+
+
+def apply_product_interaction_projection_to_component_obligations(
+    *,
+    component_obligations: dict[str, dict[str, Any]],
+    component_catalog: Mapping[str, Mapping[str, Any]],
+    authority: Mapping[str, Any],
+) -> None:
+    """Recompute the current P3 interaction slice from frozen P2 authority in memory.
+
+    Retained P2 bridge matrices may predate the refined Product Interaction Semantics
+    projection. S1B and every downstream admission step must consume the same current
+    projection without rewriting frozen P2 evidence.
+    """
+    if not str(authority.get("interaction_semantics_contract") or "").strip():
+        return
+    for component_id, obligation in component_obligations.items():
+        catalog_row = component_catalog.get(component_id, {})
+        projected = project_component_semantics(
+            catalog_row,
+            authority,
+            _strings(obligation.get("upstream_p1_trace_ids", [])),
+        )
+        rows = [dict(row) for row in projected.get("product_interaction_obligations", []) if isinstance(row, dict)]
+        if not rows:
+            obligation.pop("interaction_semantics_contract", None)
+            obligation.pop("product_interaction_obligations", None)
+            continue
+        obligation["interaction_semantics_contract"] = str(projected.get("interaction_semantics_contract") or "")
+        obligation["product_interaction_obligations"] = rows
+        semantic_ids = _unique([str(row.get("semantic_id") or "").strip() for row in rows])
+        for key in ("required_source_ids", "available_source_ids"):
+            obligation[key] = _unique(_strings(obligation.get(key, [])) + semantic_ids)
 
 
 def _acd_rank(value: object) -> int:
@@ -398,16 +647,73 @@ def build_component_action_card_obligation_projection(
             operation_sources = _unique([item for row in related_depth for item in _strings(row.get("bound_source_ids", []))])
             base_p1 = _unique([item for row in related_depth for item in _strings(row.get("upstream_p1_trace_ids", []))])
             required_tests = _unique([item for row in related_depth for item in _strings(row.get("required_tests", []))])
+            terminal_roles = _unique([item for row in related_depth for item in _strings(row.get("terminal_roles", []))])
+            terminal_role_bindings = _unique_structured_rows(
+                [item for row in related_depth for item in row.get("terminal_role_bindings", []) if isinstance(item, dict)]
+            )
+            terminal_role_statuses = _unique(
+                [str(row.get("terminal_role_authority_status") or "").strip() for row in related_depth if str(row.get("terminal_role_authority_status") or "").strip()]
+            )
+            terminal_role_claim_ceilings = _unique(
+                [str(row.get("terminal_role_claim_ceiling") or "").strip() for row in related_depth if str(row.get("terminal_role_claim_ceiling") or "").strip()]
+            )
         else:
-            selected = {
-                "business_value_weight": "review-bound",
-                "engineering_risk_tier": "review-bound",
-                "implementation_complexity": "review-bound",
-                "acd_level": "review-bound",
-                "required_card_type": "review-bound-card",
-                "required_reason": "accepted aggregate/state/non-operation component requires P3 implementation-authority judgment before depth/test selection",
+            preview_semantic = (
+                project_component_semantics(component, authority, [])
+                if authority_bound
+                else {
+                    "p1_trace_ids": [],
+                    "aggregate_boundaries": [],
+                    "non_operation_realizations": [],
+                    "state_constraints": [],
+                    "durable_persistence_decisions": [],
+                }
+            )
+            non_operation_ids = {
+                str(row.get("realization_id") or "").strip()
+                for row in preview_semantic.get("non_operation_realizations", [])
+                if isinstance(row, Mapping) and str(row.get("realization_id") or "").strip()
             }
-            missing, operation_sources, base_p1, required_tests = [], [], [], []
+            exact_non_operation_durable_rows = [
+                row
+                for row in preview_semantic.get("durable_persistence_decisions", [])
+                if isinstance(row, Mapping)
+                and str(row.get("non_operation_realization_id") or "").strip() in non_operation_ids
+                and str(row.get("persistence_mode") or "").strip() == "durable-write"
+                and str(row.get("writer_service_id") or "").strip()
+            ]
+            exact_non_operation_repository = bool(
+                str(component.get("component_type") or "").strip() == "Repository"
+                and str(component.get("authority_projection_status") or "").strip() == "authority-bound"
+                and preview_semantic.get("p1_trace_ids")
+                and preview_semantic.get("aggregate_boundaries")
+                and non_operation_ids
+                and preview_semantic.get("state_constraints")
+                and exact_non_operation_durable_rows
+            )
+            if exact_non_operation_repository:
+                selected = {
+                    "business_value_weight": "BV1",
+                    "engineering_risk_tier": "HR-MUTATION",
+                    "implementation_complexity": "IC2",
+                    "acd_level": "ACD-2",
+                    "required_card_type": "standard-action-card",
+                    "required_reason": "exact non-operation aggregate/state/durable authority is sufficient for bounded repository implementation",
+                }
+                missing, operation_sources = [], []
+                base_p1 = list(preview_semantic.get("p1_trace_ids", []))
+                required_tests = ["unit", "integration"]
+            else:
+                selected = {
+                    "business_value_weight": "review-bound",
+                    "engineering_risk_tier": "review-bound",
+                    "implementation_complexity": "review-bound",
+                    "acd_level": "review-bound",
+                    "required_card_type": "review-bound-card",
+                    "required_reason": "accepted aggregate/state/non-operation component requires P3 implementation-authority judgment before depth/test selection",
+                }
+                missing, operation_sources, base_p1, required_tests = [], [], [], []
+            terminal_roles, terminal_role_bindings, terminal_role_statuses, terminal_role_claim_ceilings = [], [], [], []
         semantic = (
             project_component_semantics(component, authority, base_p1)
             if authority_bound
@@ -422,6 +728,8 @@ def build_component_action_card_obligation_projection(
                 "dependency_constraints": [],
                 "durable_persistence_decisions": [],
                 "architecture_decisions": [],
+                "interaction_semantics_contract": "",
+                "product_interaction_obligations": [],
                 "semantic_claim_ceilings": [],
                 "semantic_source_ids": [],
             }
@@ -450,9 +758,13 @@ def build_component_action_card_obligation_projection(
                 "missing_source_types": missing,
                 "source_sufficiency_status": status,
                 "review_bound_missing_sources": missing,
+                "terminal_roles": terminal_roles,
+                "terminal_role_bindings": terminal_role_bindings,
+                "terminal_role_authority_status": _terminal_role_authority_status(terminal_role_statuses),
+                "terminal_role_claim_ceilings": terminal_role_claim_ceilings,
                 "semantic_projection_status": "authority-bound" if authority_bound else "not-authority-bound",
                 **{key: list(component.get(key, [])) for key in ("aggregate_ids", "aggregate_names", "service_ids", "owner_service_ids", "writer_service_ids", "contract_ids", "topology_groups")},
-                **{key: semantic[key] for key in ("operation_contracts", "aggregate_boundaries", "non_operation_realizations", "project_guardrails", "project_guardrail_p1_trace_ids", "state_constraints", "dependency_constraints", "durable_persistence_decisions", "architecture_decisions", "semantic_claim_ceilings")},
+                **{key: semantic[key] for key in ("operation_contracts", "aggregate_boundaries", "non_operation_realizations", "project_guardrails", "project_guardrail_p1_trace_ids", "state_constraints", "dependency_constraints", "durable_persistence_decisions", "architecture_decisions", "interaction_semantics_contract", "product_interaction_obligations", "semantic_claim_ceilings")},
             }
         )
     return result
@@ -465,15 +777,53 @@ def expected_action_card_projection(
 ) -> dict[str, Any]:
     """Recompute the expected authority-bound Action Card denominator."""
     component = project_component_authority(catalog_component, authority)
+    related_operations = _strings(component.get("related_operations", []))
     base_p1 = _unique(
         [
             str(item).strip()
-            for operation_id in _strings(component.get("related_operations", []))
+            for operation_id in related_operations
             for item in operation_source_rows.get(operation_id, {}).get("upstream_p1_trace_ids", [])
             if str(item).strip()
         ]
     )
-    return {**component, **project_component_semantics(component, authority, base_p1)}
+    terminal_roles = _unique(
+        [
+            str(item).strip()
+            for operation_id in related_operations
+            for item in operation_source_rows.get(operation_id, {}).get("terminal_roles", [])
+            if str(item).strip()
+        ]
+    )
+    terminal_role_bindings = _unique_structured_rows(
+        [
+            dict(item)
+            for operation_id in related_operations
+            for item in operation_source_rows.get(operation_id, {}).get("terminal_role_bindings", [])
+            if isinstance(item, dict)
+        ]
+    )
+    terminal_role_statuses = _unique(
+        [
+            str(operation_source_rows.get(operation_id, {}).get("terminal_role_authority_status") or "").strip()
+            for operation_id in related_operations
+            if str(operation_source_rows.get(operation_id, {}).get("terminal_role_authority_status") or "").strip()
+        ]
+    )
+    terminal_role_claim_ceilings = _unique(
+        [
+            str(operation_source_rows.get(operation_id, {}).get("terminal_role_claim_ceiling") or "").strip()
+            for operation_id in related_operations
+            if str(operation_source_rows.get(operation_id, {}).get("terminal_role_claim_ceiling") or "").strip()
+        ]
+    )
+    return {
+        **component,
+        **project_component_semantics(component, authority, base_p1),
+        "terminal_roles": terminal_roles,
+        "terminal_role_bindings": terminal_role_bindings,
+        "terminal_role_authority_status": _terminal_role_authority_status(terminal_role_statuses),
+        "terminal_role_claim_ceilings": terminal_role_claim_ceilings,
+    }
 
 
 def _value_set(row: Mapping[str, Any], key: str) -> set[str]:
@@ -493,8 +843,22 @@ def _row_id_set(row: Mapping[str, Any], key: str, id_key: str) -> set[str]:
 
 def _rendered_semantic_tokens(obligation: Mapping[str, Any]) -> list[str]:
     tokens = _strings(obligation.get("upstream_p1_trace_ids", []))
-    for key in ("contract_ids", "aggregate_ids", "aggregate_names", "service_ids", "owner_service_ids", "writer_service_ids", "topology_groups", "semantic_claim_ceilings"):
+    for key in ("contract_ids", "aggregate_ids", "aggregate_names", "service_ids", "owner_service_ids", "writer_service_ids", "topology_groups", "semantic_claim_ceilings", "terminal_roles", "terminal_role_claim_ceilings"):
         tokens.extend(_strings(obligation.get(key, [])))
+    for row in obligation.get("terminal_role_bindings", []):
+        if not isinstance(row, dict):
+            continue
+        tokens.extend(
+            [
+                str(row.get("terminal_role") or "").strip(),
+                str(row.get("route") or "").strip(),
+                str(row.get("interaction_id") or "").strip(),
+                str(row.get("api_endpoint") or "").strip(),
+                str(row.get("enforcement_posture") or "").strip(),
+                str(row.get("denied_behavior") or "").strip(),
+            ]
+        )
+        tokens.extend(_strings(row.get("visible_business_objects", [])))
     for key, id_key, text_keys in (
         ("non_operation_realizations", "realization_id", ("statement", "claim_ceiling")),
         ("project_guardrails", "realization_id", ("statement", "claim_ceiling")),
@@ -536,6 +900,55 @@ def _rendered_semantic_tokens(obligation: Mapping[str, Any]) -> list[str]:
                         str(binding.get("carrier_field") or "").strip(),
                     ]
                 )
+    interaction_contract = str(obligation.get("interaction_semantics_contract") or "").strip()
+    if interaction_contract:
+        tokens.append(interaction_contract)
+    for row in obligation.get("product_interaction_obligations", []):
+        if not isinstance(row, dict):
+            continue
+        responsibility = str(row.get("responsibility_mode") or "").strip()
+        repository_context = responsibility == "persistence-context-only"
+        tokens.extend(
+            [
+                str(row.get("semantic_id") or "").strip(),
+                str(row.get("operation_id") or "").strip(),
+                str(row.get("interaction_id") or "").strip(),
+                str(row.get("contract_field") or "").strip(),
+                str(row.get("binding_source") or "").strip(),
+                responsibility,
+                str(row.get("semantic_contract_digest") or "").strip(),
+                str(row.get("presentation_authority") or "").strip(),
+            ]
+        )
+        tokens.extend(_strings(row.get("p1_context_refs", [])))
+        semantics = row.get("semantics") if isinstance(row.get("semantics"), dict) else {}
+        tokens.append(str(semantics.get("user_meaning") or "").strip())
+        if repository_context:
+            for key in ("cardinality", "validation_semantics", "privacy_or_sensitivity", "truth_state"):
+                tokens.append(str(semantics.get(key) or "").strip())
+        else:
+            for key in (
+                "value_source", "cardinality", "discovery_requirement", "context_carryover",
+                "default_or_recent_semantics", "free_form_rationale", "truth_state",
+            ):
+                tokens.append(str(semantics.get(key) or "").strip())
+            tokens.append(f"free_form={str(bool(semantics.get('free_form_allowed'))).lower()}")
+            candidate_source = semantics.get("candidate_source")
+            if candidate_source is not None:
+                tokens.append(json.dumps(candidate_source, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+            resolved = row.get("resolved_p1_context") if isinstance(row.get("resolved_p1_context"), dict) else {}
+            tokens.extend(_strings(resolved.get("task_frequencies", [])))
+            tokens.extend(_strings(resolved.get("low_step_requirements", [])))
+            tokens.extend(_strings(semantics.get("unresolved_interaction_gaps", [])))
+        for item in row.get("implementation_obligations", []):
+            if not isinstance(item, dict):
+                continue
+            kind = str(item.get("kind") or "").strip()
+            if repository_context or kind in HIGH_SIGNAL_CONSUMER_INTERACTION_OBLIGATION_KINDS:
+                tokens.extend([kind, str(item.get("requirement") or "").strip()])
+        for item in row.get("verification_obligations", []):
+            if isinstance(item, dict):
+                tokens.extend([str(item.get("kind") or "").strip(), str(item.get("requirement") or "").strip()])
     for row in obligation.get("architecture_decisions", []):
         if not isinstance(row, dict):
             continue
@@ -690,9 +1103,17 @@ def bind_s2_slices_to_action_cards(
                 dict(item)
                 for obligation in semantic_rows
                 for item in obligation.get("durable_persistence_decisions", [])
-                if operation_id
-                and isinstance(item, dict)
-                and str(item.get("operation_id") or "").strip() == operation_id
+                if isinstance(item, dict)
+                and (
+                    (
+                        bool(operation_id)
+                        and str(item.get("operation_id") or "").strip() == operation_id
+                    )
+                    or (
+                        bool(realization_id)
+                        and str(item.get("non_operation_realization_id") or "").strip() == realization_id
+                    )
+                )
             ]
         )
         if semantic_rows:
@@ -722,6 +1143,29 @@ def bind_s2_slices_to_action_cards(
                     if isinstance(item, dict) and str(item.get("realization_id") or "").strip() == realization_id
                 ]
             )
+        terminal_roles = _strings(row.get("terminal_roles")) if operation_id else []
+        if not terminal_roles:
+            terminal_roles = _unique(
+                [item for obligation in semantic_rows for item in _strings(obligation.get("terminal_roles", []))]
+            )
+        terminal_role_bindings = _unique_structured_rows(row.get("terminal_role_bindings", [])) if operation_id else []
+        if not terminal_role_bindings:
+            terminal_role_bindings = _unique_structured_rows(
+                [
+                    dict(item)
+                    for obligation in semantic_rows
+                    for item in obligation.get("terminal_role_bindings", [])
+                    if isinstance(item, dict)
+                ]
+            )
+        explicit_role_status = str(row.get("terminal_role_authority_status") or "").strip()
+        terminal_role_statuses = [explicit_role_status] if operation_id and explicit_role_status else _unique(
+            [
+                str(obligation.get("terminal_role_authority_status") or "").strip()
+                for obligation in semantic_rows
+                if str(obligation.get("terminal_role_authority_status") or "").strip()
+            ]
+        )
         row.update(
             {
                 "component_ids": component_ids,
@@ -734,6 +1178,9 @@ def bind_s2_slices_to_action_cards(
                 "accepted_writer_service_ids": _unique([item for obligation in semantic_rows for item in _strings(obligation.get("writer_service_ids", []))]),
                 "accepted_topology_groups": _unique([item for obligation in semantic_rows for item in _strings(obligation.get("topology_groups", []))]),
                 "durable_persistence_decisions": durable_persistence_decisions,
+                "terminal_roles": terminal_roles,
+                "terminal_role_bindings": terminal_role_bindings,
+                "terminal_role_authority_status": _terminal_role_authority_status(terminal_role_statuses),
                 "required_constraint_ids": constraint_ids,
                 "semantic_claim_ceilings": claim_ceilings,
             }
@@ -819,6 +1266,11 @@ def load_s2_action_card_binding(
         for row in component_obligation_rows
         if isinstance(row, dict) and str(row.get("component_id") or "").strip()
     }
+    apply_product_interaction_projection_to_component_obligations(
+        component_obligations=obligations,
+        component_catalog=catalog,
+        authority=authority,
+    )
     admission = validate_s1b_action_card_admission(
         report=report,
         convergence=convergence,
@@ -887,10 +1339,13 @@ def build_s2_decision_template_row(row: Mapping[str, Any]) -> dict[str, Any]:
         "non_operation_realization_id": row.get("non_operation_realization_id", ""),
         **{key: list(row.get(key, [])) for key in (
             "component_ids", "action_card_refs", "context_action_card_refs", "accepted_aggregate_ids", "accepted_service_ids",
-            "accepted_owner_service_ids", "accepted_writer_service_ids", "accepted_topology_groups",
+            "accepted_owner_service_ids", "accepted_writer_service_ids", "accepted_topology_groups", "terminal_roles",
             "required_constraint_ids",
         )},
+        "terminal_role_bindings": _unique_structured_rows(row.get("terminal_role_bindings", [])),
+        "terminal_role_authority_status": str(row.get("terminal_role_authority_status") or "not-declared"),
         "durable_persistence_decisions": _unique_structured_rows(row.get("durable_persistence_decisions", [])),
+        "runtime_realization": {},
         "authority_delta_refs": [],
         "disposition": "review-bound",
         "semantic_owner": "",
@@ -925,11 +1380,18 @@ def s2_decision_binding_errors(
     errors: list[str] = []
     for field in (
         "component_ids", "action_card_refs", "context_action_card_refs", "accepted_aggregate_ids", "accepted_service_ids",
-        "accepted_owner_service_ids", "accepted_writer_service_ids", "accepted_topology_groups",
+        "accepted_owner_service_ids", "accepted_writer_service_ids", "accepted_topology_groups", "terminal_roles",
         "required_constraint_ids",
     ):
         if _strings(row.get(field)) != _strings(expected.get(field)):
             errors.append(f"changes S1B-bound {field}")
+    if not _structured_rows_equal(
+        row.get("terminal_role_bindings", []),
+        expected.get("terminal_role_bindings", []),
+    ):
+        errors.append("changes S1B-bound terminal_role_bindings")
+    if str(row.get("terminal_role_authority_status") or "not-declared") != str(expected.get("terminal_role_authority_status") or "not-declared"):
+        errors.append("changes S1B-bound terminal_role_authority_status")
     if not _structured_rows_equal(
         row.get("durable_persistence_decisions", []),
         expected.get("durable_persistence_decisions", []),
@@ -975,6 +1437,9 @@ def build_s2_authority_extensions(
             "semantic_owner": str(row.get("semantic_owner") or ""),
             "aggregate": str(row.get("aggregate") or ""),
             "domain_invariants": _strings(row.get("domain_invariants", [])),
+            "terminal_roles": _strings(row.get("terminal_roles", [])),
+            "terminal_role_bindings": _unique_structured_rows(row.get("terminal_role_bindings", [])),
+            "terminal_role_authority_status": str(row.get("terminal_role_authority_status") or "not-declared"),
             "state_mutation": str(row.get("state_mutation") or ""),
             "authorization": str(row.get("authorization") or ""),
             "failure_behavior": str(row.get("failure_behavior") or ""),
@@ -985,6 +1450,7 @@ def build_s2_authority_extensions(
             "runtime_evidence_intents": _strings(row.get("runtime_evidence_intents", [])),
             "preserved_constraint_ids": _strings(row.get("preserved_constraint_ids", [])),
             "durable_persistence_decisions": _unique_structured_rows(row.get("durable_persistence_decisions", [])),
+            "runtime_realization": dict(row.get("runtime_realization")) if isinstance(row.get("runtime_realization"), Mapping) else {},
             "authority_delta_refs": _strings(row.get("authority_delta_refs")),
             "implementation_decision_id": decision_id,
             "implementation_decision_digest": decision_digest,
@@ -1057,6 +1523,8 @@ def build_action_card_semantic_convergence(
         ("p1_trace_ids", "upstream_p1_trace_ids", "action_card_p1_trace_denominator_shrunk"),
         ("project_guardrail_p1_trace_ids", "project_guardrail_p1_trace_ids", "action_card_project_guardrail_p1_trace_missing"),
         ("semantic_claim_ceilings", "semantic_claim_ceilings", "action_card_claim_ceiling_missing"),
+        ("terminal_roles", "terminal_roles", "action_card_terminal_role_authority_missing"),
+        ("terminal_role_claim_ceilings", "terminal_role_claim_ceilings", "action_card_terminal_role_claim_ceiling_missing"),
         ("semantic_source_ids", "required_source_ids", "action_card_semantic_source_missing"),
     )
     row_checks = (
@@ -1076,6 +1544,35 @@ def build_action_card_semantic_convergence(
             missing = sorted(_row_id_set(expected, key, id_key) - _row_id_set(row, key, id_key))
             if missing:
                 conflicts.append({"code": code, "component_id": component_id, "detail": ", ".join(missing)})
+        expected_role_bindings = {
+            json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            for item in expected.get("terminal_role_bindings", [])
+            if isinstance(item, dict)
+        }
+        actual_role_bindings = {
+            json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            for item in row.get("terminal_role_bindings", [])
+            if isinstance(item, dict)
+        }
+        missing_role_bindings = sorted(expected_role_bindings - actual_role_bindings)
+        if missing_role_bindings:
+            conflicts.append(
+                {
+                    "code": "action_card_terminal_role_binding_missing",
+                    "component_id": component_id,
+                    "detail": ", ".join(missing_role_bindings),
+                }
+            )
+        expected_role_status = str(expected.get("terminal_role_authority_status") or "not-declared")
+        actual_role_status = str(row.get("terminal_role_authority_status") or "not-declared")
+        if expected_role_status != actual_role_status:
+            conflicts.append(
+                {
+                    "code": "action_card_terminal_role_authority_status_changed",
+                    "component_id": component_id,
+                    "detail": f"expected={expected_role_status}, actual={actual_role_status}",
+                }
+            )
         expected_durable = {
             str(item.get("operation_id") or "").strip(): item
             for item in expected.get("durable_persistence_decisions", [])
@@ -1093,6 +1590,42 @@ def build_action_card_semantic_convergence(
                 continue
             if json.dumps(expected_row, ensure_ascii=False, sort_keys=True, separators=(",", ":")) != json.dumps(actual_row, ensure_ascii=False, sort_keys=True, separators=(",", ":")):
                 conflicts.append({"code": "action_card_durable_persistence_truth_changed", "component_id": component_id, "detail": operation_id})
+        expected_interaction_contract = str(expected.get("interaction_semantics_contract") or "").strip()
+        actual_interaction_contract = str(row.get("interaction_semantics_contract") or "").strip()
+        if expected_interaction_contract != actual_interaction_contract:
+            conflicts.append(
+                {
+                    "code": "action_card_interaction_semantics_contract_changed",
+                    "component_id": component_id,
+                    "detail": f"expected={expected_interaction_contract or 'none'}, actual={actual_interaction_contract or 'none'}",
+                }
+            )
+        expected_interactions = expected.get("product_interaction_obligations", [])
+        actual_interactions = row.get("product_interaction_obligations", [])
+        if expected_interactions and not actual_interactions:
+            conflicts.append(
+                {
+                    "code": "action_card_product_interaction_semantics_missing",
+                    "component_id": component_id,
+                    "detail": ", ".join(_strings([item.get("semantic_id") for item in expected_interactions if isinstance(item, dict)])),
+                }
+            )
+        elif actual_interactions and not expected_interactions:
+            conflicts.append(
+                {
+                    "code": "action_card_product_interaction_semantics_invented",
+                    "component_id": component_id,
+                    "detail": "Action Card introduced Product Interaction Semantics absent from accepted P2 authority",
+                }
+            )
+        elif not _structured_rows_equal(expected_interactions, actual_interactions):
+            conflicts.append(
+                {
+                    "code": "action_card_product_interaction_semantics_changed",
+                    "component_id": component_id,
+                    "detail": "Action Card Product Interaction obligations do not exactly match the frozen P2 semantic projection",
+                }
+            )
     return {
         "artifact_kind": "phase3-action-card-semantic-convergence.v1",
         "status": "pass" if not conflicts else "blocked",

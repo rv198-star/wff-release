@@ -74,6 +74,16 @@ COMMITMENT_KINDS = {
     "constraint",
 }
 COMMITMENT_ID_RE = re.compile(r"^(?:P1-(?:AC|EP|REQ|UC|US|POL|CON)-[A-Za-z0-9_.:-]+|FLOW-[A-Za-z0-9_.:-]+)$")
+INTERACTION_CONTEXT_STATUSES = {"sufficient", "review-bound", "not-material"}
+INTERACTION_CONTEXT_FORBIDDEN_PRESENTATION_FIELDS = {
+    "widget_type",
+    "control_type",
+    "react_component",
+    "html_input_type",
+    "use_multiselect",
+    "interaction_pattern",
+    "component_type",
+}
 
 
 class P1AgenticProductAuthorityError(ValueError):
@@ -182,6 +192,7 @@ def build_p1_agentic_product_candidate(source_path: Path) -> dict[str, Any]:
             "material_feature_review",
             "feature_dispositions",
             "commitments",
+            "interaction_relevant_product_context",
             "product_judgment",
         ],
         "truth_boundary": {
@@ -254,6 +265,12 @@ def build_decision_template(candidate: Mapping[str, Any], *, owner_id: str = "ho
         },
         "feature_dispositions": [],
         "commitments": [],
+        "interaction_relevant_product_context": {
+            "status": "review-bound",
+            "task_contexts": [],
+            "unresolved_items": ["Host Agent interaction-relevant product-context decision required."],
+            "claim_ceiling": "Host Agent must decide only source-supported interaction-relevant product context; no UI realization authority exists here.",
+        },
         "product_judgment": {
             "primary_user_or_buyer": "",
             "product_goal": "",
@@ -290,6 +307,119 @@ def _string_list(value: Any, *, field: str, non_empty: bool = False) -> list[str
     if non_empty and not result:
         raise P1AgenticProductAuthorityError(f"{field} must not be empty")
     return result
+
+
+def _find_interaction_presentation_field(value: Any, *, path: str = "interaction_relevant_product_context") -> str | None:
+    if isinstance(value, Mapping):
+        for raw_key, nested in value.items():
+            key = str(raw_key).strip()
+            if key in INTERACTION_CONTEXT_FORBIDDEN_PRESENTATION_FIELDS:
+                return f"{path}.{key}"
+            found = _find_interaction_presentation_field(nested, path=f"{path}.{key or '<empty>'}")
+            if found:
+                return found
+    elif isinstance(value, list):
+        for index, nested in enumerate(value):
+            found = _find_interaction_presentation_field(nested, path=f"{path}[{index}]")
+            if found:
+                return found
+    return None
+
+
+def _validate_interaction_relevant_product_context(
+    value: Any,
+    *,
+    source_ref_ids: set[str],
+    accepted_backfill_ids: set[str],
+) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, Mapping):
+        raise P1AgenticProductAuthorityError("P1 interaction-relevant product context must be an object")
+    forbidden_path = _find_interaction_presentation_field(value)
+    if forbidden_path:
+        raise P1AgenticProductAuthorityError(
+            f"P1 interaction-relevant product context contains forbidden presentation authority: {forbidden_path}"
+        )
+    status = str(value.get("status") or "").strip()
+    if status not in INTERACTION_CONTEXT_STATUSES:
+        raise P1AgenticProductAuthorityError("P1 interaction-relevant product context status is invalid")
+    unresolved_items = _string_list(
+        value.get("unresolved_items", []),
+        field="interaction_relevant_product_context.unresolved_items",
+    )
+    if not str(value.get("claim_ceiling") or "").strip():
+        raise P1AgenticProductAuthorityError("P1 interaction-relevant product context misses claim_ceiling")
+    raw_rows = value.get("task_contexts", [])
+    if not isinstance(raw_rows, list):
+        raise P1AgenticProductAuthorityError("P1 interaction-relevant task contexts must be a list")
+    rows = [dict(row) for row in raw_rows if isinstance(row, Mapping)]
+    if len(rows) != len(raw_rows):
+        raise P1AgenticProductAuthorityError("P1 interaction-relevant task context row is invalid")
+    if status == "sufficient" and not rows:
+        raise P1AgenticProductAuthorityError("sufficient P1 interaction-relevant product context requires at least one task context")
+    if status == "not-material" and rows:
+        raise P1AgenticProductAuthorityError("not-material P1 interaction-relevant product context must not publish task contexts")
+    context_ids: set[str] = set()
+    for index, row in enumerate(rows, start=1):
+        context_id = str(row.get("context_id") or "").strip()
+        if not context_id or context_id in context_ids:
+            raise P1AgenticProductAuthorityError(
+                f"P1 interaction task context identity is missing or duplicated: {context_id or index}"
+            )
+        context_ids.add(context_id)
+        for field in (
+            "user_role_or_actor",
+            "task",
+            "business_outcome",
+            "task_frequency",
+            "usage_pattern",
+            "operator_proficiency_or_context",
+            "material_friction",
+            "expected_system_memory_or_defaults",
+            "high_frequency_low_step_requirement",
+            "truth_state",
+            "claim_ceiling",
+        ):
+            if not str(row.get(field) or "").strip():
+                raise P1AgenticProductAuthorityError(
+                    f"P1 interaction task context misses {field}: {context_id}"
+                )
+        truth_state = str(row.get("truth_state") or "").strip()
+        if truth_state not in TRUTH_STATES:
+            raise P1AgenticProductAuthorityError(
+                f"P1 interaction task context truth state is invalid: {context_id}"
+            )
+        source_refs = _string_list(row.get("source_refs", []), field=f"{context_id}.source_refs")
+        if not set(source_refs).issubset(source_ref_ids):
+            raise P1AgenticProductAuthorityError(
+                f"P1 interaction task context references unknown source evidence: {context_id}"
+            )
+        backfill_refs = _string_list(row.get("backfill_refs", []), field=f"{context_id}.backfill_refs")
+        if not set(backfill_refs).issubset(accepted_backfill_ids):
+            raise P1AgenticProductAuthorityError(
+                f"P1 interaction task context references non-accepted world knowledge: {context_id}"
+            )
+        if truth_state in {"source-established", "owner-confirmed"} and not source_refs:
+            raise P1AgenticProductAuthorityError(
+                f"source/owner P1 interaction task context requires source evidence: {context_id}"
+            )
+        if truth_state == "agentic-world-knowledge" and not backfill_refs:
+            raise P1AgenticProductAuthorityError(
+                f"world-knowledge P1 interaction task context requires accepted backfill: {context_id}"
+            )
+        vocabulary = row.get("business_vocabulary", [])
+        if not isinstance(vocabulary, list):
+            raise P1AgenticProductAuthorityError(
+                f"P1 interaction task context business_vocabulary must be a list: {context_id}"
+            )
+        _string_list(row.get("commitment_ids", []), field=f"{context_id}.commitment_ids", non_empty=True)
+        _string_list(row.get("unresolved_items", []), field=f"{context_id}.unresolved_items")
+    if status == "review-bound" and not rows and not unresolved_items:
+        raise P1AgenticProductAuthorityError(
+            "review-bound P1 interaction-relevant product context must name unresolved_items when no task context is published"
+        )
+    return rows
 
 
 def _validate_world_knowledge_contract(
@@ -569,6 +699,15 @@ def validate_p1_agentic_product_decision(
         source_ref_ids=source_ref_ids,
         decision_is_accepted=decision.get("decision_status") == "accepted",
     )
+    interaction_context_rows = _validate_interaction_relevant_product_context(
+        payload.get("interaction_relevant_product_context"),
+        source_ref_ids=source_ref_ids,
+        accepted_backfill_ids={
+            str(row.get("backfill_id") or "").strip()
+            for row in backfill_rows
+            if str(row.get("status") or "").strip() == "accepted"
+        },
+    )
     accepted_world = world["accepted_world"]
     world_state = str(accepted_world.get("truth_state") or "")
     if world_state not in TRUTH_STATES or not str(accepted_world.get("model") or "").strip():
@@ -633,6 +772,19 @@ def validate_p1_agentic_product_decision(
         for required in ("statement", "owner", "claim_ceiling"):
             if not str(row.get(required) or "").strip():
                 raise P1AgenticProductAuthorityError(f"P1 commitment misses {required}: {commitment_id}")
+
+    for row in interaction_context_rows:
+        context_id = str(row.get("context_id") or "").strip()
+        linked_commitments = _string_list(
+            row.get("commitment_ids", []),
+            field=f"{context_id}.commitment_ids",
+            non_empty=True,
+        )
+        unknown_commitments = sorted(set(linked_commitments) - commitment_ids)
+        if unknown_commitments:
+            raise P1AgenticProductAuthorityError(
+                f"P1 interaction task context references unknown commitment: {context_id}: {','.join(unknown_commitments)}"
+            )
 
     commitment_status_by_id = {
         str(row.get("commitment_id") or "").strip(): str(row.get("status") or "").strip()
@@ -929,6 +1081,11 @@ def build_decision_bound_direct_driver(
     product_world_decision = dict(world.get("product_world_decision") or {})
     features = [dict(row) for row in payload["feature_dispositions"]]
     commitments = [dict(row) for row in payload["commitments"]]
+    interaction_context = (
+        deepcopy(payload.get("interaction_relevant_product_context"))
+        if isinstance(payload.get("interaction_relevant_product_context"), Mapping)
+        else None
+    )
     driver = deepcopy(candidate["mechanical_candidate_driver"])
     driver["driver_id"] = "p1-agentic-product-authority-driver.v1"
     driver["source_truth_admission"] = {
@@ -1090,6 +1247,9 @@ def build_decision_bound_direct_driver(
         "feature_dispositions": features,
         "portable_commitments": commitments,
     }
+    if interaction_context is not None:
+        driver["interaction_relevant_product_context"] = interaction_context
+        driver["interaction_semantics_contract"] = "product-interaction-semantics-v1"
     driver["semantic_authoring_summary"] = {
         "mode": "accepted-snapshot-bound-agentic-product-authority",
         "decision_id": decision["decision_id"],
@@ -1110,6 +1270,10 @@ def build_decision_bound_direct_driver(
         "product_judgment": judgment,
         "feature_dispositions": features,
         "commitments": commitments,
+        "interaction_relevant_product_context": interaction_context or {},
+        "interaction_semantics_contract": (
+            "product-interaction-semantics-v1" if interaction_context is not None else ""
+        ),
         "claim_ceiling": decision["claim_ceiling"],
     }
     driver["claim_ceiling"] = {
@@ -1154,6 +1318,10 @@ def build_p1_agentic_product_authority(
         "challenge_binding_digest": str((decision.get("challenge_binding") or {}).get("content_digest") or ""),
         "bounded_challenge": challenge_summary(decision["bounded_challenge"]),
     }
+    interaction_context = semantic.get("interaction_relevant_product_context")
+    if isinstance(interaction_context, Mapping):
+        payload["interaction_relevant_product_context"] = deepcopy(interaction_context)
+        payload["interaction_semantics_contract"] = "product-interaction-semantics-v1"
     return _with_content_digest(payload)
 
 
@@ -1166,6 +1334,12 @@ def p1_agentic_product_authority_is_valid(authority: Mapping[str, Any]) -> bool:
         return False
     body = {key: value for key, value in authority.items() if key != "content_digest"}
     if authority.get("content_digest") != canonical_digest(body):
+        return False
+    interaction_contract = str(authority.get("interaction_semantics_contract") or "").strip()
+    if interaction_contract and (
+        interaction_contract != "product-interaction-semantics-v1"
+        or not isinstance(authority.get("interaction_relevant_product_context"), Mapping)
+    ):
         return False
     return bool(authority.get("decision_digest") and isinstance(authority.get("commitments"), list) and authority.get("commitments"))
 

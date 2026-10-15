@@ -99,6 +99,27 @@ Markdown 作为 Mission 级共享记忆：
 一句话：继续旧 Mission 是同一个目标没走完；新建 Mission 是目标或验收权威变了；
 `source_contexts` 只是背景记忆，不是状态。
 
+### 重入恢复判断
+
+`core`：找到旧 Mission 文件只说明“这里有一份恢复候选”，不说明当前请求授权继续它。
+
+`mainline`：先只读发现候选；选中候选后，用当前 objective 和 acceptance evidence 再跑
+preflight。即使两者完全一致，脚本也只给出 `resume_existing` 候选并停在
+`needs_agentic_selection`。agent 或人必须明确给出 disposition 和 rationale，才能选择
+继续旧 Mission、基于旧上下文新建 Mission、等待人工，或忽略候选。明确选择后先持久化
+decision receipt；只有 Mission、narrative、evidence、trace 的摘要仍与评估时一致，才把
+`resume_existing` 写入旧 runtime。任何漂移都记录失败并要求重跑 preflight。
+
+`guardrail`：这个入口防止旧 active node、blocker、验收权威或残留文件接管新请求。它保护
+的是跨 session、跨 task 的重入，不能覆盖同一活跃 Mission 内部的
+`continuation_authorization`。
+
+`boundary`：脚本只能比较显式字段、状态、运行时来源、恢复条件和风险信号；它不能判断两段
+自然语言目标是否语义相同。证据不足时必须停在 agentic selection，不能自动续跑。当前
+实现是 TPlan 启动入口协议：初始化脚本会硬拒绝未处置候选，但它不是 Codex host 对任意
+进程和任意直接文件写入的全局 session 锁。用户输出必须先用人话说明安全、不安全或无法
+判断的原因，再给内部状态字段。
+
 ## 用户可读输出
 
 `tplan` 内部需要 `T1`、`E2` 这类稳定编号，否则恢复、验证和 evidence link 会乱。但普通用户输出不要把 T1、E2 这类内部编号放在普通回复开头。
@@ -140,6 +161,14 @@ SubAgent 是侦察，不是控制器。
 - `validation`：哪些输出只是 logs，哪些才是 evidence，哪些 evidence 支撑哪个 claim。
 
 `tplan` 不决定 semantic truth。它不会替 `3L5S` 定义问题，不会替 `SELA` 做战略判断，不会替 `EDSP` 建结构坐标。它负责把这些判断放进一个可运行、可追踪、可停止的 Mission 控制面里。
+
+## 从属策略：责任分离
+
+重要任务不要让同一股惯性同时负责做、判断方向、给自己验收和沉淀经验。能独立复核就独立复核；不能，就用分阶段、标准和证据把它们隔开。
+
+这不是四个常驻 agent，也不是四套新 gate。`tplan` 本体只规定哪些责任不能静默混在一起：执行落在 Task/SubTask/Step，方向检查落在 Pulse、hooks 和 Mission Review，验收看 acceptance evidence、rubric 和 evidence links，沉淀进入 Mission Shared Context；只有影响其他任务风险判断的沉淀才进入 Shared Risk Context。
+
+因此，外界说的 `execute / advise / grade / dream` 在 `tplan` 里只是降低理解成本的责任名，不是新的内部本体。没有 SubAgent、独立会话或 clean CLI 的平台仍然可以用；有这些能力的平台可以在外围 adapter 里增强隔离，但不改变 `tplan` 的 Mission、证据和决策权结构。
 
 ## 怎么用
 

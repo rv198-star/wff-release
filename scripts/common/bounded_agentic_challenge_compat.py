@@ -52,6 +52,23 @@ def require_current_integrity_pair(
     authority: Mapping[str, Any],
     label: str,
 ) -> None:
+    if decision.get('decision_integrity_contract') == 'p2-omr-sqr-integrity-v1':
+        from common.agentic_decision_authority import canonical_digest
+        try:
+            if (decision.get('phase_id') != 'P2' or authority.get('phase_id') != 'P2'
+                    or authority.get('decision_integrity_contract') != 'p2-omr-sqr-integrity-v1'
+                    or authority.get('final_review_digest') != decision['final_review']['content_digest']
+                    or authority.get('decision_digest') != decision['content_digest']
+                    or decision.get('bounded_challenge') is not None or decision.get('challenge_binding') is not None
+                    or authority.get('bounded_challenge') is not None or authority.get('challenge_binding_digest')
+                    or authority.get('content_digest') != canonical_digest({k:v for k,v in authority.items() if k!='content_digest'})
+                    or decision['content_digest'] != canonical_digest({k:v for k,v in decision.items() if k!='content_digest'})):
+                raise ValueError('Final P2 review identity differs')
+            from phase2.p2_final_review import validate_acceptance_record
+            validate_acceptance_record(decision['final_review'],payload=decision['semantic_payload'])
+        except (ValueError, KeyError, TypeError) as exc:
+            raise DecisionIntegrityCompatibilityError(str(exc)) from exc
+        return
     decision_class = classify_decision_integrity(decision)
     authority_class = classify_authority_integrity(authority)
     if (

@@ -26,6 +26,13 @@ from common.semantic_consistency import (
     load_evidence_dispositions,
 )
 from phase4.phase4_common import (
+    OPEN_ENDED_MATURITY_REVIEW_EVIDENCE_TYPE,
+    UI_PRODUCT_REVIEW_DIMENSIONS,
+    UI_PRODUCT_REVIEW_EVIDENCE_TYPE,
+    build_open_ended_maturity_review_request,
+    build_ui_product_review_request,
+    validate_open_ended_maturity_review,
+    validate_agentic_ui_product_review,
     api_id_for_operation,
     collect_test_evidence,
     collect_visual_evidence_paths,
@@ -50,8 +57,6 @@ from phase4.phase4_stage1_planning import STAGE_DIRNAME as STAGE01_DIRNAME
 
 
 STAGE_DIRNAME = "stage-02-evidence-execution-and-defect-identification"
-
-
 def resolve_external_path(raw_path: str, manifest_path: Path, external_evidence_dir: Path | None) -> Path:
     candidate = Path(raw_path)
     if candidate.is_absolute():
@@ -71,12 +76,24 @@ def load_external_evidence_manifest(
     *,
     phase3_root: Path,
     external_evidence_dir: Path | None,
+    open_ended_maturity_review_request: dict[str, Any] | None = None,
+    ui_product_review_request: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if manifest_path is None:
         return {
             "manifest_path": "",
             "items": [],
-            "summary": {"item_count": 0, "valid_item_count": 0, "missing_path_count": 0},
+            "summary": {
+                "item_count": 0,
+                "valid_item_count": 0,
+                "missing_path_count": 0,
+                "agentic_open_ended_maturity_review_count": 0,
+                "valid_agentic_open_ended_maturity_review_count": 0,
+                "invalid_agentic_open_ended_maturity_review_count": 0,
+                "agentic_ui_product_review_count": 0,
+                "valid_agentic_ui_product_review_count": 0,
+                "invalid_agentic_ui_product_review_count": 0,
+            },
         }
 
     payload = load_json(manifest_path)
@@ -96,37 +113,99 @@ def load_external_evidence_manifest(
         if evidence_type == "manual-review-note" and note and reviewer and not evidence_paths:
             evidence_paths = [relative_to_root(manifest_path, phase3_root)]
         route_observation = _route_observation_from_note(note, raw_item if isinstance(raw_item, dict) else {})
-        normalized_items.append(
-            {
-                "test_id": str(raw_item.get("test_id") or "").strip(),
-                "surface_name": str(raw_item.get("surface_name") or "").strip(),
-                "surface_slug": str(raw_item.get("surface_slug") or "").strip(),
-                "acceptance_types": [
-                    str(value)
-                    for value in ensure_list(
-                        raw_item.get("for_acceptance_types")
-                        or raw_item.get("acceptance_types")
-                        or raw_item.get("acceptance_type")
-                    )
-                    if str(value).strip()
-                ],
-                "evidence_type": evidence_type,
-                "status": str(raw_item.get("status") or "pass").strip().lower(),
-                "signoff": bool(raw_item.get("signoff")),
-                "reviewer": reviewer,
-                "note": note,
-                "evidence_paths": evidence_paths,
-                "requested_route": route_observation["requested_route"],
-                "final_route": route_observation["final_route"],
-                "route_landing_status": route_observation["route_landing_status"],
-                "auth_entry_route": route_observation["auth_entry_route"],
-            }
-        )
+        acceptance_types = [
+            str(value)
+            for value in ensure_list(
+                raw_item.get("for_acceptance_types")
+                or raw_item.get("acceptance_types")
+                or raw_item.get("acceptance_type")
+            )
+            if str(value).strip()
+        ]
+        normalized_item = {
+            "test_id": str(raw_item.get("test_id") or "").strip(),
+            "surface_name": str(raw_item.get("surface_name") or "").strip(),
+            "surface_slug": str(raw_item.get("surface_slug") or "").strip(),
+            "acceptance_types": acceptance_types,
+            "evidence_type": evidence_type,
+            "status": str(raw_item.get("status") or "pass").strip().lower(),
+            "signoff": bool(raw_item.get("signoff")),
+            "reviewer": reviewer,
+            "note": note,
+            "evidence_paths": evidence_paths,
+            "requested_route": route_observation["requested_route"],
+            "final_route": route_observation["final_route"],
+            "route_landing_status": route_observation["route_landing_status"],
+            "auth_entry_route": route_observation["auth_entry_route"],
+        }
+        if evidence_type == OPEN_ENDED_MATURITY_REVIEW_EVIDENCE_TYPE:
+            normalized_item["acceptance_types"] = acceptance_types or ["ui-review"]
+            normalized_item["signoff"] = False
+            normalized_item["review_request_id"] = str(raw_item.get("review_request_id") or "").strip()
+            normalized_item["reviewed_page_ids"] = [
+                str(value).strip() for value in ensure_list(raw_item.get("reviewed_page_ids")) if str(value).strip()
+            ]
+            validation_entry = {**dict(raw_item), "reviewer": reviewer, "evidence_paths": evidence_paths}
+            valid_review, review_errors, holistic_score, findings = validate_open_ended_maturity_review(
+                validation_entry,
+                review_request=open_ended_maturity_review_request or {},
+            )
+            normalized_item["review_valid"] = valid_review
+            normalized_item["review_validation_errors"] = review_errors
+            normalized_item["holistic_score"] = holistic_score
+            normalized_item["summary"] = str(raw_item.get("summary") or "").strip()
+            normalized_item["findings"] = findings
+            normalized_item["review_applies_to_all_current_surfaces"] = bool(
+                set(normalized_item["reviewed_page_ids"])
+                >= {
+                    str(row.get("page_id") or "").strip()
+                    for row in ensure_list((open_ended_maturity_review_request or {}).get("review_surfaces"))
+                    if isinstance(row, dict) and str(row.get("page_id") or "").strip()
+                }
+            )
+        elif evidence_type == UI_PRODUCT_REVIEW_EVIDENCE_TYPE:
+            normalized_item["acceptance_types"] = acceptance_types or ["ui-review"]
+            normalized_item["signoff"] = False
+            normalized_item["review_request_id"] = str(raw_item.get("review_request_id") or "").strip()
+            normalized_item["reviewed_page_ids"] = [
+                str(value).strip() for value in ensure_list(raw_item.get("reviewed_page_ids")) if str(value).strip()
+            ]
+            validation_entry = {**dict(raw_item), "reviewer": reviewer, "evidence_paths": evidence_paths}
+            valid_review, review_errors, assessments, findings = validate_agentic_ui_product_review(
+                validation_entry,
+                review_request=ui_product_review_request or {},
+            )
+            normalized_item["review_valid"] = valid_review
+            normalized_item["review_validation_errors"] = review_errors
+            normalized_item["assessments"] = assessments
+            normalized_item["findings"] = findings
+            normalized_item["review_applies_to_all_current_surfaces"] = bool(
+                set(normalized_item["reviewed_page_ids"])
+                >= {
+                    str(row.get("page_id") or "").strip()
+                    for row in ensure_list((ui_product_review_request or {}).get("review_surfaces"))
+                    if isinstance(row, dict) and str(row.get("page_id") or "").strip()
+                }
+            )
+        normalized_items.append(normalized_item)
+    open_ended_reviews = [
+        item for item in normalized_items if item.get("evidence_type") == OPEN_ENDED_MATURITY_REVIEW_EVIDENCE_TYPE
+    ]
+    valid_open_ended_reviews = [item for item in open_ended_reviews if bool(item.get("review_valid"))]
+    agentic_reviews = [
+        item for item in normalized_items if item.get("evidence_type") == UI_PRODUCT_REVIEW_EVIDENCE_TYPE
+    ]
+    valid_agentic_reviews = [item for item in agentic_reviews if bool(item.get("review_valid"))]
+    review_evidence_types = {OPEN_ENDED_MATURITY_REVIEW_EVIDENCE_TYPE, UI_PRODUCT_REVIEW_EVIDENCE_TYPE}
     valid_item_count = len(
         [
             item
             for item in normalized_items
-            if item["evidence_paths"] or (item["evidence_type"] == "manual-review-note" and item["reviewer"] and item["note"])
+            if (
+                (item["evidence_type"] in review_evidence_types and bool(item.get("review_valid")))
+                or (item["evidence_type"] not in review_evidence_types and bool(item["evidence_paths"]))
+                or (item["evidence_type"] == "manual-review-note" and item["reviewer"] and item["note"])
+            )
         ]
     )
     return {
@@ -136,8 +215,78 @@ def load_external_evidence_manifest(
             "item_count": len(normalized_items),
             "valid_item_count": valid_item_count,
             "missing_path_count": len(missing_paths),
+            "agentic_open_ended_maturity_review_count": len(open_ended_reviews),
+            "valid_agentic_open_ended_maturity_review_count": len(valid_open_ended_reviews),
+            "invalid_agentic_open_ended_maturity_review_count": len(open_ended_reviews) - len(valid_open_ended_reviews),
+            "agentic_ui_product_review_count": len(agentic_reviews),
+            "valid_agentic_ui_product_review_count": len(valid_agentic_reviews),
+            "invalid_agentic_ui_product_review_count": len(agentic_reviews) - len(valid_agentic_reviews),
         },
         "missing_paths": missing_paths,
+    }
+
+
+def build_open_ended_maturity_learning_candidates(
+    *,
+    external_manifest: dict[str, Any],
+    review_request: dict[str, Any],
+) -> dict[str, Any]:
+    """Retain validated OMR findings as later learning candidates without changing the current review.
+
+    Workflow only preserves reviewer-provided evidence/category/return-path facts here. It does
+    not generalize a finding, score a pattern, or promote anything into SQR; those remain a
+    later cross-case/version Agentic governance decision.
+    """
+    request_id = str(review_request.get("review_request_id") or "").strip()
+    valid_reviews = [
+        item
+        for item in ensure_list(external_manifest.get("items"))
+        if isinstance(item, dict)
+        and item.get("evidence_type") == OPEN_ENDED_MATURITY_REVIEW_EVIDENCE_TYPE
+        and bool(item.get("review_valid"))
+        and str(item.get("review_request_id") or "").strip() == request_id
+    ]
+    candidates: list[dict[str, Any]] = []
+    for review in valid_reviews:
+        reviewer = str(review.get("reviewer") or "").strip()
+        score = review.get("holistic_score")
+        for finding in ensure_list(review.get("findings")):
+            if not isinstance(finding, dict):
+                continue
+            candidates.append(
+                {
+                    "review_request_id": request_id,
+                    "reviewer": reviewer,
+                    "holistic_score": score,
+                    "finding_id": str(finding.get("finding_id") or "").strip(),
+                    "category": str(finding.get("category") or "").strip(),
+                    "severity": str(finding.get("severity") or "").strip().lower(),
+                    "page_id": str(finding.get("page_id") or "").strip(),
+                    "evidence_ref": str(finding.get("evidence_ref") or "").strip(),
+                    "observation": str(finding.get("observation") or "").strip(),
+                    "user_impact": str(finding.get("user_impact") or "").strip(),
+                    "return_path": str(finding.get("return_path") or "").strip(),
+                    "promotion_status": "unassessed",
+                }
+            )
+    return {
+        "schema_version": "wff.phase4-omr-learning-candidates.v1",
+        "status": "captured" if candidates else ("no-findings" if valid_reviews else "not-available"),
+        "source_review_request_id": request_id,
+        "valid_review_count": len(valid_reviews),
+        "candidate_count": len(candidates),
+        "candidates": candidates,
+        "affects_current_omr": False,
+        "affects_current_sqr": False,
+        "semantic_authority": False,
+        "promotion_policy": (
+            "No candidate is promoted automatically. Promotion requires repeated cross-scenario or cross-version evidence, "
+            "a business-independent failure pattern, and a later explicit Agentic/governance decision. OMR remains mandatory after promotion."
+        ),
+        "claim_ceiling": (
+            "Learning candidates preserve validated OMR observations only; they do not generalize reviewer findings, change the current verdict, "
+            "add SQR dimensions, or create product/business truth."
+        ),
     }
 
 
@@ -150,6 +299,9 @@ def external_entries_for_item(item: dict[str, Any], manifest: dict[str, Any]) ->
     for entry in ensure_list(manifest.get("items")):
         acceptance_types = [str(value) for value in ensure_list(entry.get("acceptance_types"))]
         if acceptance_types and acceptance_type not in acceptance_types:
+            continue
+        if acceptance_type == "ui-review" and bool(entry.get("review_applies_to_all_current_surfaces")):
+            matched.append(entry)
             continue
         if entry.get("test_id") and str(entry.get("test_id")) == test_id:
             matched.append(entry)
@@ -171,8 +323,16 @@ def evaluate_external_review(item: dict[str, Any], manifest: dict[str, Any]) -> 
         str(entry.get("reviewer")) for entry in entries if str(entry.get("reviewer") or "").strip()
     )
     notes = [str(entry.get("note") or "").strip() for entry in entries if str(entry.get("note") or "").strip()]
-    explicit_fail = any(str(entry.get("status") or "") == "fail" for entry in entries)
-    explicit_pass = any(str(entry.get("status") or "") == "pass" for entry in entries)
+    review_evidence_types = {OPEN_ENDED_MATURITY_REVIEW_EVIDENCE_TYPE, UI_PRODUCT_REVIEW_EVIDENCE_TYPE}
+    valid_entries = [entry for entry in entries if entry.get("evidence_type") not in review_evidence_types or bool(entry.get("review_valid"))]
+    open_ended_entries = [entry for entry in entries if entry.get("evidence_type") == OPEN_ENDED_MATURITY_REVIEW_EVIDENCE_TYPE]
+    valid_open_ended_entries = [entry for entry in open_ended_entries if bool(entry.get("review_valid"))]
+    invalid_open_ended_entries = [entry for entry in open_ended_entries if not bool(entry.get("review_valid"))]
+    agentic_entries = [entry for entry in entries if entry.get("evidence_type") == UI_PRODUCT_REVIEW_EVIDENCE_TYPE]
+    valid_agentic_entries = [entry for entry in agentic_entries if bool(entry.get("review_valid"))]
+    invalid_agentic_entries = [entry for entry in agentic_entries if not bool(entry.get("review_valid"))]
+    explicit_fail = any(str(entry.get("status") or "") == "fail" for entry in valid_entries)
+    explicit_pass = any(str(entry.get("status") or "") == "pass" for entry in valid_entries)
     manual_record_present = any(
         str(entry.get("evidence_type") or "") == "manual-review-note"
         and str(entry.get("reviewer") or "").strip()
@@ -225,6 +385,18 @@ def evaluate_external_review(item: dict[str, Any], manifest: dict[str, Any]) -> 
         "route_observations": route_observations,
         "route_mismatch_observations": route_mismatch_observations,
         "auth_redirect_observations": auth_redirect_observations,
+        "open_ended_entries": open_ended_entries,
+        "valid_open_ended_entries": valid_open_ended_entries,
+        "invalid_open_ended_entries": invalid_open_ended_entries,
+        "open_ended_findings": [
+            finding for entry in valid_open_ended_entries for finding in ensure_list(entry.get("findings")) if isinstance(finding, dict)
+        ],
+        "agentic_entries": agentic_entries,
+        "valid_agentic_entries": valid_agentic_entries,
+        "invalid_agentic_entries": invalid_agentic_entries,
+        "agentic_findings": [
+            finding for entry in valid_agentic_entries for finding in ensure_list(entry.get("findings")) if isinstance(finding, dict)
+        ],
     }
 
 
@@ -663,15 +835,10 @@ def semantic_ledger_routes(semantic_ledger: dict[str, Any]) -> list[dict[str, An
         if status in {"", "realized"}:
             continue
         p2_disposition = str(raw_result.get("p2_disposition") or "").strip()
-        if status == "upstream-return-required" or p2_disposition == "local-return-required":
-            owner_phase = "P2"
-            minimum_rerun_from = "phase2"
-        elif status == "review-bound" or p2_disposition == "explicit-unresolved":
-            owner_phase = "P2"
-            minimum_rerun_from = "phase2"
-        else:
-            owner_phase = "P3"
-            minimum_rerun_from = "phase3"
+        # Every current-cycle implementation/content gap is repaired or decided in P3.
+        # Historical P2 dispositions remain source metadata, not regeneration routes.
+        owner_phase = "P3"
+        minimum_rerun_from = "phase3"
         routes.append(
             {
                 "commitment_id": str(raw_result.get("commitment_id") or ""),
@@ -1313,13 +1480,36 @@ def review_status(
     surface_audits: dict[str, dict[str, Any]],
     external_manifest: dict[str, Any],
     runtime_environment: dict[str, Any],
+    open_ended_maturity_review_request: dict[str, Any] | None = None,
+    ui_product_review_request: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     page_paths = [str(path) for path in ensure_list(item.get("implementation_targets"))]
     existing_pages = [path for path in page_paths if (phase3_root / path).exists()]
     linked_test_targets = [str(target) for target in ensure_list(item.get("test_targets"))]
     linked_verdicts = [str((test_evidence.get(target) or {}).get("verdict") or "not-run") for target in linked_test_targets]
     linked_tests_green = bool(linked_verdicts) and all(verdict == "pass" for verdict in linked_verdicts)
+    current_open_ended_request = open_ended_maturity_review_request or {}
+    current_review_request = ui_product_review_request or {}
     visual_matches = match_visual_assets(item, visual_assets)
+    if bool(current_review_request.get("review_required")):
+        surface_name = str(item.get("surface_name") or "").strip()
+        surface_page_ids = {
+            str(row.get("page_id") or "").strip()
+            for row in ensure_list(current_review_request.get("review_surfaces"))
+            if isinstance(row, dict)
+            and (
+                str(row.get("page_title") or "").strip() == surface_name
+                or str(row.get("source_path") or "").strip() in page_paths
+            )
+            and str(row.get("page_id") or "").strip()
+        }
+        current_screenshots = [
+            str(row.get("path") or "")
+            for row in ensure_list((current_review_request.get("current_binding") if isinstance(current_review_request.get("current_binding"), dict) else {}).get("screenshots"))
+            if isinstance(row, dict)
+            and any(page_id.lower() in str(row.get("path") or "").lower() for page_id in surface_page_ids)
+        ]
+        visual_matches = dedupe_preserve_order([*visual_matches, *current_screenshots])
     surface_audit = surface_audits.get(str(item.get("surface_name") or ""))
     surface_audit_path = "frontend-surface-audit.json" if surface_audit else ""
     external_review = evaluate_external_review(item, external_manifest)
@@ -1336,6 +1526,221 @@ def review_status(
         if not evidence_ready:
             return "not-ready", []
         return "review-bound", []
+
+    if item["acceptance_type"] == "ui-review" and bool(current_review_request.get("review_required")):
+        open_request_status = str(current_open_ended_request.get("status") or "").strip()
+        open_request_id = str(current_open_ended_request.get("review_request_id") or "").strip()
+        valid_open_ended = list(external_review.get("valid_open_ended_entries") or [])
+        invalid_open_ended = list(external_review.get("invalid_open_ended_entries") or [])
+        open_findings = list(external_review.get("open_ended_findings") or [])
+        open_scores = [float(entry["holistic_score"]) for entry in valid_open_ended if entry.get("holistic_score") is not None]
+        request_status = str(current_review_request.get("status") or "").strip()
+        request_id = str(current_review_request.get("review_request_id") or "").strip()
+        valid_agentic = list(external_review.get("valid_agentic_entries") or [])
+        invalid_agentic = list(external_review.get("invalid_agentic_entries") or [])
+        findings = list(external_review.get("agentic_findings") or [])
+        current_bound_surface = str(item.get("source_type") or "") == "current-p3-frontend-surface"
+        current_review_source_paths = {
+            str(row.get("source_path") or "").strip()
+            for row in ensure_list(current_review_request.get("review_surfaces"))
+            if isinstance(row, dict) and str(row.get("source_path") or "").strip()
+        }
+        current_surface_structure_present = bool(existing_pages and (surface_audit or current_bound_surface))
+        current_surface_structure_green = bool(
+            (current_bound_surface and all(path in current_review_source_paths for path in existing_pages))
+            or (surface_audit and surface_audit.get("all_checks_pass"))
+        )
+        if open_request_status != "review-required":
+            human_signoff_status, signoff_evidence_paths = signoff_payload(evidence_ready=False)
+            return {
+                "status": "blocked",
+                "actual_result": "Current first-round Open-ended Maturity Review request is not evidence-ready; return to current P3 browser/runtime evidence before AI product review.",
+                "evidence_paths": dedupe_preserve_order(["open-ended-maturity-review-request.json", *external_evidence_refs]),
+                "human_signoff_status": human_signoff_status,
+                "signoff_evidence_paths": signoff_evidence_paths,
+                "reviewers": external_review["reviewers"],
+                "external_evidence_refs": external_evidence_refs,
+                "open_ended_maturity_review_request_id": open_request_id,
+                "open_ended_maturity_review_score": None,
+                "open_ended_maturity_review_findings": [],
+                "open_ended_maturity_review_validation_errors": list(current_open_ended_request.get("blocking_reasons") or []),
+                "ui_product_review_request_id": request_id,
+                "ui_product_review_findings": [],
+                "ui_product_review_validation_errors": [],
+            }
+        if request_status != "review-required":
+            human_signoff_status, signoff_evidence_paths = signoff_payload(evidence_ready=False)
+            return {
+                "status": "blocked",
+                "actual_result": "Current frontend UI/Product Review request is not evidence-ready; return to current P3 browser/runtime evidence before product review.",
+                "evidence_paths": dedupe_preserve_order(["ui-product-review-request.json", *external_evidence_refs]),
+                "human_signoff_status": human_signoff_status,
+                "signoff_evidence_paths": signoff_evidence_paths,
+                "reviewers": external_review["reviewers"],
+                "external_evidence_refs": external_evidence_refs,
+                "ui_product_review_request_id": request_id,
+                "ui_product_review_findings": [],
+                "ui_product_review_validation_errors": list(current_review_request.get("blocking_reasons") or []),
+            }
+        if not current_surface_structure_present or not current_surface_structure_green:
+            human_signoff_status, signoff_evidence_paths = signoff_payload(evidence_ready=False)
+            return {
+                "status": "fail" if current_surface_structure_present else "blocked",
+                "actual_result": "Current surface structure evidence must pass before independent UI/Product Review can close the UI item.",
+                "evidence_paths": dedupe_preserve_order(["ui-product-review-request.json", surface_audit_path, *existing_pages]),
+                "human_signoff_status": human_signoff_status,
+                "signoff_evidence_paths": signoff_evidence_paths,
+                "reviewers": external_review["reviewers"],
+                "external_evidence_refs": external_evidence_refs,
+                "ui_product_review_request_id": request_id,
+                "ui_product_review_findings": [],
+                "ui_product_review_validation_errors": ["current-ui-surface-structure-not-pass"],
+            }
+        if not valid_open_ended:
+            human_signoff_status, signoff_evidence_paths = signoff_payload(evidence_ready=False)
+            validation_errors = [
+                str(error)
+                for entry in invalid_open_ended
+                for error in ensure_list(entry.get("review_validation_errors"))
+                if str(error).strip()
+            ]
+            return {
+                "status": "review-bound",
+                "actual_result": (
+                    "Real browser/visual evidence exists, but first-round Open-ended Maturity Review is missing or invalid; "
+                    "the later structured score cannot substitute for open-ended product discovery."
+                ),
+                "evidence_paths": dedupe_preserve_order(["open-ended-maturity-review-request.json", *external_evidence_refs]),
+                "human_signoff_status": human_signoff_status,
+                "signoff_evidence_paths": signoff_evidence_paths,
+                "reviewers": external_review["reviewers"],
+                "external_evidence_refs": external_evidence_refs,
+                "open_ended_maturity_review_request_id": open_request_id,
+                "open_ended_maturity_review_score": None,
+                "open_ended_maturity_review_findings": [],
+                "open_ended_maturity_review_validation_errors": validation_errors,
+                "ui_product_review_request_id": request_id,
+                "ui_product_review_findings": [],
+                "ui_product_review_validation_errors": [],
+            }
+        open_statuses = {str(entry.get("status") or "").strip().lower() for entry in valid_open_ended}
+        if "fail" in open_statuses:
+            human_signoff_status, signoff_evidence_paths = signoff_payload(evidence_ready=False)
+            return {
+                "status": "fail",
+                "actual_result": "First-round Open-ended Maturity Review found material product-maturity defects on the current rendered evidence.",
+                "evidence_paths": dedupe_preserve_order(["open-ended-maturity-review-request.json", *external_review["evidence_paths"]]),
+                "human_signoff_status": human_signoff_status,
+                "signoff_evidence_paths": signoff_evidence_paths,
+                "reviewers": external_review["reviewers"],
+                "external_evidence_refs": external_evidence_refs,
+                "open_ended_maturity_review_request_id": open_request_id,
+                "open_ended_maturity_review_score": min(open_scores) if open_scores else None,
+                "open_ended_maturity_review_findings": open_findings,
+                "open_ended_maturity_review_validation_errors": [],
+                "ui_product_review_request_id": request_id,
+                "ui_product_review_findings": [],
+                "ui_product_review_validation_errors": [],
+            }
+        if "review-bound" in open_statuses:
+            human_signoff_status, signoff_evidence_paths = signoff_payload(evidence_ready=False)
+            return {
+                "status": "review-bound",
+                "actual_result": "First-round Open-ended Maturity Review remains review-bound; do not run the synthesis gate from the structured score alone.",
+                "evidence_paths": dedupe_preserve_order(["open-ended-maturity-review-request.json", *external_review["evidence_paths"]]),
+                "human_signoff_status": human_signoff_status,
+                "signoff_evidence_paths": signoff_evidence_paths,
+                "reviewers": external_review["reviewers"],
+                "external_evidence_refs": external_evidence_refs,
+                "open_ended_maturity_review_request_id": open_request_id,
+                "open_ended_maturity_review_score": min(open_scores) if open_scores else None,
+                "open_ended_maturity_review_findings": open_findings,
+                "open_ended_maturity_review_validation_errors": [],
+                "ui_product_review_request_id": request_id,
+                "ui_product_review_findings": [],
+                "ui_product_review_validation_errors": [],
+            }
+        if not valid_agentic:
+            human_signoff_status, signoff_evidence_paths = signoff_payload(evidence_ready=False)
+            validation_errors = [
+                str(error)
+                for entry in invalid_agentic
+                for error in ensure_list(entry.get("review_validation_errors"))
+                if str(error).strip()
+            ]
+            return {
+                "status": "review-bound",
+                "actual_result": (
+                    "Real browser/visual evidence exists, but current independent Agentic UI/Product Review is missing or invalid; "
+                    "screenshots and structural checks do not decide product quality."
+                ),
+                "evidence_paths": dedupe_preserve_order(["ui-product-review-request.json", *external_evidence_refs]),
+                "human_signoff_status": human_signoff_status,
+                "signoff_evidence_paths": signoff_evidence_paths,
+                "reviewers": external_review["reviewers"],
+                "external_evidence_refs": external_evidence_refs,
+                "open_ended_maturity_review_request_id": open_request_id,
+                "open_ended_maturity_review_score": min(open_scores) if open_scores else None,
+                "open_ended_maturity_review_findings": open_findings,
+                "open_ended_maturity_review_validation_errors": [],
+                "ui_product_review_request_id": request_id,
+                "ui_product_review_findings": [],
+                "ui_product_review_validation_errors": validation_errors,
+            }
+        statuses = {str(entry.get("status") or "").strip().lower() for entry in valid_agentic}
+        if "fail" in statuses:
+            human_signoff_status, signoff_evidence_paths = signoff_payload(evidence_ready=False)
+            return {
+                "status": "fail",
+                "actual_result": "Independent Agentic UI/Product Review found material product-interface defects on current rendered evidence.",
+                "evidence_paths": dedupe_preserve_order(["ui-product-review-request.json", *external_review["evidence_paths"]]),
+                "human_signoff_status": human_signoff_status,
+                "signoff_evidence_paths": signoff_evidence_paths,
+                "reviewers": external_review["reviewers"],
+                "external_evidence_refs": external_evidence_refs,
+                "open_ended_maturity_review_request_id": open_request_id,
+                "open_ended_maturity_review_score": min(open_scores) if open_scores else None,
+                "open_ended_maturity_review_findings": open_findings,
+                "open_ended_maturity_review_validation_errors": [],
+                "ui_product_review_request_id": request_id,
+                "ui_product_review_findings": findings,
+                "ui_product_review_validation_errors": [],
+            }
+        if "review-bound" in statuses:
+            human_signoff_status, signoff_evidence_paths = signoff_payload(evidence_ready=False)
+            return {
+                "status": "review-bound",
+                "actual_result": "Independent Agentic UI/Product Review remains review-bound on at least one required product-quality dimension.",
+                "evidence_paths": dedupe_preserve_order(["ui-product-review-request.json", *external_review["evidence_paths"]]),
+                "human_signoff_status": human_signoff_status,
+                "signoff_evidence_paths": signoff_evidence_paths,
+                "reviewers": external_review["reviewers"],
+                "external_evidence_refs": external_evidence_refs,
+                "open_ended_maturity_review_request_id": open_request_id,
+                "open_ended_maturity_review_score": min(open_scores) if open_scores else None,
+                "open_ended_maturity_review_findings": open_findings,
+                "open_ended_maturity_review_validation_errors": [],
+                "ui_product_review_request_id": request_id,
+                "ui_product_review_findings": findings,
+                "ui_product_review_validation_errors": [],
+            }
+        human_signoff_status, signoff_evidence_paths = signoff_payload(evidence_ready=True)
+        return {
+            "status": "pass",
+            "actual_result": "Independent Agentic UI/Product Review passed all required dimensions for the current rendered frontend evidence.",
+            "evidence_paths": dedupe_preserve_order(["ui-product-review-request.json", *external_review["evidence_paths"], *existing_pages]),
+            "human_signoff_status": human_signoff_status,
+            "signoff_evidence_paths": signoff_evidence_paths,
+            "reviewers": external_review["reviewers"],
+            "external_evidence_refs": external_evidence_refs,
+            "open_ended_maturity_review_request_id": open_request_id,
+            "open_ended_maturity_review_score": min(open_scores) if open_scores else None,
+            "open_ended_maturity_review_findings": open_findings,
+            "open_ended_maturity_review_validation_errors": [],
+            "ui_product_review_request_id": request_id,
+            "ui_product_review_findings": findings,
+            "ui_product_review_validation_errors": [],
+        }
 
     if item["acceptance_type"] == "visual-evidence":
         if external_review["route_mismatch_observations"]:
@@ -1587,6 +1992,7 @@ def build_execution_markdown(
             "- Functional items consume inherited Phase-3 automated evidence and must not be downgraded to narrative-only claims.",
             "- Data-fidelity items consume inherited Phase-3 runtime truth artifacts and must keep mock dependency explicit.",
             "- UI review and visual evidence items may remain `review-bound` when no screenshot/manual capture artifact exists.",
+            "- For current requested frontend P3 browser evidence, screenshot presence is factual visual evidence only; subjective `ui-review` requires Round-1 dimension-free OMR, Round-2 fixed-dimension SQR, and an RSG that passes only when both reviews pass independently without score averaging.",
             "- `human_signoff_status = review-bound` means the item is otherwise evidentially ready and only manual critical-path signoff remains.",
             "- `human_signoff_status = not-ready` means the item has not yet reached the manual-signoff boundary because review evidence is still incomplete or already failed.",
             "- Missing mandatory functional or data-fidelity evidence is blocking and must force Stage-03 to return.",
@@ -1621,10 +2027,16 @@ def build_phase4_stage2_execution(
     runtime_environment = load_phase3_runtime_environment_summary(phase3_root)
     ui_ia_contract = load_json_if_exists(phase3_root / "prototype-fallback" / "ui-ia-contract.json")
     packet_context = build_worker_packet_context(load_worker_packets(phase3_root))
+    # Round 1 is intentionally built first and contains no SQR dimensions/scores/findings.
+    open_ended_maturity_review_request = build_open_ended_maturity_review_request(phase3_root=phase3_root)
+    # Round 2 is the fixed-dimension structured qualification review.
+    ui_product_review_request = build_ui_product_review_request(phase3_root=phase3_root)
     external_manifest = load_external_evidence_manifest(
         external_evidence_manifest,
         phase3_root=phase3_root,
         external_evidence_dir=external_evidence_dir,
+        open_ended_maturity_review_request=open_ended_maturity_review_request,
+        ui_product_review_request=ui_product_review_request,
     )
     surface_seed_items: dict[str, dict[str, Any]] = {}
     for item in acceptance_items:
@@ -1658,6 +2070,8 @@ def build_phase4_stage2_execution(
                 surface_audits,
                 external_manifest,
                 runtime_environment_context,
+                open_ended_maturity_review_request,
+                ui_product_review_request,
             )
         resolved = {
             **item,
@@ -1672,6 +2086,13 @@ def build_phase4_stage2_execution(
             "runtime_environment_lane": runtime_environment_context["target_lane"],
             "runtime_environment_requirements": runtime_environment_context["required_runtime_environments"],
             "runtime_environment_packets": runtime_environment_context["matched_packet_ids"],
+            "open_ended_maturity_review_request_id": resolved_status.get("open_ended_maturity_review_request_id", ""),
+            "open_ended_maturity_review_score": resolved_status.get("open_ended_maturity_review_score"),
+            "open_ended_maturity_review_findings": resolved_status.get("open_ended_maturity_review_findings", []),
+            "open_ended_maturity_review_validation_errors": resolved_status.get("open_ended_maturity_review_validation_errors", []),
+            "ui_product_review_request_id": resolved_status.get("ui_product_review_request_id", ""),
+            "ui_product_review_findings": resolved_status.get("ui_product_review_findings", []),
+            "ui_product_review_validation_errors": resolved_status.get("ui_product_review_validation_errors", []),
         }
         resolved_items.append(resolved)
         if resolved["status"] in {"fail", "blocked"}:
@@ -1696,6 +2117,10 @@ def build_phase4_stage2_execution(
 
     summary_counts = summarize_status_counts(resolved_items)
 
+    open_ended_review_request_path = stage02_dir / "open-ended-maturity-review-request.json"
+    review_request_path = stage02_dir / "ui-product-review-request.json"
+    review_synthesis_gate_path = stage02_dir / "review-synthesis-gate.json"
+    omr_learning_candidates_path = stage02_dir / "open-ended-maturity-learning-candidates.json"
     results_path = stage02_dir / "test-execution-results.json"
     evidence_index_path = stage02_dir / "test-evidence-index.json"
     surface_audit_path = stage02_dir / "frontend-surface-audit.json"
@@ -1706,6 +2131,18 @@ def build_phase4_stage2_execution(
     execution_md_path = stage02_dir / "test-execution-evidence.md"
     summary_path = stage02_dir / "stage-02-summary.json"
 
+    write_json(open_ended_review_request_path, {**open_ended_maturity_review_request, "generated_at": utc_now_iso()})
+    write_json(review_request_path, {**ui_product_review_request, "generated_at": utc_now_iso()})
+    write_json(
+        omr_learning_candidates_path,
+        {
+            **build_open_ended_maturity_learning_candidates(
+                external_manifest=external_manifest,
+                review_request=open_ended_maturity_review_request,
+            ),
+            "generated_at": utc_now_iso(),
+        },
+    )
     write_json(
         results_path,
         {
@@ -1793,6 +2230,37 @@ def build_phase4_stage2_execution(
         ),
     )
 
+    ui_review_statuses = [
+        str(item.get("status") or "")
+        for item in resolved_items
+        if item.get("acceptance_type") == "ui-review"
+    ]
+    if not ui_review_statuses:
+        review_synthesis_gate_status = "not-required"
+    elif any(status in {"fail", "blocked"} for status in ui_review_statuses):
+        review_synthesis_gate_status = "fail"
+    elif any(status != "pass" for status in ui_review_statuses):
+        review_synthesis_gate_status = "review-bound"
+    else:
+        review_synthesis_gate_status = "pass"
+
+    write_json(
+        review_synthesis_gate_path,
+        {
+            "schema_version": "wff.phase4-review-synthesis-gate.v1",
+            "status": review_synthesis_gate_status,
+            "rule": "OMR must pass before SQR, SQR must pass independently, and the two scores are never averaged.",
+            "score_aggregation_policy": "independent-scores-not-averaged",
+            "open_ended_maturity_review_request_id": str(open_ended_maturity_review_request.get("review_request_id") or ""),
+            "structured_qualification_review_request_id": str(ui_product_review_request.get("review_request_id") or ""),
+            "valid_open_ended_review_count": int(external_manifest["summary"].get("valid_agentic_open_ended_maturity_review_count", 0)),
+            "valid_structured_review_count": int(external_manifest["summary"].get("valid_agentic_ui_product_review_count", 0)),
+            "ui_review_item_count": len(ui_review_statuses),
+            "ui_review_non_pass_count": len([status for status in ui_review_statuses if status != "pass"]),
+            "claim_ceiling": "Review synthesis only; it does not upgrade runtime, production, owner-signoff, or UAT authority.",
+        },
+    )
+
     summary = {
         "stage": "evidence-execution-and-defect-identification",
         "title": title,
@@ -1840,6 +2308,17 @@ def build_phase4_stage2_execution(
         "runtime_environment_missing_lanes": [
             str(lane) for lane in ensure_list(runtime_environment.get("missing_runtime_lanes")) if str(lane).strip()
         ],
+        "open_ended_maturity_review_status": str(open_ended_maturity_review_request.get("status") or "not-required"),
+        "open_ended_maturity_review_request_id": str(open_ended_maturity_review_request.get("review_request_id") or ""),
+        "open_ended_maturity_review_required": bool(open_ended_maturity_review_request.get("review_required")),
+        "valid_agentic_open_ended_maturity_review_count": int(external_manifest["summary"].get("valid_agentic_open_ended_maturity_review_count", 0)),
+        "invalid_agentic_open_ended_maturity_review_count": int(external_manifest["summary"].get("invalid_agentic_open_ended_maturity_review_count", 0)),
+        "ui_product_review_status": str(ui_product_review_request.get("status") or "not-required"),
+        "ui_product_review_request_id": str(ui_product_review_request.get("review_request_id") or ""),
+        "ui_product_review_required": bool(ui_product_review_request.get("review_required")),
+        "valid_agentic_ui_product_review_count": int(external_manifest["summary"].get("valid_agentic_ui_product_review_count", 0)),
+        "invalid_agentic_ui_product_review_count": int(external_manifest["summary"].get("invalid_agentic_ui_product_review_count", 0)),
+        "review_synthesis_gate_status": review_synthesis_gate_status,
         "ui_review_non_pass_count": len(
             [item for item in resolved_items if item["acceptance_type"] == "ui-review" and item["status"] != "pass"]
         ),
@@ -1856,6 +2335,10 @@ def build_phase4_stage2_execution(
         ),
         "status_counts": summary_counts,
         "artifacts": {
+            "open_ended_maturity_review_request_json": relative_to_root(open_ended_review_request_path, output_dir),
+            "open_ended_maturity_learning_candidates_json": relative_to_root(omr_learning_candidates_path, output_dir),
+            "ui_product_review_request_json": relative_to_root(review_request_path, output_dir),
+            "review_synthesis_gate_json": relative_to_root(review_synthesis_gate_path, output_dir),
             "results_json": relative_to_root(results_path, output_dir),
             "evidence_index_json": relative_to_root(evidence_index_path, output_dir),
             "surface_audit_json": relative_to_root(surface_audit_path, output_dir),

@@ -59,7 +59,7 @@ $domain_event_vocabulary_table
   - domain_event_model_catalog:
 $domain_event_model_catalog_table
   - review_bound_event_gaps:
-    - none; current event models are resolved for first-wave implementation planning and remain capped by later runtime evidence.
+    - $event_gaps
 - decomposition_decisions:
   - policy: 先显式保留 workflow object chain，再考虑物理拆分
   - seam_preservation: 未来 seam 以命名契约保留，而不是藏成 TODO

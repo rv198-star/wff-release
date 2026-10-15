@@ -53,7 +53,7 @@
         "brownfield_pressure": "wff-refactor-architect",
         "quality_review_needed": "wff-reviewer"
       },
-      "evidence_boundary": "May mark source truth and review-bound gaps, but must not upgrade unverified demand, buyer, budget, or production claims.",
+      "evidence_boundary": "May mark source truth and review-bound gaps, but must not upgrade unverified demand, buyer, budget, or production claims. Frozen upstream gaps remain in P3 through p3-gap-decision-required and the existing Authority Delta ledger; record next-version backport, never regenerate P1/P2 or call an upstream role meeting.",
       "communication_contract": [
         "plain-language-first",
         "story-or-example-for-abstract-ideas",
@@ -96,13 +96,13 @@
         "validation-claim"
       ],
       "return_routes": {
-        "business_truth_gap": "wff-product-manager",
+        "business_truth_gap": "wff-programmer",
         "implementation_needed": "wff-programmer",
         "validation_needed": "wff-qa-tester",
         "brownfield_truth_needed": "wff-refactor-architect",
         "quality_review_needed": "wff-reviewer"
       },
-      "evidence_boundary": "May define architecture decisions and constraints, but must not invent missing business truth or claim implementation evidence.",
+      "evidence_boundary": "May define architecture decisions and constraints, but must not invent missing business truth or claim implementation evidence. Frozen upstream gaps remain in P3 through p3-gap-decision-required and the existing Authority Delta ledger; record next-version backport, never regenerate P1/P2 or call an upstream role meeting.",
       "communication_contract": [
         "plain-language-first",
         "story-or-example-for-abstract-ideas",
@@ -156,12 +156,12 @@
         "validation-claim-without-evidence"
       ],
       "return_routes": {
-        "architecture_conflict": "wff-architect",
-        "business_truth_gap": "wff-product-manager",
+        "architecture_conflict": "wff-programmer",
+        "business_truth_gap": "wff-programmer",
         "validation_needed": "wff-qa-tester",
         "quality_review_needed": "wff-reviewer"
       },
-      "evidence_boundary": "May produce implementation and test evidence inside accepted boundaries, but must not claim architecture or validation truth beyond that evidence.",
+      "evidence_boundary": "May produce implementation and test evidence inside accepted boundaries, but must not claim architecture or validation truth beyond that evidence. Frozen upstream gaps remain in P3 through p3-gap-decision-required and the existing Authority Delta ledger; record next-version backport, never regenerate P1/P2 or call an upstream role meeting.",
       "communication_contract": [
         "plain-language-first",
         "story-or-example-for-abstract-ideas",
@@ -207,11 +207,11 @@
       ],
       "return_routes": {
         "implementation_defect": "wff-programmer",
-        "architecture_conflict": "wff-architect",
-        "business_truth_gap": "wff-product-manager",
+        "architecture_conflict": "wff-programmer",
+        "business_truth_gap": "wff-programmer",
         "quality_review_needed": "wff-reviewer"
       },
-      "evidence_boundary": "May block or cap claims based on tests and evidence, but must not replace human review or production approval.",
+      "evidence_boundary": "May block or cap claims based on tests and evidence, but must not replace human review or production approval. Frozen upstream gaps remain in P3 through p3-gap-decision-required and the existing Authority Delta ledger; record next-version backport, never regenerate P1/P2 or call an upstream role meeting.",
       "communication_contract": [
         "plain-language-first",
         "story-or-example-for-abstract-ideas",
@@ -258,13 +258,13 @@
         "production-readiness-claim"
       ],
       "return_routes": {
-        "business_truth_gap": "wff-product-manager",
+        "business_truth_gap": "wff-programmer",
         "target_architecture_needed": "wff-architect",
         "implementation_needed": "wff-programmer",
         "validation_needed": "wff-qa-tester",
         "quality_review_needed": "wff-reviewer"
       },
-      "evidence_boundary": "May define brownfield truth, change boundaries, and safety-net needs, but must not pretend legacy facts are confirmed without evidence.",
+      "evidence_boundary": "May define brownfield truth, change boundaries, and safety-net needs, but must not pretend legacy facts are confirmed without evidence. Frozen upstream gaps remain in P3 through p3-gap-decision-required and the existing Authority Delta ledger; record next-version backport, never regenerate P1/P2 or call an upstream role meeting.",
       "communication_contract": [
         "plain-language-first",
         "story-or-example-for-abstract-ideas",
@@ -314,13 +314,13 @@
         "test-evidence-fabrication"
       ],
       "return_routes": {
-        "business_truth_gap": "wff-product-manager",
-        "architecture_conflict": "wff-architect",
+        "business_truth_gap": "wff-programmer",
+        "architecture_conflict": "wff-programmer",
         "implementation_defect": "wff-programmer",
         "validation_gap": "wff-qa-tester",
         "brownfield_gap": "wff-refactor-architect"
       },
-      "evidence_boundary": "May score and review artifacts, but must not produce the mainline artifact it is reviewing or fabricate evidence.",
+      "evidence_boundary": "May score and review artifacts, but must not produce the mainline artifact it is reviewing or fabricate evidence. Frozen upstream gaps remain in P3 through p3-gap-decision-required and the existing Authority Delta ledger; record next-version backport, never regenerate P1/P2 or call an upstream role meeting.",
       "communication_contract": [
         "plain-language-first",
         "story-or-example-for-abstract-ideas",

@@ -366,6 +366,8 @@ def refresh_phase3_post_execution(
         output_dir / "prototype-fallback" / "ui-prototype-fallback-report.json",
     )
     ui_ia_contract_path = first_existing_path(
+        output_dir / ".phase3-evidence" / "ui-ia-contract.json",
+        output_dir / "ui-ia-contract.json",
         output_dir / "prototype-fallback" / "ui-ia-contract.json",
     )
 
@@ -408,6 +410,26 @@ def refresh_phase3_post_execution(
         )
     else:
         semantic_realization_ledger = load_json_if_exists(semantic_realization_ledger_path)
+    runtime_smoke_for_delivery = load_json_if_exists(resolved_runtime_smoke_report_path)
+    frontend_authoring_report = load_json_if_exists(output_dir / "impl-frontend-report.json") or {}
+    frontend_authoring = (
+        frontend_authoring_report.get("authoring", {})
+        if isinstance(frontend_authoring_report, dict)
+        and isinstance(frontend_authoring_report.get("authoring"), dict)
+        else {}
+    )
+    runtime_checks = (
+        runtime_smoke_for_delivery.get("checks", {})
+        if isinstance(runtime_smoke_for_delivery, dict)
+        and isinstance(runtime_smoke_for_delivery.get("checks"), dict)
+        else {}
+    )
+    frontend_contract_required = bool(
+        str(frontend_authoring.get("status") or "").strip() == "materialized"
+        or runtime_checks.get("frontend_requested")
+        or runtime_checks.get("frontend_browser_evidence_green")
+    )
+    productness_gate_report = load_json_if_exists(output_dir / "productness-gate.json")
     delivery_kwargs = {
         "bootstrap_report": bootstrap_report,
         "unit_test_report": load_json_if_exists(resolved_unit_test_report_path),
@@ -422,7 +444,7 @@ def refresh_phase3_post_execution(
         "deploy_runbook_path": first_existing_path(output_dir / "deploy-runbook.md"),
         "dockerfile_path": first_existing_path(output_dir / "Dockerfile"),
         "compose_prod_path": first_existing_path(output_dir / "docker-compose.prod.yml"),
-        "runtime_smoke_report": load_json_if_exists(resolved_runtime_smoke_report_path),
+        "runtime_smoke_report": runtime_smoke_for_delivery,
         "runtime_smoke_report_path": (
             resolved_runtime_smoke_report_path if resolved_runtime_smoke_report_path.exists() else None
         ),
@@ -444,7 +466,9 @@ def refresh_phase3_post_execution(
         ),
         "ui_prototype_fallback_report_path": ui_prototype_fallback_report_path,
         "ui_ia_contract_path": ui_ia_contract_path,
+        "productness_gate_report": productness_gate_report,
         "phase3_metadata_report": metadata_report,
+        "require_frontend_contract": frontend_contract_required,
         "retained_proof_mode": retained_proof_mode,
         "strict_runtime_closure": strict_runtime_closure,
     }

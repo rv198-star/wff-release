@@ -1,28 +1,68 @@
 # wff-impl-frontend Skill Contract
 
+When frozen inputs use a partial/older format without the legacy full P2 chain, the existing `run_impl_frontend.py --frozen-input-decision <file>` entry accepts a P3 host decision with `sources`, `fact_sources` (original ID/value selectors), and `decision`. It verifies original SHA256 and manifest members, records the selected operation scope in the canonical implementation authority, and keeps source gaps and review ceilings. Preserve the source bytes, use the same Authority Delta and existing OMR → isolated SQR, and bind actual realized facts/runtime evidence. This admission cannot create P2/S1B review receipts or promote selected execution into full delivery; existing legacy validation remains unchanged.
+
+Realized-fact inventory follows the actual representation: resolve local OpenAPI references and JSON `contentSchema` fields; use the explicit `sqlite-ddl` format for supported SQLite tables, simple indexes and immutable-row triggers. Register each complete SQLite definition so constraints cannot disappear behind column parsing. Unsupported DDL remains an evidence gap. A consumed config may supply `x-wff-fact-id` to distinguish a representation from an original source ID, while preserving its runtime ID and meaning. Zero unregistered facts proves registration only; semantic review findings and runtime limitations remain authoritative.
+
 ## Responsibility
 
-Generate optional frontend surfaces when P1/P2/P3 inputs contain enough UI intent.
+Implement the requested consumer-operable frontend product from accepted P1/P2/P3 truth without creating a separate frontend lifecycle or peer semantic authority. P3 owns implementation-local product realization decisions that upstream authority intentionally leaves open.
+
+## Canonical Route
+
+Requested frontend authoring uses the existing focused frontend capability owner:
+
+```text
+run_impl_frontend.py --ui-ia-contract <exact-current-contract> --implementation-authority <accepted-p3-authority> --project-artifact-root <project-artifact-root>
+  -> frontend_implementation_scaffolder.py
+```
+
+When a profile carries aggregate/runtime dependencies, `run_impl.py --enable-frontend --ui-ia-contract ...` may call this same focused owner. It is orchestration, not a second authoring path. `run_impl_frontend.py` without a UI IA contract remains scaffold-only compatibility and cannot satisfy requested frontend work.
 
 ## Inputs
 
-- P1 interaction/prototype intent when present.
-- P2 UI or interaction handoff.
-- API contracts and backend surface.
-- ActionCards touching user-facing behavior.
+- accepted P1/P2 interaction/product intent;
+- exact current UI IA contract with ready pages/interactions;
+- accepted `p3-agentic-implementation-authority.json`;
+- either exact accepted frontend `apps/web/**` / `tests/unit/web/**` targets, or an explicitly requested backend-first P3 continuation whose UI interactions can each be bound to existing accepted P3 slice/operation/contract identity for a frontend-extension Authority Delta;
+- generated shared types and typed API client;
+- Action/Behavior Card lineage carried by the accepted P3 decision;
+- optional same-decision Agentic source root for a rerun;
+- project artifact root for the fixed human-readable `p3-realization-decisions.md` when the caller is part of a larger lifecycle package.
 
 ## Outputs
 
-- frontend implementation surface.
-- UI route/component notes.
-- frontend verification or review-bound evidence.
+- Workflow-owned protected application/page/test identity and binding shells;
+- bounded `@wff:agentic-begin/end` source regions owned by the Host Agent for application shell, navigation, product entry/session treatment, page composition, state/recovery behavior, responsive/accessibility realization, and tests where those details are not frozen upstream;
+- `impl-frontend-report.json` with non-authoritative authoring status/content identity;
+- frontend authoring projection in existing `implementation-bindings.json`;
+- canonical machine Authority Delta plus the fixed project-level human knowledge projection `<project-artifact-root>/p3-realization-decisions.md`, with `.phase3-evidence/p3-realization-decisions-binding.json` providing exact lookup/digest binding.
+
+The frontend authoring projection carries no runtime evidence refs, no Trace confirmation, no P4 admission, and no product-quality verdict.
+
+## Authoring State
+
+- `authoring-required`: at least one bounded frontend region is still unresolved. This is a handoff, not completion.
+- `materialized`: all bounded regions are current for the same UI IA content, P3 decision identity, target denominator, and protected shell.
+- `materialized` proves source realization only. Browser/runtime frontend evidence remains a P3 obligation; independent UI/product review remains a later review obligation.
 
 ## Boundaries
 
-- Do not invent a rich frontend when upstream only claimed backend delivery.
-- Do not treat generated UI as product design approval.
-- Do not hide missing visual/manual evidence.
+- Do not silently promote a backend-only claim into frontend completion. An explicitly requested frontend continuation is allowed on a frozen backend-first P3 decision only through exact slice/operation-bound frontend-extension Authority Delta with backend bytes and decision digest preserved.
+- Do not treat deterministic scaffold output as completed frontend.
+- Do not edit Workflow-owned identity/binding shell content outside bounded Agentic regions.
+- Do not introduce unregistered business/public API fields, producer/materialization truth, ownership, workflow state, security/permission truth, or persistence authority. Use the T0/T1/T2 and gap-decision protocol in `../p3-realization-decisions-contract.md`. Terminal-role qualification must use one least-privilege persona per accepted role; a super-role cannot qualify terminal roles. Consumer surfaces may not require raw internal IDs as text input; missing discovery/read-model authority requires a recorded P3 gap decision, never fixtures or frontend-only data. “Discoverable” and even “human-recognizable” are insufficient when the record is not **decision-sufficient**: the target persona still lacks enough accepted business context to choose, prioritize, review, or continue the correct durable record. A successful operation must expose or resolve the **user-consumable business result** plus enough result/next-action context to understand what happened; route access, persistence, reload/re-entry, bounded-role access, completion toasts, and opaque `*_ref`/`*_id` values are supporting mechanics rather than the meaningful outcome unless accepted authority explicitly gives them business meaning. Any request field whose accepted Product Interaction Semantics says `source=user-input` must come from a real user-visible input or an explicitly accepted carried user value; P3 may not synthesize UUIDs, random tokens, placeholder strings, or pseudo-evidence merely to satisfy the contract. Image/file controls must feed an accepted materialization/storage path that yields a backend/provider-readable resource reference; browser-local filename/size or synthetic pseudo-refs are forbidden. The generated `/auth/session` endpoint is P3 runtime support for product session establishment, not business-domain contract authority; it is disabled by default, requires explicit `PHASE3_LOCAL_AUTH_ENABLED=true`, and must remain disabled when P2 freezes an external IdP.
+- P3 must make bounded implementation-local judgments about **operating scale** and **longitudinal continuity**. For repeated-use/list/queue/selection work, reason about plausible working-set size, usage frequency, lookup behavior, recency, prioritization, and whether search/filter/sort/grouping/bulk interaction is justified. This is not a widget quota; no particular widget or feature is mandatory. For work that spans time, compose accepted current state with relevant history/change/provenance and a clear next action so a returning user need not reconstruct context from memory or technical identity. Use a P3 gap decision when those realizations require new read/query/history/business facts; implementation choices remain T0/T1.
+- When the missing detail is implementation-local product realization rather than frozen product/architecture truth, P3 must decide it and retain the refinement in the accepted P3 implementation decision / Authority Delta instead of forcing a P1/P2 rewrite. Material realization decisions must also be projected into the fixed `p3-realization-decisions.md` according to `../p3-realization-decisions-contract.md`; the Markdown supplements human project knowledge but never replaces the machine ledger or rewrites PRD/ESP. If the missing fact changes business meaning, architecture ownership, public contract semantics, security/permission truth, persistence authority, or another frozen boundary, use a recorded P3 gap decision with `supersedes` for overridden facts. Preserve frozen P1/P2 bytes and queue next-version backport.
+- Do not create a peer Frontend Authority, frontend lifecycle, acceptance truth store, or second P4 admission controller; P3 realization decisions remain part of the common implementation authority/delta path.
+- When frontend targets already exist, S3 keeps them in the common P3 authority/binding denominator and delegates `apps/web/**` / `tests/unit/web/**` source realization to this capability. For a frozen backend-first decision with zero Web targets, the frontend capability may add only Web implementation/test targets through `p3-authority-delta-frontend-extension`; every added target must map to an existing accepted P3 slice/operation/contract and must not mutate backend or upstream authority.
+- Do not treat generated UI or source materialization as product design approval, runtime evidence, production readiness, or UAT.
 
 ## Runtime
 
-Use `scripts/phase3/run_impl_frontend.py`.
+Use `scripts/phase3/run_impl_frontend.py --ui-ia-contract ... --implementation-authority ...` as the canonical requested-frontend source-authoring entrypoint.
+Use `scripts/phase3/run_impl.py --enable-frontend --ui-ia-contract ...` only as an aggregate caller when the selected profile carries its aggregate/runtime dependencies.
+
+Requested frontend P3 runtime evidence extends the existing aggregate/runtime-smoke owner. It must rebind the current materialized authoring identity, UI IA hash, authored application/page/test hashes and P3 decision identity; preserve the Agentic-authored application instead of regenerating a deterministic router; and execute current `tests/e2e/**` consumer/interaction specs plus route evidence in desktop/mobile Chromium against the real accepted Web/API/database runtime. Runtime qualification must prove at least one meaningful **success-result consumption** chain whenever the accepted task has a realizable success result; that chain must leave the consumer able to understand the business result and the next useful decision/action, not only that state persisted or reloaded. An unavailable/provider-503 path may prove honest failure handling but cannot by itself qualify the product's success path. For file/image tasks, retained evidence must prove the selected file becomes an accepted backend/provider-readable resource rather than a browser-local pseudo-reference. Each current-ready interaction must carry its exact runtime marker and exact UI-IA API endpoint. Consumer journeys use `@wff:frontend-consumer-journey journey_id=... entry_route=... outcome=... [persona_id=...]`; the marker `outcome` must name a user-consumable business result and not merely auth/route access, persistence, bounded-role access, reload/re-entry, or an internal reference. Multi-role products require one independently bound least-privilege persona journey per terminal role. When the UI-IA contract requires clean first use, a `@wff:frontend-clean-first-use journey_id=... [persona_id=...]` marker must bind a journey that exercises a real write, the required accepted read/discovery interaction, and reload/re-entry context recovery from an empty business-data state. Hard-coded/random UUIDs, hidden fixture identity, or business seed data cannot qualify this journey. Authentication must enter through product-facing UX; tests may fill runtime-isolated credentials but may not seed browser storage or set Authorization/identity headers. Current generated backends use the default-off local adapter when explicitly enabled and the BFF converts the HttpOnly session to `Authorization: Bearer`. For an explicitly declared frozen backend-first continuation whose accepted API runtime predates Bearer support, a Web-only compatibility adapter may instead translate the BFF session to that backend's already-accepted internal auth-context transport. That compatibility path must remain server-side only, preserve backend bytes/decision digest, prove zero browser Authorization/`x-phase3-auth-context` injection, retain an explicit lower claim ceiling, and never become the default for newly generated backends. Runtime route evidence must reject blank unknown-route behavior and require visible recovery. Factual desktop/mobile browser evidence must also prove document-level viewport fit: the rendered document must not widen beyond the current viewport, and screenshot presence alone cannot satisfy this check. Write/mutation evidence must isolate desktop/mobile data. Browser/network interception, direct test-runner auth-header injection and synthetic page content are disallowed. The retained runtime-smoke evidence is factual P3 proof; independent P4 consumer/product judgment remains outside this runtime contract.
+
+P3 runtime gap implementation: Use `scripts/phase3/p3_gap_decisions.py::resolve_slice_gaps` with the existing Journal and shared bounded transport; actual network resends count toward the declared decision-call cap. `load_interaction_gap_context` reads the SHA-bound D freeze and keeps unreviewed author sections as reference only. `p3_fact_registration.py` compares actual OpenAPI, SQL and consumed runtime configuration bytes/hashes with frozen source IDs and registered deltas. Extend the original OMR and isolated SQR subject with `bounded_challenge_binding.p3_gap_review_scope`; retain explicit T2 results and missing coverage using `p3_t2_sqr_metrics`, without another review round. Read-model gaps stay explicit until the registered decision binds an actual OpenAPI operation; existing runtime/browser checks must still prove the consumer read path. A status label or decision record alone is insufficient.

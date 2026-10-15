@@ -2,20 +2,21 @@ from __future__ import annotations
 
 import json
 import re
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Mapping
 
-from common.agentic_decision_authority import write_json_atomic
-from phase3.agentic_implementation_authority import (
-    build_authority_delta_ledger,
-    finalize_p3_agentic_implementation_application,
-    validate_authority_delta_ledger,
-    validate_authority_delta_records,
-)
+from common.agentic_decision_authority import canonical_digest, write_json_atomic
+from phase3.agentic_implementation_authority import finalize_p3_agentic_implementation_application
 from phase3.backend_implementation_scaffolder import scaffold_backend_implementation
 from phase3.foundation_mainline import carry_phase2_trace_identity_source
 from phase3.impl_context import load_phase2_source_texts
 from phase3.impl_verification_pack import run_impl_verification
+from phase3.p3_realization_decisions import (
+    prepare_authority_delta_ledger,
+    resolve_project_artifact_root,
+    write_p3_realization_decisions,
+)
 from phase3.s3_code_realization import generate_s3_db_support, realize_s3_code_and_tests
 
 
@@ -28,6 +29,77 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     write_json_atomic(path, dict(payload))
+
+
+_VALIDATION_PRECONDITION_AUTHORITY_SCHEMA = "wff.p3-validation-precondition-authority.v1"
+_VALIDATION_PRECONDITION_AUTHORITY_NAME = "p3-validation-precondition-authority.json"
+
+
+def apply_validation_precondition_authority(
+    *,
+    authority: Mapping[str, Any],
+    agentic_source_root: Path | None,
+    output_dir: Path,
+) -> dict[str, Any]:
+    """Project decision-bound validation preconditions into transient verification authority."""
+    projected = deepcopy(dict(authority))
+    if agentic_source_root is None:
+        return projected
+    sidecar_path = agentic_source_root / ".phase3-evidence" / _VALIDATION_PRECONDITION_AUTHORITY_NAME
+    if not sidecar_path.exists():
+        return projected
+    if not sidecar_path.is_file() or sidecar_path.is_symlink():
+        raise ValueError("P3 validation precondition authority must be a regular file")
+    payload = _load_json(sidecar_path)
+    body = {key: value for key, value in payload.items() if key != "content_digest"}
+    if payload.get("schema_version") != _VALIDATION_PRECONDITION_AUTHORITY_SCHEMA:
+        raise ValueError("P3 validation precondition authority schema is unsupported")
+    if str(payload.get("content_digest") or "") != canonical_digest(body):
+        raise ValueError("P3 validation precondition authority content digest is invalid")
+    if str(payload.get("implementation_decision_id") or "") != str(authority.get("decision_id") or ""):
+        raise ValueError("P3 validation precondition authority decision id does not match accepted authority")
+    if str(payload.get("implementation_decision_digest") or "") != str(authority.get("decision_digest") or ""):
+        raise ValueError("P3 validation precondition authority decision digest does not match accepted authority")
+
+    plan = projected.get("exact_realization_plan", [])
+    if not isinstance(plan, list):
+        raise ValueError("accepted P3 authority exact realization plan is invalid")
+    operations = {
+        str(row.get("operation_id") or "").strip(): row
+        for row in plan
+        if isinstance(row, dict) and str(row.get("operation_id") or "").strip()
+    }
+    preconditions = payload.get("preconditions", [])
+    if not isinstance(preconditions, list) or not preconditions:
+        raise ValueError("P3 validation precondition authority requires non-empty preconditions")
+    seen: set[tuple[str, str]] = set()
+    for raw in preconditions:
+        if not isinstance(raw, dict):
+            raise ValueError("P3 validation precondition authority contains a non-object precondition")
+        operation_id = str(raw.get("operation_id") or "").strip()
+        precondition_id = str(raw.get("precondition_id") or "").strip()
+        table = str(raw.get("table") or "").strip()
+        values = raw.get("values")
+        if operation_id not in operations:
+            raise ValueError(f"P3 validation precondition authority references unknown operation: {operation_id or '<empty>'}")
+        if not precondition_id or not table or not isinstance(values, dict) or not values:
+            raise ValueError(f"P3 validation precondition authority is incomplete for operation: {operation_id}")
+        key = (operation_id, precondition_id)
+        if key in seen:
+            raise ValueError(f"P3 validation precondition authority duplicates precondition: {operation_id}:{precondition_id}")
+        seen.add(key)
+        realization = operations[operation_id].setdefault("runtime_realization", {})
+        if not isinstance(realization, dict):
+            raise ValueError(f"P3 runtime realization is invalid for operation: {operation_id}")
+        current = realization.setdefault("validation_preconditions", [])
+        if not isinstance(current, list):
+            raise ValueError(f"P3 validation preconditions are invalid for operation: {operation_id}")
+        current.append({"precondition_id": precondition_id, "table": table, "values": deepcopy(values)})
+
+    evidence_path = output_dir / ".phase3-evidence" / _VALIDATION_PRECONDITION_AUTHORITY_NAME
+    evidence_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(evidence_path, payload)
+    return projected
 
 
 def _passed_tests(report_path: str | Path | None) -> list[str]:
@@ -426,22 +498,14 @@ def persist_authority_delta_ledger(
     output_dir: Path,
     authority: Mapping[str, Any],
     supplied_ledger: Mapping[str, Any] | None,
-) -> list[dict[str, Any]]:
-    if supplied_ledger is not None:
-        ledger = dict(supplied_ledger)
-        records = validate_authority_delta_ledger(ledger, authority=authority)
-    else:
-        records = validate_authority_delta_records(
-            authority.get("authority_delta_records", []),
-            known_slice_ids=set((authority.get("slice_decisions") or {}).keys()),
-        )
-        ledger = build_authority_delta_ledger(
-            decision_id=str(authority.get("decision_id") or ""),
-            decision_digest=str(authority.get("decision_digest") or ""),
-            records=records,
-        )
-    _write_json(output_dir / ".phase3-evidence" / "p3-authority-delta-ledger.json", ledger)
-    return records
+) -> tuple[list[dict[str, Any]], dict[str, Any], Path]:
+    ledger, records = prepare_authority_delta_ledger(
+        authority=authority,
+        supplied_ledger=supplied_ledger,
+    )
+    ledger_path = output_dir / ".phase3-evidence" / "p3-authority-delta-ledger.json"
+    _write_json(ledger_path, ledger)
+    return records, ledger, ledger_path
 
 
 def _write_trace_matrix(*, phase2_root: Path, output_dir: Path) -> dict[str, Any]:
@@ -461,6 +525,8 @@ def _write_run_metadata(
     *,
     phase2_root: Path,
     output_dir: Path,
+    project_artifact_root: Path,
+    realization_decisions: Mapping[str, Any],
     title: str,
     version: str,
     authority: Mapping[str, Any],
@@ -475,6 +541,10 @@ def _write_run_metadata(
             "case_name": title,
             "version": version,
             "phase2_root": str(phase2_root),
+            "project_artifact_root": str(project_artifact_root),
+            "p3_realization_decisions_path": str(realization_decisions.get("path") or ""),
+            "p3_realization_decisions_sha256": str(realization_decisions.get("content_sha256") or ""),
+            "p3_realization_decisions_status": str(realization_decisions.get("status") or ""),
             "runner_actor": "run_impl",
             "generation_entrypoint": "scripts/phase3/run_impl.py",
             "mainline_verification_mode": verification_mode,
@@ -527,31 +597,56 @@ def run_impl_mainline_closure(
     version: str,
     agentic_source_root: Path | None = None,
     authority_delta_ledger: Mapping[str, Any] | None = None,
+    project_artifact_root: Path | None = None,
     install_toolchain: bool = False,
     run_runtime_smoke: bool = False,
     verification_mode: str = "strict-runtime",
     validation_level: str = "strict",
     full_targeted_evidence: bool = True,
+    enable_frontend: bool = False,
+    ui_ia_contract_path: Path | None = None,
+    frontend_interaction_specs: list[Path] | None = None,
+    install_playwright_browser: bool = False,
 ) -> dict[str, Any]:
     """Run the current modular S3->runtime/Trace closure. No semantic decision is created here."""
     phase2_root = phase2_root.resolve()
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    project_artifact_root = resolve_project_artifact_root(
+        phase2_root=phase2_root,
+        output_dir=output_dir,
+        explicit_root=project_artifact_root,
+    )
     trace_identity_source = carry_phase2_trace_identity_source(
         phase2_root=phase2_root,
         output_dir=output_dir,
     )
 
-    delta_records = persist_authority_delta_ledger(
+    delta_records, delta_ledger, delta_ledger_path = persist_authority_delta_ledger(
         output_dir=output_dir,
         authority=authority,
         supplied_ledger=authority_delta_ledger,
+    )
+    realization_decisions = write_p3_realization_decisions(
+        phase2_root=phase2_root,
+        phase3_root=output_dir,
+        project_artifact_root=project_artifact_root,
+        authority=authority,
+        ledger=delta_ledger,
+        ledger_path=delta_ledger_path,
+        records=delta_records,
+    )
+    verification_authority = apply_validation_precondition_authority(
+        authority=authority,
+        agentic_source_root=agentic_source_root,
+        output_dir=output_dir,
     )
     verification_generation = run_impl_verification(
         mode="generate-tests",
         workspace_root=output_dir,
         phase2_root=phase2_root,
         output_dir=output_dir,
+        p3_authority=verification_authority,
     )
     backend = scaffold_backend_implementation(
         phase2_root=phase2_root,
@@ -572,6 +667,102 @@ def run_impl_mainline_closure(
         agentic_source_root=agentic_source_root,
     )
     realization_status = str(realization.get("receipt", {}).get("status") or "")
+    frontend: dict[str, Any] | None = None
+    if enable_frontend:
+        from phase3.frontend_implementation_scaffolder import (
+            FrontendImplementationAuthoringError,
+            scaffold_frontend_implementation,
+        )
+
+        if ui_ia_contract_path is None:
+            return {
+                "status": "frontend-authoring-blocked",
+                "quality_gate": "blocked",
+                "realization_decisions": realization_decisions,
+                "backend": backend,
+                "db_schema": db_schema,
+                "verification_generation": verification_generation,
+                "realization": realization["receipt"],
+                "frontend": {
+                    "quality_gate": "blocked",
+                    "authoring": {"status": "blocked"},
+                    "failures": ["requested frontend authoring requires an explicit UI IA contract"],
+                },
+                "execution": {"attempted": False, "status": "not-authorized-before-frontend-authoring"},
+                "claim_ceiling": "Requested frontend authoring is blocked before runtime evidence is attempted.",
+            }
+        source_ui_ia_contract_path = ui_ia_contract_path.resolve()
+        source_ui_ia_contract = _load_json(source_ui_ia_contract_path)
+        if not source_ui_ia_contract:
+            return {
+                "status": "frontend-authoring-blocked",
+                "quality_gate": "blocked",
+                "realization_decisions": realization_decisions,
+                "backend": backend,
+                "db_schema": db_schema,
+                "verification_generation": verification_generation,
+                "realization": realization["receipt"],
+                "frontend": {
+                    "quality_gate": "blocked",
+                    "authoring": {"status": "blocked"},
+                    "failures": [f"requested frontend UI IA contract is unreadable: {source_ui_ia_contract_path}"],
+                },
+                "execution": {"attempted": False, "status": "not-authorized-before-frontend-authoring"},
+                "claim_ceiling": "Requested frontend authoring is blocked before runtime evidence is attempted.",
+            }
+        canonical_ui_ia_contract_path = output_dir / ".phase3-evidence" / "ui-ia-contract.json"
+        canonical_ui_ia_contract_path.parent.mkdir(parents=True, exist_ok=True)
+        source_ui_ia_contract_bytes = source_ui_ia_contract_path.read_bytes()
+        canonical_ui_ia_contract_path.write_bytes(source_ui_ia_contract_bytes)
+        ui_ia_contract_path = canonical_ui_ia_contract_path
+        try:
+            frontend = scaffold_frontend_implementation(
+                phase2_root=phase2_root,
+                output_dir=output_dir,
+                title=title,
+                version=version,
+                ui_ia_contract_path=ui_ia_contract_path,
+                implementation_authority=authority,
+                agentic_source_root=agentic_source_root,
+            )
+        except (FrontendImplementationAuthoringError, OSError, ValueError) as exc:
+            return {
+                "status": "frontend-authoring-blocked",
+                "quality_gate": "blocked",
+                "realization_decisions": realization_decisions,
+                "backend": backend,
+                "db_schema": db_schema,
+                "verification_generation": verification_generation,
+                "realization": realization["receipt"],
+                "frontend": {
+                    "quality_gate": "blocked",
+                    "authoring": {"status": "blocked"},
+                    "failures": [str(exc)],
+                },
+                "execution": {"attempted": False, "status": "not-authorized-before-frontend-authoring"},
+                "claim_ceiling": "Requested frontend authoring is blocked before runtime evidence is attempted.",
+            }
+    frontend_authoring_status = str(((frontend or {}).get("authoring") or {}).get("status") or "")
+    productness_report: dict[str, Any] = {}
+    if enable_frontend and frontend_authoring_status == "materialized" and ui_ia_contract_path is not None:
+        from phase3.productness_gate import run_gate as run_productness_gate
+
+        productness_report = run_productness_gate(output_dir / "apps" / "web", ui_ia_contract_path)
+        _write_json(output_dir / "productness-gate.json", productness_report)
+        if str(productness_report.get("verdict") or "").strip().upper() != "PASS":
+            return {
+                "status": "frontend-productness-blocked",
+                "quality_gate": "blocked",
+                "realization_decisions": realization_decisions,
+                "backend": backend,
+                "frontend": frontend,
+                "productness": productness_report,
+                "db_schema": db_schema,
+                "verification_generation": verification_generation,
+                "realization": realization["receipt"],
+                "execution": {"attempted": False, "status": "not-authorized-before-productness-gate"},
+                "claim_ceiling": "Requested frontend source realization did not pass the current productness gate; runtime evidence is not attempted.",
+            }
     test_trace_matrix = _write_trace_matrix(phase2_root=phase2_root, output_dir=output_dir)
     trace_projection = project_trace_evidence_bindings(
         output_dir=output_dir,
@@ -580,6 +771,8 @@ def run_impl_mainline_closure(
     _write_run_metadata(
         phase2_root=phase2_root,
         output_dir=output_dir,
+        project_artifact_root=project_artifact_root,
+        realization_decisions=realization_decisions,
         title=title,
         version=version,
         authority=authority,
@@ -588,18 +781,25 @@ def run_impl_mainline_closure(
         full_targeted_evidence=full_targeted_evidence,
     )
 
-    if realization_status == "authoring-required":
+    if realization_status == "authoring-required" or frontend_authoring_status == "authoring-required":
         return {
             "status": "authoring-required",
             "quality_gate": "blocked",
+            "realization_decisions": realization_decisions,
             "backend": backend,
+            "frontend": frontend,
             "db_schema": db_schema,
             "verification_generation": verification_generation,
             "realization": realization["receipt"],
             "trace_evidence_projection": trace_projection,
             "trace_identity_source": trace_identity_source,
             "execution": {"attempted": False, "status": "not-authorized-before-agentic-block-materialization"},
-            "claim_ceiling": realization["receipt"].get("claim_ceiling", ""),
+            "claim_ceiling": (
+                "P3 source realization remains authoring-required. Requested frontend product authoring does not create "
+                "consumer-journey/browser runtime evidence, Trace confirmation, P4 admission, production readiness, or UAT."
+                if enable_frontend
+                else realization["receipt"].get("claim_ceiling", "")
+            ),
         }
 
     from phase3.mainline_backend_execution import execute_phase3_mainline_backend_verification
@@ -623,6 +823,7 @@ def run_impl_mainline_closure(
         return {
             "status": "toolchain-blocked",
             "quality_gate": "blocked",
+            "realization_decisions": realization_decisions,
             "backend": backend,
             "db_schema": db_schema,
             "verification_generation": verification_generation,
@@ -643,30 +844,78 @@ def run_impl_mainline_closure(
         full_targeted_evidence=full_targeted_evidence,
     )
     runtime_binding_summary = bind_runtime_evidence(output_dir=output_dir, verification=execution)
+    frontend_runtime_smoke: dict[str, Any] = {}
+    frontend_runtime_evidence: dict[str, Any] = {}
+    frontend_runtime_smoke_path: Path | None = None
+    if enable_frontend and run_runtime_smoke:
+        from phase3.implementation_binding_tools import bind_frontend_runtime_evidence
+        from phase3.phase3_runtime_smoke import run_phase3_runtime_smoke
+
+        frontend_runtime_smoke_path = output_dir / "runtime-smoke-report.json"
+        frontend_runtime_smoke = run_phase3_runtime_smoke(
+            workspace_root=output_dir,
+            output_path=frontend_runtime_smoke_path,
+            include_frontend=True,
+            frontend_authoring_report_path=output_dir / "impl-frontend-report.json",
+            frontend_ui_ia_contract_path=ui_ia_contract_path,
+            frontend_interaction_specs=list(frontend_interaction_specs or []),
+            install_playwright_browser=install_playwright_browser,
+        )
+        browser_evidence = frontend_runtime_smoke.get("frontend_browser_evidence")
+        if (
+            str(frontend_runtime_smoke.get("verdict") or "") == "pass"
+            and isinstance(browser_evidence, dict)
+            and str(browser_evidence.get("status") or "") == "pass"
+        ):
+            frontend_runtime_evidence = bind_frontend_runtime_evidence(
+                implementation_bindings_path=output_dir / "implementation-bindings.json",
+                runtime_report_path=frontend_runtime_smoke_path,
+                runtime_report=frontend_runtime_smoke,
+            )
+    execution_runtime_smoke_path = (
+        Path(str(execution.get("runtime_smoke_report_path")))
+        if execution.get("runtime_smoke_report_path")
+        else None
+    )
     refresh = refresh_phase3_post_execution(
         output_dir,
         strict_runtime_closure=strict_runtime,
-        run_runtime_smoke=run_runtime_smoke,
+        run_runtime_smoke=bool(run_runtime_smoke and not enable_frontend),
         toolchain_bootstrap_report_path=toolchain_report_path,
         unit_test_report_path=Path(str(execution.get("unit_test_report_path"))) if execution.get("unit_test_report_path") else None,
         wp_gate_report_path=Path(str(execution.get("wp_gate_report_path"))) if execution.get("wp_gate_report_path") else None,
         verification_ledger_report_path=Path(str(execution.get("verification_ledger_path"))) if execution.get("verification_ledger_path") else None,
-        runtime_smoke_report_path=Path(str(execution.get("runtime_smoke_report_path"))) if execution.get("runtime_smoke_report_path") else None,
+        runtime_smoke_report_path=frontend_runtime_smoke_path or execution_runtime_smoke_path,
     )
     application = finalize_p3_agentic_implementation_application(output_dir=output_dir, authority=authority)
     blocking = int(application.get("ledger", {}).get("counts", {}).get("blocking", 0) or 0)
     phase_verdict = str(refresh.get("phase_verdict") or "")
     runtime_verdict = str(execution.get("overall_verdict") or "").lower()
-    complete = bool(
+    backend_complete = bool(
         runtime_verdict in {"pass", "passed"}
         and phase_verdict.startswith("PASS")
         and blocking == 0
         and application.get("application", {}).get("application_status") == "complete"
     )
+    frontend_runtime_complete = bool(
+        enable_frontend
+        and str(frontend_runtime_evidence.get("status") or "") == "pass"
+        and str(frontend_runtime_smoke.get("verdict") or "") == "pass"
+    )
+    frontend_runtime_pending = bool(enable_frontend and not frontend_runtime_complete)
+    complete = bool(backend_complete and (frontend_runtime_complete if enable_frontend else True))
     return {
-        "status": "runtime-closure-complete" if complete else "runtime-closure-blocked",
+        "status": (
+            "runtime-closure-complete"
+            if complete
+            else "frontend-runtime-pending"
+            if backend_complete and frontend_runtime_pending
+            else "runtime-closure-blocked"
+        ),
         "quality_gate": "pass" if complete else "blocked",
+        "realization_decisions": realization_decisions,
         "backend": backend,
+        "frontend": frontend,
         "db_schema": db_schema,
         "verification_generation": verification_generation,
         "realization": realization["receipt"],
@@ -676,13 +925,25 @@ def run_impl_mainline_closure(
         "bootstrap_quality": quality,
         "execution": execution,
         "runtime_binding_summary": runtime_binding_summary,
+        "frontend_runtime_smoke": frontend_runtime_smoke,
+        "frontend_runtime_evidence": frontend_runtime_evidence,
         "post_execution_refresh": refresh,
         "semantic_realization": application.get("ledger", {}),
         "application": application.get("application", {}),
         "claim_ceiling": (
-            "Current-generation modular P3 runtime, evidence, Trace, and exact binding closure passed; "
-            "this remains development/pre-production proof and does not imply production readiness."
+            (
+                "Current-generation backend plus requested frontend real browser/runtime and first-entry-to-outcome consumer-journey "
+                "evidence passed. P3 may claim a development/pre-production consumer-operable product realization and enter independent "
+                "P4 qualification; this does not prove P4 acceptance, production readiness, owner sign-off, or UAT."
+                if enable_frontend
+                else "Current-generation modular P3 runtime, evidence, Trace, and exact binding closure passed; this remains development/pre-production proof and does not imply production readiness."
+            )
             if complete
-            else "P3 modular closure remains blocked by named runtime, Trace, delivery, or exact-binding evidence."
+            else (
+                "Requested frontend complete-product source authoring is materialized, while real frontend browser/runtime or consumer-journey "
+                "evidence remains pending or failed. Backend runtime evidence may exist, but no frontend P3 completion or P4 qualification claim is created."
+                if frontend_runtime_pending
+                else "P3 modular closure remains blocked by named runtime, Trace, delivery, or exact-binding evidence."
+            )
         ),
     }

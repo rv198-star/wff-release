@@ -1,0 +1,1068 @@
+{
+  "version": "interaction-design@1",
+  "sections": [
+    {
+      "id": "roles_tasks",
+      "title": "Role working modes and task topology",
+      "question": "Describe task frequency, entry context, working modes and handoffs for the selected roles.",
+      "patterns": [
+        "pat.role-permission@1",
+        "pat.wizard@1",
+        "pat.kanban@1"
+      ]
+    },
+    {
+      "id": "information_architecture",
+      "title": "Information architecture and navigation",
+      "question": "Explain discovery, task entry, navigation and durable re-entry from the admitted tasks.",
+      "patterns": [
+        "pat.list-detail-edit@1",
+        "pat.search-filter@1",
+        "pat.kanban@1"
+      ]
+    },
+    {
+      "id": "core_flows",
+      "title": "Core task flows",
+      "question": "Describe the useful result, steps, handoffs, exception treatment and re-entry for selected tasks.",
+      "patterns": [
+        "pat.wizard@1",
+        "pat.review-queue@1",
+        "pat.approval-flow@1",
+        "pat.import-export@1"
+      ]
+    },
+    {
+      "id": "views",
+      "title": "View inventory",
+      "question": "Identify the views and their task, information, operation and state responsibilities.",
+      "patterns": [
+        "pat.list-detail-edit@1",
+        "pat.review-queue@1",
+        "pat.kanban@1",
+        "pat.audit-trail@1"
+      ]
+    },
+    {
+      "id": "interaction_patterns",
+      "title": "Key interaction patterns",
+      "question": "Select useful patterns; explain business-specific choices without inventing upstream facts.",
+      "patterns": [
+        "pat.role-permission@1",
+        "pat.state-machine@1",
+        "pat.list-detail-edit@1",
+        "pat.review-queue@1",
+        "pat.approval-flow@1",
+        "pat.import-export@1",
+        "pat.audit-trail@1",
+        "pat.notification@1",
+        "pat.search-filter@1",
+        "pat.wizard@1",
+        "pat.kanban@1"
+      ]
+    },
+    {
+      "id": "view_states",
+      "title": "View states",
+      "question": "Describe the referenced state, loading, empty, error and recovery presentation; keep missing business transitions undecided.",
+      "patterns": [
+        "pat.state-machine@1",
+        "pat.review-queue@1",
+        "pat.notification@1"
+      ]
+    },
+    {
+      "id": "decision_information",
+      "title": "Information needed for decisions",
+      "question": "Explain what the actor must understand before acting, including uncertainty, evidence and continuity.",
+      "patterns": [
+        "pat.review-queue@1",
+        "pat.audit-trail@1",
+        "pat.notification@1"
+      ]
+    },
+    {
+      "id": "language",
+      "title": "Language and terminology",
+      "question": "Preserve the original business meaning while deciding consistent user-facing terms and language.",
+      "patterns": []
+    },
+    {
+      "id": "constraints_freedom",
+      "title": "Constraints and P3 freedom",
+      "question": "Separate frozen business/interface constraints, implementation freedom and unresolved questions.",
+      "patterns": []
+    },
+    {
+      "id": "delegation_defaults",
+      "title": "Delegation and default policies",
+      "question": "Define bounded downstream decision space, applicable conditions, limits and conservative options without claiming human approval.",
+      "patterns": [
+        "pat.delegation@1"
+      ]
+    }
+  ],
+  "patterns": [
+    {
+      "id": "pat.role-permission@1",
+      "title": "Role and permission matrix",
+      "applicability": "When referenced roles and operation authority need to be compared.",
+      "params": {
+        "actors": {
+          "families": [
+            "context",
+            "role"
+          ],
+          "many": true
+        },
+        "actions": {
+          "families": [
+            "operation",
+            "action"
+          ],
+          "many": true
+        }
+      },
+      "slots": {
+        "scope": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific scope from admitted facts, or identify the undecided point."
+        },
+        "permission_notes": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific permission notes from admitted facts, or identify the undecided point."
+        }
+      },
+      "optional_parts": [
+        "exceptions"
+      ],
+      "parts": [
+        {
+          "id": "actors",
+          "title": "Actors",
+          "slots": [
+            "scope"
+          ],
+          "params": [
+            "actors"
+          ]
+        },
+        {
+          "id": "operations",
+          "title": "Operations",
+          "slots": [
+            "permission_notes"
+          ],
+          "params": [
+            "actions"
+          ]
+        },
+        {
+          "id": "matrix",
+          "title": "Source-bound permission matrix"
+        },
+        {
+          "id": "exceptions",
+          "title": "Exceptions",
+          "text": "Use only where supported by cited facts; otherwise retain the undecided point."
+        }
+      ],
+      "required_params": [
+        "actors",
+        "actions"
+      ],
+      "required_slots": []
+    },
+    {
+      "id": "pat.state-machine@1",
+      "title": "State machine",
+      "applicability": "When the referenced object has explicit state and transition facts.",
+      "params": {
+        "object": {
+          "families": [
+            "object"
+          ],
+          "many": false
+        },
+        "states": {
+          "families": [
+            "state"
+          ],
+          "many": true
+        },
+        "transitions": {
+          "families": [
+            "transition"
+          ],
+          "many": true
+        }
+      },
+      "slots": {
+        "state_meaning": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific state meaning from admitted facts, or identify the undecided point."
+        },
+        "transition_feedback": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific transition feedback from admitted facts, or identify the undecided point."
+        }
+      },
+      "optional_parts": [
+        "history"
+      ],
+      "parts": [
+        {
+          "id": "object",
+          "title": "Object",
+          "slots": [
+            "state_meaning"
+          ],
+          "params": [
+            "object"
+          ]
+        },
+        {
+          "id": "states",
+          "title": "States",
+          "slots": [
+            "transition_feedback"
+          ],
+          "params": [
+            "states"
+          ]
+        },
+        {
+          "id": "transitions",
+          "title": "Explicit transitions",
+          "params": [
+            "transitions"
+          ]
+        },
+        {
+          "id": "choices",
+          "title": "State feedback"
+        },
+        {
+          "id": "history",
+          "title": "History",
+          "text": "Use only where supported by cited facts; otherwise retain the undecided point."
+        }
+      ],
+      "required_params": [
+        "object"
+      ],
+      "required_slots": []
+    },
+    {
+      "id": "pat.list-detail-edit@1",
+      "title": "List, detail and edit",
+      "applicability": "When referenced objects must be discovered, inspected or changed.",
+      "params": {
+        "object": {
+          "families": [
+            "object"
+          ],
+          "many": false
+        },
+        "attributes": {
+          "families": [
+            "attribute",
+            "field"
+          ],
+          "many": true
+        },
+        "actions": {
+          "families": [
+            "operation",
+            "action"
+          ],
+          "many": true
+        }
+      },
+      "slots": {
+        "discovery": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific discovery from admitted facts, or identify the undecided point."
+        },
+        "detail_context": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific detail context from admitted facts, or identify the undecided point."
+        },
+        "edit_feedback": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific edit feedback from admitted facts, or identify the undecided point."
+        }
+      },
+      "optional_parts": [
+        "bulk_actions"
+      ],
+      "parts": [
+        {
+          "id": "list",
+          "title": "Discovery and working set",
+          "slots": [
+            "discovery"
+          ],
+          "params": [
+            "object"
+          ]
+        },
+        {
+          "id": "detail",
+          "title": "Detail and context",
+          "slots": [
+            "detail_context"
+          ],
+          "params": [
+            "attributes"
+          ]
+        },
+        {
+          "id": "edit",
+          "title": "Edit and result feedback",
+          "slots": [
+            "edit_feedback"
+          ],
+          "params": [
+            "actions"
+          ]
+        },
+        {
+          "id": "bulk_actions",
+          "title": "Bulk actions",
+          "text": "Use only where supported by cited facts; otherwise retain the undecided point."
+        }
+      ],
+      "required_params": [
+        "object"
+      ],
+      "required_slots": []
+    },
+    {
+      "id": "pat.review-queue@1",
+      "title": "Review queue",
+      "applicability": "When referenced tasks present a bounded set of items for human judgment.",
+      "params": {
+        "object": {
+          "families": [
+            "object"
+          ],
+          "many": false
+        },
+        "states": {
+          "families": [
+            "state"
+          ],
+          "many": true
+        },
+        "actor": {
+          "families": [
+            "context",
+            "role"
+          ],
+          "many": false
+        },
+        "actions": {
+          "families": [
+            "operation",
+            "action"
+          ],
+          "many": true
+        }
+      },
+      "slots": {
+        "queue_context": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific queue context from admitted facts, or identify the undecided point."
+        },
+        "decision_information": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific decision information from admitted facts, or identify the undecided point."
+        },
+        "reject_reason_hint": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific reject reason hint from admitted facts, or identify the undecided point."
+        }
+      },
+      "optional_parts": [
+        "bulk_actions"
+      ],
+      "parts": [
+        {
+          "id": "queue",
+          "title": "Queue and item context",
+          "slots": [
+            "queue_context"
+          ],
+          "params": [
+            "object"
+          ]
+        },
+        {
+          "id": "decision",
+          "title": "Information before judgment",
+          "slots": [
+            "decision_information"
+          ],
+          "params": [
+            "states"
+          ]
+        },
+        {
+          "id": "feedback",
+          "title": "Decision and feedback",
+          "slots": [
+            "reject_reason_hint"
+          ],
+          "params": [
+            "actor",
+            "actions"
+          ]
+        },
+        {
+          "id": "bulk_actions",
+          "title": "Bulk actions",
+          "text": "Use only where supported by cited facts; otherwise retain the undecided point."
+        }
+      ],
+      "required_params": [
+        "object"
+      ],
+      "required_slots": []
+    },
+    {
+      "id": "pat.approval-flow@1",
+      "title": "Approval flow",
+      "applicability": "When explicit authority defines participants and decision transitions.",
+      "params": {
+        "actors": {
+          "families": [
+            "context",
+            "role"
+          ],
+          "many": true
+        },
+        "states": {
+          "families": [
+            "state"
+          ],
+          "many": true
+        },
+        "actions": {
+          "families": [
+            "operation",
+            "action"
+          ],
+          "many": true
+        }
+      },
+      "slots": {
+        "handoff": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific handoff from admitted facts, or identify the undecided point."
+        },
+        "decision_feedback": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific decision feedback from admitted facts, or identify the undecided point."
+        }
+      },
+      "optional_parts": [
+        "history"
+      ],
+      "parts": [
+        {
+          "id": "participants",
+          "title": "Participants and authority",
+          "slots": [
+            "handoff"
+          ],
+          "params": [
+            "actors"
+          ]
+        },
+        {
+          "id": "handoff",
+          "title": "Explicit handoff",
+          "slots": [
+            "decision_feedback"
+          ],
+          "params": [
+            "states"
+          ]
+        },
+        {
+          "id": "feedback",
+          "title": "Decision and follow-up",
+          "params": [
+            "actions"
+          ]
+        },
+        {
+          "id": "history",
+          "title": "History",
+          "text": "Use only where supported by cited facts; otherwise retain the undecided point."
+        }
+      ],
+      "required_params": [],
+      "required_slots": []
+    },
+    {
+      "id": "pat.import-export@1",
+      "title": "Import and export",
+      "applicability": "When admitted interface facts support a transfer of selected fields.",
+      "params": {
+        "object": {
+          "families": [
+            "object"
+          ],
+          "many": false
+        },
+        "attributes": {
+          "families": [
+            "attribute",
+            "field"
+          ],
+          "many": true
+        },
+        "actions": {
+          "families": [
+            "operation",
+            "action"
+          ],
+          "many": true
+        }
+      },
+      "slots": {
+        "format_context": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific format context from admitted facts, or identify the undecided point."
+        },
+        "validation_feedback": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific validation feedback from admitted facts, or identify the undecided point."
+        },
+        "transfer_outcome": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific transfer outcome from admitted facts, or identify the undecided point."
+        }
+      },
+      "optional_parts": [
+        "preview"
+      ],
+      "parts": [
+        {
+          "id": "input",
+          "title": "Transfer input and format",
+          "slots": [
+            "format_context"
+          ],
+          "params": [
+            "object"
+          ]
+        },
+        {
+          "id": "validation",
+          "title": "Validation and preview",
+          "slots": [
+            "validation_feedback"
+          ],
+          "params": [
+            "attributes"
+          ]
+        },
+        {
+          "id": "result",
+          "title": "Transfer result and uncertainty",
+          "slots": [
+            "transfer_outcome"
+          ],
+          "params": [
+            "actions"
+          ]
+        },
+        {
+          "id": "preview",
+          "title": "Preview",
+          "text": "Use only where supported by cited facts; otherwise retain the undecided point."
+        }
+      ],
+      "required_params": [
+        "object"
+      ],
+      "required_slots": []
+    },
+    {
+      "id": "pat.audit-trail@1",
+      "title": "Audit trail",
+      "applicability": "When accepted facts need attributable inspection over time.",
+      "params": {
+        "object": {
+          "families": [
+            "object"
+          ],
+          "many": false
+        },
+        "attributes": {
+          "families": [
+            "attribute",
+            "field"
+          ],
+          "many": true
+        },
+        "actors": {
+          "families": [
+            "context",
+            "role"
+          ],
+          "many": true
+        }
+      },
+      "slots": {
+        "event_context": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific event context from admitted facts, or identify the undecided point."
+        },
+        "visibility": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific visibility from admitted facts, or identify the undecided point."
+        },
+        "continuity": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific continuity from admitted facts, or identify the undecided point."
+        }
+      },
+      "optional_parts": [
+        "filters"
+      ],
+      "parts": [
+        {
+          "id": "events",
+          "title": "Attributable events",
+          "slots": [
+            "event_context"
+          ],
+          "params": [
+            "object"
+          ]
+        },
+        {
+          "id": "context",
+          "title": "Object and evidence context",
+          "slots": [
+            "visibility"
+          ],
+          "params": [
+            "attributes"
+          ]
+        },
+        {
+          "id": "continuity",
+          "title": "Inspection and continuity",
+          "slots": [
+            "continuity"
+          ],
+          "params": [
+            "actors"
+          ]
+        },
+        {
+          "id": "filters",
+          "title": "Filters",
+          "text": "Use only where supported by cited facts; otherwise retain the undecided point."
+        }
+      ],
+      "required_params": [
+        "object"
+      ],
+      "required_slots": []
+    },
+    {
+      "id": "pat.notification@1",
+      "title": "Notification",
+      "applicability": "When an accepted event needs a user-consumable notice.",
+      "params": {
+        "actors": {
+          "families": [
+            "context",
+            "role"
+          ],
+          "many": true
+        },
+        "actions": {
+          "families": [
+            "operation",
+            "action"
+          ],
+          "many": true
+        }
+      },
+      "slots": {
+        "trigger": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific trigger from admitted facts, or identify the undecided point."
+        },
+        "message_context": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific message context from admitted facts, or identify the undecided point."
+        },
+        "delivery_uncertainty": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific delivery uncertainty from admitted facts, or identify the undecided point."
+        }
+      },
+      "optional_parts": [
+        "history"
+      ],
+      "parts": [
+        {
+          "id": "trigger",
+          "title": "Accepted trigger",
+          "slots": [
+            "trigger"
+          ],
+          "params": [
+            "actors"
+          ]
+        },
+        {
+          "id": "message",
+          "title": "Message and action context",
+          "slots": [
+            "message_context"
+          ],
+          "params": [
+            "actions"
+          ]
+        },
+        {
+          "id": "uncertainty",
+          "title": "Delivery uncertainty",
+          "slots": [
+            "delivery_uncertainty"
+          ]
+        },
+        {
+          "id": "history",
+          "title": "History",
+          "text": "Use only where supported by cited facts; otherwise retain the undecided point."
+        }
+      ],
+      "required_params": [],
+      "required_slots": []
+    },
+    {
+      "id": "pat.search-filter@1",
+      "title": "Search and filter",
+      "applicability": "When accepted fields and tasks support locating a working set.",
+      "params": {
+        "object": {
+          "families": [
+            "object"
+          ],
+          "many": false
+        },
+        "attributes": {
+          "families": [
+            "attribute",
+            "field"
+          ],
+          "many": true
+        }
+      },
+      "slots": {
+        "query_meaning": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific query meaning from admitted facts, or identify the undecided point."
+        },
+        "result_context": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific result context from admitted facts, or identify the undecided point."
+        },
+        "empty_result": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific empty result from admitted facts, or identify the undecided point."
+        }
+      },
+      "optional_parts": [
+        "saved_search"
+      ],
+      "parts": [
+        {
+          "id": "query",
+          "title": "Query and filter meaning",
+          "slots": [
+            "query_meaning"
+          ],
+          "params": [
+            "object"
+          ]
+        },
+        {
+          "id": "results",
+          "title": "Result context",
+          "slots": [
+            "result_context"
+          ],
+          "params": [
+            "attributes"
+          ]
+        },
+        {
+          "id": "empty",
+          "title": "Empty result and recovery",
+          "slots": [
+            "empty_result"
+          ]
+        },
+        {
+          "id": "saved_search",
+          "title": "Saved search",
+          "text": "Use only where supported by cited facts; otherwise retain the undecided point."
+        }
+      ],
+      "required_params": [
+        "object"
+      ],
+      "required_slots": []
+    },
+    {
+      "id": "pat.wizard@1",
+      "title": "Wizard",
+      "applicability": "When an explicit task sequence benefits from bounded steps.",
+      "params": {
+        "tasks": {
+          "families": [
+            "context"
+          ],
+          "many": true
+        },
+        "actions": {
+          "families": [
+            "operation",
+            "action"
+          ],
+          "many": true
+        }
+      },
+      "slots": {
+        "step_context": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific step context from admitted facts, or identify the undecided point."
+        },
+        "carryover": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific carryover from admitted facts, or identify the undecided point."
+        },
+        "completion": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific completion from admitted facts, or identify the undecided point."
+        }
+      },
+      "optional_parts": [
+        "progress"
+      ],
+      "parts": [
+        {
+          "id": "steps",
+          "title": "Selected task steps",
+          "slots": [
+            "step_context"
+          ],
+          "params": [
+            "tasks"
+          ]
+        },
+        {
+          "id": "carryover",
+          "title": "Context across steps",
+          "slots": [
+            "carryover"
+          ],
+          "params": [
+            "actions"
+          ]
+        },
+        {
+          "id": "completion",
+          "title": "Completion and interruption",
+          "slots": [
+            "completion"
+          ]
+        },
+        {
+          "id": "progress",
+          "title": "Progress",
+          "text": "Use only where supported by cited facts; otherwise retain the undecided point."
+        }
+      ],
+      "required_params": [
+        "tasks"
+      ],
+      "required_slots": []
+    },
+    {
+      "id": "pat.kanban@1",
+      "title": "Board",
+      "applicability": "When accepted states support a grouped view of referenced objects.",
+      "params": {
+        "object": {
+          "families": [
+            "object"
+          ],
+          "many": false
+        },
+        "states": {
+          "families": [
+            "state"
+          ],
+          "many": true
+        },
+        "actions": {
+          "families": [
+            "operation",
+            "action"
+          ],
+          "many": true
+        }
+      },
+      "slots": {
+        "grouping": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific grouping from admitted facts, or identify the undecided point."
+        },
+        "movement": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific movement from admitted facts, or identify the undecided point."
+        },
+        "working_set": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific working set from admitted facts, or identify the undecided point."
+        }
+      },
+      "optional_parts": [
+        "counts"
+      ],
+      "parts": [
+        {
+          "id": "groups",
+          "title": "Source-bound groups",
+          "slots": [
+            "grouping"
+          ],
+          "params": [
+            "object"
+          ]
+        },
+        {
+          "id": "movement",
+          "title": "Explicit action and transition authority",
+          "slots": [
+            "movement"
+          ],
+          "params": [
+            "states"
+          ]
+        },
+        {
+          "id": "working_set",
+          "title": "Working-set context",
+          "slots": [
+            "working_set"
+          ],
+          "params": [
+            "actions"
+          ]
+        },
+        {
+          "id": "counts",
+          "title": "Counts",
+          "text": "Use only where supported by cited facts; otherwise retain the undecided point."
+        }
+      ],
+      "required_params": [
+        "object"
+      ],
+      "required_slots": []
+    },
+    {
+      "id": "pat.delegation@1",
+      "title": "Delegation rule",
+      "applicability": "When the upstream decision explicitly delegates a bounded downstream choice.",
+      "params": {
+        "scope": {
+          "families": [
+            "*"
+          ],
+          "many": true
+        }
+      },
+      "slots": {
+        "condition": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific condition from admitted facts, or identify the undecided point."
+        },
+        "decision_space": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific decision space from admitted facts, or identify the undecided point."
+        },
+        "limits": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific limits from admitted facts, or identify the undecided point."
+        },
+        "conservative_choice": {
+          "max_chars": 3200,
+          "prompt": "State the case-specific conservative choice from admitted facts, or identify the undecided point."
+        }
+      },
+      "optional_parts": [],
+      "parts": [
+        {
+          "id": "scope",
+          "title": "Source-bound scope",
+          "slots": [
+            "condition"
+          ],
+          "params": [
+            "scope"
+          ]
+        },
+        {
+          "id": "condition",
+          "title": "Applicability condition",
+          "slots": [
+            "decision_space"
+          ]
+        },
+        {
+          "id": "limits",
+          "title": "Decision space and limits",
+          "slots": [
+            "limits"
+          ]
+        },
+        {
+          "id": "conservative",
+          "title": "Conservative option",
+          "slots": [
+            "conservative_choice"
+          ]
+        }
+      ],
+      "required_params": [
+        "scope"
+      ],
+      "required_slots": [
+        "condition",
+        "decision_space",
+        "limits",
+        "conservative_choice"
+      ]
+    }
+  ],
+  "phrasing": {
+    "undecided": "Undecided: no accepted source fact is supplied.",
+    "source_ceiling": "Bounded design over the cited frozen input; this section does not establish implementation, UAT, production readiness or human approval.",
+    "custom_ceiling": "Case-specific design judgment; any new or conflicting fact remains a downstream gap decision.",
+    "gap_ceiling": "Recorded unresolved question for downstream decision and next-version backport."
+  }
+}

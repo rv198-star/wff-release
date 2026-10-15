@@ -7,7 +7,6 @@ those files and it never upgrades Trace/runtime state.
 
 from __future__ import annotations
 
-from collections import defaultdict
 from hashlib import sha256
 import json
 import os
@@ -17,8 +16,10 @@ from typing import Any, Mapping
 
 from common.action_card_authority_projection import project_s3_durable_persistence_decisions
 from common.agentic_decision_authority import canonical_digest, write_json_atomic
+from phase3.agentic_implementation_authority import p3_agentic_body_contract_is_compatible
 from phase3.contract_tools import generate_migration_sql, parse_schema_tables
 from phase3.impl_context import load_phase2_source_texts
+from phase3.implementation_binding_tools import AGENTIC_BODY_SENTINEL, first_non_frontend_implementation_target, frontend_delegation_records, merge_bounded_agentic_regions, partition_frontend_owned_s3_targets, render_agentic_region
 from phase3.schema_test_scaffolder import scaffold_schema_tests
 
 
@@ -27,7 +28,6 @@ S3_REALIZATION_SCHEMA = "wff.p3-s3-code-realization.v1"
 
 class S3CodeRealizationError(ValueError):
     pass
-
 
 def _strings(value: Any) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()] if isinstance(value, list) else []
@@ -65,8 +65,17 @@ def generate_s3_db_support(*, phase2_root: Path, output_dir: Path, authority: Ma
             lowered = overrides.get(key) or scalar_types.get(logical_type)
             if lowered: field["data_type"] = lowered
             elif logical_type in {"array", "object", "number"}: raise S3CodeRealizationError(f"non-mechanical schema type requires P3 Authority Delta: {key}:{logical_type}")
-    for record in delta_records or []:
-        additions = (record.get("resolution_payload") or {}).get("schema_field_additions", {}) if isinstance(record.get("resolution_payload"), Mapping) else {}
+    runtime_realizations = [
+        dict(row.get("runtime_realization"))
+        for row in (authority or {}).get("slice_decisions", {}).values()
+        if isinstance(row, Mapping) and isinstance(row.get("runtime_realization"), Mapping)
+    ]
+    addition_sources = [
+        (record.get("resolution_payload") or {}).get("schema_field_additions", {})
+        for record in delta_records or []
+        if isinstance(record.get("resolution_payload"), Mapping)
+    ] + [realization.get("schema_field_additions", {}) for realization in runtime_realizations]
+    for additions in addition_sources:
         for table_name, fields in additions.items():
             target = next((table for table in tables if table.get("table_name") == table_name), None)
             if target is None: raise S3CodeRealizationError(f"P3 schema addition references unknown table:{table_name}")
@@ -76,6 +85,20 @@ def generate_s3_db_support(*, phase2_root: Path, output_dir: Path, authority: Ma
                 item = dict(field); item["nullable"] = "yes" if field.get("nullable") is True else "no" if field.get("nullable") is False else field.get("nullable", "yes"); target["fields"].append(item)
     migration_path = output_dir / "db" / "migrations" / "001_initial_schema.sql"
     migration_path.parent.mkdir(parents=True, exist_ok=True); migration_path.write_text(generate_migration_sql(tables), encoding="utf-8")
+    migration_snippets = list(dict.fromkeys(
+        str(realization.get("migration_sql") or "").strip()
+        for realization in runtime_realizations
+        if str(realization.get("migration_sql") or "").strip()
+    ))
+    runtime_migration_path = None
+    if migration_snippets:
+        runtime_migration_path = output_dir / "db" / "migrations" / "002_agentic_runtime_realization.sql"
+        runtime_migration_path.write_text(
+            "-- Accepted P3 Agentic runtime realization.\nBEGIN;\n\n"
+            + "\n\n".join(migration_snippets)
+            + "\n\nCOMMIT;\n",
+            encoding="utf-8",
+        )
     summary = {
         "artifact_kind": "phase3-impl-db-schema-report", "quality_gate": "generated-not-executed",
         "migration_path": str(migration_path), "table_count": len(tables),
@@ -202,47 +225,8 @@ export async function realizeDecisionBoundSlice(
 """
 
 
-AGENTIC_SENTINEL = "WFF_AGENTIC_BODY_REQUIRED"
-_AGENTIC_REGION_RE = re.compile(
-    r"(?P<begin>^[ \t]*// @wff:agentic-begin id=(?P<id>[A-Za-z0-9_.-]+)\n)(?P<body>.*?)(?P<end>^[ \t]*// @wff:agentic-end id=(?P=id)$)",
-    re.MULTILINE | re.DOTALL,
-)
-
-
 def _agentic_region(block_id: str, *, indent: str = "    ") -> str:
-    return (
-        f"{indent}// @wff:agentic-begin id={block_id}\n"
-        f'{indent}throw new Error("{AGENTIC_SENTINEL}:{block_id}");\n'
-        f"{indent}// @wff:agentic-end id={block_id}"
-    )
-
-
-def _region_rows(text: str) -> dict[str, str]:
-    return {match.group("id"): match.group("body") for match in _AGENTIC_REGION_RE.finditer(text)}
-
-
-def _shell_projection(text: str) -> str:
-    return _AGENTIC_REGION_RE.sub(
-        lambda match: match.group("begin") + f"<{match.group('id')}:agentic-body>\n" + match.group("end"),
-        text,
-    )
-
-
-def _merge_agentic_regions(path: Path, rendered: str, source_path: Path | None = None) -> tuple[str, list[dict[str, str]]]:
-    expected = _region_rows(rendered)
-    if not expected: return rendered, []
-    existing = path.read_text(encoding="utf-8") if path.exists() else ""
-    existing_rows = _region_rows(existing) if existing else {}
-    existing_materialized = any(AGENTIC_SENTINEL not in body for body in existing_rows.values())
-    source = existing if existing_materialized else (source_path.read_text(encoding="utf-8") if source_path and source_path.exists() else existing)
-    current = _region_rows(source) if source else {}
-    if source and not current: raise S3CodeRealizationError(f"S3 ownership source is legacy/unmarked: {path}")
-    preserved = {block_id: body for block_id, body in current.items() if AGENTIC_SENTINEL not in body}
-    if preserved and set(current) != set(expected): raise S3CodeRealizationError(f"S3 Agentic block denominator changed: {path}")
-    if existing_materialized and preserved and _shell_projection(existing) != _shell_projection(rendered): raise S3CodeRealizationError(f"protected S3 template shell changed outside Agentic blocks: {path}")
-    merged = _AGENTIC_REGION_RE.sub(lambda match: match.group("begin") + preserved.get(match.group("id"), match.group("body")) + match.group("end"), rendered)
-    records = [{"block_id": block_id, "status": "authoring-required" if AGENTIC_SENTINEL in body else "materialized", "sha256": "sha256:" + sha256(body.encode()).hexdigest()} for block_id, body in _region_rows(merged).items()]
-    return merged, records
+    return render_agentic_region(block_id, f'throw new Error("{AGENTIC_BODY_SENTINEL}:{block_id}");', indent=indent)
 
 
 def _render_service(path: Path, rows: list[dict[str, Any]], authority: Mapping[str, Any], support_path: Path) -> str:
@@ -268,7 +252,7 @@ def _render_repository(path: Path, rows: list[dict[str, Any]], authority: Mappin
     import_path = _relative_import(path, support_path)
     bindings = json.dumps([_binding_payload(row, authority) for row in rows], ensure_ascii=False, indent=2)
     class_name = _identifier(path.stem, "S3Repository")
-    return f'''import {{ type S3ExecutionContext, type S3StorageAdapter }} from "{import_path}.js";\n\nexport const s3Bindings = {bindings} as const;\n\nexport class {class_name} {{\n  constructor(private readonly storage: S3StorageAdapter) {{}}\n\n  async realize(sliceId: string, context: S3ExecutionContext): Promise<Record<string, unknown>> {{\n{_agentic_region("repository-realize")}\n  }}\n}}\n'''
+    return f'''import {{ type S3ExecutionContext, type S3RepositoryPort, type S3SliceBinding, type S3StorageAdapter }} from "{import_path}.js";\n\nexport const s3Bindings = {bindings} as const;\n\nexport class {class_name} implements S3RepositoryPort {{\n  constructor(private readonly storage: S3StorageAdapter) {{}}\n\n  async realize(binding: S3SliceBinding, context: S3ExecutionContext): Promise<Record<string, unknown>> {{\n{_agentic_region("repository-realize")}\n  }}\n}}\n'''
 
 
 def _render_policy(path: Path, rows: list[dict[str, Any]], authority: Mapping[str, Any], support_path: Path) -> str:
@@ -305,6 +289,7 @@ def _render_generic(path: Path, rows: list[dict[str, Any]], authority: Mapping[s
         + json.dumps(bindings, ensure_ascii=False, indent=2)
         + " as const;\n\n"
         + "export function describeS3Realization(sliceId: string, _context: S3ExecutionContext) {\n"
+        + "  void _context;\n"
         + "  return selectS3Binding(s3Bindings, sliceId);\n"
         + "}\n"
     )
@@ -381,6 +366,24 @@ describe('P3-S3 realization kernel', () => {{
 """
 
 
+def _validate_agentic_source_authority(source_root: Path, authority: Mapping[str, Any], source_receipt: Mapping[str, Any]) -> bool:
+    target_digest = str(authority.get("decision_digest") or "")
+    if source_receipt.get("decision_digest") == target_digest:
+        return False
+    source_authority_path = source_root / "p3-agentic-implementation-authority.json"
+    if not source_authority_path.is_file():
+        raise S3CodeRealizationError("Agentic source root is bound to another P3 decision")
+    source_authority = json.loads(source_authority_path.read_text(encoding="utf-8"))
+    source_digest = str(source_authority.get("decision_digest") or "")
+    if source_receipt.get("decision_digest") != source_digest:
+        raise S3CodeRealizationError("Agentic source root receipt diverges from its P3 implementation authority")
+    if source_digest == target_digest:
+        return False
+    if not p3_agentic_body_contract_is_compatible(source_authority, authority):
+        raise S3CodeRealizationError("Agentic source root semantic body contract changed under the new P3 decision")
+    return True
+
+
 def realize_s3_code_and_tests(*, output_dir: Path, authority: Mapping[str, Any], agentic_source_root: Path | None = None) -> dict[str, Any]:
     """Materialize accepted S2 slices. This function never executes generated code/tests."""
     from phase3.agentic_implementation_authority import p3_agentic_implementation_authority_is_valid
@@ -403,28 +406,24 @@ def realize_s3_code_and_tests(*, output_dir: Path, authority: Mapping[str, Any],
 
     output_dir = output_dir.resolve()
     source_root = agentic_source_root.resolve() if agentic_source_root else None
+    source_shell_refresh = False
     if source_root:
         source_receipt = json.loads((source_root / "p3-s3-code-realization-receipt.json").read_text(encoding="utf-8"))
-        if source_receipt.get("decision_digest") != authority.get("decision_digest"): raise S3CodeRealizationError("Agentic source root is bound to another P3 decision")
+        source_shell_refresh = _validate_agentic_source_authority(source_root, authority, source_receipt)
     support_path = output_dir / "apps" / "api" / "src" / "common" / "s3-realization.ts"
     support_path.parent.mkdir(parents=True, exist_ok=True)
     support_path.write_text(_support_module(), encoding="utf-8")
 
-    implementation_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    test_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        for target in _strings(row.get("implementation_targets")):
-            implementation_groups[target].append(row)
-        for target in _strings(row.get("test_targets")):
-            test_groups[target].append(row)
+    implementation_groups, test_groups, delegated_frontend_implementation_groups, delegated_frontend_test_groups = partition_frontend_owned_s3_targets(rows)
 
     test_records: list[dict[str, Any]] = []
     for raw_path, target_rows in sorted(test_groups.items()):
         path = _safe_target(output_dir, raw_path)
-        primary_raw = _strings(target_rows[0].get("implementation_targets"))[0]
+        primary_raw = first_non_frontend_implementation_target(target_rows[0])
+        if not primary_raw: raise S3CodeRealizationError(f"non-frontend S3 test target {raw_path} has no S3-owned implementation target")
         primary_target = _safe_target(output_dir, primary_raw)
         path.parent.mkdir(parents=True, exist_ok=True)
-        content, blocks = _merge_agentic_regions(path, _render_test(path, target_rows, authority, primary_target), source_root / raw_path if source_root else None)
+        content, blocks = merge_bounded_agentic_regions(path, _render_test(path, target_rows, authority, primary_target), source_path=source_root / raw_path if source_root else None, error_type=S3CodeRealizationError, boundary_label="S3", require_regions=False, allow_protected_shell_refresh=source_shell_refresh)
         path.write_text(content, encoding="utf-8")
         test_records.append(
             {
@@ -440,7 +439,7 @@ def realize_s3_code_and_tests(*, output_dir: Path, authority: Mapping[str, Any],
     for raw_path, target_rows in sorted(implementation_groups.items()):
         path = _safe_target(output_dir, raw_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        content, blocks = _merge_agentic_regions(path, _render_target(path, target_rows, authority, support_path), source_root / raw_path if source_root else None)
+        content, blocks = merge_bounded_agentic_regions(path, _render_target(path, target_rows, authority, support_path), source_path=source_root / raw_path if source_root else None, error_type=S3CodeRealizationError, boundary_label="S3", require_regions=False, allow_protected_shell_refresh=source_shell_refresh)
         path.write_text(content, encoding="utf-8")
         implementation_records.append(
             {
@@ -457,11 +456,11 @@ def realize_s3_code_and_tests(*, output_dir: Path, authority: Mapping[str, Any],
     kernel_test_path.parent.mkdir(parents=True, exist_ok=True)
     kernel_test_path.write_text(_kernel_test(support_path, kernel_test_path), encoding="utf-8")
 
-    declared_impl = sorted(implementation_groups)
-    declared_tests = sorted(test_groups)
+    declared_impl = sorted([*implementation_groups, *delegated_frontend_implementation_groups])
+    declared_tests = sorted([*test_groups, *delegated_frontend_test_groups])
     generated_impl = sorted(record["path"] for record in implementation_records)
     generated_tests = sorted(record["path"] for record in test_records)
-    missing = sorted(set(declared_impl + declared_tests) - set(generated_impl + generated_tests))
+    missing = sorted(set([*implementation_groups, *test_groups]) - set(generated_impl + generated_tests))
     if missing:
         raise S3CodeRealizationError("S3 realization failed to materialize declared targets: " + ", ".join(missing))
     rows_by_slice = {str(row.get("slice_id") or ""): row for row in rows}
@@ -562,6 +561,8 @@ def realize_s3_code_and_tests(*, output_dir: Path, authority: Mapping[str, Any],
         "declared_test_target_count": len(declared_tests),
         "generated_implementation_targets": implementation_records,
         "generated_test_targets": test_records,
+        "delegated_frontend_implementation_targets": frontend_delegation_records(delegated_frontend_implementation_groups),
+        "delegated_frontend_test_targets": frontend_delegation_records(delegated_frontend_test_groups),
         "support_paths": [
             str(support_path.relative_to(output_dir)),
             str(kernel_test_path.relative_to(output_dir)),

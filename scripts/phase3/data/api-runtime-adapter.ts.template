@@ -1,0 +1,86 @@
+export interface GeneratedRuntimePayload {
+  path_params?: Record<string, unknown>;
+  pathParams?: Record<string, unknown>;
+  auth_context?: Record<string, unknown>;
+  authContext?: Record<string, unknown>;
+  body?: Record<string, unknown>;
+  query?: Record<string, unknown>;
+  invalid_query?: boolean;
+  [key: string]: unknown;
+}
+
+export type GeneratedRuntimeResult = Record<string, unknown>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function clonePayload<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function flattenNestedInputFields(target: Record<string, unknown>, value: unknown): void {
+  if (!isRecord(value)) {
+    return;
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    if (target[key] === undefined) {
+      target[key] = clonePayload(entry);
+    }
+    if (isRecord(entry)) {
+      flattenNestedInputFields(target, entry);
+    }
+  }
+}
+
+export function normalizeGeneratedPayload(payload: GeneratedRuntimePayload): GeneratedRuntimePayload {
+  const next = isRecord(payload) ? clonePayload(payload) : {};
+  if (isRecord(next.body)) {
+    Object.assign(next, next.body);
+    delete next.body;
+  }
+  if (isRecord(next.input)) {
+    flattenNestedInputFields(next, next.input);
+  }
+  if (isRecord(next.query)) {
+    Object.assign(next, next.query);
+    delete next.query;
+  }
+  if (isRecord(next.pathParams) && !isRecord(next.path_params)) {
+    next.path_params = clonePayload(next.pathParams);
+  }
+  if (isRecord(next.authContext) && !isRecord(next.auth_context)) {
+    next.auth_context = clonePayload(next.authContext);
+  }
+  delete next.pathParams;
+  delete next.authContext;
+  return next as GeneratedRuntimePayload;
+}
+
+export function annotateRuntimePayload(
+  payload: GeneratedRuntimePayload,
+  additions: Record<string, unknown>,
+): GeneratedRuntimePayload {
+  const next = normalizeGeneratedPayload(payload);
+  for (const [key, value] of Object.entries(additions)) {
+    if (next[key] === undefined) {
+      next[key] = value;
+    }
+  }
+  return next;
+}
+
+export function appendEnvelopeMeta(
+  result: GeneratedRuntimeResult,
+  additions: Record<string, unknown>,
+): GeneratedRuntimeResult {
+  const next = isRecord(result) ? clonePayload(result) as GeneratedRuntimeResult : { data: result };
+  const meta = isRecord(next.meta) ? clonePayload(next.meta) : {};
+  for (const [key, value] of Object.entries(additions)) {
+    if (meta[key] === undefined) {
+      meta[key] = value;
+    }
+  }
+  next.meta = meta;
+  return next;
+}

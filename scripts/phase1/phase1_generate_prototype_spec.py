@@ -15,6 +15,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
 
 
 import argparse
+import json
 import re
 from pathlib import Path
 
@@ -1541,9 +1542,10 @@ def default_navigation_scope_for_blueprint(page_blueprint_type: str) -> str:
 
 
 def infer_canonical_page_id(page: dict[str, object]) -> str:
+    page_slug = str(page.get("slug") or "").strip()
     page_name = str(page.get("page_name") or "").strip()
     page_id = str(page.get("page_id") or "").strip()
-    return slugify(page_name) or slugify(page_id) or "page"
+    return page_slug or slugify(page_name) or slugify(page_id) or "page"
 
 
 def infer_surface_audience_mode(page: dict[str, object]) -> str:
@@ -1601,6 +1603,226 @@ def assign_workspace_entry_roles(pages: list[dict[str, object]]) -> None:
         page_id = str(page.get("page_id") or "").strip()
         allowed_roles = [str(item).strip() for item in page.get("allowed_roles", []) if str(item).strip()]
         page["workspace_entry_roles"] = [role for role in allowed_roles if first_page_by_role.get(role) == page_id]
+
+
+def load_p1_terminal_role_authority_rows(prd_path: Path) -> list[dict[str, object]]:
+    """Read canonical terminal-role ownership from the adjacent accepted P1 authority."""
+    authority_path = prd_path.parent / "p1-agentic-product-authority.json"
+    if not authority_path.exists():
+        return []
+    try:
+        authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(authority, dict) or authority.get("status") != "accepted-p1-agentic-product-authority":
+        return []
+    product_world = authority.get("product_world_decision")
+    if not isinstance(product_world, dict):
+        return []
+    source_text_by_ref: dict[str, str] = {}
+    candidate_path = prd_path.parent / ".phase1-evidence" / "p1-agentic-product-candidate.json"
+    if candidate_path.is_file() and not candidate_path.is_symlink():
+        try:
+            candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            candidate = {}
+        for evidence in candidate.get("source_evidence", []) if isinstance(candidate, dict) else []:
+            if not isinstance(evidence, dict):
+                continue
+            evidence_ref = str(evidence.get("evidence_ref") or "").strip()
+            text = str(evidence.get("text") or "").strip()
+            if evidence_ref and text:
+                source_text_by_ref[evidence_ref] = text
+    ownership = product_world.get("ownership") if isinstance(product_world.get("ownership"), dict) else {}
+    objects = [dict(row) for row in product_world.get("objects", []) if isinstance(row, dict)]
+    objects_by_commitment: dict[str, list[str]] = {}
+    for row in objects:
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+        for raw_commitment in row.get("commitment_ids", []):
+            commitment_id = str(raw_commitment or "").strip()
+            if commitment_id:
+                objects_by_commitment.setdefault(commitment_id, []).append(name)
+    rows: list[dict[str, object]] = []
+    for raw in ownership.get("assignments", []) if isinstance(ownership.get("assignments"), list) else []:
+        if not isinstance(raw, dict):
+            continue
+        role = str(raw.get("role") or "").strip()
+        commitments = list(
+            dict.fromkeys(
+                str(item or "").strip()
+                for item in raw.get("commitment_ids", [])
+                if str(item or "").strip()
+            )
+        )
+        if not role or not commitments:
+            continue
+        rows.append(
+            {
+                "role": role,
+                "commitment_ids": commitments,
+                "authority_business_objects": list(
+                    dict.fromkeys(
+                        object_name
+                        for commitment_id in commitments
+                        for object_name in objects_by_commitment.get(commitment_id, [])
+                    )
+                ),
+                "authority_basis": str(raw.get("basis") or ownership.get("posture") or "review-bound").strip(),
+                "claim_ceiling": str(raw.get("claim_ceiling") or "").strip(),
+                "source_refs": [str(item).strip() for item in raw.get("source_refs", []) if str(item).strip()],
+                "source_terms": [
+                    source_text_by_ref[ref]
+                    for ref in [str(item).strip() for item in raw.get("source_refs", []) if str(item).strip()]
+                    if ref in source_text_by_ref
+                ],
+            }
+        )
+    return rows
+
+
+def _authority_surface_term_key(value: object) -> str:
+    raw = str(value or "").strip().strip("`")
+    return re.sub(r"[\s\-_/：:（）()，,。.;；]+", "", raw).casefold()
+
+
+def apply_terminal_role_authority_to_pages(
+    pages: list[dict[str, object]],
+    authority_rows: list[dict[str, object]],
+) -> None:
+    """Correct source-surface role projection only when P1 authority binds the exact source surface term.
+
+    The accepted machine ownership remains semantic authority. This helper does not
+    guess role ownership from page order or world-knowledge keywords; it uses exact
+    source evidence text already bound to the accepted ownership assignment.
+    """
+    authority_term_roles: dict[str, list[str]] = {}
+    for row in authority_rows:
+        role = str(row.get("role") or "").strip()
+        if not role:
+            continue
+        for source_term in row.get("source_terms", []):
+            key = _authority_surface_term_key(source_term)
+            if key:
+                authority_term_roles.setdefault(key, []).append(role)
+    for page in pages:
+        page_key = _authority_surface_term_key(page.get("page_name"))
+        matched_roles = list(dict.fromkeys(authority_term_roles.get(page_key, [])))
+        if len(matched_roles) != 1:
+            page["role_authority_projection_status"] = "review-bound-ambiguous" if matched_roles else "unmatched"
+            continue
+        role = matched_roles[0]
+        prior_actor = str(page.get("primary_actor") or "").strip()
+        prior_roles = [str(item).strip() for item in page.get("allowed_roles", []) if str(item).strip()]
+        page["primary_actor"] = role
+        page["allowed_roles"] = [role]
+        page["role_authority_projection_status"] = (
+            "aligned" if prior_actor == role and prior_roles == [role] else "corrected-from-machine-authority"
+        )
+        page["role_authority_source"] = "accepted-p1-machine-ownership-source-ref"
+
+
+def build_terminal_role_contracts(
+    pages: list[dict[str, object]],
+    authority_rows: list[dict[str, object]] | None = None,
+) -> list[dict[str, object]]:
+    """Project accepted page authority into terminal-role product authority.
+
+    This stays inside P1 truth already present in the Surface Matrix: it does not
+    invent roles, permissions, or data.  It makes the existing role/page/object
+    partition explicit so downstream phases cannot replace several accepted
+    terminal roles with one convenience super-role without reopening P1.
+    """
+    canonical_rows = [dict(row) for row in authority_rows or [] if isinstance(row, dict) and str(row.get("role") or "").strip()]
+    role_order: list[str] = [str(row.get("role") or "").strip() for row in canonical_rows]
+    if not role_order:
+        for page in pages:
+            for raw_role in page.get("allowed_roles", []):
+                role = str(raw_role).strip()
+                if role and role not in role_order:
+                    role_order.append(role)
+
+    canonical_by_role = {str(row.get("role") or "").strip(): row for row in canonical_rows}
+    contracts: list[dict[str, object]] = []
+    for role in role_order:
+        role_pages = [
+            page
+            for page in pages
+            if role in [str(item).strip() for item in page.get("allowed_roles", []) if str(item).strip()]
+        ]
+        entry_page = next(
+            (
+                page
+                for page in role_pages
+                if role in [str(item).strip() for item in page.get("workspace_entry_roles", []) if str(item).strip()]
+            ),
+            role_pages[0] if role_pages else {},
+        )
+        routes = [str(page.get("route") or "").strip() for page in role_pages if str(page.get("route") or "").strip()]
+        actions = [
+            str(page.get("primary_action") or "").strip()
+            for page in role_pages
+            if str(page.get("primary_action") or "").strip()
+        ]
+        visible_objects: list[str] = []
+        for page in role_pages:
+            for raw_object in page.get("required_information_objects", []):
+                object_name = str(raw_object).strip()
+                if object_name and object_name not in visible_objects:
+                    visible_objects.append(object_name)
+        canonical = canonical_by_role.get(role, {})
+        canonical_objects = [str(item).strip() for item in canonical.get("authority_business_objects", []) if str(item).strip()]
+        commitments = [str(item).strip() for item in canonical.get("commitment_ids", []) if str(item).strip()]
+        contracts.append(
+            {
+                "role": role,
+                "authority_commitment_ids": commitments,
+                "authority_basis": str(canonical.get("authority_basis") or "surface-matrix-projection").strip(),
+                "responsibility_claim_ceiling": str(canonical.get("claim_ceiling") or "").strip(),
+                "default_product_entry": str(entry_page.get("route") or "").strip() or "review-bound-p3-realization",
+                "allowed_surfaces": list(dict.fromkeys(routes)),
+                "allowed_actions": list(dict.fromkeys(actions)) or commitments,
+                "authority_business_objects": canonical_objects or visible_objects,
+                "surface_projection_status": "aligned" if role_pages else "review-bound",
+            }
+        )
+    return contracts
+
+
+def render_terminal_role_contract_lines(
+    pages: list[dict[str, object]],
+    authority_rows: list[dict[str, object]] | None = None,
+) -> list[str]:
+    contracts = build_terminal_role_contracts(pages, authority_rows=authority_rows)
+    accepted_roles = [str(row.get("role") or "").strip() for row in contracts if str(row.get("role") or "").strip()]
+    lines = [
+        "- terminal_role_contracts:",
+        f"  - accepted_terminal_roles: `{', '.join(accepted_roles) if accepted_roles else 'review-bound'}`",
+        "  - qualification_rule: each accepted terminal role requires an independent least-privilege consumer path; a super-role account must not substitute for independent terminal-role qualification",
+        "  - authority_rule: accepted P1 machine ownership is canonical when present; Surface Matrix role/page projection is realization guidance and must remain review-bound when it conflicts with machine authority",
+        "  - downstream_rule: downstream phases may realize presentation and navigation, but may not merge accepted roles, widen visible data, or add operations without explicit upstream authority",
+    ]
+    for index, contract in enumerate(contracts, start=1):
+        routes = ", ".join(str(item) for item in contract.get("allowed_surfaces", [])) or "review-bound"
+        actions = ", ".join(str(item) for item in contract.get("allowed_actions", [])) or "review-bound"
+        authority_objects = ", ".join(str(item) for item in contract.get("authority_business_objects", [])) or "review-bound"
+        lines.extend(
+            [
+                f"  - role_{index}:",
+                f"    - role: `{contract['role']}`",
+                f"    - authority_commitment_ids: `{', '.join(str(item) for item in contract.get('authority_commitment_ids', [])) or 'surface-matrix-projection'}`",
+                f"    - authority_basis: `{contract.get('authority_basis', 'review-bound')}`",
+                f"    - responsibility_claim_ceiling: {contract.get('responsibility_claim_ceiling') or 'bounded to accepted P1 role responsibility'}",
+                f"    - default_product_entry: `{contract['default_product_entry']}`",
+                f"    - allowed_surfaces: `{routes}`",
+                f"    - allowed_actions: `{actions}`",
+                f"    - authority_business_objects: `{authority_objects}`",
+                "    - visible_business_objects: `P2-terminal-access-decision-required`",
+                f"    - surface_projection_status: `{contract.get('surface_projection_status', 'review-bound')}`",
+            ]
+        )
+    return lines
 
 
 def infer_route_reachability_mode(page: dict[str, object]) -> str:
@@ -2362,6 +2584,7 @@ def render_prototype_reference_and_source_note_lines(
 
 def build_pages(module_rows: list[dict[str, str]], core_objects: list[str]) -> list[dict[str, object]]:
     pages: list[dict[str, object]] = []
+    used_slugs: set[str] = set()
     for index, row in enumerate(module_rows, start=1):
         page_name = infer_page_name(row, index)
         primary_actor = infer_primary_actor(row)
@@ -2371,6 +2594,11 @@ def build_pages(module_rows: list[dict[str, str]], core_objects: list[str]) -> l
         responsibility = infer_responsibility_text(row)
         primary_action = infer_primary_action(row)
         slug = slugify(page_name)
+        if slug == "page" and not re.search(r"[A-Za-z0-9]", page_name):
+            slug = f"surface-p{index:02d}"
+        if slug in used_slugs:
+            slug = f"{slug}-p{index:02d}"
+        used_slugs.add(slug)
         blueprint_family = classify_page_blueprint(page_name, responsibility, primary_action)
         template = FLOW_BLUEPRINTS[blueprint_family]
         pages.append(
@@ -2981,7 +3209,9 @@ def main() -> int:
     if not module_matrix_rows:
         raise SystemExit("Prototype spec generation requires a Module Responsibility Matrix or equivalent Phase-1 module table")
 
+    p1_terminal_role_authority = load_p1_terminal_role_authority_rows(paths.prd_path)
     pages = build_pages(module_matrix_rows, core_objects)
+    apply_terminal_role_authority_to_pages(pages, p1_terminal_role_authority)
     flow_pages = assign_flow_pages(flow_steps, pages)
     page_step_numbers = build_page_step_numbers(flow_pages)
     bind_supporting_use_cases_to_pages(
@@ -3069,11 +3299,41 @@ def main() -> int:
     lines.extend(format_bullet_list(global_design_rules or ["Do not let visual completeness hide deferred, blocked, or review-bound truth."]))
     lines.extend(["- assumptions:"])
     lines.extend(format_bullet_list(assumption_lines or ["The first-wave handoff between pages remains the key proof point."]))
+    entry_page = pages[0] if pages else {}
+    exit_page = pages[-1] if pages else {}
+    entry_route = str(entry_page.get("route") or "/").strip() or "/"
+    exit_route = str(exit_page.get("route") or entry_route).strip() or entry_route
+    entry_goal = str(entry_page.get("primary_user_goal") or product_promise).strip() or product_promise
+    exit_condition = str(exit_page.get("exit_conditions") or "meaningful first-wave outcome is visible to the terminal consumer").strip()
     lines.extend(
         [
             "- open_questions:",
             "  - How much visual hierarchy and guidance is needed before onboarding friction becomes too high?",
             "  - Which state surfaces need the strongest emphasis in the prototype review round?",
+            "",
+            "## 2.1 Terminal Consumer Intent and Acceptance Boundary",
+            "- terminal_consumers:",
+            f"  - primary_consumer: `{primary_operator}`",
+            f"  - primary_business_goal: {entry_goal}",
+            "- first_wave_consumer_truth:",
+            f"  - current_entry_surface: `{entry_route}`",
+            f"  - meaningful_outcome_surface: `{exit_route}`",
+            f"  - meaningful_outcome_condition: {exit_condition}",
+            f"  - product_identity_direction: `{product_name}`",
+            f"  - value_promise: {product_promise}",
+            "  - continuity_requirement: required role, object, workflow, and prior-action context must survive the core journey without forcing the consumer to reconstruct business state",
+            "  - trust_boundary: normal product use must not expose WFF/contract/Agent/debug metadata or require test-runner identity, engineering-only route knowledge, or injected browser storage",
+            "- consumer_acceptance_boundary:",
+            "  - a terminal consumer must be able to understand and complete the intended first-wave business task to a meaningful outcome without engineering intervention",
+        ]
+    )
+    lines.extend(render_terminal_role_contract_lines(pages, authority_rows=p1_terminal_role_authority))
+    lines.extend(
+        [
+            "- p3_realization_delegation:",
+            "  - unless explicitly frozen by source/P1/P2 authority, P3 owns the concrete product shell, navigation composition, auth/session entry UX within the security boundary, component hierarchy, business copy, state presentation, responsive/accessibility realization, not-found/recovery treatment, and domain-appropriate visual/interaction language",
+            "  - implementation-level refinements that do not contradict frozen P1/P2 truth stay in the P3 implementation decision / Authority Delta instead of forcing an upstream rewrite",
+            "  - return upstream only when the missing fact would change product meaning, architecture ownership, public contract semantics, security/permission truth, persistence authority, or another frozen boundary",
             "",
             "## 3. Prototype Scope and Boundary",
             "- prototype_scope:",

@@ -43,6 +43,7 @@ from common.bounded_agentic_challenge_compat import (
 from common.cross_phase_surface_policy import find_cross_phase_surface_path
 from phase2.agentic_architecture_authority import p2_agentic_architecture_authority_is_valid
 from phase3.bounded_challenge_binding import validate_p3_decision_challenge_binding
+from common.p3_gap_records import CONTRACT as GAP_DECISION_CONTRACT, validate_gap_record
 
 
 CANDIDATE_SCHEMA = "wff.p3-agentic-implementation-candidate.v1"
@@ -61,6 +62,178 @@ AUTHORITY_DELTA_LEDGER_SCHEMA = "wff.p3-authority-delta-ledger.v1"
 _DELTA_AUTHORITIES = {"P1", "P2"}
 _DELTA_CLASSES = {"realization-detail", "authority-precision-candidate", "product-ambiguity"}
 _DELTA_LOCAL_APPLICATIONS = {"p3-local-resolution", "record-only"}
+_RUNTIME_PERSISTENCE_COMMANDS = {"insert", "append", "update", "upsert", "select-one", "select-many"}
+_RUNTIME_TRANSACTION_MODES = {"single-step", "atomic", "ordered-non-atomic"}
+_P3_AGENTIC_BODY_COMPAT_FIELDS = (
+    "slice_id", "operation_id", "contract_id", "non_operation_realization_id",
+    "component_ids", "action_card_refs", "context_action_card_refs", "semantic_owner", "aggregate",
+    "domain_invariants", "terminal_roles", "terminal_role_bindings", "terminal_role_authority_status",
+    "state_mutation", "authorization", "failure_behavior", "persistence_effects", "integration_behavior",
+    "implementation_targets", "test_targets", "runtime_evidence_intents", "preserved_constraint_ids",
+    "accepted_request_fields", "accepted_result_fields", "durable_persistence_decisions", "claim_ceiling",
+)
+
+
+def p3_agentic_body_contract(authority: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    rows = authority.get("slice_decisions") if isinstance(authority.get("slice_decisions"), Mapping) else {}
+    return {
+        str(slice_id): {field: row.get(field) for field in _P3_AGENTIC_BODY_COMPAT_FIELDS}
+        for slice_id, row in rows.items()
+        if isinstance(row, Mapping)
+    }
+
+
+def _result_field_is_optional(field: Mapping[str, Any]) -> bool:
+    return (
+        field.get("required") is False
+        or field.get("nullable") is True
+        or "optional" in str(field.get("constraint") or "").lower()
+    )
+
+
+def _result_contract_shape(fields: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for raw in fields if isinstance(fields, list) else []:
+        if not isinstance(raw, Mapping):
+            continue
+        row = {
+            key: value
+            for key, value in raw.items()
+            if key not in {"constraint", "nullable", "required", "item_fields"}
+        }
+        if isinstance(raw.get("item_fields"), list):
+            row["item_fields"] = _result_contract_shape(raw.get("item_fields"))
+        result.append(row)
+    return result
+
+
+def _result_contract_requirement_map(fields: Any, prefix: str = "") -> dict[str, bool]:
+    result: dict[str, bool] = {}
+    for index, raw in enumerate(fields if isinstance(fields, list) else []):
+        if not isinstance(raw, Mapping):
+            continue
+        name = str(raw.get("name") or index)
+        path = f"{prefix}.{name}" if prefix else name
+        result[path] = _result_field_is_optional(raw)
+        result.update(_result_contract_requirement_map(raw.get("item_fields"), path))
+    return result
+
+
+def _accepted_result_contract_is_compatible(source_fields: Any, target_fields: Any) -> bool:
+    if _result_contract_shape(source_fields) != _result_contract_shape(target_fields):
+        return False
+    source_requirements = _result_contract_requirement_map(source_fields)
+    target_requirements = _result_contract_requirement_map(target_fields)
+    if source_requirements.keys() != target_requirements.keys():
+        return False
+    # A target may relax a previously-required field to optional without invalidating
+    # an already materialized body. Tightening optional -> required requires re-authoring.
+    return all(not (source_requirements[path] and not target_requirements[path]) for path in source_requirements)
+
+
+def p3_agentic_body_contract_is_compatible(source: Mapping[str, Any], target: Mapping[str, Any]) -> bool:
+    if str(source.get("decision_id") or "") != str(target.get("decision_id") or ""):
+        return False
+    source_contract = p3_agentic_body_contract(source)
+    target_contract = p3_agentic_body_contract(target)
+    if source_contract.keys() != target_contract.keys():
+        return False
+    for slice_id in source_contract:
+        source_row = dict(source_contract[slice_id])
+        target_row = dict(target_contract[slice_id])
+        source_results = source_row.pop("accepted_result_fields", [])
+        target_results = target_row.pop("accepted_result_fields", [])
+        if source_row != target_row:
+            return False
+        if not _accepted_result_contract_is_compatible(source_results, target_results):
+            return False
+    return True
+
+
+def p3_frontend_agentic_body_contract(authority: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    contract = p3_agentic_body_contract(authority)
+    for row in contract.values():
+        row.pop("accepted_request_fields", None)
+        row.pop("accepted_result_fields", None)
+    return contract
+
+
+def p3_frontend_agentic_body_contract_is_compatible(source: Mapping[str, Any], target: Mapping[str, Any]) -> bool:
+    return (
+        str(source.get("decision_id") or "") == str(target.get("decision_id") or "")
+        and p3_frontend_agentic_body_contract(source) == p3_frontend_agentic_body_contract(target)
+    )
+
+
+def validate_runtime_realization(value: Any, *, slice_id: str) -> dict[str, Any]:
+    if value in (None, {}):
+        return {}
+    if not isinstance(value, Mapping):
+        raise P3AgenticImplementationAuthorityError(f"P3 slice {slice_id} runtime_realization must be an object")
+    realization = dict(value)
+    unsupported = set(realization) - {"persistence_realization", "schema_field_additions", "migration_sql", "validation_preconditions"}
+    if unsupported:
+        raise P3AgenticImplementationAuthorityError(
+            f"P3 slice {slice_id} runtime_realization has unsupported fields: {', '.join(sorted(unsupported))}"
+        )
+    plan = realization.get("persistence_realization")
+    if plan is not None:
+        if not isinstance(plan, Mapping) or not isinstance(plan.get("steps"), list) or not plan.get("steps"):
+            raise P3AgenticImplementationAuthorityError(f"P3 slice {slice_id} persistence_realization requires non-empty steps")
+        transaction = plan.get("transaction")
+        if not isinstance(transaction, Mapping) or str(transaction.get("mode") or "") not in _RUNTIME_TRANSACTION_MODES:
+            raise P3AgenticImplementationAuthorityError(f"P3 slice {slice_id} persistence_realization transaction is invalid")
+        seen_steps: set[str] = set()
+        for raw_step in plan["steps"]:
+            if not isinstance(raw_step, Mapping):
+                raise P3AgenticImplementationAuthorityError(f"P3 slice {slice_id} persistence step must be an object")
+            step_id = str(raw_step.get("step_id") or "").strip()
+            table = str(raw_step.get("table") or "").strip()
+            command = str(raw_step.get("command_kind") or "").strip()
+            if not step_id or step_id in seen_steps or not table or command not in _RUNTIME_PERSISTENCE_COMMANDS:
+                raise P3AgenticImplementationAuthorityError(f"P3 slice {slice_id} persistence step identity/table/command is invalid")
+            seen_steps.add(step_id)
+            validation_values = raw_step.get("validation_precondition_values")
+            if validation_values is not None and (
+                not isinstance(validation_values, Mapping)
+                or not validation_values
+                or any(not str(field).strip() for field in validation_values)
+            ):
+                raise P3AgenticImplementationAuthorityError(
+                    f"P3 slice {slice_id} persistence step {step_id} validation_precondition_values are invalid"
+                )
+    additions = realization.get("schema_field_additions", {})
+    if not isinstance(additions, Mapping) or any(
+        not str(table).strip()
+        or not isinstance(fields, list)
+        or any(
+            not isinstance(field, Mapping)
+            or not str(field.get("field_name") or "").strip()
+            or not str(field.get("data_type") or "").strip()
+            for field in fields
+        )
+        for table, fields in additions.items()
+    ):
+        raise P3AgenticImplementationAuthorityError(f"P3 slice {slice_id} runtime schema_field_additions are invalid")
+    migration_sql = realization.get("migration_sql")
+    if migration_sql is not None and (not isinstance(migration_sql, str) or not migration_sql.strip()):
+        raise P3AgenticImplementationAuthorityError(f"P3 slice {slice_id} runtime migration_sql must be a non-empty string")
+    validation_preconditions = realization.get("validation_preconditions", [])
+    if not isinstance(validation_preconditions, list):
+        raise P3AgenticImplementationAuthorityError(f"P3 slice {slice_id} runtime validation_preconditions must be a list")
+    seen_preconditions: set[str] = set()
+    for raw in validation_preconditions:
+        if not isinstance(raw, Mapping):
+            raise P3AgenticImplementationAuthorityError(f"P3 slice {slice_id} validation precondition must be an object")
+        precondition_id = str(raw.get("precondition_id") or "").strip()
+        table = str(raw.get("table") or "").strip()
+        values = raw.get("values")
+        if not precondition_id or precondition_id in seen_preconditions or not table or not isinstance(values, Mapping) or not values:
+            raise P3AgenticImplementationAuthorityError(f"P3 slice {slice_id} validation precondition identity/table/values are invalid")
+        seen_preconditions.add(precondition_id)
+        if any(not str(field).strip() for field in values):
+            raise P3AgenticImplementationAuthorityError(f"P3 slice {slice_id} validation precondition contains an empty field name")
+    return realization
 
 
 def validate_authority_delta_records(records: Any, *, known_slice_ids: set[str]) -> list[dict[str, Any]]:
@@ -91,7 +264,15 @@ def validate_authority_delta_records(records: Any, *, known_slice_ids: set[str])
             raise P3AgenticImplementationAuthorityError(f"P3 authority delta must defer reconciliation until post-P3: {delta_id}")
         if any(not str(row.get(field) or "").strip() for field in ("finding", "decision_statement", "claim_ceiling")) or not _strings(row.get("evidence_refs")):
             raise P3AgenticImplementationAuthorityError(f"P3 authority delta is incomplete: {delta_id}")
-        if classification == "product-ambiguity" and local_application != "record-only":
+        gap_contract = row.get("gap_decision_contract")
+        if gap_contract is not None:
+            try:
+                if gap_contract != GAP_DECISION_CONTRACT:
+                    raise ValueError("Unknown P3 gap-decision contract")
+                validate_gap_record(row)
+            except ValueError as exc:
+                raise P3AgenticImplementationAuthorityError(str(exc)) from exc
+        if classification == "product-ambiguity" and local_application != "record-only" and gap_contract != GAP_DECISION_CONTRACT:
             raise P3AgenticImplementationAuthorityError(f"P3 product ambiguity cannot become local implementation truth: {delta_id}")
         resolution = row.get("resolution_payload")
         if resolution is not None and not isinstance(resolution, Mapping):
@@ -142,6 +323,7 @@ def build_authority_delta_ledger(*, decision_id: str, decision_digest: str, reco
         "decision_id": decision_id,
         "decision_digest": decision_digest,
         "upstream_mutation_performed": False,
+        "upstream_reconciled": False,
         "reconciliation_status": "deferred-post-p3",
         "records": records,
         "summary": {
@@ -217,6 +399,18 @@ def _validate_p2_authority_chain(phase2_root: Path) -> tuple[dict[str, Path], di
         )
     except DecisionIntegrityCompatibilityError as exc:
         raise P3AgenticImplementationAuthorityError(str(exc)) from exc
+    if payloads["p2_decision"].get("decision_integrity_contract") == "p2-omr-sqr-integrity-v1":
+        from phase2.p2_final_review import load_subject
+        try:
+            subject = load_subject(phase2_root)
+            record = payloads["p2_decision"]["final_review"]
+            if subject["content_digest"] != record["subject_digest"] or subject["bindings"] != record["bindings"]:
+                raise ValueError("P3 delivery differs from the reviewed candidate")
+            semantic = payloads["p2_decision"]["semantic_payload"]
+            if any(authority.get(key) != value for key, value in semantic.items()):
+                raise ValueError("P2 authority differs from reviewed semantic payload")
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise P3AgenticImplementationAuthorityError(str(exc)) from exc
     union = payloads["semantic_union"]
     if not content_digest_is_valid(union, schema_version="wff.semantic-commitment-union.v1"):
         raise P3AgenticImplementationAuthorityError("P2 semantic commitment union is invalid")
@@ -230,12 +424,40 @@ def _validate_p2_authority_chain(phase2_root: Path) -> tuple[dict[str, Path], di
     return paths, payloads
 
 
+def _accepted_result_fields(data_contract: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Preserve P2 result shape together with the field optionality already owned by the same data contract."""
+    field_authority = {
+        str(row.get("name") or "").strip(): dict(row)
+        for row in data_contract.get("fields", [])
+        if isinstance(row, Mapping) and str(row.get("name") or "").strip()
+    }
+
+    def enrich(raw: Mapping[str, Any]) -> dict[str, Any]:
+        row = dict(raw)
+        name = str(row.get("name") or "").strip()
+        authority = field_authority.get(name, {})
+        for key in ("constraint", "nullable", "required"):
+            if key not in row and key in authority:
+                row[key] = authority[key]
+        item_fields = row.get("item_fields")
+        if isinstance(item_fields, list):
+            row["item_fields"] = [enrich(item) for item in item_fields if isinstance(item, Mapping)]
+        return row
+
+    return [enrich(item) for item in data_contract.get("result_fields", []) if isinstance(item, Mapping)]
+
+
 def _required_slices(payloads: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
     union = payloads["semantic_union"]
     operation_rows = payloads["operation_sources"].get("operations", [])
     operations = {
         str(row.get("operation_id") or "").strip(): dict(row)
         for row in operation_rows
+        if isinstance(row, dict) and str(row.get("operation_id") or "").strip()
+    }
+    data_contracts = {
+        str(row.get("operation_id") or "").strip(): dict(row)
+        for row in payloads["architecture_authority"].get("data_and_interaction_decisions", [])
         if isinstance(row, dict) and str(row.get("operation_id") or "").strip()
     }
     slices: list[dict[str, Any]] = []
@@ -254,6 +476,7 @@ def _required_slices(payloads: Mapping[str, Mapping[str, Any]]) -> list[dict[str
                     continue
                 seen.add((contract_id, operation_id))
                 source = operations.get(operation_id, {})
+                data_contract = data_contracts.get(operation_id, {})
                 slices.append(
                     {
                         "slice_id": f"P3-SLICE-{len(slices) + 1:03d}",
@@ -263,6 +486,11 @@ def _required_slices(payloads: Mapping[str, Mapping[str, Any]]) -> list[dict[str
                         "source_refs": list(commitment.get("source_refs", [])),
                         "api_endpoint": str(source.get("api_endpoint") or ""),
                         "http_method": str(source.get("http_method") or ""),
+                        "accepted_request_fields": [dict(item) for item in data_contract.get("request_fields", []) if isinstance(item, Mapping)],
+                        "accepted_result_fields": _accepted_result_fields(data_contract),
+                        "terminal_roles": _strings(source.get("terminal_roles")),
+                        "terminal_role_bindings": [dict(item) for item in source.get("terminal_role_bindings", []) if isinstance(item, Mapping)],
+                        "terminal_role_authority_status": str(source.get("terminal_role_authority_status") or "not-declared"),
                         "candidate_authority": "p2-exact-operation-contract",
                     }
                 )
@@ -451,6 +679,7 @@ def validate_p3_agentic_implementation_decision(
             if str(delta.get("source_slice_id") or "") != slice_id:
                 raise P3AgenticImplementationAuthorityError(f"P3 slice {slice_id} references authority delta owned by another slice: {delta_id}")
         if disposition == "implement":
+            row["runtime_realization"] = validate_runtime_realization(row.get("runtime_realization"), slice_id=slice_id)
             scalar_fields = (
                 "state_mutation",
                 "authorization",
@@ -514,9 +743,16 @@ def build_p3_agentic_implementation_authority(
         payload.get("authority_delta_records", []),
         known_slice_ids={str(row.get("slice_id") or "") for row in rows if str(row.get("slice_id") or "")},
     )
+    candidate_slices = {
+        str(row.get("slice_id") or "").strip(): dict(row)
+        for row in candidate.get("required_slices", [])
+        if isinstance(row, Mapping) and str(row.get("slice_id") or "").strip()
+    }
     decisions: dict[str, dict[str, Any]] = {}
     exact_realization_plan: list[dict[str, Any]] = []
     for row in rows:
+        slice_id = str(row.get("slice_id") or "").strip()
+        expected_contract = candidate_slices.get(slice_id, {})
         operation_id = str(row.get("operation_id") or "").strip()
         if operation_id and row.get("disposition") == "implement":
             invariants = [
@@ -542,6 +778,9 @@ def build_p3_agentic_implementation_authority(
                     "source": "accepted-host-agent-implementation-decision",
                 },
                 "domain_invariants": invariants,
+                "terminal_roles": _strings(row.get("terminal_roles")),
+                "terminal_role_bindings": [dict(item) for item in row.get("terminal_role_bindings", []) if isinstance(item, Mapping)],
+                "terminal_role_authority_status": str(row.get("terminal_role_authority_status") or "not-declared"),
                 "value_rule": {
                     "rule": str(row.get("state_mutation") or ""),
                     "test_intent": f"prove accepted state/mutation behavior for {operation_id}",
@@ -549,6 +788,9 @@ def build_p3_agentic_implementation_authority(
                 "implementation_targets": _strings(row.get("implementation_targets")),
                 "test_targets": _strings(row.get("test_targets")),
                 "runtime_evidence_intents": _strings(row.get("runtime_evidence_intents")),
+                "accepted_request_fields": [dict(item) for item in expected_contract.get("accepted_request_fields", []) if isinstance(item, Mapping)],
+                "accepted_result_fields": [dict(item) for item in expected_contract.get("accepted_result_fields", []) if isinstance(item, Mapping)],
+                "runtime_realization": validate_runtime_realization(row.get("runtime_realization"), slice_id=slice_id or operation_id),
                 "authority_delta_refs": _strings(row.get("authority_delta_refs")),
                 "irreversible_migration": bool(row.get("irreversible_migration")),
                 "migration_plan": str(row.get("migration_plan") or ""),
@@ -573,6 +815,7 @@ def build_p3_agentic_implementation_authority(
                 "declared_implementation_targets": _strings(row.get("implementation_targets")),
                 "declared_test_targets": _strings(row.get("test_targets")),
                 "runtime_evidence_intents": _strings(row.get("runtime_evidence_intents")),
+                "runtime_realization": validate_runtime_realization(row.get("runtime_realization"), slice_id=str(row.get("slice_id") or "")),
                 "authority_delta_refs": _strings(row.get("authority_delta_refs")),
                 "irreversible_migration": bool(row.get("irreversible_migration")),
                 "migration_plan": str(row.get("migration_plan") or ""),
@@ -589,6 +832,14 @@ def build_p3_agentic_implementation_authority(
         decision_id=accepted["decision_id"],
         decision_digest=accepted["content_digest"],
     )
+    for slice_id, projection in extensions.get("slice_decisions", {}).items():
+        expected_contract = candidate_slices.get(str(slice_id), {})
+        projection["accepted_request_fields"] = [
+            dict(item) for item in expected_contract.get("accepted_request_fields", []) if isinstance(item, Mapping)
+        ]
+        projection["accepted_result_fields"] = [
+            dict(item) for item in expected_contract.get("accepted_result_fields", []) if isinstance(item, Mapping)
+        ]
     authority = {
         "schema_version": AUTHORITY_SCHEMA,
         "status": "accepted-p3-agentic-implementation-authority",
@@ -638,6 +889,9 @@ def p3_agentic_implementation_authority_is_valid(authority: Mapping[str, Any]) -
     body.pop("content_digest", None)
     if expected != canonical_digest(body):
         return False
+    if "frozen_input_admission" in authority:
+        from phase3.frozen_input_admission import frozen_input_authority_is_valid
+        return frozen_input_authority_is_valid(authority)
     decisions = authority.get("decisions")
     return bool(isinstance(decisions, dict) and isinstance(authority.get("slice_decisions"), dict) and isinstance(authority.get("component_realization_plan"), dict) and authority.get("component_coverage", {}).get("status") == "complete" and authority.get("decision_digest"))
 

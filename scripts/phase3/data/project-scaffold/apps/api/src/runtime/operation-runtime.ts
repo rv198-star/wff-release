@@ -1,12 +1,15 @@
 import { basename, join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
-import type { S3ExecutionContext, S3PolicyPort, S3RepositoryPort } from "../common/s3-realization.js";
+import type { S3ExecutionContext, S3PolicyPort, S3RepositoryPort, S3SliceBinding } from "../common/s3-realization.js";
 import { PostgresS3StorageAdapter, S3ReplayExistingError } from "./postgres-storage.js";
 
-type P3Decision = { implementation_targets?: string[] };
+type RuntimeRealization = { persistence_realization?: unknown };
+type AcceptedResultField = { name?: string; type?: string; constraint?: string; nullable?: boolean; required?: boolean; item_fields?: AcceptedResultField[] };
+type P3Decision = { implementation_targets?: string[]; runtime_realization?: RuntimeRealization; accepted_result_fields?: AcceptedResultField[] };
 type P3PlanRow = { operation_id?: string; slice_id?: string };
-type P3Authority = { decisions?: Record<string, P3Decision>; exact_realization_plan?: P3PlanRow[] };
+type P3SliceDecision = { terminal_roles?: string[]; terminal_role_authority_status?: string; runtime_realization?: RuntimeRealization; accepted_result_fields?: AcceptedResultField[] };
+type P3Authority = { decisions?: Record<string, P3Decision>; exact_realization_plan?: P3PlanRow[]; slice_decisions?: Record<string, P3SliceDecision> };
 type DeltaRecord = { source_slice_id?: string; resolution_payload?: { persistence_realization?: unknown } };
 type DeltaLedger = { records?: DeltaRecord[] };
 
@@ -41,12 +44,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 class RuntimePolicy implements S3PolicyPort {
-  async authorize(_binding: Parameters<S3PolicyPort["authorize"]>[0], context: S3ExecutionContext): Promise<void> {
+  async authorize(binding: Parameters<S3PolicyPort["authorize"]>[0], context: S3ExecutionContext): Promise<void> {
     const actor = context.actor ?? {};
     if (Object.keys(actor).length === 0) throw new Error("runtime_auth_context_required");
     const inputTenant = String(context.input?.tenant_id ?? context.input?.tenantId ?? "").trim();
     const actorTenant = String(actor.tenant_id ?? actor.tenantId ?? "").trim();
     if (inputTenant && actorTenant && inputTenant !== actorTenant) throw new Error("tenant_boundary_violation");
+    const authority = await loadAuthority();
+    const slice = authority.slice_decisions?.[binding.sliceId];
+    if (slice?.terminal_role_authority_status === "not-applicable-system-continuation") {
+      if (actor.system_continuation !== true) throw new Error("system_continuation_required");
+      return;
+    }
+    const requiredRoles = (slice?.terminal_roles ?? []).map((role) => String(role).trim().toLowerCase()).filter(Boolean);
+    if (requiredRoles.length) {
+      if (slice?.terminal_role_authority_status !== "sufficient") throw new Error("runtime_role_authority_not_sufficient");
+      const actorRoles = Array.isArray(actor.roles) ? actor.roles.map((role) => String(role).trim().toLowerCase()).filter(Boolean) : [];
+      if (!requiredRoles.some((role) => actorRoles.includes(role))) throw new Error("role_permission_denied");
+    }
   }
 }
 
@@ -55,20 +70,66 @@ class RuntimeRepository implements S3RepositoryPort {
   realize(binding: Parameters<S3RepositoryPort["realize"]>[0], context: S3ExecutionContext) {
     return this.storage.realize(binding, context);
   }
+  lookupExisting(sliceId: string, context: S3ExecutionContext) {
+    return this.storage.lookupExisting(sliceId, context, true);
+  }
 }
 
 function unconfiguredDependency(): Record<string, unknown> {
   return new Proxy({}, { get: () => async () => { throw new Error("integration_not_configured"); } });
 }
 
+function resultFieldIsOptional(field: AcceptedResultField): boolean {
+  return field.required === false || field.nullable === true || /optional/i.test(String(field.constraint ?? ""));
+}
+
+function assertAcceptedResultFields(operationId: string, value: unknown, fields: AcceptedResultField[], path = "data"): void {
+  if (!fields.length) return;
+  if (!isRecord(value)) throw new Error(`runtime_result_contract_mismatch:${operationId}:${path}:object_required`);
+  for (const field of fields) {
+    const name = String(field.name ?? "").trim();
+    if (!name) continue;
+    if (!(name in value)) {
+      if (resultFieldIsOptional(field)) continue;
+      throw new Error(`runtime_result_contract_mismatch:${operationId}:${path}.${name}:missing`);
+    }
+    const actual = value[name];
+    if (actual == null) {
+      if (resultFieldIsOptional(field)) continue;
+      throw new Error(`runtime_result_contract_mismatch:${operationId}:${path}.${name}:null`);
+    }
+    if (String(field.type ?? "").toLowerCase() === "array") {
+      if (!Array.isArray(actual)) throw new Error(`runtime_result_contract_mismatch:${operationId}:${path}.${name}:array_required`);
+      const itemFields = Array.isArray(field.item_fields) ? field.item_fields : [];
+      for (let index = 0; index < actual.length; index += 1) {
+        assertAcceptedResultFields(operationId, actual[index], itemFields, `${path}.${name}[${index}]`);
+      }
+    }
+  }
+}
+
+function assertAcceptedResultContract(authority: P3Authority, sliceId: string, operationId: string, result: Record<string, unknown>): void {
+  const fields = authority.slice_decisions?.[sliceId]?.accepted_result_fields ?? authority.decisions?.[operationId]?.accepted_result_fields ?? [];
+  assertAcceptedResultFields(operationId, result, fields);
+}
+
 export async function checkS3OperationRuntimeReadiness(operationIds: string[]): Promise<{ ready: boolean; readyOperationCount: number; missingOperationIds: string[] }> {
   const [authority, ledger] = await Promise.all([loadAuthority(), loadDeltaLedger()]);
-  const plannedSlices = new Set((ledger.records ?? []).filter((row) => row.resolution_payload?.persistence_realization).map((row) => row.source_slice_id).filter(Boolean));
+  const plannedSlices = new Set([
+    ...Object.entries(authority.slice_decisions ?? {})
+      .filter(([, row]) => row?.runtime_realization?.persistence_realization)
+      .map(([sliceId]) => sliceId),
+    ...(ledger.records ?? [])
+      .filter((row) => row.resolution_payload?.persistence_realization)
+      .map((row) => row.source_slice_id)
+      .filter((sliceId): sliceId is string => Boolean(sliceId)),
+  ]);
   const missing = operationIds.filter((operationId) => {
     const decision = authority.decisions?.[operationId];
     const serviceTargets = (decision?.implementation_targets ?? []).filter((target) => target.endsWith(".service.ts"));
     const slices = (authority.exact_realization_plan ?? []).filter((row) => row.operation_id === operationId && row.slice_id);
-    return serviceTargets.length !== 1 || slices.length !== 1 || !plannedSlices.has(slices[0]?.slice_id);
+    const sliceId = slices[0]?.slice_id;
+    return serviceTargets.length !== 1 || slices.length !== 1 || typeof sliceId !== "string" || !plannedSlices.has(sliceId);
   });
   return { ready: missing.length === 0, readyOperationCount: operationIds.length - missing.length, missingOperationIds: missing };
 }
@@ -92,13 +153,32 @@ export async function invokeS3Operation(
   if (!Service) throw new Error(`runtime_service_export_missing:${operationId}`);
   const sliceId = String(slices[0]!.slice_id);
   const context: S3ExecutionContext = { input, actor, evidence };
-  const preexisting = await new PostgresS3StorageAdapter().lookupExisting(sliceId, context, true);
-  if (preexisting) return preexisting;
-  const args: unknown[] = [new RuntimePolicy(), new RuntimeRepository()];
-  while (args.length < Service.length) args.push(unconfiguredDependency());
+  const bindings = Array.isArray(module.s3Bindings) ? module.s3Bindings as readonly S3SliceBinding[] : [];
+  const binding = bindings.find((row) => row.sliceId === sliceId);
+  if (!binding) throw new Error(`runtime_service_binding_missing:${operationId}`);
+  const policy = new RuntimePolicy();
+  const repository = new RuntimeRepository();
+  await policy.authorize(binding, context);
+  const existing = await repository.lookupExisting(sliceId, context);
+  if (existing) {
+    assertAcceptedResultContract(authority, sliceId, operationId, existing);
+    return existing;
+  }
+  const namedPortCount = (decision?.implementation_targets ?? []).filter((target) => target.endsWith(".port.ts")).length;
+  const args: unknown[] = [policy, repository];
+  while (args.length < 2 + namedPortCount) args.push(unconfiguredDependency());
   const service = Reflect.construct(Service, args) as RuntimeService;
-  try { return await service.execute(sliceId, context); }
-  catch (error) { if (error instanceof S3ReplayExistingError) return error.result; throw error; }
+  try {
+    const result = await service.execute(sliceId, context);
+    assertAcceptedResultContract(authority, sliceId, operationId, result);
+    return result;
+  } catch (error) {
+    if (error instanceof S3ReplayExistingError) {
+      assertAcceptedResultContract(authority, sliceId, operationId, error.result);
+      return error.result;
+    }
+    throw error;
+  }
 }
 
 export function extractEvidence(input: Record<string, unknown>): Record<string, unknown> {

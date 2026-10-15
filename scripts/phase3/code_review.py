@@ -286,7 +286,11 @@ def contains_placeholder_content(text: str) -> bool:
 
 
 def method_count(text: str) -> int:
-    class_match = re.search(r"export class \w+\s*{(?P<body>.*)}\s*$", text, flags=re.DOTALL)
+    class_match = re.search(
+        r"export class \w+(?:\s+extends\s+[^\{]+)?(?:\s+implements\s+[^\{]+)?\s*{(?P<body>.*)}\s*$",
+        text,
+        flags=re.DOTALL,
+    )
     if not class_match:
         return 0
     body = class_match.group("body")
@@ -478,7 +482,13 @@ def contains_scaffold_marker(text: str) -> bool:
 
 
 def is_runtime_kernel_backed_target(text: str) -> bool:
-    return any(token in text for token in ("invokeGeneratedOperation", "generated-runtime", "operation-support", "buildOperationPlan"))
+    if any(token in text for token in ("invokeGeneratedOperation", "generated-runtime", "operation-support", "buildOperationPlan")):
+        return True
+    return bool(
+        "S3RepositoryPort" in text
+        and "S3StorageAdapter" in text
+        and re.search(r"return\s+this\.\w+\.realize\(\s*binding\s*,\s*context\s*\)", text)
+    )
 
 
 def has_domain_specific_logic(text: str) -> bool:

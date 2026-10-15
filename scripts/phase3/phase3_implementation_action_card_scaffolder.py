@@ -15,7 +15,12 @@ import argparse
 import json
 from typing import Any
 
-from common.action_card_authority_projection import build_action_card_semantic_convergence, render_durable_persistence_action_card_lines
+from common.action_card_authority_projection import (
+    HIGH_SIGNAL_CONSUMER_INTERACTION_OBLIGATION_KINDS,
+    apply_product_interaction_projection_to_component_obligations,
+    build_action_card_semantic_convergence,
+    render_durable_persistence_action_card_lines,
+)
 from common.cross_phase_surface_policy import find_cross_phase_surface_path
 from phase2.agentic_architecture_authority import p2_agentic_architecture_authority_is_valid
 from phase3.impl_context import p2_operation_claim_id
@@ -44,6 +49,19 @@ def _index_rows(rows: Any, key: str) -> dict[str, dict[str, Any]]:
     return indexed
 
 
+def merge_product_interaction_projection(
+    obligations: dict[str, dict[str, Any]],
+    catalog: dict[str, dict[str, Any]],
+    architecture_authority: dict[str, Any],
+) -> None:
+    """Compatibility wrapper over the shared S1B/S2 in-memory projection helper."""
+    apply_product_interaction_projection_to_component_obligations(
+        component_obligations=obligations,
+        component_catalog=catalog,
+        authority=architecture_authority,
+    )
+
+
 def load_action_card_obligations(phase2_root: str | Path) -> dict[str, Any]:
     root = Path(phase2_root)
     blockers: list[str] = []
@@ -69,6 +87,7 @@ def load_action_card_obligations(phase2_root: str | Path) -> dict[str, Any]:
     resolutions = _index_rows((resolution_payload or {}).get("resolutions", []), "value_signal_id")
     catalog = _index_rows((catalog_payload or {}).get("components", []), "component_id")
     obligations = _index_rows((obligation_payload or {}).get("components", []), "component_id")
+    merge_product_interaction_projection(obligations, catalog, architecture_authority or {})
     by_operation: dict[str, list[dict[str, Any]]] = {}
     for row in obligations.values():
         for operation_id in row.get("upstream_operation_ids", []):
@@ -202,14 +221,13 @@ def _test_intent_lines(
     upstream_operations: list[str],
     available_source_ids: list[str],
 ) -> list[str]:
-    source_scope = _join_values(available_source_ids)
     operation_scope = _join_values(upstream_operations, "none; non-operation component")
     target_scope = target_path_hint or "review-bound"
     lines: list[str] = []
     for test_type in required_tests:
         normalized = test_type.strip().lower()
         if normalized == "unit":
-            lines.append(f"- unit: verify component-local behavior from {source_scope}")
+            lines.append("- unit: verify component-local behavior against Required Sources plus component-owned semantic and interaction obligations")
         elif normalized == "contract":
             lines.append(f"- contract: verify public operation contract {operation_scope}")
         elif normalized == "integration":
@@ -233,6 +251,95 @@ def _guardrail_lines(title: str, rows: list[dict[str, Any]]) -> list[str]:
     ]
 
 
+def _product_interaction_obligation_lines(obligation: dict[str, Any]) -> list[str]:
+    rows = _dict_rows(obligation, "product_interaction_obligations")
+    contract = str(obligation.get("interaction_semantics_contract") or "").strip()
+    if not rows and not contract:
+        return []
+
+    repository_context = bool(rows) and all(
+        str(row.get("responsibility_mode") or "") == "persistence-context-only" for row in rows
+    )
+    heading = (
+        "### Product Interaction Semantic Context (Trace Only; Persistence-Owned Constraints)"
+        if repository_context
+        else "### Product Interaction Obligations (P2 Semantics; P3 Presentation Unselected)"
+    )
+    lines = ["", heading, f"- interaction_semantics_contract: {contract or 'review-bound'}"]
+    obligation_catalog: list[tuple[str, str]] = []
+    verification_rows: list[tuple[str, str, str]] = []
+    shared_verification_kinds = {
+        "verify-error-cost-protection",
+        "verify-privacy-or-sensitivity",
+        "verify-persistence-semantic-context",
+    }
+    for row in rows:
+        semantics = row.get("semantics") if isinstance(row.get("semantics"), dict) else {}
+        resolved = row.get("resolved_p1_context") if isinstance(row.get("resolved_p1_context"), dict) else {}
+        responsibility = str(row.get("responsibility_mode") or "review-bound")
+        field = str(row.get("contract_field") or "review-bound")
+        lines.append(
+            f"- semantic=`{row.get('semantic_id', 'review-bound')}` operation=`{row.get('operation_id', 'review-bound')}` "
+            f"interaction=`{row.get('interaction_id', 'review-bound')}` field=`{field}` binding=`{row.get('binding_source', 'review-bound')}` "
+            f"responsibility=`{responsibility}` p1_contexts=`{_join_values(_clean_values(row.get('p1_context_refs', [])), 'none')}` "
+            f"digest=`{row.get('semantic_contract_digest', 'review-bound')}` presentation_authority=`{row.get('presentation_authority', 'unselected-p3-agentic')}`"
+        )
+        lines.append(f"  - meaning: {semantics.get('user_meaning', 'review-bound')}")
+        if repository_context:
+            lines.append(
+                f"  - persistence_facts: cardinality=`{semantics.get('cardinality', 'review-bound')}`; "
+                f"validation=`{semantics.get('validation_semantics', 'review-bound')}`; "
+                f"sensitivity=`{semantics.get('privacy_or_sensitivity', 'review-bound')}`; truth=`{semantics.get('truth_state', 'review-bound')}`"
+            )
+        else:
+            candidate_source = semantics.get("candidate_source")
+            candidate_text = json.dumps(candidate_source, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            lines += [
+                f"  - interaction_facts: source=`{semantics.get('value_source', 'review-bound')}`; cardinality=`{semantics.get('cardinality', 'review-bound')}`; "
+                f"discovery=`{semantics.get('discovery_requirement', 'review-bound')}`; free_form={str(bool(semantics.get('free_form_allowed'))).lower()}; "
+                f"truth=`{semantics.get('truth_state', 'review-bound')}`",
+                f"  - candidate_source: {candidate_text}",
+                f"  - free_form_rationale: {semantics.get('free_form_rationale', 'review-bound')}",
+            ]
+            task_frequencies = _clean_values(resolved.get("task_frequencies", []))
+            low_step = _clean_values(resolved.get("low_step_requirements", []))
+            lines.append(
+                f"  - resolved_usage: frequency=`{_join_values(task_frequencies, str(semantics.get('usage_frequency', 'review-bound')))}`; "
+                f"low_step=`{_join_values(low_step, 'none explicitly resolved')}`"
+            )
+            lines.append(
+                f"  - continuity: context=`{semantics.get('context_carryover', 'review-bound')}`; "
+                f"default_or_recent=`{semantics.get('default_or_recent_semantics', 'review-bound')}`"
+            )
+            gaps = _clean_values(semantics.get("unresolved_interaction_gaps", []))
+            if gaps:
+                lines.append(f"  - unresolved_interaction_gaps: {_join_values(gaps)}")
+
+        for item in _dict_rows(row, "implementation_obligations"):
+            kind = str(item.get("kind") or "review-bound")
+            requirement = str(item.get("requirement") or "review-bound")
+            if repository_context or kind in HIGH_SIGNAL_CONSUMER_INTERACTION_OBLIGATION_KINDS:
+                pair = (kind, requirement)
+                if pair not in obligation_catalog:
+                    obligation_catalog.append(pair)
+        for item in _dict_rows(row, "verification_obligations"):
+            kind = str(item.get("kind") or "review-bound")
+            requirement = str(item.get("requirement") or "review-bound")
+            entry = ("shared" if kind in shared_verification_kinds else field, kind, requirement)
+            if entry not in verification_rows:
+                verification_rows.append(entry)
+
+    if obligation_catalog:
+        lines += ["", "## Interaction Obligation Catalog"]
+        for kind, requirement in obligation_catalog:
+            lines.append(f"- obligation=`{kind}`: {requirement}")
+    if verification_rows:
+        lines += ["", "### Product Interaction Verification"]
+        for field, kind, requirement in verification_rows:
+            lines.append(f"- field=`{field}` verify=`{kind}`: {requirement}")
+    return lines
+
+
 def _semantic_boundary_lines(obligation: dict[str, Any]) -> list[str]:
     if str(obligation.get("semantic_projection_status") or "") != "authority-bound":
         return []
@@ -250,6 +357,28 @@ def _semantic_boundary_lines(obligation: dict[str, Any]) -> list[str]:
     if project_guardrails:
         lines += ["", "### Project Guardrails (Context Only; No Component Prerequisite)", f"- project_guardrail_p1_trace_ids: {value('project_guardrail_p1_trace_ids', 'none')}"]
         lines += _guardrail_lines("Project Guardrails", project_guardrails)[2:]
+    terminal_role_bindings = _dict_rows(obligation, "terminal_role_bindings")
+    terminal_roles = _clean_values(obligation.get("terminal_roles", []))
+    terminal_role_status = str(obligation.get("terminal_role_authority_status") or "not-declared").strip()
+    terminal_role_claim_ceilings = _clean_values(obligation.get("terminal_role_claim_ceilings", []))
+    if terminal_roles or terminal_role_bindings or terminal_role_claim_ceilings or terminal_role_status != "not-declared":
+        lines += [
+            "",
+            "### Terminal Role / Data Boundary",
+            f"- terminal_roles: {_join_values(terminal_roles, 'none')}",
+            f"- terminal_role_authority_status: {terminal_role_status}",
+        ]
+        for claim_ceiling in terminal_role_claim_ceilings:
+            lines.append(f"- terminal_role_claim_ceiling: {claim_ceiling}")
+        for row in terminal_role_bindings:
+            visible_objects = _join_values(_clean_values(row.get("visible_business_objects", [])))
+            lines.append(
+                f"- role=`{row.get('terminal_role', 'review-bound')}` route=`{row.get('route', 'review-bound')}` "
+                f"interaction=`{row.get('interaction_id', 'review-bound')}` method=`{row.get('http_method', 'review-bound')}` api=`{row.get('api_endpoint', 'review-bound')}` "
+                f"visible_business_objects=`{visible_objects}` enforcement=`{row.get('enforcement_posture', 'review-bound')}` "
+                f"denied_behavior=`{row.get('denied_behavior', 'review-bound')}`"
+            )
+    lines += _product_interaction_obligation_lines(obligation)
     states = _dict_rows(obligation, "state_constraints")
     if states:
         lines += ["", "### State / Failure Boundaries"] + [
@@ -298,6 +427,11 @@ def render_implementation_action_card(obligation: dict[str, Any], catalog_row: d
         for operation_id in upstream_operations
         if str(operation_id).strip()
     ]
+    available_sources_text = (
+        f"same-as-required (count={len(available_source_ids)})"
+        if available_source_ids == required_source_ids and available_source_ids
+        else _join_values(available_source_ids, "none")
+    )
     authority_bound = str(obligation.get("semantic_projection_status") or "") == "authority-bound"
     operation_ids_text = _join_values(upstream_operations, "none; non-operation component" if authority_bound else "review-bound")
     operation_claim_refs_text = _join_values(operation_claim_refs, "none" if authority_bound and not upstream_operations else "review-bound")
@@ -335,7 +469,7 @@ def render_implementation_action_card(obligation: dict[str, Any], catalog_row: d
         "",
         "## Required Sources",
         f"- required_source_ids: {_join_values(required_source_ids)}",
-        f"- available_source_ids: {_join_values(available_source_ids, 'none')}",
+        f"- available_source_ids: {available_sources_text}",
         f"- missing_source_types: {_join_values(missing_source_types, 'none')}",
         "",
         "## Contract To Preserve",
@@ -345,8 +479,8 @@ def render_implementation_action_card(obligation: dict[str, Any], catalog_row: d
         f"- target_path_hint: {target_path_hint}",
         "",
         "## Source-Bound Behavior Scope",
-        f"- source-backed inputs: {_join_values(available_source_ids, 'none')}",
-        f"- required inputs: {_join_values(required_source_ids)}",
+        f"- source-backed inputs: use Required Sources above; available_source_count={len(available_source_ids)}",
+        f"- required inputs: use Required Sources above; required_source_count={len(required_source_ids)}",
         f"- {'source_material_gaps' if str(obligation.get('semantic_projection_status') or '') == 'authority-bound' else 'review-bound gaps'}: {_join_values(missing_source_types, 'none')}",
         *_semantic_boundary_lines(obligation),
         "",

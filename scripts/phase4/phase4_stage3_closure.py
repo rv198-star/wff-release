@@ -325,9 +325,9 @@ def classify_remediation_target(
     phase3_runtime_truth = phase3_runtime_truth or {}
     if not bool(stage1_summary.get("trace_mapping_complete")) or int(stage1_summary.get("high_priority_unmapped_count") or 0) > 0:
         return (
-            "P2",
-            "phase2-validation-contract-gap",
-            "Phase-4 could not map validation coverage back to the accepted Phase-2 contract strongly enough.",
+            "P3",
+            "phase3-frozen-contract-gap",
+            "Resolve missing validation/contract mapping through a P3 gap decision and retain next-version backport; keep frozen P1/P2 unchanged.",
         )
 
     returned_items = [item for item in items if item.get("status") in {"fail", "blocked", "not-run"}]
@@ -344,12 +344,6 @@ def classify_remediation_target(
         if str(route.get("status") or "") != "review-bound"
     ]
     if blocking_semantic_routes:
-        if any(str(route.get("owner_phase") or "") == "P2" for route in blocking_semantic_routes):
-            return (
-                "P2",
-                "phase2-semantic-disposition-gap",
-                "One or more explicit commitments still require the Phase-2 owner to supply an exact disposition; rerun P2, then P3 and P4 from the new authority.",
-            )
         return (
             "P3",
             "phase3-semantic-realization-gap",
@@ -428,21 +422,8 @@ def suggested_commands_for_target(return_target: str, *, phase3_root: Path, phas
             "--version <next-version-p4> --output-locale zh-CN"
         )
         return commands
-    if return_target == "P2":
-        return [
-            "python3 scripts/phase2/run_phase2_fresh_generation.py "
-            "--phase1-prd <phase1-prd> --output-dir <new-phase2-root> "
-            "--version <next-version-p2> --output-locale zh-CN --run-wrapper",
-            "rerun P3 with the implementation-delivery profile/source tree "
-            "--phase2-root <new-phase2-root> --output-dir <new-phase3-root> "
-            "--version <next-version-p3> --output-locale zh-CN --full-targeted-evidence",
-            "python3 scripts/phase4/run_phase4_first_version.py "
-            "--phase3-root <new-phase3-root> --output-dir <new-phase4-root> "
-            "--version <next-version-p4> --output-locale zh-CN",
-        ]
-    return [
-        "Return to the owning upstream phase identified in `return_target`, then rerun each downstream phase from that boundary."
-    ]
+    return suggested_commands_for_target("P3", phase3_root=phase3_root,
+                                         phase2_root=phase2_root, output_dir=output_dir)
 
 
 def build_remediation_packet(

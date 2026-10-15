@@ -5,14 +5,15 @@
 - generation_mode: `phase1-prd-direct`
 - phase1_prd: `$phase1_prd`
 - complexity_profile: `$complexity_profile`
+- case_name: `$case_name`
 - namespace_root: `$root_namespace`
 
 ## 3. Core Structured Output
 - system_boundary_statement:
-  - product_scope: workflow-first operating chain across $workflow_scope
+  - product_scope_reference: $workflow_scope
   - primary_objects: $primary_object_list
-  - in_scope_first_version: boundary-stable intake, execution, audit, and review flow
-  - out_of_scope_guardrail: no silent execution, no fake certainty, no cross-$boundary_term shortcuts
+  - in_scope_first_version: undecided; use explicit author scope
+  - out_of_scope_guardrail: preserve the source constraints and stated gaps; no cross-$boundary_term shortcuts
 - constraints:
   - inherited_constraints:
     - $boundary_subject_name isolation must remain explicit
@@ -60,37 +61,13 @@ $capacity_estimation_block
 - forbidden_assumptions_registry:
 $forbidden_entries_block
 
-## 5. Mermaid Evidence
-```mermaid
-C4Context
-    title $case_name System Context
-    Person(primaryOwner, "$primary_owner_label", "defines workflow scope and operating guardrails")
-    Person(operator, "$operator_label", "executes bounded workflow steps and exceptions")
-    Person(reviewer, "$reviewer_label", "reviews closure and operational outcomes")
-    System(coreSystem, "$case_name", "workflow-first operating system")
-    Rel(primaryOwner, coreSystem, "configure workflow / inspect guardrails")
-    Rel(operator, coreSystem, "create, update, and hand off work items")
-    Rel(reviewer, coreSystem, "review closure decisions and audit evidence")
-```
+## 5. Diagram Slots
+- primary_owner: $primary_owner_label
+- operator: $operator_label
+- reviewer: $reviewer_label
 
-```mermaid
-flowchart TD
-    A["Scope Governance\npriority = P0\nmaturity = core"] --> B["Observation Scoring\npriority = P0\nmaturity = core"]
-    B --> C["Recommendation Tasking\npriority = P0\nmaturity = core"]
-    C --> D["Review Closure\npriority = P0\nmaturity = guided"]
-```
+$context_diagram
 
-```mermaid
-sequenceDiagram
-    participant User as $primary_owner_label
-    participant Gateway as API Gateway
-    participant Policy as Boundary Policy
-    participant Domain as Domain Module
-    participant Audit as Audit Trail
-    User->>Gateway: access token + boundary context
-    Gateway->>Policy: verify boundary-scoped claims
-    Policy-->>Gateway: allow authorized mutation
-    Gateway->>Domain: forward authorized command
-    Domain->>Audit: persist sensitive edge
-    Domain-->>User: structured response envelope
-```
+$capability_diagram
+
+$security_sequence

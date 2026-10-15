@@ -123,6 +123,7 @@ OPTIONAL_STAGE_02_5_DEFAULT = "stage-02.5-third-party-integration-architecture-d
 PHASE2_CLOSURE_BRIDGE_SURFACE_NAMES = (
     "operation-design-source-registry.json",
     "operation-source-obligation-matrix.json",
+    "terminal-role-access-matrix.json",
     "p1-value-to-p2-operation-resolution-matrix.json",
     "operation-behavior-semantics.json",
     "implementation-depth-obligation-matrix.json",
@@ -380,6 +381,26 @@ def schema_rows(stage_03_text: str) -> list[dict[str, str]]:
     return table_rows_from_block(
         block_text(stage_03_text, "schema_draft"),
         {"table_name", "ownership", "pk", "fk"},
+    )
+
+
+def terminal_role_access_rows(stage_03_text: str) -> list[dict[str, str]]:
+    return table_rows_from_block(
+        block_text(stage_03_text, "terminal_role_access_matrix"),
+        {
+            "terminal_role",
+            "page_id",
+            "route",
+            "default_product_entry",
+            "interaction_id",
+            "operation_id",
+            "api_endpoint",
+            "http_method",
+            "visible_business_objects",
+            "authority_source",
+            "enforcement_posture",
+            "readiness_status",
+        },
     )
 
 
@@ -678,6 +699,293 @@ def build_operation_design_source_rows(
     return rows
 
 
+def p1_terminal_role_authority_rows(authority: dict[str, object] | None) -> list[dict[str, object]]:
+    """Project accepted P1 ownership assignments into role/commitment/data rows."""
+    if not isinstance(authority, dict):
+        return []
+    product_world = authority.get("product_world_decision")
+    if not isinstance(product_world, dict):
+        world_alignment = authority.get("world_alignment")
+        product_world = (
+            world_alignment.get("product_world_decision")
+            if isinstance(world_alignment, dict) and isinstance(world_alignment.get("product_world_decision"), dict)
+            else {}
+        )
+    ownership = product_world.get("ownership") if isinstance(product_world.get("ownership"), dict) else {}
+    objects = [dict(row) for row in product_world.get("objects", []) if isinstance(row, dict)]
+    objects_by_commitment: dict[str, list[str]] = {}
+    for row in objects:
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+        for raw_commitment in row.get("commitment_ids", []):
+            commitment_id = str(raw_commitment or "").strip()
+            if commitment_id:
+                objects_by_commitment.setdefault(commitment_id, []).append(name)
+    result: list[dict[str, object]] = []
+    for raw in ownership.get("assignments", []) if isinstance(ownership.get("assignments"), list) else []:
+        if not isinstance(raw, dict):
+            continue
+        role = str(raw.get("role") or "").strip()
+        commitments = list(
+            dict.fromkeys(
+                str(item or "").strip()
+                for item in raw.get("commitment_ids", [])
+                if str(item or "").strip()
+            )
+        )
+        if not role or not commitments:
+            continue
+        visible_objects = list(
+            dict.fromkeys(
+                object_name
+                for commitment_id in commitments
+                for object_name in objects_by_commitment.get(commitment_id, [])
+            )
+        )
+        result.append(
+            {
+                "terminal_role": role,
+                "commitment_ids": commitments,
+                "authority_business_objects": visible_objects,
+                "authority_basis": str(raw.get("basis") or ownership.get("posture") or "review-bound").strip(),
+                "claim_ceiling": str(raw.get("claim_ceiling") or "").strip(),
+                "source_refs": [str(item).strip() for item in raw.get("source_refs", []) if str(item).strip()],
+                "backfill_refs": [str(item).strip() for item in raw.get("backfill_refs", []) if str(item).strip()],
+            }
+        )
+    return result
+
+
+def attach_p1_terminal_role_authority_to_operations(
+    operation_rows: list[dict[str, object]],
+    p1_role_rows: list[dict[str, object]] | None,
+) -> list[dict[str, object]]:
+    """Bind machine P1 role authority to P2 operations through exact P1 trace ids."""
+    role_rows = [dict(row) for row in p1_role_rows or [] if isinstance(row, dict)]
+    result: list[dict[str, object]] = []
+    for raw_operation in operation_rows:
+        operation = dict(raw_operation)
+        upstream_ids = {
+            str(item).strip()
+            for item in operation.get("upstream_p1_trace_ids", [])
+            if str(item).strip()
+        }
+        bindings: list[dict[str, object]] = []
+        for role_row in role_rows:
+            commitments = {
+                str(item).strip()
+                for item in role_row.get("commitment_ids", [])
+                if str(item).strip()
+            }
+            matched = sorted(upstream_ids & commitments)
+            if not matched:
+                continue
+            bindings.append(
+                {
+                    "terminal_role": str(role_row.get("terminal_role") or "").strip(),
+                    "page_id": "",
+                    "route": "",
+                    "default_product_entry": False,
+                    "interaction_id": "",
+                    "api_endpoint": str(operation.get("api_endpoint") or operation.get("path") or "").strip(),
+                    "http_method": str(operation.get("http_method") or operation.get("method") or "").strip().upper(),
+                    "binding_mode": str(operation.get("binding_mode") or "").strip(),
+                    "authority_business_objects": list(role_row.get("authority_business_objects", [])),
+                    "visible_business_objects": [],
+                    "denied_behavior": "p2-terminal-access-decision-required",
+                    "authority_source": "p1-agentic-product-authority+operation-source-trace",
+                    "authority_commitment_ids": matched,
+                    "authority_basis": str(role_row.get("authority_basis") or "review-bound"),
+                    "authority_claim_ceiling": str(role_row.get("claim_ceiling") or ""),
+                    "enforcement_posture": "p2-terminal-access-decision-required",
+                    "readiness_status": "review-bound",
+                    "blocked_reason": "exact role-visible data and denied behavior require P2 terminal_access",
+                }
+            )
+        roles = list(
+            dict.fromkeys(
+                str(row.get("terminal_role") or "").strip()
+                for row in bindings
+                if str(row.get("terminal_role") or "").strip()
+            )
+        )
+        operation.update(
+            {
+                "terminal_roles": roles,
+                "terminal_role_bindings": bindings,
+                "terminal_role_authority_status": "review-bound" if bindings else "not-declared",
+                "terminal_role_claim_ceiling": (
+                    "Accepted P1 terminal-role responsibility is bound to this exact P2 operation, but exact visible-data/denial semantics still require a P2 terminal-access decision; IAM provider and credential mechanics remain outside this projection."
+                    if bindings
+                    else "No accepted P1 terminal-role commitment is bound to this operation; terminal-role ownership must not be invented downstream."
+                ),
+            }
+        )
+        result.append(operation)
+    return result
+
+
+def apply_explicit_p2_terminal_access_to_operations(
+    operation_rows: list[dict[str, object]],
+    p1_role_rows: list[dict[str, object]] | None,
+) -> list[dict[str, object]]:
+    """Apply accepted P2 terminal-access decisions over mechanical P1 role candidates."""
+    p1_rows = [dict(row) for row in p1_role_rows or [] if isinstance(row, dict)]
+    by_role = {
+        str(row.get("terminal_role") or "").strip(): row
+        for row in p1_rows
+        if str(row.get("terminal_role") or "").strip()
+    }
+    result: list[dict[str, object]] = []
+    for raw_operation in operation_rows:
+        operation = dict(raw_operation)
+        access = operation.get("terminal_access")
+        if not isinstance(access, dict) or not str(access.get("exposure") or "").strip():
+            result.append(operation)
+            continue
+        exposure = str(access.get("exposure") or "").strip()
+        authority_refs = [str(item).strip() for item in access.get("authority_refs", []) if str(item).strip()]
+        allowed_roles = [str(item).strip() for item in access.get("allowed_roles", []) if str(item).strip()]
+        visible_objects = [str(item).strip() for item in access.get("visible_business_objects", []) if str(item).strip()]
+        if exposure == "system-continuation":
+            operation.update(
+                {
+                    "terminal_roles": [],
+                    "terminal_role_bindings": [],
+                    "terminal_role_authority_status": "not-applicable-system-continuation",
+                    "terminal_role_claim_ceiling": str(access.get("claim_ceiling") or "System/internal continuation only; not a terminal-role action."),
+                }
+            )
+            result.append(operation)
+            continue
+        if exposure == "review-bound":
+            operation.update(
+                {
+                    "terminal_roles": [],
+                    "terminal_role_bindings": [],
+                    "terminal_role_authority_status": "review-bound",
+                    "terminal_role_claim_ceiling": str(access.get("claim_ceiling") or "Terminal-role authority remains review-bound."),
+                }
+            )
+            result.append(operation)
+            continue
+        bindings: list[dict[str, object]] = []
+        invalid_reasons: list[str] = []
+        for role in allowed_roles:
+            p1_row = by_role.get(role)
+            if not p1_row:
+                invalid_reasons.append(f"role-not-in-p1:{role}")
+                continue
+            p1_commitments = {
+                str(item).strip()
+                for item in p1_row.get("commitment_ids", [])
+                if str(item).strip()
+            }
+            matched = sorted(p1_commitments & set(authority_refs))
+            if not matched:
+                invalid_reasons.append(f"role-authority-ref-mismatch:{role}")
+                continue
+            p1_objects = [str(item).strip() for item in p1_row.get("authority_business_objects", []) if str(item).strip()]
+            bindings.append(
+                {
+                    "terminal_role": role,
+                    "page_id": "",
+                    "route": "",
+                    "default_product_entry": False,
+                    "interaction_id": "",
+                    "api_endpoint": str(operation.get("api_endpoint") or "").strip(),
+                    "http_method": str(operation.get("http_method") or "").strip().upper(),
+                    "binding_mode": str(operation.get("binding_mode") or "").strip(),
+                    "authority_business_objects": p1_objects,
+                    "visible_business_objects": visible_objects,
+                    "denied_behavior": str(access.get("denied_behavior") or "deny-without-authorized-role"),
+                    "authority_source": "p2-agentic-terminal-access-decision",
+                    "authority_commitment_ids": matched,
+                    "authority_basis": "accepted-p2-architecture-decision-bound-to-p1-role-authority",
+                    "authority_claim_ceiling": str(access.get("claim_ceiling") or ""),
+                    "enforcement_posture": "service-boundary-role-enforcement-required",
+                    "readiness_status": "ready",
+                    "blocked_reason": "",
+                }
+            )
+        sufficient = bool(bindings) and not invalid_reasons and len(bindings) == len(allowed_roles)
+        operation.update(
+            {
+                "terminal_roles": [str(row["terminal_role"]) for row in bindings],
+                "terminal_role_bindings": bindings,
+                "terminal_role_authority_status": "sufficient" if sufficient else "review-bound",
+                "terminal_role_claim_ceiling": (
+                    str(access.get("claim_ceiling") or "")
+                    if sufficient
+                    else "P2 terminal-access decision conflicts with accepted P1 role/data authority: " + "; ".join(invalid_reasons)
+                ),
+            }
+        )
+        result.append(operation)
+    return result
+
+
+def attach_terminal_role_access_to_operation_rows(
+    operation_rows: list[dict[str, object]],
+    role_access_rows: list[dict[str, str]] | None,
+) -> list[dict[str, object]]:
+    """Attach role/data authority to exact P2 operations without claiming IAM mechanics."""
+    by_operation: dict[str, list[dict[str, object]]] = {}
+    for raw in role_access_rows or []:
+        operation_id = str(raw.get("operation_id") or "").strip()
+        role = str(raw.get("terminal_role") or "").strip()
+        if not operation_id or not role or operation_id == "review-bound":
+            continue
+        blocked_reason = str(raw.get("blocked_reason") or "").strip()
+        if blocked_reason in {"—", "-", "none", "n/a"}:
+            blocked_reason = ""
+        binding = {
+            "terminal_role": role,
+            "page_id": str(raw.get("page_id") or "").strip(),
+            "route": str(raw.get("route") or "").strip(),
+            "default_product_entry": str(raw.get("default_product_entry") or "").strip().lower() == "yes",
+            "interaction_id": str(raw.get("interaction_id") or "").strip(),
+            "api_endpoint": str(raw.get("api_endpoint") or "").strip(),
+            "http_method": str(raw.get("http_method") or "").strip().upper(),
+            "binding_mode": str(raw.get("binding_mode") or "").strip(),
+            "visible_business_objects": split_inline_items(str(raw.get("visible_business_objects") or "")),
+            "denied_behavior": str(raw.get("denied_behavior") or "").strip(),
+            "authority_source": str(raw.get("authority_source") or "").strip(),
+            "enforcement_posture": str(raw.get("enforcement_posture") or "").strip(),
+            "readiness_status": str(raw.get("readiness_status") or "").strip(),
+            "blocked_reason": blocked_reason,
+        }
+        by_operation.setdefault(operation_id, []).append(binding)
+
+    result: list[dict[str, object]] = []
+    for raw_operation in operation_rows:
+        operation = dict(raw_operation)
+        operation_id = str(operation.get("operation_id") or "").strip()
+        bindings = by_operation.get(operation_id, [])
+        roles = list(dict.fromkeys(str(row.get("terminal_role") or "").strip() for row in bindings if str(row.get("terminal_role") or "").strip()))
+        sufficient = bool(bindings) and all(
+            str(row.get("readiness_status") or "").strip() == "ready"
+            and str(row.get("enforcement_posture") or "").strip() == "service-boundary-role-enforcement-required"
+            and not str(row.get("blocked_reason") or "").strip()
+            for row in bindings
+        )
+        operation.update(
+            {
+                "terminal_roles": roles,
+                "terminal_role_bindings": bindings,
+                "terminal_role_authority_status": "sufficient" if sufficient else "review-bound" if bindings else "not-declared",
+                "terminal_role_claim_ceiling": (
+                    "Accepted terminal-role operation/data boundary only; IAM provider, credential mechanics, and broader role-policy semantics remain outside this projection."
+                    if bindings
+                    else "No accepted terminal-role binding is declared for this operation."
+                ),
+            }
+        )
+        result.append(operation)
+    return result
+
+
 def build_operation_source_obligation_rows(
     endpoint_rows: list[dict[str, str]],
     contract_rows: list[dict[str, str]],
@@ -945,6 +1253,12 @@ def build_implementation_depth_obligation_rows(
                 "required_source_types": list(op.get("required_source_types", [])),
                 "bound_source_ids": list(op.get("bound_source_ids", [])),
                 "review_bound_missing_sources": list(op.get("review_bound_missing_sources", [])),
+                "terminal_roles": list(op.get("terminal_roles", [])),
+                "terminal_role_bindings": [
+                    dict(item) for item in op.get("terminal_role_bindings", []) if isinstance(item, dict)
+                ],
+                "terminal_role_authority_status": str(op.get("terminal_role_authority_status", "not-declared")),
+                "terminal_role_claim_ceiling": str(op.get("terminal_role_claim_ceiling", "")),
             }
         )
     return rows
@@ -1161,6 +1475,11 @@ def apply_agentic_architecture_authority_to_bridge(
                 "classification_rationale": "accepted snapshot-bound Agentic architecture operation",
                 "authority_mode": "snapshot-bound-agentic-architecture-decision",
                 "decision_digest": decision_digest,
+                "terminal_access": (
+                    dict(portfolio_row.get("terminal_access"))
+                    if isinstance(portfolio_row.get("terminal_access"), dict)
+                    else {}
+                ),
             }
         )
         authority_design_rows.append(
@@ -1236,6 +1555,7 @@ def write_compact_cross_phase_bridge_surfaces(
     endpoint_rows = api_rows(stage_03_text)
     trace_rows = contract_trace_rows(stage_03_text)
     schema_registry_rows = schema_rows(stage_03_text)
+    terminal_role_rows = terminal_role_access_rows(stage_03_text)
     operation_design_source_rows = build_operation_design_source_rows(endpoint_rows, trace_rows)
     operation_source_obligation_rows = build_operation_source_obligation_rows(
         endpoint_rows,
@@ -1278,6 +1598,21 @@ def write_compact_cross_phase_bridge_surfaces(
     )
     if authority_design_source_rows:
         operation_design_source_rows = authority_design_source_rows
+    operation_source_obligation_rows = attach_terminal_role_access_to_operation_rows(
+        operation_source_obligation_rows,
+        terminal_role_rows,
+    )
+    p1_product_authority = load_json_object(phase1_prd.parent / "p1-agentic-product-authority.json")
+    p1_machine_role_rows = p1_terminal_role_authority_rows(p1_product_authority)
+    if p1_machine_role_rows:
+        operation_source_obligation_rows = attach_p1_terminal_role_authority_to_operations(
+            operation_source_obligation_rows,
+            p1_machine_role_rows,
+        )
+    operation_source_obligation_rows = apply_explicit_p2_terminal_access_to_operations(
+        operation_source_obligation_rows,
+        p1_machine_role_rows,
+    )
     implementation_depth_rows = build_implementation_depth_obligation_rows(
         operation_source_obligation_rows,
         p1_value_resolution_rows,
@@ -1335,6 +1670,22 @@ def write_compact_cross_phase_bridge_surfaces(
     surfaces = {
         "operation-design-source-registry.json": {"sources": operation_design_source_rows},
         "operation-source-obligation-matrix.json": {"operations": operation_source_obligation_rows},
+        "terminal-role-access-matrix.json": {
+            "schema_version": "wff.p2-terminal-role-access-matrix.v1",
+            "p1_authority_rows": p1_machine_role_rows,
+            "stage03_projection_rows": terminal_role_rows,
+            "operation_role_bindings": [
+                {
+                    "operation_id": str(row.get("operation_id") or ""),
+                    "terminal_roles": list(row.get("terminal_roles", [])),
+                    "terminal_role_bindings": [dict(item) for item in row.get("terminal_role_bindings", []) if isinstance(item, dict)],
+                    "terminal_role_authority_status": str(row.get("terminal_role_authority_status") or "not-declared"),
+                    "terminal_role_claim_ceiling": str(row.get("terminal_role_claim_ceiling") or ""),
+                }
+                for row in operation_source_obligation_rows
+            ],
+            "claim_ceiling": "Machine P1 terminal-role ownership is bound to exact P2 operations through P1 trace identity; route/page projection is diagnostic and runtime IAM enforcement remains a P3 implementation/evidence obligation.",
+        },
         "p1-value-to-p2-operation-resolution-matrix.json": {"resolutions": p1_value_resolution_rows},
         "operation-behavior-semantics.json": operation_semantic_payload,
         "implementation-depth-obligation-matrix.json": {"operations": implementation_depth_rows},
@@ -1358,6 +1709,11 @@ def write_compact_cross_phase_bridge_surfaces(
             "schema_rows": len(schema_registry_rows),
             "operation_design_sources": len(operation_design_source_rows),
             "operation_source_obligations": len(operation_source_obligation_rows),
+            "terminal_role_access_rows": len(terminal_role_rows),
+            "p1_terminal_role_authority_rows": len(p1_machine_role_rows),
+            "operation_terminal_role_bindings": len(
+                [row for row in operation_source_obligation_rows if row.get("terminal_role_bindings")]
+            ),
             "p1_value_resolutions": len(p1_value_resolution_rows),
             "operation_behavior_semantics": len(operation_semantic_payload["operations"]),
             "implementation_depth_obligations": len(implementation_depth_rows),

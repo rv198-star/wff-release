@@ -168,6 +168,16 @@
       - caller_action:
   - gate_note:
     - endpoint count and failure semantics are insufficient unless JSON request/response examples, response-profile posture, and retry/idempotency posture are also present
+- terminal_role_access_matrix:
+  - purpose: bind frozen P1 terminal-role/page/data authority to exact P2 interaction/operation/API boundaries without inventing IAM mechanics
+  - required_when: P1 Surface Matrix declares one or more accepted terminal roles for an interaction-backed product surface
+  - recommended_headers:
+    - `terminal_role | page_id | route | default_product_entry | interaction_id | operation_id | api_endpoint | http_method | binding_mode | visible_business_objects | denied_behavior | authority_source | enforcement_posture | readiness_status | blocked_reason`
+  - authority_rule:
+    - preserve P1 `allowed_roles`, role entry routes, actions, and visible business objects exactly; do not merge distinct roles into a convenience super-role
+    - `enforcement_posture=service-boundary-role-enforcement-required` means the later implementation must enforce the accepted role/operation boundary; it does not select an IAM vendor or invent broader permission truth
+  - gate_note:
+    - any role/operation mismatch, missing exact operation binding, or widened visible-data scope remains `review-bound` and must not be silently repaired in P3 Frontend
 - lifecycle_and_command_consistency_checks:
   - lifecycle ownership closure between state machines and declared writers
   - one primary command boundary per authoritative mutation, with explicit split notes if multiple steps participate

@@ -37,6 +37,7 @@ from phase3.test_scaffolder_common import (
 from phase3.scenario_replay_test_common import (
     first_matching_failure_code,
     literal_ts_value,
+    provider_runtime_boundary_failures,
     response_data_example_record,
     response_is_array,
     scalar_business_value_fields,
@@ -607,6 +608,55 @@ def render_generic_chain_body(operation_ids: list[str], endpoint_rows: list[dict
     return render_semantic_chain_body(operation_ids, endpoint_rows)
 
 
+def replay_state_collector_lines() -> list[str]:
+    return [
+        "async function collectReplayState(runtime: BackendRuntime): Promise<Record<string, number>> {",
+        "  const tables = await runtime.query<{ tablename: string }>(",
+        "    `SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`,",
+        "  );",
+        "  const entries: Array<[string, number]> = [];",
+        "  for (const row of tables) {",
+        '    const countRows = await runtime.query<{ count: number }>(`SELECT COUNT(*)::int AS count FROM "${row.tablename}"`);',
+        "    entries.push([row.tablename, Number(countRows[0]?.count ?? 0)]);",
+        "  }",
+        "  return Object.fromEntries(entries);",
+        "}",
+        "",
+    ]
+
+
+def render_provider_deferred_replay_body(
+    operation_ids: list[str],
+    *,
+    boundary_operation_id: str,
+    error_code: str,
+) -> tuple[list[str], list[str]]:
+    return [
+        f'const providerBoundaryOperationId = "{boundary_operation_id}";',
+        f'const providerBoundaryErrorCode = "{error_code}";',
+    ], [
+        "    const context: Record<string, unknown> = {};",
+        "    const boundaryIndex = operationIds.indexOf(providerBoundaryOperationId);",
+        "    expect(boundaryIndex).toBeGreaterThanOrEqual(0);",
+        "    for (const operationId of operationIds.slice(0, boundaryIndex)) {",
+        "      const result = await invokeHttpOperation(runtime, operationId, applyRuntimeContext(buildOperationPayload(operationId), context));",
+        "      absorbEnvelopeContext(result, context);",
+        "    }",
+        "    const boundaryPayload = applyRuntimeContext(buildOperationPayload(providerBoundaryOperationId), context);",
+        "    const beforeRows = await collectReplayState(runtime);",
+        "    const firstError = await captureApiError(invokeHttpOperation(runtime, providerBoundaryOperationId, boundaryPayload));",
+        "    const afterFirstRows = await collectReplayState(runtime);",
+        "    const secondError = await captureApiError(invokeHttpOperation(runtime, providerBoundaryOperationId, boundaryPayload));",
+        "    const afterSecondRows = await collectReplayState(runtime);",
+        "    expect(firstError.status).toBe(503);",
+        "    expect(firstError.envelope.error_code).toBe(providerBoundaryErrorCode);",
+        "    expect(secondError.status).toBe(503);",
+        "    expect(secondError.envelope.error_code).toBe(providerBoundaryErrorCode);",
+        "    expect(afterFirstRows).toEqual(beforeRows);",
+        "    expect(afterSecondRows).toEqual(beforeRows);",
+    ]
+
+
 def render_body(
     row: dict[str, object],
     *,
@@ -685,6 +735,7 @@ def render_replay_test(
     endpoint_rows: list[dict[str, object]] | None = None,
     scenario_operation_map: dict[str, list[str]] | None = None,
     behavior_card_models: dict[str, dict[str, object]] | None = None,
+    p2_authority: dict[str, object] | None = None,
 ) -> str:
     replay_id = str(row["replay_id"])
     label = str(row["scenario_or_contract"])
@@ -734,15 +785,29 @@ def render_replay_test(
         model = (behavior_card_models or {}).get(operation_id)
         if model:
             behavior_mapping_lines.extend(render_behavior_step_test_mapping(model)["replay"].splitlines())
-    const_lines, body_lines = render_body(
-        row,
-        endpoint_rows=endpoint_rows,
-        operation_ids=operation_ids,
-        failure_code=failure_code,
-        behavior_card_models=behavior_card_models,
+    provider_boundaries = provider_runtime_boundary_failures(p2_authority)
+    provider_boundary = next(
+        ((operation_id, provider_boundaries[operation_id]) for operation_id in operation_ids if operation_id in provider_boundaries),
+        None,
     )
+    if provider_boundary is not None:
+        const_lines, body_lines = render_provider_deferred_replay_body(
+            operation_ids,
+            boundary_operation_id=provider_boundary[0],
+            error_code=provider_boundary[1],
+        )
+        replay_stress_lines: list[str] = []
+    else:
+        const_lines, body_lines = render_body(
+            row,
+            endpoint_rows=endpoint_rows,
+            operation_ids=operation_ids,
+            failure_code=failure_code,
+            behavior_card_models=behavior_card_models,
+        )
+        replay_stress_lines = replay_idempotency_stress_lines()
     include_failure_code = any("failureCode" in line for line in const_lines + body_lines)
-    generated_body_text = "\n".join([*behavior_mapping_lines, *const_lines, *body_lines])
+    generated_body_text = "\n".join([*behavior_mapping_lines, *const_lines, *body_lines, *replay_stress_lines])
     return "\n".join(
         [
             'import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";',
@@ -755,6 +820,7 @@ def render_replay_test(
             f"const operationIds = {json.dumps(operation_ids, ensure_ascii=False)};",
             f'const expectedOutcome = {json.dumps(expected_outcome, ensure_ascii=False)};',
             *([f'const failureCode = "{failure_code}";'] if include_failure_code else []),
+            *(replay_state_collector_lines() if "collectReplayState" in generated_body_text else []),
             *behavior_mapping_lines,
             *const_lines,
             "",
@@ -784,7 +850,7 @@ def render_replay_test(
             "    expect(expectedOutcome.length).toBeGreaterThan(0);",
             "    expect(operationIds.length).toBeGreaterThan(0);",
             *body_lines,
-            *replay_idempotency_stress_lines(),
+            *replay_stress_lines,
             "  });",
             "});",
             "",
@@ -800,6 +866,7 @@ def scaffold_replay_tests(
     stage_03_text: str = "",
     openapi_spec: dict[str, object] | None = None,
     behavior_card_models: dict[str, dict[str, object]] | None = None,
+    p2_authority: dict[str, object] | None = None,
 ) -> dict[str, object]:
     rows = parse_replay_rows(stage_04_text)
     source_endpoint_rows = parse_api_endpoint_rows(esp_text) if esp_text.strip() else []
@@ -885,6 +952,7 @@ def scaffold_replay_tests(
                 endpoint_rows=render_endpoint_rows,
                 scenario_operation_map=scenario_operation_map,
                 behavior_card_models=behavior_card_models,
+                p2_authority=p2_authority,
             ),
             encoding="utf-8",
         )

@@ -384,7 +384,7 @@ def parse_failure_codes(raw: str) -> list[dict[str, str]]:
         chunk = part.strip()
         if not chunk:
             continue
-        if chunk.startswith("error_type split:"):
+        if chunk == "authority-bound" or chunk.startswith("error_type split:"):
             continue
         left, arrow, right = chunk.partition("->")
         retryability = right.strip() if arrow else ""
@@ -539,6 +539,7 @@ def endpoint_rows_from_openapi_spec(payload: dict[str, Any]) -> list[dict[str, o
                     "purpose": str(operation.get("summary", "")).strip() or operation_id,
                     "request_body_example": request_example,
                     "response_body_example": response_example,
+                    "idempotency_rule": str(operation.get("x-idempotency-rule", "")).strip(),
                     "response_example_authority": str(operation.get("x-wff-response-example-authority", "")).strip(),
                     "semantic_literal_fields": (
                         [str(item).strip() for item in semantic_literal_fields if str(item).strip()]

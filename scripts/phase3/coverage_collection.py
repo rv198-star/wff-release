@@ -19,6 +19,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from phase3.phase3_toolchain_bootstrap import pnpm_command
 from phase3.review_support import (
     load_json,
     load_json_if_exists,
@@ -57,8 +58,10 @@ def package_script(workspace_root: Path, script_name: str) -> str:
 
 
 def preferred_coverage_script(workspace_root: Path, *, runtime_preflight_packet: dict[str, Any] | None = None) -> tuple[str, bool]:
-    if runtime_preflight_packet is not None and package_script(workspace_root, "test:coverage"):
-        return "test:coverage", True
+    # Coverage is an implementation-depth signal, not a second full functional
+    # verification lane. Prefer the dedicated unit-coverage script whenever the
+    # generated workspace provides it; strict-runtime owns SQL/contract/scenario/
+    # replay correctness and persistence truth separately.
     if package_script(workspace_root, "test:coverage:unit"):
         return "test:coverage:unit", False
     if package_script(workspace_root, "test:coverage"):
@@ -258,8 +261,9 @@ def collect_phase3_coverage(
                 collection_status = str(runtime_preflight.get("failure_reason", "runtime-preflight-failed") or "runtime-preflight-failed")
             else:
                 try:
+                    collection_command = f"pnpm {script_name}"
                     completed = subprocess.run(
-                        f"pnpm {script_name}",
+                        collection_command,
                         cwd=workspace_root,
                         shell=True,
                         executable=shell_executable(),
@@ -267,10 +271,23 @@ def collect_phase3_coverage(
                         capture_output=True,
                         env=execution_env,
                     )
+                    if completed.returncode == 127:
+                        fallback = pnpm_command()
+                        fallback_text = " ".join(fallback)
+                        if fallback and fallback_text and fallback_text != "pnpm":
+                            collection_command = f"{fallback_text} {script_name}"
+                            completed = subprocess.run(
+                                collection_command,
+                                cwd=workspace_root,
+                                shell=True,
+                                executable=shell_executable(),
+                                text=True,
+                                capture_output=True,
+                                env=execution_env,
+                            )
                 finally:
                     if runtime_preflight.get("started"):
                         teardown_backend_runtime_preflight(workspace_root=workspace_root, execution_env=execution_env)
-                collection_command = f"pnpm {script_name}"
                 command_exit_code = int(completed.returncode)
                 stdout_log_path = str(stdout_path)
                 stderr_log_path = str(stderr_path)

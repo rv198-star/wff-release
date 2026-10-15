@@ -16,8 +16,10 @@ const modularBaselineFixtures = __WFF_MODULAR_BASELINE_FIXTURES__ as {
     values: Record<string, unknown>;
     uuid_fields?: string[];
     reasons?: string[];
+    bypass_triggers?: boolean;
     claim_ceiling?: string;
   }>;
+  default_tenant_id?: unknown;
   claim_ceiling?: string;
 };
 
@@ -42,9 +44,19 @@ function operationFieldType(operationId: string, field: string): string {
 }
 
 function normalizeFixturePayloadValue(operationId: string, field: string, value: unknown): unknown {
-  if (typeof value !== "string") return value;
+  const spec = getOperationSpec(operationId);
+  const validationValues = isRecord(spec.validationFieldValues) ? spec.validationFieldValues : {};
   const normalizedField = snakeCase(field);
-  if (operationFieldType(operationId, field) === "uuid") {
+  const acceptedValue = validationValues[field] ?? validationValues[normalizedField];
+  if (acceptedValue !== undefined) {
+    const accepted = deepClone(acceptedValue);
+    if (typeof accepted === "string" && (operationFieldType(operationId, field) === "uuid" || operationPersistenceFieldType(operationId, field) === "uuid")) {
+      return normalizeRuntimeIdentifierValue(normalizedField, accepted);
+    }
+    return accepted;
+  }
+  if (typeof value !== "string") return value;
+  if (operationFieldType(operationId, field) === "uuid" || operationPersistenceFieldType(operationId, field) === "uuid") {
     return normalizeRuntimeIdentifierValue(normalizedField, value);
   }
   return value;
@@ -52,7 +64,7 @@ function normalizeFixturePayloadValue(operationId: string, field: string, value:
 
 function missingFixturePayloadValue(operationId: string, field: string): unknown {
   const normalizedField = snakeCase(field);
-  const fieldType = operationFieldType(operationId, field);
+  const fieldType = operationPersistenceFieldType(operationId, field) || operationFieldType(operationId, field);
   if (fieldType === "integer" || fieldType.startsWith("int") || fieldType.startsWith("bigint") || fieldType.startsWith("smallint")) {
     return 2147483647;
   }
@@ -89,12 +101,16 @@ function buildOperationPayloadSupport(operationId: string, overrides: Record<str
     payload.path_params = pathParams;
     payload.pathParams = pathParams;
   }
-  const tenantId = String(payload.tenant_id ?? payload.tenantId ?? "t1");
+  const tenantId = String(payload.tenant_id ?? payload.tenantId ?? modularBaselineFixtures.default_tenant_id ?? "t1");
+  const terminalRoles = Array.isArray(spec.terminalRoles)
+    ? spec.terminalRoles.map((role) => String(role).trim()).filter(Boolean)
+    : [];
   payload.auth_context = {
     tenant_id: tenantId,
     subject_id: "phase3-runtime-test",
     session_id: "phase3-runtime-test-session",
-    roles: ["authenticated"],
+    roles: terminalRoles.length ? [terminalRoles[0]] : ["authenticated"],
+    ...(String(spec.terminalAccessExposure ?? '').trim() === 'system-continuation' ? { system_continuation: true } : {}),
   };
   return payload;
 }
@@ -111,7 +127,13 @@ function buildFailurePayloadSupport(operationId: string, errorCode: string): Rec
     const pathParams = isRecord(payload.path_params) ? { ...payload.path_params } : {};
     const pathName = operationPathParameterNames(spec).find((name) => snakeCase(name) === snakeCase(candidate));
     if (pathName) {
-      delete pathParams[pathName];
+      if (normalized.startsWith('invalid_')) {
+        delete pathParams[pathName];
+      } else {
+        const missingValue = missingFixturePayloadValue(operationId, pathName);
+        pathParams[pathName] = missingValue;
+        payload[candidate] = missingValue;
+      }
       payload.path_params = pathParams;
       payload.pathParams = pathParams;
     }
@@ -174,7 +196,24 @@ function persistenceProbeHintsSupport(operationId: string): Record<string, unkno
     tableFieldTypes: {},
     positiveInsertWriteTable: '',
     positiveInsertUniqueConstraints: [],
+    positiveInsertIdentityConstraints: [],
   };
+}
+
+function operationPersistenceFieldType(operationId: string, field: string): string {
+  const hints = persistenceProbeHintsSupport(operationId);
+  const tableFieldTypes = isRecord(hints.tableFieldTypes) ? hints.tableFieldTypes : {};
+  const candidates = uniqueStrings([
+    ...(Array.isArray(hints.strictTableCandidates) ? hints.strictTableCandidates : []),
+    ...(Array.isArray(hints.tableCandidates) ? hints.tableCandidates : []),
+  ]);
+  const normalizedField = snakeCase(field);
+  const types = uniqueStrings(candidates.flatMap((tableName) => {
+    const tableTypes = isRecord(tableFieldTypes[tableName]) ? tableFieldTypes[tableName] as Record<string, unknown> : {};
+    const value = String(tableTypes[field] ?? tableTypes[normalizedField] ?? '').trim().toLowerCase();
+    return value ? [value] : [];
+  }));
+  return types.length === 1 ? types[0] : types.length > 1 ? 'mixed' : '';
 }
 
 function fieldNegativeReplayIsolationPriority(field: string): number {
@@ -186,9 +225,39 @@ function fieldNegativeReplayIsolationPriority(field: string): number {
   return 0;
 }
 
+function fieldPositiveInsertIsolationPriority(field: string): number {
+  const normalized = snakeCase(field);
+  if (normalized.includes('idempotency')) return 160;
+  if (normalized.includes('client_request_id')) return 150;
+  if (normalized.endsWith('_request_id')) return 145;
+  if (normalized === 'period_ref' || normalized.endsWith('_period_ref')) return 140;
+  if (normalized.endsWith('_key')) return 130;
+  if (normalized.endsWith('_ref')) return 100;
+  if (normalized === 'id' || normalized.endsWith('_id')) return 80;
+  return 40;
+}
+
+function fieldPositiveInsertIsolationValue(operationId: string, field: string, current: unknown): unknown {
+  const normalized = snakeCase(field);
+  const fieldType = operationPersistenceFieldType(operationId, normalized) || operationFieldType(operationId, normalized);
+  if (fieldType === 'uuid') {
+    return normalizeRuntimeIdentifierValue(normalized, `validation-positive-${normalized}`);
+  }
+  if (fieldType === 'integer' || fieldType.startsWith('int') || fieldType.startsWith('bigint') || fieldType.startsWith('smallint')) {
+    const numeric = Number(current);
+    return Number.isFinite(numeric) ? numeric + 1000000 : 2147483645;
+  }
+  if (fieldType === 'number' || fieldType.startsWith('numeric') || fieldType.startsWith('decimal')) {
+    const numeric = Number(current);
+    return Number.isFinite(numeric) ? numeric + 1000000 : 2147483645;
+  }
+  const text = String(current ?? '').trim();
+  return `${text || normalized}-validation-positive`;
+}
+
 function fieldNegativeReplayIsolationValue(operationId: string, field: string, current: unknown): unknown {
   const normalized = snakeCase(field);
-  const fieldType = operationFieldType(operationId, normalized);
+  const fieldType = operationPersistenceFieldType(operationId, normalized) || operationFieldType(operationId, normalized);
   if (fieldType === 'uuid') {
     return normalizeRuntimeIdentifierValue(normalized, `validation-negative-${normalized}`);
   }
@@ -247,9 +316,11 @@ async function preparePositiveInsertValidationState(
   if (payload.__wff_validation_negative_evidence === true) return;
   const hints = persistenceProbeHintsSupport(operationId);
   const writeTable = String(hints.positiveInsertWriteTable ?? '').trim();
-  const uniqueGroups = Array.isArray(hints.positiveInsertUniqueConstraints)
-    ? hints.positiveInsertUniqueConstraints.filter((group): group is unknown[] => Array.isArray(group))
-    : [];
+  const uniqueGroups = Array.isArray(hints.positiveInsertIdentityConstraints)
+    ? hints.positiveInsertIdentityConstraints.filter((group): group is unknown[] => Array.isArray(group))
+    : Array.isArray(hints.positiveInsertUniqueConstraints)
+      ? hints.positiveInsertUniqueConstraints.filter((group): group is unknown[] => Array.isArray(group))
+      : [];
   if (!writeTable || uniqueGroups.length === 0) return;
 
   let prepared = positiveInsertPreparation.get(runtime);
@@ -264,9 +335,9 @@ async function preparePositiveInsertValidationState(
     if (fixture.table !== writeTable || !isRecord(fixture.values)) continue;
     const fixtureValues = fixture.values;
     const uuidFields = new Set((fixture.uuid_fields ?? []).map((field) => snakeCase(field)));
-    const conflicts = uniqueGroups.some((rawGroup) => {
+    for (const rawGroup of uniqueGroups) {
       const group = rawGroup.map((field) => String(field ?? '').trim()).filter(Boolean);
-      return group.length > 0 && group.every((field) => {
+      const conflicts = group.length > 0 && group.every((field) => {
         const payloadValue = recordFieldValue(payload, field);
         const fixtureValue = recordFieldValue(fixtureValues, field);
         if (payloadValue === undefined || fixtureValue === undefined) return false;
@@ -275,18 +346,36 @@ async function preparePositiveInsertValidationState(
             ? normalizeRuntimeIdentifierValue(field, fixtureValue)
             : fixtureValue);
       });
-    });
-    if (!conflicts) continue;
-
-    const columns = Object.keys(fixtureValues);
-    const params = columns.map((column) => {
-      const value = fixtureValues[column];
-      return uuidFields.has(snakeCase(column)) && typeof value === 'string'
-        ? normalizeRuntimeIdentifierValue(column, value)
-        : value;
-    });
-    const predicates = columns.map((column, index) => `${quoteIdentifier(column)} IS NOT DISTINCT FROM $${index + 1}`).join(' AND ');
-    await runtime.query(`DELETE FROM ${quoteIdentifier(writeTable)} WHERE ${predicates}`, params);
+      if (!conflicts) continue;
+      const presentFields = group.filter((field) => recordFieldValue(payload, field) !== undefined);
+      const nonIdentifierFields = presentFields.filter((field) => {
+        const normalized = snakeCase(field);
+        return normalized !== 'id' && !normalized.endsWith('_id');
+      });
+      if (nonIdentifierFields.length === 0 && presentFields.length > 0) {
+        const params = presentFields.map((field) => {
+          const fixtureValue = recordFieldValue(fixtureValues, field);
+          return uuidFields.has(snakeCase(field)) && typeof fixtureValue === 'string'
+            ? normalizeRuntimeIdentifierValue(field, fixtureValue)
+            : fixtureValue;
+        });
+        const where = presentFields.map((field, index) => `${quoteIdentifier(field)} = $${index + 1}`).join(' AND ');
+        await runtime.query(`DELETE FROM ${quoteIdentifier(writeTable)} WHERE ${where}`, params);
+        break;
+      }
+      const selected = nonIdentifierFields
+        .map((field) => ({ field, priority: fieldPositiveInsertIsolationPriority(field) }))
+        .sort((left, right) => right.priority - left.priority || left.field.localeCompare(right.field))[0];
+      if (!selected) continue;
+      const current = recordFieldValue(payload, selected.field);
+      payload[selected.field] = fieldPositiveInsertIsolationValue(operationId, selected.field, current);
+      const pathParams = isRecord(payload.path_params) ? payload.path_params : undefined;
+      if (pathParams) {
+        const pathName = Object.keys(pathParams).find((name) => snakeCase(name) === snakeCase(selected.field));
+        if (pathName) pathParams[pathName] = payload[selected.field];
+      }
+      break;
+    }
   }
   prepared.add(operationId);
 }
@@ -312,10 +401,16 @@ async function seedGeneratedRuntimePersistence(): Promise<void> {
       });
       const names = columns.map(quoteIdentifier).join(", ");
       const placeholders = columns.map((_column, index) => `$${index + 1}`).join(", ");
-      await client.query(
-        `INSERT INTO ${quoteIdentifier(fixture.table)} (${names}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`,
-        params,
-      );
+      const bypassTriggers = fixture.bypass_triggers === true;
+      if (bypassTriggers) await client.query('SET session_replication_role = replica');
+      try {
+        await client.query(
+          `INSERT INTO ${quoteIdentifier(fixture.table)} (${names}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`,
+          params,
+        );
+      } finally {
+        if (bypassTriggers) await client.query('SET session_replication_role = origin');
+      }
     }
   } finally {
     await client.end();
@@ -1068,6 +1163,12 @@ function scoreContextKey(requestedKey: string, candidateKey: string): number {
   if (candidateCore === requestedCore) {
     return 90;
   }
+  if (requestedKey.endsWith('_id') && candidateKey.endsWith('_id')) {
+    // Distinct canonical entity identities must never cross-fill each other.
+    // Context chaining may normalize camel/snake aliases, but question_record_id
+    // cannot be satisfied by learning_record_id merely because both end in "id".
+    return -1;
+  }
   if (candidateCore.endsWith(requestedCore) || requestedCore.endsWith(candidateCore)) {
     return 80;
   }
@@ -1107,7 +1208,7 @@ function hasMeaningfulValue(value: unknown): boolean {
 
 function shouldPreserveExplicitField(key: string, value: unknown): boolean {
   const normalized = snakeCase(key);
-  return hasMeaningfulValue(value) && (normalized === 'status' || normalized === 'state' || normalized.endsWith('_id') || normalized === 'version' || normalized === 'expected_version');
+  return hasMeaningfulValue(value) && (normalized === 'status' || normalized === 'state' || normalized === 'version' || normalized === 'expected_version');
 }
 
 function applyPayloadToHttpRequest(spec: Record<string, unknown>, payload: Record<string, unknown>, runtime: BackendRuntime): { url: string; init: globalThis.RequestInit } {
@@ -1393,13 +1494,16 @@ function persistenceFieldType(hints: Record<string, unknown>, tableName: string,
   return String(tableTypes[snakeCase(field)] ?? '').trim().toLowerCase();
 }
 
-function identifierFieldTypesCompatible(sourceType: string, targetType: string): boolean {
+function identifierFieldTypesCompatible(field: string, sourceType: string, targetType: string): boolean {
   const source = sourceType.trim().toLowerCase();
   const target = targetType.trim().toLowerCase();
   if (!source || !target) return true;
   const integerLike = (value: string) => value === 'integer' || value.startsWith('int') || value.startsWith('bigint') || value.startsWith('smallint');
   const numericLike = (value: string) => value === 'number' || value.startsWith('numeric') || value.startsWith('decimal');
-  if (source === 'uuid' || target === 'uuid') return source === 'uuid' && target === 'uuid';
+  if (source === 'uuid' || target === 'uuid') {
+    const boundaryString = (value: string) => value === 'string' || value === 'text' || value === 'mixed';
+    return source === target || (isIdentifierLikeField(field) && (boundaryString(source) || boundaryString(target)));
+  }
   if (integerLike(source) || integerLike(target)) return integerLike(source) && integerLike(target);
   if (numericLike(source) || numericLike(target)) return (numericLike(source) || integerLike(source)) && (numericLike(target) || integerLike(target));
   return source === target || (source.includes('string') && target.includes('string'));
@@ -1418,7 +1522,7 @@ function resolveProbeColumn(
   let bestScore = -1;
   for (const column of columns) {
     const targetType = persistenceFieldType(hints, tableName, column);
-    if (!identifierFieldTypesCompatible(sourceType, targetType)) continue;
+    if (!identifierFieldTypesCompatible(candidateField, sourceType, targetType)) continue;
     const score = scoreContextKey(requested, snakeCase(column));
     if (score > bestScore) {
       bestColumn = column;
@@ -1528,7 +1632,7 @@ function normalizeIdentifierComparableValue(operationId: string, field: string, 
   if (!text) {
     return canonicalizePersistenceValue(value);
   }
-  if (operationFieldType(operationId, field) === "uuid") {
+  if (operationFieldType(operationId, field) === "uuid" || operationPersistenceFieldType(operationId, field) === "uuid") {
     return normalizeRuntimeIdentifierValue(field, text);
   }
   return canonicalizePersistenceValue(value);
@@ -1654,7 +1758,7 @@ export async function collectPersistenceRoundTripEvidence(runtime: BackendRuntim
         evidence.push({
           tableName,
           idField: probeColumn,
-          idValue: normalizedIdValue,
+          idValue: String(normalizedIdValue),
           matchedRows,
           checkedFieldNames,
           checkedValueFieldNames,

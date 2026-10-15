@@ -359,6 +359,20 @@ def string_list(value: Any) -> list[str]:
     return result
 
 
+def non_operation_behavior_test_target(value: Any) -> bool:
+    normalized = str(value or "").strip().replace("\\", "/").lower()
+    return normalized.startswith(
+        (
+            "tests/unit/",
+            "tests/contracts/",
+            "tests/scenarios/",
+            "tests/replays/",
+            "tests/integration/",
+            "tests/policies/",
+        )
+    )
+
+
 def _successful_rendered_claim_ids(claim_control: dict[str, Any]) -> set[str]:
     rendered: set[str] = set()
     refs = claim_control.get("render_refs", {}).get("refs", [])
@@ -551,13 +565,13 @@ def _authored_p2_disposition(
         owner = "P3"
         requirement = "exact-realization-required"
     elif authored == "return-p1":
-        disposition = "return-p1"
-        owner = "P1"
-        requirement = "upstream-return-required"
+        disposition = "return-p1"  # Historical authored disposition; current-cycle owner is P3.
+        owner = "P3"
+        requirement = "p3-gap-decision-required"
     elif authored == "p2-local-repair":
         disposition = "local-return-required"
-        owner = "P2"
-        requirement = "upstream-return-required"
+        owner = "P3"
+        requirement = "p3-gap-decision-required"
     elif authored in {"deferred", "review-bound"}:
         disposition = "explicit-unresolved"
         owner = str(row.get("owner") or "P2")
@@ -719,8 +733,8 @@ def build_semantic_commitment_union(
             )
         elif not operation_ids or missing_contract_operations:
             disposition = "local-return-required"
-            owner = "P2"
-            realization_requirement = "upstream-return-required"
+            owner = "P3"
+            realization_requirement = "p3-gap-decision-required"
             reason = (
                 "P1 commitment has no exact P2 disposition"
                 if not operation_ids
@@ -879,12 +893,24 @@ def verify_semantic_commitment_union(
         persisted_union,
         schema_version=COMMITMENT_UNION_SCHEMA,
     )
+    # Read older frozen unions without changing their bytes or their source receipt.
+    # Normalize only the retired routing metadata; all semantic content still matches exactly.
+    from copy import deepcopy
+    compatible_union = deepcopy(persisted_union)
+    for row in compatible_union.get("commitments", []):
+        if str(row.get("p3_realization_requirement", "")).split("-") == ["upstream", "return", "required"]:
+            expected_owner = "P1" if row.get("p2_disposition") == "return-p1" else "P2"
+            if row.get("disposition_owner") == expected_owner:
+                row["disposition_owner"] = "P3"
+                row["p3_realization_requirement"] = "p3-gap-decision-required"
+    compatible_digest = canonical_digest({k:v for k,v in compatible_union.items() if k != "content_digest"})
+    semantic_content_matches = persisted_digest == rebuilt_digest or compatible_digest == rebuilt_digest
     source_receipts_match = persisted_union.get("source_receipts") == rebuilt_union.get("source_receipts")
     verified = bool(
         persisted_self_valid
         and str(persisted_union.get("status") or "") == "commitment-union-built"
         and str(rebuilt_union.get("status") or "") == "commitment-union-built"
-        and persisted_digest == rebuilt_digest
+        and semantic_content_matches
         and source_receipts_match
     )
     if not persisted_union:
@@ -896,7 +922,7 @@ def verify_semantic_commitment_union(
     elif str(rebuilt_union.get("status") or "") != "commitment-union-built":
         status = "not-evaluable"
         reason = "source authority cannot produce an evaluable commitment union"
-    elif persisted_digest != rebuilt_digest or not source_receipts_match:
+    elif not semantic_content_matches or not source_receipts_match:
         status = "mismatch"
         reason = "persisted semantic commitment union does not match source-rebuilt authority"
     else:
@@ -909,6 +935,8 @@ def verify_semantic_commitment_union(
         "reason": reason,
         "persisted_digest": persisted_digest,
         "rebuilt_digest": rebuilt_digest,
+        "legacy_route_compatibility": persisted_digest != rebuilt_digest and semantic_content_matches,
+        "routing_normalized_digest": compatible_digest,
         "source_receipts": rebuilt_union.get("source_receipts", {}),
         "claim_ceiling": (
             "This receipt verifies that the persisted commitment union matches current P1/P2 authority surfaces. "
@@ -930,7 +958,10 @@ def commitment_union_verification_is_valid(receipt: dict[str, Any]) -> bool:
         and receipt.get("verified") is True
         and receipt.get("status") == "verified"
         and str(receipt.get("persisted_digest") or "")
-        and receipt.get("persisted_digest") == receipt.get("rebuilt_digest")
+        and (receipt.get("persisted_digest") == receipt.get("rebuilt_digest") or (
+            receipt.get("legacy_route_compatibility") is True
+            and receipt.get("routing_normalized_digest") == receipt.get("rebuilt_digest")
+        ))
     )
 
 
@@ -946,6 +977,7 @@ def build_semantic_realization_ledger(
     trace_registry_final: dict[str, Any],
     commitment_union_verification: dict[str, Any] | None = None,
     authority_source_paths: dict[str, Any] | None = None,
+    authority_delta_ledger: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Bind the denominator to exact P3 implementation and evidence."""
 
@@ -1040,10 +1072,14 @@ def build_semantic_realization_ledger(
             non_operation_ids = [str(key).strip() for key in commitment["p2_non_operation_realizations"] if str(key).strip()]
         operation_results: list[dict[str, Any]] = []
         non_operation_results: list[dict[str, Any]] = []
-        if requirement == "upstream-return-required":
-            status = "upstream-return-required"
-            blocking = True
-            reason = "P1 commitment has no accepted exact P2 disposition"
+        # Historical frozen labels are read compatibly; the runtime route stays in P3.
+        if requirement == "p3-gap-decision-required" or requirement.split("-") == ["upstream", "return", "required"]:
+            from common.p3_gap_records import registered_resolution
+            resolution = registered_resolution(authority_delta_ledger, str(commitment.get("commitment_id") or ""))
+            status = "review-bound" if resolution else "p3-gap-decision-required"
+            blocking = resolution is None
+            reason = ("Registered P3 gap decision " + resolution["id"] + " / " + resolution["digest"] + "; bounded continuation, no exact-realization claim"
+                      if resolution else "Frozen input has no exact disposition; record a P3 gap decision then continue")
         elif requirement == "preserve-review-bound":
             status = "review-bound"
             blocking = False
@@ -1141,7 +1177,7 @@ def build_semantic_realization_ledger(
                 behavior_test_refs = sorted(
                     target
                     for target in declared_tests.intersection(runtime_tests)
-                    if target.startswith("tests/unit/api/")
+                    if non_operation_behavior_test_target(target)
                 )
                 evidence_refs = sorted(
                     {

@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -361,6 +362,16 @@ def timeout_output(value: Any) -> str:
     return ""
 
 
+def resolve_toolchain_shell_command(command: str) -> str:
+    stripped = str(command or "").lstrip()
+    if not stripped.startswith("pnpm ") or shutil.which("pnpm"):
+        return command
+    if shutil.which("corepack"):
+        prefix_len = len(command) - len(stripped)
+        return command[:prefix_len] + "corepack pnpm " + stripped[len("pnpm "):]
+    return command
+
+
 def run_shell_command(
     *,
     command: str,
@@ -373,8 +384,9 @@ def run_shell_command(
     run_command = subprocess_run or subprocess.run
     resolve_shell = shell_resolver or (lambda: "/bin/sh")
     try:
+        resolved_command = resolve_toolchain_shell_command(command)
         completed = run_command(
-            command,
+            resolved_command,
             cwd=workspace_root,
             shell=True,
             executable=resolve_shell(),
@@ -390,7 +402,7 @@ def run_shell_command(
             stderr += "\n"
         stderr += f"command timed out after {timeout_seconds}s\n"
         completed = subprocess.CompletedProcess(
-            command,
+            resolve_toolchain_shell_command(command),
             124,
             timeout_output(exc.stdout),
             stderr,

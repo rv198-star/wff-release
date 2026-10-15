@@ -33,10 +33,7 @@ $primary_surface_block
 $page_blueprint_block
   - expression_mode: structured delivery package with implementation-facing digest, replay, RBI, and work-package evidence
   - why_not_ui_only: first-version delivery integrity depends more on contract and trace closure than on high-fidelity prototype polish; however, the Phase-1 page map and page blueprint types remain authoritative for frontend implementation when prototype-spec evidence exists
-- critical_interaction_sequence_set:
-  - sequence_1: primary contract activation and downstream handoff
-  - sequence_2: mid-stream replay and ownership verification
-  - sequence_3: implementation intake and review closure
+- critical_interaction_sequence_set: see authored sequence slots below
 - optimality_review:
 $optimality_review_block
 - design_verification_notes:
@@ -56,7 +53,7 @@ $implementation_must_preserve_block
   - contract_bundle:
 $contract_list
   - handoff_rule:
-    - no implementation slice may rename public contracts or weaken failure semantics without returning to Phase-2
+    - preserve frozen public contracts; resolve missing or conflicting facts in P3 through recorded gap decisions
 - implementation_task_sketch:
 $implementation_task_sketch_table
 $nested_wp_entries_block
@@ -70,19 +67,5 @@ $environment_prerequisites
 
 ## 5. Mermaid Evidence
 $mermaid_sequences_block
-
-```mermaid
-C4Container
-    title Implementation Planning Intake
-    Person(team, "Implementation Team", "consumes P2 handoff")
-    System_Boundary(system, "Phase-2 Delivery Boundary") {
-        Container(spec, "Engineering Spec Pack", "Markdown", "implementation-facing contract and trace bundle")
-        Container(replay, "Replay Evidence", "Markdown", "verification replay and RBI chain")
-        Container(entry, "Implementation Intake", "Markdown", "Phase-3 start contract")
-    }
-    Rel(team, spec, "reads")
-    Rel(spec, replay, "binds")
-    Rel(replay, entry, "feeds")
-```
 
 $gantt_block

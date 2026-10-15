@@ -1712,6 +1712,39 @@ def _agentic_authority_markdown(authority: dict[str, Any], *, surface: str) -> s
                 refs=", ".join(f"`{item}`" for item in row.get("source_refs", []) if str(item).strip()) or "-",
             )
         )
+    interaction_context = authority.get("interaction_relevant_product_context")
+    if isinstance(interaction_context, dict):
+        lines.extend(
+            [
+                "",
+                "### Interaction-Relevant Product Context",
+                "",
+                f"- status: `{interaction_context.get('status', '')}`",
+                f"- unresolved_items: {', '.join(str(item) for item in interaction_context.get('unresolved_items', []) if str(item).strip()) or '-'}",
+                f"- claim_ceiling: {interaction_context.get('claim_ceiling', '')}",
+                "",
+                "| Context ID | Commitments | Role / Actor | Task | Outcome | Frequency / Pattern | Friction | Memory / Default Expectation | Truth State | Gaps |",
+                "|---|---|---|---|---|---|---|---|---|---|",
+            ]
+        )
+        for row in interaction_context.get("task_contexts", []):
+            if not isinstance(row, dict):
+                continue
+            lines.append(
+                "| {context_id} | {commitments} | {role} | {task} | {outcome} | {frequency} / {pattern} | {friction} | {memory} | `{truth_state}` | {gaps} |".format(
+                    context_id=str(row.get("context_id") or ""),
+                    commitments=", ".join(f"`{item}`" for item in row.get("commitment_ids", []) if str(item).strip()) or "-",
+                    role=str(row.get("user_role_or_actor") or "").replace("|", "\\|"),
+                    task=str(row.get("task") or "").replace("|", "\\|"),
+                    outcome=str(row.get("business_outcome") or "").replace("|", "\\|"),
+                    frequency=str(row.get("task_frequency") or "").replace("|", "\\|"),
+                    pattern=str(row.get("usage_pattern") or "").replace("|", "\\|"),
+                    friction=str(row.get("material_friction") or "").replace("|", "\\|"),
+                    memory=str(row.get("expected_system_memory_or_defaults") or "").replace("|", "\\|"),
+                    truth_state=str(row.get("truth_state") or ""),
+                    gaps=", ".join(str(item).replace("|", "\\|") for item in row.get("unresolved_items", []) if str(item).strip()) or "-",
+                )
+            )
     lines.extend(
         [
             "",

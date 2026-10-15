@@ -42,6 +42,8 @@ def classify_backend_test_targets(test_targets: list[str]) -> dict[str, list[str
         "contract": [],
         "scenario": [],
         "replay": [],
+        "integration": [],
+        "policy": [],
         "unit": [],
     }
     for raw_target in test_targets:
@@ -57,7 +59,11 @@ def classify_backend_test_targets(test_targets: list[str]) -> dict[str, list[str
             bucket = "scenario"
         elif lowered.startswith("tests/replays/") or ".replay.test." in lowered:
             bucket = "replay"
-        elif lowered.startswith("tests/unit/api/"):
+        elif lowered.startswith("tests/integration/"):
+            bucket = "integration"
+        elif lowered.startswith("tests/policies/"):
+            bucket = "policy"
+        elif lowered.startswith("tests/unit/") and not lowered.startswith("tests/unit/web/"):
             bucket = "unit"
         else:
             continue

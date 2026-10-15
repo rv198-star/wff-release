@@ -184,7 +184,7 @@ def failure_condition_signal_lines(error_code: str, payload_name: str = "payload
             '      roles: ["phase3_forbidden_role"],',
             "    };",
         ]
-    if "forbidden" in normalized:
+    if "forbidden" in normalized or "permission_denied" in normalized:
         return [
             f"    const existingAuthContext = {payload_name}.auth_context && typeof {payload_name}.auth_context === 'object'",
             f"      ? {payload_name}.auth_context as Record<string, unknown>",

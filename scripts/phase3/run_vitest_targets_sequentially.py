@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,16 @@ from typing import Any
 
 
 NON_FAILING_ASSERTION_STATUSES = {"passed", "skipped", "pending"}
+
+
+def _pnpm_command_prefix() -> list[str]:
+    pnpm = shutil.which("pnpm")
+    if pnpm:
+        return [pnpm]
+    corepack = shutil.which("corepack")
+    if corepack:
+        return [corepack, "pnpm"]
+    return ["pnpm"]
 
 
 def _suite_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -235,7 +246,7 @@ def run_vitest_targets_sequentially(
             sys.stderr.flush()
             target_report = tmp_root / f"target-{index:03d}.json"
             command = [
-                "pnpm",
+                *_pnpm_command_prefix(),
                 "exec",
                 "vitest",
                 "run",

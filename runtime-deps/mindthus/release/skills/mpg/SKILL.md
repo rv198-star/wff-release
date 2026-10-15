@@ -1,6 +1,6 @@
 ---
 name: mpg
-description: Use when a qualified mainline, strategic target, or convergence claim must be carried through nonlinear path volatility, counter-forces, carrier fragility, exposure limits, optionality, or trigger conditions before action.
+description: Use when a plausible mainline or strategic direction meets a concrete carrier/proxy, concentrated scarce-resource exposure, or continue/commit/hold/exit/switch decision under path volatility, costs, delays, fragility, or counter-forces; not for method-reference evidence review.
 ---
 
 # MPG / Mainline-Path Game
@@ -11,18 +11,38 @@ MPG / Mainline-Path Game（主线-路径博弈）处理的不是“主趋势是�
 
 > 看对主线，不等于穿过路径。
 
-SELA can identify a long-term direction. MPG qualifies that direction, stress-tests the
-path, and designs how an actor carries the mainline through volatility, resistance,
-carrier fragility, and timing pressure.
+SELA and MPG are sibling strategic lenses. Common order: SELA calibrates direction
+before MPG tests carrier/path; sequence, not hierarchy. SELA calibrates direction;
+MPG stress-tests how an actor crosses volatility, resistance, carrier fragility, and timing.
+
+### SELA ↔ MPG Twin-Lens Handshake
+
+MPG direct-load companion check: when a system-efficiency/trend-based mainline appears, run SELA support check before path strategy; must read `mindthus:sela`; Do not treat this as an internal memory-only check.
+
+Direct-load output obligation: do not wait for using-mindthus to carry this handoff.
+When MPG is loaded directly, the first visible sentence must be a plain-language thesis
+that separates long-term direction from current carrier/path in ordinary language.
+Default answer must not start with debug labels.
+Good first sentence: `长期保留内部模型能力是对的，但当前全栈自建平台这条路不该继续。`
+Internal labels (`direction`, `current carrier/path`, `qualified_mainline`,
+`carrier_vehicle`, etc.) are debug/audit support; hide unless asked. State whether the
+direction is supported, failed, or evidence-limited; then choose path posture.
+
+Use `SELA support + MPG dominate` when direction is plausible but carrier, exposure,
+vehicle, or commitment still decides action. MPG still owns the action posture.
+
+If the direction check fails, return to SELA or EDSP before path strategy. If variables
+visibly pull in different directions, include a short AQM visibility map or say why it
+is skipped.
 
 Primary deliverable:
 
 > Path-Carrying Strategy / 主线承载方案
 
-This is not a risk/opportunity score. It is an action-bearing plan for how the actor
-should hold, stage, hedge, switch vehicles, pause, or challenge the mainline claim.
+This is not a risk/opportunity score; it is an action-bearing plan: hold, stage, hedge,
+switch vehicle, pause, or challenge the mainline claim.
 
-Required output fields:
+Internal audit fields (hide by default):
 
 - `qualified_mainline`
 - `carrier_vehicle`
@@ -46,12 +66,16 @@ Use MPG only when all three conditions are present:
 3. A real actor must configure carrier, exposure, timing, optionality, authority, or
    vehicle before the mainline is realized.
 
-Good triggers:
+If the user is only asking whether a prior answer followed MPG or MPG-AQM rules, treat
+the method name as review scope and inspect the transcript/evidence directly. Do not
+load MPG as the current judgment owner for that evidence-review task.
 
-- “AI will work long-term, but can this actor survive multiple 70% drawdowns?”
-- “Housing is structurally pressured, but can this position survive policy rebounds?”
-- “The company must transform, but which carrier should cross the cashflow valley?”
-- “Central direction is clear, but local incentives may bend implementation.”
+Structural trigger:
+
+> mainline + proxy/carrier + concentrated exposure + now/continue/commit decision
+
+Use MPG when a long-term mainline meets scarce resource (`稀缺资源`) exposure on the
+purest carrier (`最纯载体`), proxy, or vehicle. This is not domain-specific.
 
 ### Human-Readable First / 先讲人话
 
@@ -63,13 +87,7 @@ Short rule:
 
 Do not expose MPG internal field names before the plain-language conclusion.
 
-Default output order:
-
-1. 一句话判断: state the conclusion in words a normal reader can repeat.
-2. 为什么: explain the path logic with concrete forces, not framework terms.
-3. 怎么办: say what posture, exposure, vehicle, or trigger should change.
-4. 校准字段: use `qualified_mainline`, `carrier_vehicle`, and other fields only if
-   they help audit the answer.
+Default order: 一句话判断;为什么;怎么办;校准字段 internal unless asked.
 
 The first paragraph should be 普通人能复述. If the answer starts with
 `qualified_mainline:` or a dense field table, rewrite it.
@@ -83,10 +101,8 @@ Short rule:
 
 > 结果不准不必然失败；信息不全时，触发条件比预测命中更重要。
 
-later outcome is not the score. Use later results to ask whether the original reasoning
-respected evidence limits, separated mainline from carrier, named path risks, and left
-usable triggers. A wrong prediction caused by genuinely missing information may still
-be a durable MPG run if the missing information was outside the slice.
+later outcome is not the score. Ask whether reasoning respected evidence limits,
+separated mainline from carrier, named path risks, and left usable triggers.
 
 In playback review: trigger conditions should explain when a later result changed the judgment.
 
@@ -100,17 +116,14 @@ Short rule:
 
 > 数字是假设，关系才是重点。
 
-MPG owns the judgment. AQM only makes variables visible. It can expose relative
-strength among mainline pull, path resistance, carrier fragility, information gaps, and
-trigger strength, but it must not score the final answer or calculate the decision.
+MPG owns the judgment. AQM only makes variables visible: mainline strength, path
+resistance, carrier fragility, information gap, trigger strength.
 
-Use it to clarify:
-
-- mainline strength
-- path resistance
-- carrier fragility
-- information gap
-- trigger strength
+Visible snapshot trigger: when the user says variables are many, asks for the dominant factor,
+or rejects generic balance / not generic balance, add a short visible AQM snapshot / 显影快照
+after the one-sentence thesis:
+`mainline strength / path resistance / carrier fragility / information gap /
+trigger strength -> stage/probe, not commit`.
 
 Boundary: do not calculate the decision. If the discussion starts defending exact
 digits, stop AQM and return to evidence boundaries or plain-language MPG reasoning.
@@ -127,56 +140,39 @@ accuracy, or outcome hit rate.
 
 ### Operating Flow
 
-1. Qualify the mainline. Turn a naked slogan into a constrained claim with actor,
-   horizon, condition, and failure meaning.
-2. Map counter-forces. Name the forces that can bend, delay, reverse, or tax the path.
-3. Separate mainline, carrier, and vehicle. A correct mainline can still kill the wrong
-   carrier or vehicle.
-4. Define the exposure budget. Decide how much loss, delay, volatility, authority cost,
-   liquidity cost, or trust damage the actor can carry.
-5. Design optionality. Preserve ways to continue the mainline without being locked into
-   one fragile path.
-6. Choose action posture. Pick `commit`, `stage`, `hedge`, `wait`, `switch vehicle`,
-   `probe`, `hold`, or `exit`.
-7. Set trigger conditions. Define what would increase commitment, reduce exposure,
-   switch vehicle, pause, or abandon the constrained mainline.
-8. State the mainline challenge. If the qualified mainline cannot cross the path under
-   realistic counter-forces, say so directly.
+Qualify mainline -> map counter-forces -> separate mainline/carrier/vehicle -> set
+exposure_budget -> design optionality -> choose action_posture -> set trigger_conditions
+-> state mainline_challenge.
 
 ## Guardrails / 从属补漏
 
 ### Do Not Collapse MPG Into SELA Timing Check
 
-Use SELA when the judgment is mainly long-term system efficiency versus local advantage.
-Use MPG when the long-term direction must be carried through path volatility.
+Use SELA for long-term system efficiency versus local advantage. Use MPG when direction
+must cross path volatility.
 
 Short relation:
 
-> SELA identifies direction; MPG carries it through path volatility.
+> Common order: SELA calibrates direction before MPG tests carrier/path; sequence, not hierarchy.
 
 ### Do Not Use MPG Without A Carrier
 
-Do not use MPG without a carrier. If there is no actor, vehicle, exposure, timing,
-authority, or path decision, the problem is probably a general explanation, SELA
-direction judgment, EDSP structure question, or simple fact-gathering task.
+Do not use MPG without a carrier. Without actor, vehicle, exposure, timing, authority,
+or path decision, use explanation, SELA, EDSP, or fact-gathering.
 
 ### Keep Evidence Honest
 
-MPG can use hypothetical numbers to expose relationships, but those numbers are not
-measurements. Use Evidence / Claim Ceiling when factual claims, probabilities, market
-data, policy interpretation, medical/legal/safety stakes, or financial advice require
-evidence.
+MPG can use hypothetical numbers, not measurements. Use Evidence / Claim Ceiling when
+facts, probabilities, markets, policy, medical/legal/safety, or financial advice require evidence.
 
 ### Counter-Forces Are Not Villains
 
-counter-forces are not bad by default. Local government incentives, cashflow pressure,
-legacy customer needs, regulatory friction, market drawdowns, or team resistance may
-carry real information. Treat them as path-shaping forces, not moral failures.
+counter-forces are not bad by default. Incentives, cashflow, legacy needs, regulation,
+drawdowns, or resistance can carry real information; treat them as path-shaping forces.
 
 ### Survival Alone Is Not Success
 
-survival alone is not success. A strategy that survives by abandoning the mainline,
-destroying the actor's core advantage, or locking out future upside has failed MPG.
+survival alone is not success. Surviving by abandoning mainline, core advantage, or future upside fails MPG.
 
 ## Boundaries / 边界
 
@@ -185,14 +181,12 @@ destroying the actor's core advantage, or locking out future upside has failed M
 - If the missing input is facts, domain research, runtime proof, stakeholder judgment,
   or fresh market/legal/medical evidence, gather evidence first.
 - If the task is just a bounded artifact that looks thin, use TVG.
-- If a Mission needs durable task state and decision hooks, use tplan to carry runtime
-  state and route the judgment to MPG only when the active object fits.
+- If a Mission needs durable task state and decision hooks, use tplan; route to MPG only when active object fits.
 - Do not use MPG as a generic risk matrix, opportunity list, or narrative essay.
 
 ## Runtime Support / 支撑材料
 
-- `resources/methodology.md` — full MPG methodology, output contract, boundaries, and
-  mixed cases.
+- `resources/methodology.md` — full MPG methodology, contract, boundaries, mixed cases.
 - `resources/fidelity-contract.md` — MPG fidelity contract for v0.9.
 - `templates/fidelity-output.json` — structured audit artifact template.
 - `scripts/validate_mpg_output.py` — MPG shape and evidence-risk validator.

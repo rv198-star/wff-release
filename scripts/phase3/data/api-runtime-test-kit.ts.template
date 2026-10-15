@@ -1,0 +1,237 @@
+__IMPORT_LINES__
+
+__OPERATION_HANDLER_BLOCK__
+type RuntimeContext = Record<string, unknown>;
+
+function deepClone<T>(value: T): T {
+  if (value === undefined) {
+    return value;
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function snakeCase(value: string): string {
+  return value.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+}
+
+function isTrackedContextField(key: string): boolean {
+  return key.endsWith("_id") || key.endsWith("Id") || key === "state" || key === "status" || key === "row_version" || key === "version" || key.endsWith("_version") || key.endsWith("Version") || key === "uncertainty_level" || key === "uncertaintyLevel";
+}
+
+function stripIdSuffix(value: string): string {
+  if (value.endsWith("_id")) {
+    return value.slice(0, -3);
+  }
+  if (value.endsWith("Id")) {
+    return value.slice(0, -2);
+  }
+  return value;
+}
+
+function tokenParts(value: string): string[] {
+  return value.split("_").filter(Boolean);
+}
+
+function scoreContextKey(requestedKey: string, candidateKey: string): number {
+  if (candidateKey === requestedKey) {
+    return 100;
+  }
+  const requestedCore = stripIdSuffix(requestedKey);
+  const candidateCore = stripIdSuffix(candidateKey);
+  if (candidateCore === requestedCore) {
+    return 90;
+  }
+  if (candidateCore.endsWith(requestedCore) || requestedCore.endsWith(candidateCore)) {
+    return 80;
+  }
+  const requestedTokens = tokenParts(requestedCore);
+  const candidateTokens = tokenParts(candidateCore);
+  const overlap = requestedTokens.filter((token) => candidateTokens.includes(token)).length;
+  return overlap > 0 ? overlap * 10 : -1;
+}
+
+function resolveContextKey(key: string, context: RuntimeContext): string {
+  const requested = snakeCase(key);
+  let bestKey = "";
+  let bestScore = -1;
+  for (const candidate of Object.keys(context)) {
+    const score = scoreContextKey(requested, snakeCase(candidate));
+    if (score > bestScore) {
+      bestKey = candidate;
+      bestScore = score;
+    }
+  }
+  return bestKey;
+}
+
+function hasMeaningfulValue(value: unknown): boolean {
+  if (value === undefined || value === null) {
+    return false;
+  }
+  if (typeof value === "string") {
+    return value.trim().length > 0;
+  }
+  return true;
+}
+
+function shouldPreserveExplicitField(key: string, value: unknown): boolean {
+  const normalized = snakeCase(key);
+  return hasMeaningfulValue(value) && (normalized === "status" || normalized === "state" || normalized.endsWith("_id") || normalized === "version" || normalized === "expected_version");
+}
+
+function withPersistenceDisabled<T>(run: () => T): T {
+  const databaseUrl = process.env.DATABASE_URL;
+  const postgresHostPort = process.env.POSTGRES_HOST_PORT;
+  delete process.env.DATABASE_URL;
+  delete process.env.POSTGRES_HOST_PORT;
+  try {
+    return run();
+  } finally {
+    if (databaseUrl === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = databaseUrl;
+    }
+    if (postgresHostPort === undefined) {
+      delete process.env.POSTGRES_HOST_PORT;
+    } else {
+      process.env.POSTGRES_HOST_PORT = postgresHostPort;
+    }
+  }
+}
+
+async function withPersistenceDisabledAsync<T>(run: () => Promise<T>): Promise<T> {
+  const databaseUrl = process.env.DATABASE_URL;
+  const postgresHostPort = process.env.POSTGRES_HOST_PORT;
+  delete process.env.DATABASE_URL;
+  delete process.env.POSTGRES_HOST_PORT;
+  try {
+    return await run();
+  } finally {
+    if (databaseUrl === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = databaseUrl;
+    }
+    if (postgresHostPort === undefined) {
+      delete process.env.POSTGRES_HOST_PORT;
+    } else {
+      process.env.POSTGRES_HOST_PORT = postgresHostPort;
+    }
+  }
+}
+
+export {
+  buildFailurePayload,
+  buildOperationPayload,
+  countGeneratedRecords,
+  getAuditRecords,
+};
+
+export function resetGeneratedRuntime(): void {
+  withPersistenceDisabled(() => {
+    resetGeneratedRuntimeSupport();
+  });
+}
+
+
+export async function invokeOperation(operationId: string, payload: unknown): Promise<unknown> {
+  return withPersistenceDisabledAsync(async () => {
+    const handler = operationHandlers[operationId];
+    if (handler) {
+      return handler(payload);
+    }
+    return invokeGeneratedOperation(operationId, payload);
+  });
+}
+
+export function extractEnvelopeData<T = unknown>(result: unknown): T {
+  if (!isRecord(result) || !("data" in result)) {
+    throw new Error("Expected envelope with data");
+  }
+  return result.data as T;
+}
+
+export function applyRuntimeContext(payload: unknown, context: RuntimeContext): Record<string, unknown> {
+  const next = isRecord(payload) ? deepClone(payload) : {};
+  for (const key of Object.keys(next)) {
+    if (key === "path_params" || key === "auth_context") {
+      continue;
+    }
+    if (!isTrackedContextField(key)) {
+      continue;
+    }
+    if (shouldPreserveExplicitField(key, next[key])) {
+      continue;
+    }
+    const match = resolveContextKey(key, context);
+    if (match) {
+      next[key] = context[match];
+    }
+  }
+  if (isRecord(next.path_params)) {
+    const pathParams = next.path_params;
+    for (const key of Object.keys(pathParams)) {
+      if (!isTrackedContextField(key)) {
+        continue;
+      }
+      const match = resolveContextKey(key, context);
+      if (match) {
+        pathParams[key] = context[match];
+      }
+    }
+    next.path_params = pathParams;
+  }
+  if (isRecord(next.auth_context)) {
+    const authContext = next.auth_context;
+    const tenantMatch = resolveContextKey("tenant_id", context);
+    if (tenantMatch) {
+      authContext.tenant_id = context[tenantMatch];
+    }
+    next.auth_context = authContext;
+  }
+  return next;
+}
+
+export function absorbEnvelopeContext(result: unknown, context: RuntimeContext): RuntimeContext {
+  const data = extractEnvelopeData<unknown>(result);
+  const source = Array.isArray(data) ? data.find((item) => isRecord(item)) : data;
+  if (!isRecord(source)) {
+    return context;
+  }
+  for (const [key, value] of Object.entries(source)) {
+    if (isTrackedContextField(key)) {
+      context[key] = value;
+    }
+  }
+  return context;
+}
+
+export function getRecord(recordKey: string, id: string): Record<string, unknown> | undefined {
+  return getGeneratedRecord(recordKey, id);
+}
+
+export function listRecords(recordKey: string): Record<string, unknown>[] {
+  return listGeneratedRecords(recordKey);
+}
+
+export function latestAuditRecord(): Record<string, unknown> | undefined {
+  const records = getAuditRecords();
+  return records.length > 0 ? (records.at(-1) as Record<string, unknown>) : undefined;
+}
+
+export async function captureApiError(action: Promise<unknown>): Promise<ApiError> {
+  try {
+    await action;
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return error;
+    }
+    throw error;
+  }
+  throw new Error("Expected ApiError");
+}

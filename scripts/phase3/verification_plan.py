@@ -15,7 +15,7 @@ from phase3.validation_levels import build_validation_profile, normalize_validat
 
 BACKEND_TARGETED_VITEST_BATCH_SIZE = 16
 TARGETED_TEST_CATEGORIES_BY_LANE = {
-    "backend": ("sql", "contract", "scenario", "replay"),
+    "backend": ("sql", "contract", "scenario", "replay", "integration", "policy"),
     "frontend": ("contract", "scenario", "replay"),
 }
 MUTATING_CONTRACT_TOKENS = (
@@ -57,7 +57,7 @@ def backend_targeted_vitest_batch_size() -> int:
 
 def primary_test_categories(lane: str) -> list[str]:
     if lane == "backend":
-        return ["sql", "contract", "scenario", "replay", "unit"]
+        return ["sql", "contract", "scenario", "replay", "integration", "policy", "unit"]
     if lane == "frontend":
         return ["scenario", "replay", "unit"]
     return ["contract", "scenario", "replay", "unit"]
@@ -288,8 +288,8 @@ def build_verification_commands(
                     if full_targeted_evidence or not (lane_key == "backend" and targeted_tests)
                     else "deferred-by-fast-mode"
                 ),
-                "claim": "complete generated SQL, contract, scenario, and replay evidence",
+                "claim": "complete generated SQL, contract, scenario, replay, integration, and policy evidence",
             },
         },
-        "note": "Frozen interface tests remain primary. Backend strict-runtime runs full-targeted-tests by default; fast/focused validation levels use critical-targeted-tests and require explicit strict full validation before delivery-ready or release-proof claims. All Vitest steps must emit real JSON reports.",
+        "note": "Frozen interface tests remain primary. Backend strict-runtime runs all declared backend SQL/contract/scenario/replay/integration/policy targets plus unit targets by default; fast/focused validation levels use critical targeted sampling and require explicit strict full validation before delivery-ready or release-proof claims. All Vitest steps must emit real JSON reports.",
     }

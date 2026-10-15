@@ -166,6 +166,24 @@ def load_phase2_authority(output_dir: Path) -> dict[str, Any]:
     return {}
 
 
+def _text_affirms_audit(value: str) -> bool:
+    normalized = re.sub(r"[_-]+", " ", value.casefold())
+    for clause in re.split(r"[.;,\n]+", normalized):
+        if not re.search(r"\baudit(?:able|ed|ing)?\b", clause):
+            continue
+        if any(
+            re.search(pattern, clause)
+            for pattern in (
+                r"\bno\b[^.;,\n]{0,40}\baudit(?:able|ed|ing)?\b",
+                r"\bnot\b[^.;,\n]{0,40}\baudit(?:able|ed|ing)?\b",
+                r"\bwithout\b[^.;,\n]{0,40}\baudit(?:able|ed|ing)?\b",
+            )
+        ):
+            continue
+        return True
+    return False
+
+
 def _row_mentions_audit(value: Any) -> bool:
     if isinstance(value, dict):
         return any(_row_mentions_audit(item) for item in value.values())
@@ -173,8 +191,33 @@ def _row_mentions_audit(value: Any) -> bool:
         return any(_row_mentions_audit(item) for item in value)
     if not isinstance(value, str):
         return False
-    normalized = re.sub(r"[_-]+", " ", value.casefold())
-    return bool(re.search(r"\baudit(?:able|ed|ing)?\b", normalized))
+    return _text_affirms_audit(value)
+
+
+def accepted_audit_operation_test_tokens(authority: dict[str, Any]) -> list[str]:
+    """Return operation-derived test tokens only for explicit audit-evidence authority rows.
+
+    Some accepted P2 designs express audit evidence as a replay/correction carrier tied
+    to an existing operation rather than as a standalone audit product surface. In
+    that case the exact operation's executable tests are the authoritative audit
+    verification surface. Rows without an operation_id still require audit-named
+    tests and are not relaxed by this helper.
+    """
+    tokens: list[str] = []
+    rows = authority.get("data_and_interaction_decisions", []) if isinstance(authority, dict) else []
+    if not isinstance(rows, list):
+        return tokens
+    for row in rows:
+        if not isinstance(row, dict) or not _row_mentions_audit(row):
+            continue
+        operation_id = str(row.get("operation_id") or "").strip()
+        if not operation_id:
+            continue
+        kebab = re.sub(r"(?<!^)(?=[A-Z])", "-", operation_id).lower()
+        for token in (operation_id.casefold(), kebab):
+            if token and token not in tokens:
+                tokens.append(token)
+    return tokens
 
 
 def accepted_audit_authority_refs(authority: dict[str, Any]) -> list[str]:
@@ -289,12 +332,13 @@ def analyze_phase3_security(
     env_example_path = output_dir / ".env.example"
     errors_path = output_dir / "apps" / "api" / "src" / "common" / "errors.ts"
     tenant_tests = matching_test_paths(output_dir, ("tenant", "cross-tenant"))
-    audit_tests = matching_test_paths(output_dir, ("audit", "audit-log"))
     auth_sources = matching_source_paths(output_dir, ("auth", "oidc", "session", "rbac"))
     errors_text = read_text_if_exists(errors_path)
     engineering_spec_text = load_phase2_engineering_spec(output_dir)
     phase2_authority = load_phase2_authority(output_dir)
     accepted_audit_refs = accepted_audit_authority_refs(phase2_authority)
+    audit_operation_tokens = accepted_audit_operation_test_tokens(phase2_authority)
+    audit_tests = matching_test_paths(output_dir, ("audit", "audit-log", *audit_operation_tokens))
     declared_auth = declared_auth_posture(
         tech_stack_text=tech_stack_text,
         engineering_spec_text=engineering_spec_text,
@@ -427,6 +471,7 @@ def analyze_phase3_security(
         "evidence": {
             "tenant_tests": tenant_tests,
             "accepted_audit_authority_refs": accepted_audit_refs,
+            "accepted_audit_operation_test_tokens": audit_operation_tokens,
             "audit_tests": audit_tests,
             "auth_sources": auth_sources,
             "declared_auth": declared_auth,

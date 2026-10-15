@@ -47,10 +47,16 @@ Required artifacts:
 - `stage-02-evidence-execution-and-defect-identification/review-bound-record.json`
 - `stage-02-evidence-execution-and-defect-identification/external-evidence-consumption.json`
 - `stage-02-evidence-execution-and-defect-identification/frontend-surface-audit.json`
+- `stage-02-evidence-execution-and-defect-identification/open-ended-maturity-review-request.json`
+- `stage-02-evidence-execution-and-defect-identification/open-ended-maturity-learning-candidates.json`
+- `stage-02-evidence-execution-and-defect-identification/ui-product-review-request.json`
+- `stage-02-evidence-execution-and-defect-identification/review-synthesis-gate.json`
 - `stage-02-evidence-execution-and-defect-identification/critical-path-signoff-record.json`
 - `stage-02-evidence-execution-and-defect-identification/stage-02-summary.json`
 
 ## Stage-03 Artifacts
+
+Stage-02 frontend AI Review uses `OMR -> SQR -> RSG`: OMR is dimension-free discovery first, SQR is fixed-dimension qualification second, and RSG records only the combined verdict. OMR/SQR scores remain separate and must never be averaged. Validated OMR findings are also retained in `open-ended-maturity-learning-candidates.json` as **non-authoritative learning candidates**; this record does not affect the current OMR/SQR verdict and performs no automatic generalization. Repeated cross-scenario/version patterns may later be promoted into SQR regression dimensions only through an explicit Agentic/governance decision, while OMR remains mandatory as the unknown-unknown discovery layer.
 
 Stage-03 converts Stage-02 evidence into a testing-validation closure judgment and downstream reliance boundary.
 

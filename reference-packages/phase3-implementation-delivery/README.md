@@ -36,11 +36,18 @@ Strict runtime aggregate:
 
 - clean `full-lifecycle` / `full-pack` profiles use `scripts/phase3/run_impl.py --mainline-verification-mode strict-runtime` for current S3 materialization, toolchain/runtime evidence, PostgreSQL preflight where required, Trace refresh, exact binding, and delivery closure;
 - unresolved Agentic regions stop at `authoring-required`; a same-decision authored root may be supplied on rerun;
-- only passed retained test evidence may confirm Trace, and current Authority Delta evidence may refine P3-local persistence/runtime precision without mutating P1/P2.
+- only passed retained test evidence may confirm Trace, and current Authority Delta evidence may refine P3-local persistence/runtime precision without mutating P1/P2;
+- every P3 decision also maintains the fixed human/project knowledge artifact `<project-artifact-root>/p3-realization-decisions.md`, bound to the machine Authority Delta through `.phase3-evidence/p3-realization-decisions-binding.json`; see `p3-realization-decisions-contract.md`. The file exists even when no material delta is recorded, and it never rewrites PRD/ESP.
 
 Compatibility entry:
 
 - legacy first-version/foundation runners remain source-tree or maintainer-only compatibility surfaces; clean full-lifecycle/full-pack P3 closure does not depend on them. Narrower implementation profiles may omit release/assurance sidecars and therefore block explicit strict-runtime closure rather than silently falling back.
+
+### Project-level realization knowledge
+
+P3 realization may discover stable product, architecture, UX, or implementation knowledge that P1/P2 intentionally did not freeze. The canonical machine record remains `.phase3-evidence/p3-authority-delta-ledger.json`; the fixed human-readable project supplement is `p3-realization-decisions.md` at the project artifact root. P4 and later P3/change flows may read it by fixed name, while EKRI may ingest it only as `P3-realization` project knowledge with `upstream_reconciled=false`.
+
+The detailed contract is [`p3-realization-decisions-contract.md`](p3-realization-decisions-contract.md).
 
 ## 3. Control boundary
 

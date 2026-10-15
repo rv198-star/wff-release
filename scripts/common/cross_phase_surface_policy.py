@@ -75,6 +75,7 @@ PROFILED_CROSS_PHASE_SURFACES: dict[str, dict[str, str]] = {
         "cross-stage-consistency.json": ".phase2-evidence/cross-stage-consistency.json",
         "p2-agentic-architecture-decision.json": ".phase2-evidence/p2-agentic-architecture-decision.json",
         "operation-source-obligation-matrix.json": ".phase2-evidence/operation-source-obligation-matrix.json",
+        "terminal-role-access-matrix.json": ".phase2-evidence/terminal-role-access-matrix.json",
         "operation-design-source-registry.json": ".phase2-evidence/operation-design-source-registry.json",
         "operation-behavior-semantics.json": ".phase2-evidence/operation-behavior-semantics.json",
         "p1-value-to-p2-operation-resolution-matrix.json": (

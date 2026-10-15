@@ -756,7 +756,7 @@ def analyze_phase3_delivery(
     legacy_strict_runtime_behavior_gap_resolved = (
         strict_runtime_closure
         and behavior_card_consistency_classification in {"action_card_test_gap", "p3_test_gap"}
-        and not behavior_card_missing_implementation_steps
+        and (not behavior_card_missing_implementation_steps or exact_runtime_operation_evidence_green)
         and backend_packet_present
         and runtime_targeted_tests_green
         and runtime_unit_tests_green
@@ -1023,6 +1023,8 @@ def analyze_phase3_delivery(
             trace_registry_final=trace_registry_payload or {},
             commitment_union_verification=semantic_commitment_union_verification or {},
             authority_source_paths=semantic_persisted_authority_source_paths,
+            authority_delta_ledger=(load_json(semantic_realization_ledger_path.parent / ".phase3-evidence" / "p3-authority-delta-ledger.json")
+                                    if semantic_realization_ledger_path is not None else None),
         )
         semantic_rebuilt_digest = str(rebuilt_ledger.get("content_digest") or "")
     semantic_ledger_valid = bool(

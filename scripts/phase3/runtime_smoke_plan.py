@@ -82,6 +82,10 @@ def normalize_runtime_smoke_service_url(service_url: str | None) -> str:
     return value
 
 
+def runtime_smoke_web_url(web_host_port: int) -> str:
+    return f"http://127.0.0.1:{int(web_host_port)}"
+
+
 def runtime_smoke_service_url(service_url: str, api_host_port: int) -> str:
     parsed = urlparse(normalize_runtime_smoke_service_url(service_url))
     scheme = parsed.scheme or "http"
@@ -169,6 +173,7 @@ def build_runtime_smoke_plan(
         "requested_service_url_input": requested_service_url_input,
         "requested_service_url": requested_service_url,
         "service_url": effective_service_url,
+        "web_url": runtime_smoke_web_url(selected_host_ports["WEB_HOST_PORT"]),
         "selected_host_ports": selected_host_ports,
         "runtime_env": runtime_env,
     }

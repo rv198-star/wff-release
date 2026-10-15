@@ -92,6 +92,10 @@
    - `route` is the authority field; `route_pattern` is a compatibility mirror for existing downstream parsers.
    - if `bound_use_case_ids` cannot be explicitly recovered from upstream evidence, the page must not silently stay `ready`
    - Missing values must be written as `TBD`; top-level pages use `—` for `parent_page`.
+   - Build `terminal_role_contracts` from accepted `p1-agentic-product-authority.json` ownership assignments when available. Preserve each role's exact commitment ids, authority basis/claim ceiling, and responsibility-linked business objects. Treat those objects as P1 responsibility context, not a complete data-visibility ACL; exact role-visible data remains a P2 terminal-access decision.
+   - Use the frozen Surface Matrix only to add route/entry/action realization hints for a role when the page role agrees with machine authority. A conflicting page actor stays review-bound; it must not override P1 machine ownership.
+   - The role projection is authority preservation, not permission invention. Do not merge several accepted roles into one convenience persona and do not widen role-visible data from page adjacency or workflow sequence.
+   - A super-role/admin account may be a later implementation utility but must never substitute for independent least-privilege qualification of every accepted terminal role.
 4. Define the main flow and route graph.
    - Make the first-wave workflow walkable from start to finish.
    - Include at least one important alternate / exception path when it materially affects prototype review.
@@ -151,6 +155,7 @@
   - required columns `page_id`, `page_name`, and `page_blueprint_type` are present
   - missing values are explicit `TBD` values, never blank cells
   - any page with inferred or missing use-case binding is marked `review-bound` or `blocked` with an explicit `blocked_reason`
+  - `terminal_role_contracts` contains exactly the accepted machine-authority role set when available; each role keeps commitment/basis/ceiling/responsibility-object authority, while route/entry/action realization is either aligned or explicitly review-bound, exact visible-data authority is deferred to P2, and no super-role substitution erases role distinctions
 - Checkpoint 3:
   - each page has a goal, core blocks, and core actions
   - `page_goal` is not a restatement of `entry_condition`

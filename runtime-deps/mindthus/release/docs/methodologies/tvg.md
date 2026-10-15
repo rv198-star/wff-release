@@ -86,7 +86,22 @@ TVG 可以接受 `value_profile`，也就是价值定义包。它的作用不是
 profile。比如影视提示词、品牌文案、法律审查、教学材料、投资备忘录，都可能需要
 不同的优劣定义。
 
-Profile 对用户仍然是一个入口，但内部可以分层：
+Profile 对用户仍然是一个入口，但内部可以分层。
+
+### TVG-Profile 是什么
+
+如果把 TVG 理解成一个定向强化 loop，那么 TVG-Profile 就是这次 loop 的“好标准说明书”。
+它不是为了把 prompt 写复杂，也不是给用户平白多加一套配置，而是先把这次到底要靠近哪种“好”说清楚。
+
+默认 practical-value profile 已经够大多数任务使用。只有当你发现默认标准开始不够用，比如审美目标很强、
+领域边界很强、下游检查单位很特殊，或者结果总靠运行时临场救场时，才值得把 Profile 显式写出来。
+
+我们把这部分放进 TVG 详细介绍页，不是为了再多造一个概念，而是想把 TVG-Profile 讲成一个可用产品能力：
+什么时候值得上、能细到什么程度、什么时候只用轻量层，什么时候该做完整高级包。
+
+### Profile 的分层
+
+Profile 最低可以只有一层，也可以做成完整高级包。更实用的理解是：
 
 - `value_semantics`：必需的最小层。说明什么算高价值、什么算伪增益、优先级、
   证据基础和 profile-specific veto constraints。
@@ -95,10 +110,14 @@ Profile 对用户仍然是一个入口，但内部可以分层：
   的 decision fork / trigger。
 - `gain_policy`：可选高级层。说明哪些深化动作更可能产生真实 value gain，哪些动作
   看似努力但只是低价值增厚。它不是评分器，也不是 RL reward model。
+- `runtime_support`：高级包常见的第四层。说明有哪些脚本、模板、lint、资源包或
+  记录器能提供确定性支撑，但它们不能替 TVG 做语义判断，也不能决定 exit。
 
 允许一个 profile 只有 `value_semantics`。缺少 `realization_surface` 时，TVG 用模块类型
 和下游用途判断价值显现面；缺少 `gain_policy` 时，TVG 回到默认增益动作：证据绑定、
-替代方案和取舍、失败路径、claim ceiling、交接可用性和价值密度。
+替代方案和取舍、失败路径、claim ceiling、交接可用性和价值密度。前三层回答的是
+“什么算好、好要落在哪里、通常怎么加深”；第四层回答的是“有哪些确定性支撑物能帮忙，
+但它们不能替你下结论”。
 
 构建 profile 时要区分两个测试：
 
@@ -185,19 +204,46 @@ Profile 不能覆盖事实边界。profiles cannot override evidence honesty, cl
 
 特别注意：不要从待改造样例反推风格规则。如果待升级对象本身可能就是错误、粗糙或跑偏的样例，它只能用来测试 profile，不能作为 profile 的来源。
 
-当前随包提供三类 profile 资源：
+当前随包提供五类 profile 资源：
 
-- `default-practical-value`：普通任务默认使用的通用实用价值锚点。
-- `shaw-brothers-wuxia-fantasy`：邵氏清水湾棚拍时代武侠 / 神怪影视提示词示范 profile。
-- `king-hu-wuxia-cinema`：胡金铨武侠电影影视提示词示范 profile。
+- [`default-practical-value`](../../skills/tvg/resources/value-profiles/default-practical-value.md)：普通任务默认使用的通用实用价值锚点。
+- [`plain-sharp-skill-intro`](../../skills/tvg/resources/value-profiles/plain-sharp-skill-intro.md)：轻量入口说明案例，展示不用脚本也能把“说清楚”约束得很细。
+- [`shaw-brothers-wuxia-fantasy`](../../skills/tvg/resources/value-profiles/shaw-brothers-wuxia-fantasy.md)：邵氏清水湾棚拍时代武侠 / 神怪影视提示词示范 profile。
+- [`king-hu-wuxia-cinema`](../../skills/tvg/resources/value-profiles/king-hu-wuxia-cinema.md)：胡金铨武侠电影影视提示词示范 profile。
+- [`cinematic-visual-direction`](../../skills/tvg/resources/value-profiles/cinematic-visual-direction/profile.md)：把外部 cinematic skill 当行为样本拆成通用影视导演四层包；巨物压力作为可选 scene adapter。
 
-后两个是示范 profile，不是电影史分类结论，也不是对图像模型的稳定风格保证。它们展示的是
+如果要写、改或评审自己的 TVG-Profile，先看
+[`TVG Value Profile Construction Guide`](../../skills/tvg/resources/value-profiles/profile-construction.md)。
+它比本文更偏操作：最小 profile 结构、`value_semantics / realization_surface / gain_policy`
+三层怎么取舍、single-pass profile power test 和 loop-assisted production test 如何分开记录，
+都放在那里。
+
+其中公开案例重点看三组：
+
+- [轻量 Profile 案例：`plain-sharp-skill-intro`](tvg-profile-cases/plain-sharp-skill-intro.md)
+- [风格型影视 Profile 案例：`shaw-brothers-wuxia-fantasy` + `king-hu-wuxia-cinema`](tvg-profile-cases/film-style-profiles.md)
+- [四层高级包案例：`cinematic-visual-direction`](tvg-profile-cases/cinematic-visual-direction.md)
+
+前两个影视 profile 是示范 profile，不是电影史分类结论，也不是对图像模型的稳定风格保证。它们展示的是
 三层 profile 怎么发挥作用：`value_semantics` 说明什么算好，`realization_surface` 说明价值要落在
 shot / panel / source-attribution 这类可检查单位上，`gain_policy` 说明 TVG 扩写剧本时应该优先
 增加哪些镜头行为、空间关系、节奏结构和自审问题。
 
+`cinematic-visual-direction` 进一步展示四层完整包怎么工作：前三层定义通用影视画面的导演价值，第四层用
+runtime_support 提供脚本、资源、atlas lineage 和 lint。巨物尺度、局部威胁与环境压迫由
+`colossal-pressure` adapter 追加，不再被误写成所有影视画面的默认规则。脚本仍然不能决定美学成功、
+profile 成熟度或 TVG 退出。
+
 示范 profile 的证据上限要说清楚：prompt 或图像 smoke 通过，只能支持“这个 profile 对这类输出有
 可用约束力”；不能证明某个导演风格已经被完整定义，也不能证明任何图像模型都会稳定生成对应风格。
+
+### 案例索引
+
+如果你想把 TVG-Profile 当成一个高级用法来学，最顺的阅读顺序通常是：
+
+1. [轻量 Profile：把技能介绍写得更短、更准、更像入口](tvg-profile-cases/plain-sharp-skill-intro.md)
+2. [风格型 Profile：不靠脚本，也能把“导演感”拆成可审查单位](tvg-profile-cases/film-style-profiles.md)
+3. [四层高级包：把外部 skill 迁成 TVG-Profile，而不是复制它](tvg-profile-cases/cinematic-visual-direction.md)
 
 ## 输出档位
 
@@ -262,3 +308,6 @@ TVG 也不应该成为反螺旋的借口。如果同一段内容已经被第三�
 
 - 返回 [README](../../README.md)
 - 查看 [TVG skill](../../skills/tvg/SKILL.md)
+- 查看 [TVG-Profile 轻量案例](tvg-profile-cases/plain-sharp-skill-intro.md)
+- 查看 [TVG-Profile 风格型案例](tvg-profile-cases/film-style-profiles.md)
+- 查看 [TVG-Profile 四层高级案例](tvg-profile-cases/cinematic-visual-direction.md)

@@ -146,6 +146,8 @@ def _requires_duplicate_submit_contract(
     idempotency_rule: str = "",
 ) -> bool:
     normalized_rule = str(idempotency_rule).strip().lower().replace("-", "_")
+    if "new_write_per_request" in normalized_rule:
+        return False
     has_duplicate_or_idempotency_rule = any(str(failure.get("status", "")).startswith("409") for failure in failure_cases)
     if normalized_rule and normalized_rule not in {"none", "not_applicable", "not applicable", "read_only", "read-only", "n/a"}:
         has_duplicate_or_idempotency_rule = any(
